@@ -42,6 +42,16 @@ jobs:
       - name: Install npm dependencies
         run: npm ci
 
+      # Tauri's `generate_context!()` proc-macro reads `frontendDist` from
+      # tauri.conf.json (= "../dist") at COMPILE TIME and panics if the path
+      # doesn't exist. cargo clippy / build / test all trigger the macro, so
+      # the frontend bundle must be built before any cargo step that links
+      # the rift binary crate. Locally `tauri dev` invokes
+      # `beforeDevCommand: "npm run dev"` for live serving, but CI doesn't
+      # spawn the dev binary — we just need a static dist/ on disk.
+      - name: Build frontend (produces dist/ for tauri::generate_context!)
+        run: npm run build
+
       - name: cargo fmt --check
         run: cargo fmt --all --check
 
