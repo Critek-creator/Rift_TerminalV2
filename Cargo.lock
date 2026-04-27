@@ -3062,6 +3062,7 @@ dependencies = [
 name = "rift"
 version = "0.1.0"
 dependencies = [
+ "directories",
  "dunce",
  "globset",
  "rift-aegis",
