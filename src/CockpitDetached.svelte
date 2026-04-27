@@ -1,0 +1,297 @@
+<script lang="ts">
+  // CockpitDetached.svelte — Phase 6.4
+  //
+  // Whole-app for the detached cockpit window. Renders a local titlebar with
+  // a DOCK button + close, the FILE TREE pane header, and the Tree component.
+  //
+  // Position persistence (design C): on mount, reads `rift.cockpit.detached_pos`
+  // from localStorage and immediately repositions the window. On every
+  // move/resize event, saves the current outer position + size. The Rust side
+  // always creates the window at default 480×800; this script overrides
+  // immediately after mount so the window lands on the last-used monitor.
+  //
+  // Reattach paths (design D): DOCK button invokes `cockpit_reattach` which
+  // calls `.destroy()` on this window, which fires WindowEvent::Destroyed on
+  // the Rust side, which emits `cockpit_reattached` to main. The × button
+  // calls `.close()` — same Destroyed path. Neither button needs to emit
+  // the event itself.
+
+  import { onMount } from 'svelte';
+  import { invoke } from '@tauri-apps/api/core';
+  import { getCurrentWindow, PhysicalPosition, PhysicalSize } from '@tauri-apps/api/window';
+  import Tree from './lib/Tree.svelte';
+
+  const appWindow = getCurrentWindow();
+
+  const POS_KEY = 'rift.cockpit.detached_pos';
+
+  interface SavedPos {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  }
+
+  // Cockpit pane header data — Tree pushes these up via $bindable props.
+  let nodeCount = $state(0);
+  let watchedPathLabel = $state('…');
+
+  // ---- position persistence ----
+
+  function savePosition(x: number, y: number, width: number, height: number): void {
+    try {
+      localStorage.setItem(POS_KEY, JSON.stringify({ x, y, width, height }));
+    } catch (err) {
+      // Quota or private-browsing restriction — non-fatal, just log.
+      console.warn('[CockpitDetached] localStorage write failed:', err);
+    }
+  }
+
+  async function restoreSavedPosition(): Promise<void> {
+    let raw: string | null = null;
+    try {
+      raw = localStorage.getItem(POS_KEY);
+    } catch (err) {
+      console.warn('[CockpitDetached] localStorage read failed:', err);
+      return;
+    }
+    if (!raw) return;
+
+    let pos: SavedPos;
+    try {
+      pos = JSON.parse(raw) as SavedPos;
+    } catch (err) {
+      console.warn('[CockpitDetached] localStorage parse failed, discarding:', err);
+      try { localStorage.removeItem(POS_KEY); } catch { /* ignore */ }
+      return;
+    }
+
+    // Validate the parsed shape before touching the window.
+    if (
+      typeof pos.x !== 'number' ||
+      typeof pos.y !== 'number' ||
+      typeof pos.width !== 'number' ||
+      typeof pos.height !== 'number'
+    ) {
+      console.warn('[CockpitDetached] saved position has unexpected shape, discarding');
+      try { localStorage.removeItem(POS_KEY); } catch { /* ignore */ }
+      return;
+    }
+
+    try {
+      await appWindow.setPosition(new PhysicalPosition(pos.x, pos.y));
+      await appWindow.setSize(new PhysicalSize(pos.width, pos.height));
+    } catch (err) {
+      // If the monitor is gone the call may fail — non-fatal, OS will place it.
+      console.warn('[CockpitDetached] failed to restore window position:', err);
+    }
+  }
+
+  async function startPositionTracking(): Promise<void> {
+    // Save current position immediately so a crash before a move still records something.
+    try {
+      const [pos, size] = await Promise.all([
+        appWindow.outerPosition(),
+        appWindow.outerSize(),
+      ]);
+      savePosition(pos.x, pos.y, size.width, size.height);
+    } catch { /* non-fatal */ }
+
+    // Listen for move + resize — both fire position changes.
+    appWindow.onMoved(({ payload: pos }) => {
+      appWindow.outerSize().then((size) => {
+        savePosition(pos.x, pos.y, size.width, size.height);
+      }).catch(() => { /* non-fatal */ });
+    });
+
+    appWindow.onResized(({ payload: size }) => {
+      appWindow.outerPosition().then((pos) => {
+        savePosition(pos.x, pos.y, size.width, size.height);
+      }).catch(() => { /* non-fatal */ });
+    });
+  }
+
+  onMount(() => {
+    // Restore saved position FIRST so it happens before the user sees the window settle.
+    restoreSavedPosition().then(() => {
+      startPositionTracking();
+    }).catch(() => {
+      // restoreSavedPosition already catches internally; this outer catch is belt-and-suspenders.
+      startPositionTracking();
+    });
+  });
+
+  // ---- window controls ----
+
+  async function dock(): Promise<void> {
+    try {
+      await invoke('cockpit_reattach');
+      // `cockpit_reattach` calls `.destroy()` → WindowEvent::Destroyed fires
+      // on Rust side → `cockpit_reattached` emitted to main. This window closes.
+    } catch (err) {
+      console.error('[CockpitDetached] cockpit_reattach failed:', err);
+    }
+  }
+
+  function close(): void {
+    // Close goes through OS close path → WindowEvent::Destroyed → same cleanup.
+    appWindow.close();
+  }
+</script>
+
+<div class="detached-shell" data-tauri-drag-region>
+  <!-- Local titlebar (design F — minimal brand + DOCK + close) -->
+  <header class="titlebar" data-tauri-drag-region>
+    <span class="brand"><span class="glyph">◆</span>RIFT <span class="sub">COCKPIT</span></span>
+    <span class="spacer" data-tauri-drag-region></span>
+    <div class="controls">
+      <button type="button" class="btn dock" aria-label="dock cockpit" onclick={dock}>
+        ↙ DOCK
+      </button>
+      <button type="button" class="btn close" aria-label="close" onclick={close}>×</button>
+    </div>
+  </header>
+
+  <!-- Pane header — mirrors cockpit-right in App.svelte -->
+  <div class="pane-header">
+    <span>FILE TREE</span>
+    <span class="meta">{nodeCount} files · {watchedPathLabel}</span>
+  </div>
+
+  <!-- Tree body -->
+  <div class="tree-body">
+    <Tree bind:nodeCount bind:watchedPathLabel />
+  </div>
+</div>
+
+<style>
+  .detached-shell {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    background: var(--bg-panel);
+    overflow: hidden;
+  }
+
+  /* ---- local titlebar ---- */
+  .titlebar {
+    height: 32px;
+    background: var(--bg-elevated);
+    border-bottom: 1px solid var(--border-subtle);
+    display: flex;
+    align-items: center;
+    padding: 0 12px;
+    user-select: none;
+    flex-shrink: 0;
+  }
+
+  .brand {
+    color: var(--amber-primary);
+    font-weight: 700;
+    font-size: 12px;
+    letter-spacing: 0.15em;
+    text-shadow: var(--glow-amber);
+  }
+
+  .glyph {
+    color: var(--amber-bright);
+    margin-right: 6px;
+  }
+
+  .sub {
+    color: var(--amber-dim);
+    font-size: 10px;
+    font-weight: 400;
+    letter-spacing: 0.12em;
+    margin-left: 4px;
+  }
+
+  .spacer {
+    flex: 1;
+    height: 100%;
+  }
+
+  .controls {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+
+  .btn {
+    height: 14px;
+    background: transparent;
+    border: 1px solid var(--amber-dim);
+    color: var(--amber-dim);
+    font-size: 9px;
+    line-height: 12px;
+    text-align: center;
+    cursor: pointer;
+    padding: 0 5px;
+    font-family: inherit;
+    letter-spacing: 0.08em;
+  }
+
+  .btn:hover {
+    color: var(--amber-primary);
+    border-color: var(--amber-primary);
+  }
+
+  .btn.close {
+    width: 14px;
+    padding: 0;
+    font-size: 10px;
+  }
+
+  .btn.close:hover {
+    color: var(--term-red);
+    border-color: var(--term-red);
+  }
+
+  .btn.dock:hover {
+    color: var(--blue-claude);
+    border-color: var(--blue-claude);
+  }
+
+  /* ---- pane header — matches App.svelte .pane-header exactly ---- */
+  .pane-header {
+    height: 24px;
+    padding: 0 10px;
+    background: var(--bg-elevated);
+    border-bottom: 1px solid var(--border-subtle);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    color: var(--amber-warm);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    flex-shrink: 0;
+    user-select: none;
+  }
+
+  .pane-header .meta {
+    color: var(--amber-faint);
+    font-weight: 400;
+    font-size: 9px;
+    letter-spacing: 0.04em;
+  }
+
+  /* ---- tree body — matches App.svelte .tree-body exactly ---- */
+  .tree-body {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 4px 0;
+  }
+
+  .tree-body::-webkit-scrollbar {
+    width: 5px;
+  }
+
+  .tree-body::-webkit-scrollbar-thumb {
+    background: var(--amber-faint);
+  }
+</style>

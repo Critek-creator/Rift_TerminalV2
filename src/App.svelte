@@ -1,4 +1,7 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
+  import { invoke } from '@tauri-apps/api/core';
+  import { listen } from '@tauri-apps/api/event';
   import TitleBar from './lib/TitleBar.svelte';
   import TabBar, {
     type SessionTab,
@@ -112,6 +115,48 @@
   // Tree.svelte computes these internally and pushes them up via $bindable props.
   let nodeCount = $state(0);
   let watchedPathLabel = $state('…');
+
+  // Phase 6.4 — cockpit detach state.
+  // `cockpitDetached` drives whether the cockpit-right renders the Tree or the
+  // placeholder card. Polled once on mount for reload-recovery (design E),
+  // then kept current via `cockpit_detached` / `cockpit_reattached` events.
+  let cockpitDetached = $state(false);
+
+  onMount(() => {
+    // Svelte 5's onMount requires a sync callback that optionally returns a
+    // cleanup. Async init runs in an IIFE; cleanup captures unlisten handles
+    // via mutable refs the IIFE populates.
+    let unlistenDetached: (() => void) | undefined;
+    let unlistenReattached: (() => void) | undefined;
+
+    void (async () => {
+      try {
+        cockpitDetached = await invoke<boolean>('cockpit_status');
+      } catch (err) {
+        console.warn('[App] cockpit_status failed:', err);
+      }
+
+      unlistenDetached = await listen('cockpit_detached', () => {
+        cockpitDetached = true;
+      });
+      unlistenReattached = await listen('cockpit_reattached', () => {
+        cockpitDetached = false;
+      });
+    })();
+
+    return () => {
+      unlistenDetached?.();
+      unlistenReattached?.();
+    };
+  });
+
+  async function reattachCockpit(): Promise<void> {
+    try {
+      await invoke('cockpit_reattach');
+    } catch (err) {
+      console.error('[App] cockpit_reattach failed:', err);
+    }
+  }
 </script>
 
 <div class="app-shell">
@@ -192,15 +237,28 @@
       {/if}
     </div>
 
-    <!-- Right half: filesystem tree -->
+    <!-- Right half: filesystem tree (Phase 6.4 — hidden when cockpit is detached) -->
     <div class="cockpit-right">
-      <div class="pane-header">
-        <span>FILE TREE</span>
-        <span class="meta">{nodeCount} files · {watchedPathLabel}</span>
-      </div>
-      <div class="tree-body">
-        <Tree bind:nodeCount bind:watchedPathLabel />
-      </div>
+      {#if !cockpitDetached}
+        <div class="pane-header">
+          <span>FILE TREE</span>
+          <span class="meta">{nodeCount} files · {watchedPathLabel}</span>
+        </div>
+        <div class="tree-body">
+          <Tree bind:nodeCount bind:watchedPathLabel />
+        </div>
+      {:else}
+        <div class="detached-placeholder">
+          <div class="detached-card">
+            <div class="detached-glyph">↗</div>
+            <div class="detached-title">cockpit detached</div>
+            <div class="detached-hint">flying on a second display</div>
+            <button type="button" class="reattach-btn" onclick={reattachCockpit}>
+              ↙ reattach
+            </button>
+          </div>
+        </div>
+      {/if}
     </div>
   </main>
 
@@ -357,5 +415,59 @@
     padding: 1px 6px;
     font-family: inherit;
     font-size: 10px;
+  }
+
+  /* Phase 6.4 — cockpit detached placeholder */
+  .detached-placeholder {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--amber-faint);
+  }
+
+  .detached-card {
+    text-align: center;
+    user-select: none;
+    padding: 32px;
+  }
+
+  .detached-glyph {
+    font-size: 48px;
+    color: var(--amber-bright);
+    text-shadow: var(--glow-amber-strong);
+    margin-bottom: 16px;
+  }
+
+  .detached-title {
+    color: var(--amber-warm);
+    font-size: 14px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    margin-bottom: 8px;
+  }
+
+  .detached-hint {
+    color: var(--amber-dim);
+    font-size: 11px;
+    margin-bottom: 20px;
+    font-style: italic;
+  }
+
+  .reattach-btn {
+    background: transparent;
+    border: 1px solid var(--amber-dim);
+    color: var(--amber-dim);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    padding: 4px 12px;
+    cursor: pointer;
+  }
+
+  .reattach-btn:hover {
+    color: var(--amber-primary);
+    border-color: var(--amber-primary);
+    text-shadow: var(--glow-amber);
   }
 </style>

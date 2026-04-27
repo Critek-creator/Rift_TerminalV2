@@ -1,3 +1,5 @@
+mod cockpit_window;
+
 // Rift Terminal v2 — Tauri host crate.
 //
 // Phase 1: PTY surface.
@@ -506,6 +508,7 @@ pub fn run() {
         .manage(PtyRegistry::default())
         .manage(BusSubscriptionRegistry::default())
         .manage(CommandBufferRegistry::default())
+        .manage(cockpit_window::CockpitWindowState::default())
         .setup(|app| {
             // Bus is always present; the IPC server is best-effort and may
             // fail to bind (e.g. if the socket name is taken). Frontend can
@@ -577,6 +580,9 @@ pub fn run() {
             bus_unsubscribe,
             bus_publish,
             fs_tree,
+            cockpit_window::cockpit_detach,
+            cockpit_window::cockpit_reattach,
+            cockpit_window::cockpit_status,
         ])
         .run(tauri::generate_context!())
         .expect("rift: tauri runtime failed to start");
