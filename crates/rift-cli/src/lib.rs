@@ -6,7 +6,7 @@
 
 use std::io::{self, IsTerminal, Read};
 
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{anyhow, Context, Result};
 use clap::{Parser, Subcommand};
 use rift_bus::{Category, Envelope, IpcClient};
 
@@ -222,12 +222,5 @@ mod tests {
     fn parse_status() {
         let cli = Cli::try_parse_from(["rift", "status"]).unwrap();
         assert!(matches!(cli.cmd, Cmd::Status));
-    }
-
-    // Suppress dead_code warning for the `bail!` import — it's used in
-    // a future variant we have not written yet.
-    #[allow(dead_code)]
-    fn _silence() {
-        let _ = bail!("unused helper");
     }
 }

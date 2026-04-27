@@ -25,7 +25,7 @@ use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use rift_bus::{Category, Envelope, IpcServer, RiftBus, SubscribeFilter};
-use rift_core::pty::{PtyControl, PtyDims, PtySession};
+use rift_core::pty::{PtyControl, PtyDims, PtyOptions, PtySession};
 use serde::Serialize;
 use tauri::ipc::Channel;
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -169,7 +169,15 @@ async fn pty_start(
         pixel_height: 0,
     };
 
-    let (mut output, control) = PtySession::spawn(dims).map_err(|e| e.to_string())?;
+    // Inject RIFT_SOCKET_NAME so `rift hook ...` from inside the spawned
+    // shell finds the running instance without manual setup. Skipped when
+    // the IPC server isn't up yet — the CLI surfaces a helpful error
+    // pointing at --socket / $RIFT_SOCKET_NAME in that case.
+    let mut opts = PtyOptions::new(dims);
+    if let Some(ipc) = app.try_state::<BusIpcState>() {
+        opts = opts.with_env("RIFT_SOCKET_NAME", ipc.socket_name.clone());
+    }
+    let (mut output, control) = PtySession::spawn_with_options(opts).map_err(|e| e.to_string())?;
     let registry = app.state::<PtyRegistry>().inner().clone();
     let id = registry.insert(control);
 
