@@ -25,9 +25,9 @@
 | 3     | Tab/Pane/Pop-out architecture     | none                          | §10.4–§10.10                |
 | 4     | Integration Decoupling Protocol   | **§10.15 must close here**    | §9, §10.13–§10.14           |
 | 5     | First integration: hooks tab      | depends on Phase 4            | §10.7, §10.8                |
-| 6     | GUI Cockpit foundation            | mockups #2+#3 first; **§10.18 graph-lib decision** | §11                         |
+| 6     | GUI Cockpit foundation (tree)     | mockups #2+#3 ✅              | §11                         |
 | 7     | Aegis private translator module   | depends on Phase 4 + Phase 5  | §9 two-doc, §10.13          |
-| 8     | Index integration (tab + graph)   | depends on Phase 6            | §10.12, §10.14              |
+| 8     | Index integration (tab + graph)   | depends on Phase 6; **§10.18 graph-lib decision** | §10.12, §10.14, §10.18      |
 | 9     | v1 ship: MSI + signing + runbook  | all above PASS                | §13 packaging               |
 
 ### Phase 0 — Repo + Tauri scaffold
@@ -91,15 +91,18 @@
 
 ### Phase 6 — GUI Cockpit foundation
 
-**Prerequisites:** Mockup #2 (GUI alone, detached) and Mockup #3 (terminal+GUI integrated). **§10.18 graph-library decision (Cytoscape / D3 / Sigma)** must close before code starts. Recommend a small spike: render same fixture in all 3 libs, decide on perf + interaction quality.
+**Prerequisites:** Mockup #2 (GUI alone) ✅ and Mockup #3 (terminal+GUI integrated) ✅ — both shipped 2026-04-27 (rework: graph = Abyssal Index, tree = node-based filesystem). **§10.18 graph-lib decision moved to Phase 8** (graph = Index surface; Phase 6's tree is hierarchical-SVG, not free-form). No graph-lib spike required for Phase 6.
 
-**Out:** detachable graph window with filesystem activity rendering.
-- Detachable window architecture (default attached, drag-to-detach, drag-back-to-attach — same gesture as tab promote/return per §10.5).
-- Filesystem watcher (Rust, `notify` crate) → emits read/write/create/delete events.
-- Graph model: file-as-node, type icons, IDE-tree mirror.
-- Activity visualization: glow-on-touch, decay, pin (click), background (clicked-and-released vs ambient).
-- Hierarchical bubble-up (§11).
-- Friction-reduction in-cockpit editor: **scope-bounded per §11** — full syntax highlighting (tree-sitter), quick edit/save. **OUT OF SCOPE: multi-file refactor, debug tooling, extensions.**
+**Out:** node-based filesystem tree with live activity rendering + detachable cockpit window + scope-bound in-cockpit viewer.
+- Filesystem watcher (Rust, `notify` crate, behind §9 translator boundary at `crates/rift-bus/src/translators/fs.rs`) → emits `Category::Fs` envelopes (read/write/create/delete/rename) with ignore-globs default `.git/** node_modules/** target/** dist/** *.log`.
+- Tree model: file-as-node, type icons, hierarchical filesystem mirror (per 2026-04-27 mockup rework — circles for files, soft-square dirs, L-shaped edges; same glow vocabulary as graph).
+- Activity visualization: glow-on-touch, decay, pin (click), background (click-again/shift-click) — frontend Svelte 5 rune store, decay loop via rAF; configurable `decay_ms` in `rift-config.toml`.
+- Hierarchical bubble-up (§11): collapsed dir aggregates max child glow + pinned-presence indicator; expanded dir hides aggregate, shows children individually.
+- Detachable cockpit window: `WebviewWindowBuilder` per r004; `cockpit_detach`/`cockpit_reattach` Tauri commands; drag handle on cockpit divider; bus subscription per-window-label per §10.15.
+- Drag-node-into-terminal (reuses Phase 3.5a drag infra).
+- Project swap menu (reuses popouts.svelte.ts from Phase 3.5b).
+- Friction-reduction in-cockpit viewer: **scope-bounded per §11** — Shiki WASM for syntax highlighting in v1 (TextMate grammars; tree-sitter migration deferred to v1.1 — spec wording "tree-sitter or equivalent" covers Shiki). Quick edit/save. **OUT OF SCOPE: multi-file refactor, debug tooling, extensions.**
+- Subphases (locked 2026-04-27 via `/aegis --plan phase 6`): 6.0 spec patch (this commit) → 6.1 fs translator + Category::Fs → 6.2 tree renderer + activity store → 6.3 hierarchical bubble-up → tranche-1 ship; then re-plan 6.4 detachable window → 6.5 viewer (Shiki) → 6.6 drag-into-terminal → 6.7 project swap.
 
 ### Phase 7 — Aegis private translator
 
@@ -110,9 +113,9 @@
 
 ### Phase 8 — Index integration
 
-**Out:** Index tab + Index graph view (two views of same data, §10.12).
+**Out:** Index tab + Index graph view (two views of same data, §10.12). **§10.18 graph-library decision (Cytoscape / D3 / Sigma) must close before code starts** — render same fixture in all 3 libs, decide on perf + interaction quality.
 - Translator module subscribes to Index update events.
-- Tab view = list/tree. Graph view = node-edge with filesystem cross-references.
+- Tab view = list/tree. Graph view = node-edge free-form layout (the Abyssal Index vault network, per 2026-04-27 mockup #3 rework). Pan/zoom required.
 
 ### Phase 9 — v1 ship
 
@@ -140,7 +143,7 @@ Per CLAUDE.md §7 + RIFT_V2_VISION §7:
 | §10.15  | Real-time update mechanism                    | `/aegis --research`               | Phase 4     |
 | §10.16  | Section catalog brainstorm                    | `/aegis --think` during Phase 5   | Phase 5     |
 | §10.17  | Agent tab grouping/filtering                  | `/aegis --think` during Phase 7   | Phase 7     |
-| §10.18  | GUI rendering tech (Cytoscape/D3/Sigma)       | spike + `/aegis --crit`           | Phase 6     |
+| §10.18  | GUI rendering tech (Cytoscape/D3/Sigma)       | spike + `/aegis --crit`           | Phase 8     |
 
 ---
 

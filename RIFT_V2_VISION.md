@@ -335,12 +335,16 @@ Full enumeration of trackable event types (compile, MCP, token budget, skill act
 
 With sizeable agent rosters, the Agents tab will likely need grouping or filtering by agent type to stay legible. Held until the catalog brainstorm pass — flagged here so it isn't lost.
 
-### 10.18 Deferred to GUI planning session
+### 10.18 Deferred to Phase 8 (Index integration)
 
-Held until the GUI build phase begins:
+Per the 2026-04-27 mockup #3 rework, the cockpit's two GUI surfaces split as:
+- **Tree** = node-based filesystem (Phase 6) — hierarchical, no free-form layout, simple SVG vocab, no graph-library decision needed.
+- **Graph** = Abyssal Index vault network (Phase 8) — free-form node/edge graph; the questions below apply here.
+
+Held until Phase 8 begins:
 - Rendering tech (Canvas / WebGL / native)
 - Graph layout algorithm (force-directed / manual / hybrid)
-- Node type taxonomy (refinements beyond "filesystem nodes + integration enrichments")
+- Node type taxonomy (refinements beyond "Index vaults + integration enrichments")
 - Performance at vault scale
 - State persistence (zoom, pan, opened files, layout)
 
@@ -352,9 +356,11 @@ The GUI is not a separate product. It's the visual interface *to* the terminal a
 
 ### Foundation — filesystem activity, not agent activity
 
-The graph cockpit's foundation is **filesystem activity visualization** — reads, writes, creates, deletes, touches. This is **Rift core**, always-on, present in every install.
+The cockpit's foundation is **filesystem activity visualization** — reads, writes, creates, deletes, touches. This is **Rift core**, always-on, present in every install.
 
-Index, Aegis, and any agent system are **data-enrichment and attribution layers attached to** the filesystem view, not replacements for it. Bare Rift renders filesystem activity by itself; integrations make it richer.
+The cockpit's GUI half exposes filesystem activity through a **node-based filesystem tree** (the always-on Phase 6 surface). A separate **vault-network graph** is the Phase 8 surface — it visualizes the Abyssal Index (or any integration providing graph data) as a free-form node/edge view layered on top. Per the 2026-04-27 mockup #3 rework: tree = filesystem (always-on, Phase 6), graph = Index (integration-provided, Phase 8).
+
+Index, Aegis, and any agent system are **data-enrichment and attribution layers attached to** the filesystem tree, not replacements for it. Bare Rift renders anonymous filesystem activity through the tree by itself; integrations make it richer (attribution colors) and add the graph surface.
 
 ### Window architecture — detachable, default attached
 
@@ -368,14 +374,23 @@ Architecturally trivial under Tauri (multi-window is well-trodden). State and ev
 
 This also answers the headless-mobile question elegantly (post-v1, see section 13): the SSH client is just another "detached" surface in the same conceptual model.
 
-### Graph model
+### Tree model (Phase 6 — always-on filesystem surface)
 
 - **Mirrors the filesystem**, IDE-tree style. Familiar mental model.
+- **Node-based vocabulary** per the 2026-04-27 mockup #3 rework — circles for files, soft-square nodes for directories, L-shaped parent→child edges. Same glow vocabulary as the graph (Phase 8).
 - **Each file is a node** with custom imagery / icon based on file type.
-- **Standard expand/collapse** on directories.
+- **Standard expand/collapse** on directories (chevron affordance).
 - **Drag-node-into-terminal** to load context into the terminal — friction-free context injection. UX moment that needs to feel *good*.
 - **Easy project swap via menu** that points to a project directory — first-class action, not a config file edit.
+- **Vertical scrolling** for tall trees; no pan/zoom (hierarchical layout, not free-form).
+
+### Graph model (Phase 8 — Index integration surface)
+
+- **Free-form node/edge graph** — not hierarchical. Layout algorithm TBD per §10.18.
+- **Renders the Abyssal Index** (or any integration providing graph data via §9 enrichment).
+- **Same glow / decay / pin vocabulary** as the tree, applied to vault nodes instead of file nodes.
 - **Pan and zoom** — smooth navigation, easy zoom in/out, standard map-style interaction.
+- **Provided by integration**, not always-on — bare Rift shows tree only; the graph appears when Index (or an equivalent integration) is loaded.
 
 ### Activity visualization model — decay, pin, background
 
@@ -441,10 +456,10 @@ If a user needs a real editor, they go to their real editor. **This boundary nee
 The visual design lands across three mockups, each exercising a different surface configuration:
 
 1. **Terminal alone** — ✅ done. `rift-v2-mockup.html`. Visual source of truth for terminal aesthetic, lane colors, tag style, tabs, status line, active-state density.
-2. **GUI alone (detached state)** — ⏳ pending. What the GUI looks like when popped out into its own window. Filesystem + Index enrichment value tier (the rich, full-detail view). Full graph, file tree, decay/pin/background activity states, glow-on-touch behavior, hierarchical bubble-up, custom file viewer pane, project swap menu.
-3. **Terminal + GUI integrated (attached cockpit)** — ⏳ pending. The default attached cockpit experience — terminal and GUI side-by-side as one window. Shows how the two surfaces share screen real estate and work together.
+2. **GUI alone (detached state)** — ✅ done. `rift-v2-mockup-gui.html`. Filesystem tree + Index graph + custom file viewer pane + project swap menu, with decay/pin/background activity states + glow-on-touch + hierarchical bubble-up.
+3. **Terminal + GUI integrated (attached cockpit)** — ✅ done. `rift-v2-mockup-integrated.html` (reworked 2026-04-27 — graph = Abyssal Index vault network, tree = node-based filesystem; both surfaces share the glow/decay vocabulary).
 
-The terminal mockup's visual vocabulary (palette, fonts, tags, scanlines, vignette) carries forward to the GUI mockups. Net-new visual work in the GUI mockups: node rendering, edge rendering, expand/collapse affordances, pan/zoom, viewer pane, project swap menu, decay/pin/background visual treatments.
+The terminal mockup's visual vocabulary (palette, fonts, tags, scanlines, vignette) carries forward to the GUI mockups. Net-new visual work in the GUI mockups: node rendering, edge rendering, expand/collapse affordances, pan/zoom (graph only — tree scrolls vertically), viewer pane, project swap menu, decay/pin/background visual treatments.
 
 ### Why this matters
 
