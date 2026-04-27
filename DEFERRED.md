@@ -13,17 +13,7 @@
 
 <!-- D-006 closed 2026-04-26 in three commits, see C-009 below -->
 
-### D-008 — Global Claude Code `settings.json` hooks wiring for `rift hook`
-- **Phase:** 5.4 close — deferred by explicit user choice on 2026-04-27.
-- **Why deferred:** wiring `rift hook PreToolUse` / `PostToolUse` / etc. into `~/.claude/settings.json` would make EVERY Claude Code session (not just Rift's embedded ones) fire the binary on hook events. Until Rift is daily-driver usable AND a built `rift.exe` artifact is reliably on PATH, that's noise + potential failure surface across all sessions. Engineering is done; this is a deployment + lifestyle handshake the user wants to make consciously, not autopilot.
-- **What's needed:**
-  - Built `rift.exe` artifact reachable from any shell (PATH addition OR absolute path in settings.json).
-  - Global hook entries in `~/.claude/settings.json` for PreToolUse / PostToolUse / UserPromptSubmit / SessionStart / SessionEnd / Notification / Stop / SubagentStop, each piping the hook JSON payload through stdin to `rift hook <event-type>`.
-  - Live Rift instance exposing `RIFT_SOCKET_NAME` — without one, `rift hook` from a non-Rift Claude Code session falls back to the documented "no socket name" error path. Acceptable graceful failure (Claude Code doesn't crash on hook errors), but worth confirming end-to-end before flipping the switch globally.
-- **Concrete unblocking event:** explicit user invocation ("ship D-008" / "wire the global hooks") once Rift is daily-usable. Not gated on any other Rift phase.
-- **Files affected (when resumed):** `~/.claude/settings.json` (global, NOT in this repo); PATH or absolute reference to the built `rift.exe`.
-- **Owner:** Garth (user-controlled — both the deployment decision and the per-session impact).
-- **Acceptance:** with Rift running, fire any Claude Code tool use from any project → corresponding envelope appears in Rift's Hooks tab live activity strip + recent log; non-Rift sessions log a graceful "no socket name" error without breaking Claude Code.
+<!-- D-008 closed 2026-04-27, see C-012 below -->
 
 ### D-007 — Mockup #2 (GUI alone) and Mockup #3 (integrated) not built before Phase 6
 - **Phase:** 0 → 6
@@ -36,6 +26,18 @@
 ---
 
 ## Closed deferrals
+
+### C-012 — D-008 global hooks wiring (closed 2026-04-27, Phase 5.7)
+- **Binary install:** `cargo install --path crates/rift-cli --locked` puts release-optimized `rift.exe` at `C:\Users\Critek\.cargo\bin\rift.exe` (already on PATH for Rust dev). The cargo-build target/debug/rift.exe collision between rift-cli and src-tauri remains as a workspace-build warning but doesn't affect the installed binary — `cargo install` writes only the rift-cli bin to `~/.cargo/bin/`, separate from the local `target/`. No bin rename needed.
+- **Smoke test (pre-wire):** `echo '{...}' | rift hook PreToolUse` with no `RIFT_SOCKET_NAME` set → exits 1 in <50ms with the documented "no socket name. Pass --socket <name> or set $RIFT_SOCKET_NAME" message. Graceful-failure path verified before any settings.json edit.
+- **Settings.json wiring** (`~/.claude/settings.json` — global, NOT in this repo): added 8 hook-group entries (one per D-008 event) under existing `hooks` block. Each entry has no `matcher` (matches all tool/event invocations) and a single command `rift hook <EventName>`. Existing user hooks (edit-guard, ccstatusline, completeness-check, auto-fmt-rust, aegis-log, vault-autoindex, cache-heal, aegis-session-end, aegis-precompact) untouched — rift entries APPENDED last in each event's array so they fire after existing hooks.
+- **Events wired (8):** PreToolUse, PostToolUse, UserPromptSubmit, SessionStart, SessionEnd, Notification, Stop, SubagentStop. PreCompact (existing user hook) intentionally NOT wired — not in D-008's spec list. Notification/Stop/SubagentStop event arrays were created fresh; the others appended to existing arrays.
+- **JSON validation post-edit:** `node -e "require(...)"` parses cleanly; enumeration confirms 9 event keys (8 wired + existing PreCompact) and a `rift hook <Event>` entry as the last hook of each wired event.
+- **Hot-reload trap (per pr003):** Claude Code reads `settings.json` ONCE at session start. The 8 hooks won't fire in the session that authored them — they activate on the NEXT Claude Code session. Acceptable per design.
+- **Per-tool-use latency:** rift.exe spawn + clap parse + env-check is fast (<50ms on no-socket fail-fast path). Acceptable per D-008's "graceful failure without breaking Claude Code" spec line.
+- **Reversibility:** removing the 9 added entries (1 per wired event + 3 new event arrays) restores prior settings.json behavior. Diff is surgical and idempotent.
+- **Acceptance (next session):** with Rift running, fire any Claude Code tool use → envelope appears in Rift's Hooks tab live activity strip; non-Rift sessions log a graceful "no socket name" error without breaking Claude Code. First runtime confirmation pending the next session start.
+- **Sister deferral state:** D-005 closed (3.5a + 3.5b), D-006 closed, D-008 closed. Only D-007 (mockup #3 integrated terminal+GUI) remains active.
 
 ### C-011 — D-005 pop-out chassis (closed 2026-04-27, Phase 3.5b)
 - Pop-out infrastructure (§10.5) shipped as a chassis — global rune-aware store + overlay shell + App-level stack render. No production consumer yet; first consumer (rule editor / file viewer / agent cancel confirm) lands in Phase 5+ once content exists.
