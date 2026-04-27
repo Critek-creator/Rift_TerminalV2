@@ -15,7 +15,7 @@
   import Popout from './lib/Popout.svelte';
   import { popouts } from './lib/popouts.svelte';
   import Tree from './lib/Tree.svelte';
-  import type { Category } from './lib/bus';
+  import { subscribe, type Category } from './lib/bus';
 
   // Tab id → bus category. `undefined` = no integration registered yet,
   // so the pane stays in placeholder mode until a translator lights it up.
@@ -124,6 +124,36 @@
   // placeholder card. Polled once on mount for reload-recovery (design E),
   // then kept current via `cockpit_detached` / `cockpit_reattached` events.
   let cockpitDetached = $state(false);
+
+  // Phase 7.4 — live SKILL segment.
+  // Subscribes at App level (not inside AegisTabContent) so the status-line
+  // SKILL segment updates regardless of which tab is active.
+  // pr003 svelte5-async-cleanup-via-sync-shell-iife: $effect cleanup is SYNC;
+  // async unsubscribe wrapped in IIFE.
+  let aegisSkillName = $state('');
+
+  let _skillUnsub: (() => Promise<void>) | undefined;
+
+  $effect(() => {
+    void (async () => {
+      try {
+        _skillUnsub = await subscribe({ category: 'aegis' }, (env) => {
+          if (env.kind === 'aegis.session.skill_loaded') {
+            const p = env.payload as { skill_name?: string; skill_version?: string | null };
+            aegisSkillName = p.skill_name ?? '';
+          }
+        });
+      } catch (err) {
+        console.warn('[App] skill_loaded subscribe failed:', err);
+      }
+    })();
+
+    return () => {
+      void (async () => {
+        await _skillUnsub?.();
+      })();
+    };
+  });
 
   onMount(() => {
     // Svelte 5's onMount requires a sync callback that optionally returns a
@@ -280,6 +310,7 @@
     model="opus-4.7"
     repo="rift-v2"
     git="main · 0↑ · 0M"
+    skill={aegisSkillName || '--'}
   />
 
   <!-- Phase 3.5b — pop-out stack (§10.5). Renders one overlay per entry
