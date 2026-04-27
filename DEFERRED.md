@@ -9,15 +9,7 @@
 
 <!-- D-002 closed 2026-04-26, see C-007 below -->
 
-
-### D-005 — Tab/Pane/Pop-out architecture (partial — only pop-out remains)
-- **Phase:** 3.5 (drag-promote shipped 2026-04-27, see C-010) → 3.5b (pop-out infrastructure)
-- **What remains:**
-  - **Pop-out infrastructure (§10.5)** — ephemeral overlay container (rule editor, file viewer, agent confirm). Deferred because no pop-out content exists until Phase 5+.
-- **Concrete unblocking event:** explicit `/aegis` invocation to ship 3.5b, or natural phase progression once Phase 5 has content that needs pop-outs.
-- **Files affected (when resumed):** new `lib/Popout.svelte`, summon glue in `App.svelte`.
-- **Owner:** future Phase 3.5b builder.
-- **Acceptance:** pop-out container can stack overlays with click-outside-dismiss; first consumer (likely rule editor or file viewer) renders inside without leaking layout.
+<!-- D-005 fully closed 2026-04-27: drag-promote half (C-010) + pop-out chassis (C-011) -->
 
 <!-- D-006 closed 2026-04-26 in three commits, see C-009 below -->
 
@@ -44,6 +36,17 @@
 ---
 
 ## Closed deferrals
+
+### C-011 — D-005 pop-out chassis (closed 2026-04-27, Phase 3.5b)
+- Pop-out infrastructure (§10.5) shipped as a chassis — global rune-aware store + overlay shell + App-level stack render. No production consumer yet; first consumer (rule editor / file viewer / agent cancel confirm) lands in Phase 5+ once content exists.
+- New `src/lib/popouts.svelte.ts` — singleton `PopoutStore` instance exported as `popouts`. Public API: `summon(opts) → id`, `dismiss(id)`, `dismissTop()`, `dismissAll()`. Private monotonic `#nextId`. `entries: PopoutEntry[]` is `$state<...>`-backed; mutations use immutable spread to match the rest of the codebase's `$state` pattern. File extension `.svelte.ts` is required so the Svelte 5 rune compiler processes `$state` (plain `.ts` would not work).
+- Discriminated-union `PopoutContent` — `kind: 'text'` (title + body) and `kind: 'confirm'` (title + body + optional confirmLabel/cancelLabel/onConfirm/onCancel). Future kinds (component / snippet) deferred to Phase 5+ when there's a real consumer to validate the API shape against.
+- New `src/lib/Popout.svelte` — overlay shell. Props: `entry: PopoutEntry`, `isTop: boolean`, `stackIndex: number`. Behavior: full-viewport `.backdrop` (rgba 0,0,0,0.7) wraps an amber-bordered `.card` with header (title + close-X) + body (text or confirm-with-actions). Click-outside dismiss only fires on the top overlay; card `e.stopPropagation()` prevents inner clicks from bubbling. Esc dismiss attached via `$effect`-managed `window.addEventListener('keydown', ...)` cleaned up on teardown — only the top + dismissible entry reacts. Non-dismissible entries (`dismissible: false`) hide the close-X and ignore Esc + backdrop; only programmatic `dismiss(id)` / `dismissAll()` close them. Confirm-kind buttons fire `entry.content.onConfirm/onCancel` then `popouts.dismiss(entry.id)`. Z-index = `1000 + stackIndex * 10` so each stacked overlay paints above the prior one without clashing with app chrome.
+- `src/App.svelte` MOD — imports `Popout` + `popouts`; renders `{#each popouts.entries as entry, i (entry.id)}` at the end of `<div class="app-shell">` (after `StatusLine`), passing `isTop = (i === entries.length - 1)` and `stackIndex = i`. No production summon calls in 3.5b — chassis-only.
+- Visual style: matte black backdrop, amber-bright card border, `var(--bg-elevated)` body, `var(--glow-amber-faint) + 0 8px 32px rgba(0,0,0,0.5)` shadow, JetBrains Mono inherit. Two CSS keyframes: `popout-fade-in` (120ms) for backdrop, `popout-card-in` (160ms cubic-bezier) for card. Card max-width 90vw / max-height 80vh; default width `min(640px, 80vw)`, overridable per-entry via `entry.width`.
+- Files: `src/lib/popouts.svelte.ts` (NEW), `src/lib/Popout.svelte` (NEW), `src/App.svelte` (MOD), `DEFERRED.md` (MOD — flip D-005 to fully closed + this entry). Net 4 files.
+- Verification: all 6 CI gates exit 0 — `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo build --workspace --locked`, `cargo test --workspace --locked` (46 tests preserved), `npm run check` (0 errors / 0 warnings), `bash tools/check-translator-boundary.sh`. Runtime exercise (real summon from a Phase 5+ consumer) deferred to that consumer's BV cycle — chassis only here.
+- **Sister deferral state:** D-005 now FULLY CLOSED (drag-promote half + pop-out chassis both shipped). D-008 (global hooks wiring) remains DEFERRED by user choice.
 
 ### C-010 — D-005 drag-promote half (closed 2026-04-27, Phase 3.5a)
 - Drag any notification tab off the tab strip → promotes it to a fixed-width 420 px right-side pane alongside the active session/empty surface. Drag the pane's drag-handle back onto the tab strip → demotes. HTML5 native drag-and-drop API; tab-strip nav is the demote drop target (`ondragover` preventDefault + `ondrop` → `onDemote`).

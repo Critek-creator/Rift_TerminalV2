@@ -8,6 +8,8 @@
   import Terminal from './lib/Terminal.svelte';
   import NotificationPane from './lib/NotificationPane.svelte';
   import StatusLine from './lib/StatusLine.svelte';
+  import Popout from './lib/Popout.svelte';
+  import { popouts } from './lib/popouts.svelte';
   import type { Category } from './lib/bus';
 
   // Tab id → bus category. `undefined` = no integration registered yet,
@@ -187,6 +189,19 @@
     repo="rift-v2"
     git="main · 0↑ · 0M"
   />
+
+  <!-- Phase 3.5b — pop-out stack (§10.5). Renders one overlay per entry
+       in the global `popouts` store; only the topmost responds to Esc /
+       backdrop click. Chassis-only in 3.5b — no production summon calls
+       yet; first consumer (rule editor / file viewer / agent confirm)
+       lands in Phase 5+. -->
+  {#each popouts.entries as entry, i (entry.id)}
+    <Popout
+      {entry}
+      isTop={i === popouts.entries.length - 1}
+      stackIndex={i}
+    />
+  {/each}
 </div>
 
 <style>
