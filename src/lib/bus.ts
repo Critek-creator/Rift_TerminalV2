@@ -17,6 +17,7 @@ export type Category =
   | 'hook'
   | 'agent'
   | 'fs'
+  | 'index'
   | 'aegis'
   | 'status'
   | 'system';

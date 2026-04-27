@@ -11,6 +11,7 @@
   import Terminal from './lib/Terminal.svelte';
   import NotificationPane from './lib/NotificationPane.svelte';
   import AegisTabContent from './lib/AegisTabContent.svelte';
+  import IndexTabContent from './lib/IndexTabContent.svelte';
   import StatusLine from './lib/StatusLine.svelte';
   import Popout from './lib/Popout.svelte';
   import { popouts } from './lib/popouts.svelte';
@@ -24,6 +25,7 @@
     errors: 'system',     // v1: all Category::System envelopes are errors (kind="error" is the only System kind emitted); kind-filter is a future enhancement
     commands: 'pty',      // v1: all Category::Pty envelopes; only kind emitted is "command.submitted"; kind-filter deferred
     aegis: 'aegis',       // Phase 7.2 — Aegis integration tab (private translator, feature-gated)
+    index: 'index',       // Phase 8.2 — Index integration tab (vault-walker source wires in Phase 8.5)
   };
 
   // ----- session tabs -----
@@ -36,6 +38,7 @@
     { id: 'hooks',    title: 'hooks',    icon: '⚓', enabled: true },
     { id: 'commands', title: 'commands', icon: '⌘', enabled: true },
     { id: 'aegis',    title: 'aegis',    icon: '◉', enabled: true },
+    { id: 'index',    title: 'index',    icon: '◈', enabled: true },
   ]);
 
   // ----- which surface is in the main pane -----
@@ -233,6 +236,8 @@
             <div class="surface visible">
               {#if activeNotifTab.id === 'aegis'}
                 <AegisTabContent />
+              {:else if activeNotifTab.id === 'index'}
+                <IndexTabContent />
               {:else}
                 <NotificationPane
                   title={activeNotifTab.title}
@@ -266,6 +271,8 @@
           <aside class="promoted-pane">
             {#if promotedTab.id === 'aegis'}
               <AegisTabContent onDragBack={demoteTab} />
+            {:else if promotedTab.id === 'index'}
+              <IndexTabContent onDragBack={demoteTab} />
             {:else}
               <NotificationPane
                 title={promotedTab.title}
