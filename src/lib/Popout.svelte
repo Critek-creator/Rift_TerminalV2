@@ -9,6 +9,7 @@
   // amber-bordered card, JetBrains Mono inherit, soft fade-in.
 
   import { popouts, type PopoutEntry } from './popouts.svelte';
+  import Viewer from './Viewer.svelte';
 
   interface Props {
     entry: PopoutEntry;
@@ -75,6 +76,13 @@
   // overlay paints above the prior one without colliding with app chrome.
   const zIndex = $derived(1000 + stackIndex * 10);
   const cardWidth = $derived(entry.width ?? 'min(640px, 80vw)');
+
+  /** Display title for the card header — viewer uses the basename of path. */
+  const cardTitle = $derived(
+    entry.content.kind === 'viewer'
+      ? (entry.content.path.split('/').at(-1) ?? entry.content.path)
+      : entry.content.title,
+  );
 </script>
 
 <div
@@ -94,7 +102,7 @@
     aria-labelledby="popout-title-{entry.id}"
   >
     <header class="card-header">
-      <h2 class="card-title" id="popout-title-{entry.id}">{entry.content.title}</h2>
+      <h2 class="card-title" id="popout-title-{entry.id}">{cardTitle}</h2>
       {#if entry.dismissible !== false}
         <button
           type="button"
@@ -105,7 +113,7 @@
       {/if}
     </header>
 
-    <div class="card-body">
+    <div class="card-body" class:card-body-viewer={entry.content.kind === 'viewer'}>
       {#if entry.content.kind === 'text'}
         <p class="text-body">{entry.content.body}</p>
       {:else if entry.content.kind === 'confirm'}
@@ -118,6 +126,11 @@
             {entry.content.confirmLabel ?? 'Confirm'}
           </button>
         </div>
+      {:else if entry.content.kind === 'viewer'}
+        <!-- Phase 6.5: Viewer owns its own scrolling, header details, error
+             state, and keyboard shortcuts (Ctrl+E / Ctrl+S / Esc). The
+             popout chrome provides the backdrop, close-X, and title bar. -->
+        <Viewer path={entry.content.path} popoutId={entry.id} />
       {/if}
     </div>
   </div>
@@ -181,6 +194,15 @@
   .card-body {
     padding: 16px;
     overflow: auto;
+  }
+  /* Viewer manages its own padding + scrolling — strip the card padding. */
+  .card-body-viewer {
+    padding: 0;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    flex: 1;
   }
   .card-body::-webkit-scrollbar { width: 5px; }
   .card-body::-webkit-scrollbar-thumb { background: var(--amber-faint); }

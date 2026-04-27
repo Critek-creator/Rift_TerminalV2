@@ -60,3 +60,19 @@ pub use translators::fs::build_tree;
 
 /// Default walk depth for [`build_tree`].
 pub use translators::fs::FS_TREE_DEFAULT_MAX_DEPTH;
+
+/// Validate that a project-relative path is under the project root and not
+/// ignored. Returns the canonicalized absolute [`PathBuf`] on success.
+///
+/// Convenience re-export; full path: `rift_bus::translators::fs::validate_project_path(...)`.
+pub use translators::fs::validate_project_path;
+
+/// Read the text content of a project-relative file path (with size cap).
+///
+/// Convenience re-export; full path: `rift_bus::translators::fs::read_text(...)`.
+pub use translators::fs::read_text;
+
+/// Write text content to an existing project-relative file path.
+///
+/// Convenience re-export; full path: `rift_bus::translators::fs::write_text(...)`.
+pub use translators::fs::write_text;

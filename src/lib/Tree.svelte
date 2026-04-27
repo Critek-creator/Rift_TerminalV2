@@ -41,6 +41,7 @@
   import { invoke } from '@tauri-apps/api/core';
   import { subscribe, type Envelope } from './bus';
   import { treeActivity, type ActivityState } from './treeActivity.svelte';
+  import { popouts } from './popouts.svelte';
 
   // ---------------------------------------------------------------------------
   // Layout constants
@@ -423,6 +424,23 @@
     }
   }
 
+  /**
+   * Double-click routing (Phase 6.5):
+   *   dir  → no-op (single-click already toggles collapse; dblclick is harmless)
+   *   file → open Viewer popout at `node.path`
+   *
+   * Acknowledged minor side-effect: the browser fires onclick before ondblclick,
+   * so activity gets cycled once before the viewer opens (visual flicker only).
+   * // Phase 6.x: double-click cancels pending single-click via 250ms timer if UX feedback warrants.
+   */
+  function handleNodeDblClick(node: TreeNode): void {
+    if (node.isDir) return;
+    popouts.summon({
+      content: { kind: 'viewer', path: node.path },
+      width: 'min(1024px, 90vw)',
+    });
+  }
+
   /** L-shaped edge: vertical drop then horizontal run to child node. */
   function edgePath(px: number, py: number, cx: number, cy: number): string {
     // Elbow at (px, cy) — vertical segment down then horizontal to child.
@@ -479,6 +497,7 @@
         <g
           class="tree-node"
           onclick={() => handleNodeClick(item.node)}
+          ondblclick={() => handleNodeDblClick(item.node)}
           style="cursor: pointer;"
         >
           {#if item.node.isDir}

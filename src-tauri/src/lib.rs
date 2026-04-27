@@ -27,8 +27,9 @@ use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use rift_bus::{
-    build_tree, publish_command, publish_error, spawn_fs_watcher, Category, CommandBuffer,
-    Envelope, IpcServer, RiftBus, SubscribeFilter, TreeNode, FS_TREE_DEFAULT_MAX_DEPTH,
+    build_tree, publish_command, publish_error, read_text, spawn_fs_watcher, write_text, Category,
+    CommandBuffer, Envelope, IpcServer, RiftBus, SubscribeFilter, TreeNode,
+    FS_TREE_DEFAULT_MAX_DEPTH,
 };
 use rift_core::pty::{PtyControl, PtyDims, PtyOptions, PtySession};
 use serde::Serialize;
@@ -482,6 +483,35 @@ fn bus_publish(
     Ok(())
 }
 
+/// Read the text of a project-relative file and return it to the frontend.
+///
+/// Path validation (via [`read_text`]) runs first — directory traversal,
+/// ignored-glob paths, and files exceeding 8 MiB are all rejected before any
+/// I/O. Failures are published as `Category::System / kind="error"` envelopes
+/// for diagnostic visibility (mirrors the `fs_tree` pattern).
+#[tauri::command]
+fn fs_read_text(bus: State<'_, RiftBus>, path: String) -> Result<String, String> {
+    read_text(&path).map_err(|e| {
+        let msg = e.to_string();
+        publish_error(bus.inner(), "tauri.command.fs_read_text", &msg, None);
+        msg
+    })
+}
+
+/// Write text content to an existing project-relative file.
+///
+/// Only writes to files that already exist (v1 constraint — see `write_text`
+/// doc for the racy-lstat note). Path validation runs first. Failures are
+/// published as `Category::System / kind="error"` envelopes.
+#[tauri::command]
+fn fs_write_text(bus: State<'_, RiftBus>, path: String, content: String) -> Result<(), String> {
+    write_text(&path, &content).map_err(|e| {
+        let msg = e.to_string();
+        publish_error(bus.inner(), "tauri.command.fs_write_text", &msg, None);
+        msg
+    })
+}
+
 /// Tiny owned handle so spawned tasks can call `remove` without holding
 /// a Tauri `State<'_, _>` reference across `await` points.
 struct BusSubscriptionRegistryHandle {
@@ -580,6 +610,8 @@ pub fn run() {
             bus_unsubscribe,
             bus_publish,
             fs_tree,
+            fs_read_text,
+            fs_write_text,
             cockpit_window::cockpit_detach,
             cockpit_window::cockpit_reattach,
             cockpit_window::cockpit_status,

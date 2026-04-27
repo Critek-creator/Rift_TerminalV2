@@ -8,7 +8,7 @@
 // processes `$state`. Plain `.ts` will not work.
 
 /** Discriminated union of overlay content kinds. v1 ships `text` +
- *  `confirm`; future kinds (component / snippet) gated to Phase 5+. */
+ *  `confirm` + `viewer`; future kinds (component / snippet) gated to Phase 5+. */
 export type PopoutContent =
   | {
       kind: 'text';
@@ -23,6 +23,12 @@ export type PopoutContent =
       cancelLabel?: string;
       onConfirm?: () => void;
       onCancel?: () => void;
+    }
+  | {
+      /** Phase 6.5 — in-cockpit file viewer (§11). */
+      kind: 'viewer';
+      /** Project-relative path forwarded to fs_read_text / fs_write_text. */
+      path: string;
     };
 
 export interface PopoutEntry {
