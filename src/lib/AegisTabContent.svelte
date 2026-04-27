@@ -203,7 +203,7 @@
       <span class="strip-empty">(no in-flight events)</span>
     {:else}
       <div class="strip-events">
-        {#each liveEntries as e (e.ts + e.kind + Math.random())}
+        {#each liveEntries as e, i (e.ts + ':' + e.kind + ':' + i)}
           <span class="strip-event">{e.kind}</span>
         {/each}
       </div>
