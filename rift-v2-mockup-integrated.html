@@ -557,44 +557,24 @@
   .tree-body {
     flex: 1;
     overflow-y: auto;
-    padding: 6px 0;
-    font-size: 11px;
-    line-height: 1.6;
+    padding: 4px 0;
   }
   .tree-body::-webkit-scrollbar { width: 5px; }
   .tree-body::-webkit-scrollbar-thumb { background: var(--amber-faint); }
 
-  .tree-row {
-    display: flex; align-items: center; gap: 5px;
-    padding: 1px 8px 1px 0;
-    color: var(--amber-dim);
-    cursor: pointer;
-    white-space: nowrap;
+  /* Node-based tree: same node geometry vocabulary as the index graph,
+     but laid out as a tree. Labels sit to the right of the node (not below). */
+  .tree-svg { width: 100%; height: 360px; display: block; }
+  .tree-node-label {
+    fill: var(--amber-dim);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    font-weight: 500;
+    dominant-baseline: middle;
   }
-  .tree-row:hover { background: var(--bg-hover); color: var(--amber-warm); }
-  .tree-row.active {
-    color: var(--amber-primary);
-    background: rgba(212, 137, 10, 0.10);
-    text-shadow: var(--glow-amber-faint);
-  }
-  .tree-row.recent { color: var(--amber-warm); }
-  .tree-row.pinned { color: var(--amber-bright); }
-  .tree-row.pinned::after { content: '◆'; margin-left: auto; color: var(--amber-bright); font-size: 9px; }
-  .tree-icon { display: inline-block; width: 14px; text-align: center; font-size: 11px; opacity: 0.85; }
-  .tree-indent-1 { padding-left: 14px; }
-  .tree-indent-2 { padding-left: 28px; }
-  .tree-indent-3 { padding-left: 42px; }
-  .tree-attribution {
-    margin-left: auto;
-    font-size: 8px;
-    color: var(--term-blue);
-    border: 1px solid var(--term-blue);
-    padding: 0 4px;
-    line-height: 11px;
-  }
-  .tree-attribution.aegis { color: var(--amber-primary); border-color: var(--amber-primary); }
-  .tree-attribution.hook  { color: var(--term-cyan);     border-color: var(--term-cyan); }
-  .tree-attribution.agent { color: var(--term-purple);   border-color: var(--term-purple); }
+  .tree-node-label.active   { fill: var(--amber-bright); font-weight: 700; text-shadow: var(--glow-amber-faint); }
+  .tree-node-label.recent   { fill: var(--amber-warm); font-weight: 600; }
+  .tree-node-label.background { fill: var(--amber-faint); }
 
   /* =========================================================
      STATUS LINE — full-width 2-row (mockup #1)
@@ -740,7 +720,11 @@
         <div class="line lane-prompt">~/AA/Rift_TerminalV2 $ <span class="lane-user">claude "add an error boundary wrapper to NotificationPane.svelte per §10.4"</span></div>
         <div class="line">&nbsp;</div>
 
-        <!-- INTEGRATION MOMENT: terminal claims NotificationPane.svelte; graph node glows, tree row pulses, attribution badge appears in right column -->
+        <!-- INTEGRATION MOMENT: terminal claims NotificationPane.svelte;
+             Index graph (top) shows RIFT vault node glowing with CLAUDE attribution
+             (the active project being worked); node-tree (bottom) marks
+             NotificationPane.svelte as ACTIVE with the same CLAUDE badge plus
+             recent-decay glow on its dependencies (App.svelte, Popout.svelte, bus.ts) -->
 
         <div class="line lane-claude"><span class="tag tag-claude">CLAUDE</span>reading RIFT_V2_VISION.md · §10.4 tab anatomy</div>
         <div class="line lane-claude indent">→ extracted requirement: "tab supports 4 modular sections drawn from extensible catalog"</div>
@@ -822,20 +806,20 @@
         <!-- ============= GRAPH (top) ============= -->
         <div class="gui-graph">
           <div class="graph-header">
-            <span>GRAPH</span>
+            <span>INDEX</span>
             <span class="breadcrumb">
-              src <span class="sep">›</span>
-              lib <span class="sep">›</span>
-              <span class="leaf">NotificationPane</span>
+              Abyssal Index <span class="sep">›</span>
+              projects <span class="sep">›</span>
+              <span class="leaf">RIFT (p006)</span>
             </span>
             <div class="ctrl">
               <span class="ctrl-btn">FIT</span>
               <span class="ctrl-btn">RESET</span>
-              <span style="color: var(--amber-faint); margin-left: 4px; font-size: 8px;">1 active · 2 recent · 5 ambient</span>
+              <span style="color: var(--amber-faint); margin-left: 4px; font-size: 8px;">1 active · 2 recent · 9 ambient</span>
             </div>
           </div>
 
-          <svg class="graph-svg" viewBox="0 0 600 360" preserveAspectRatio="xMidYMid meet">
+          <svg class="graph-svg" viewBox="0 0 360 200" preserveAspectRatio="xMidYMid meet">
             <defs>
               <marker id="arrow-faint" viewBox="0 0 6 6" refX="6" refY="3" markerWidth="5" markerHeight="5" orient="auto">
                 <path d="M 0 0 L 6 3 L 0 6 z" fill="#5a4410" opacity="0.6"/>
@@ -845,70 +829,78 @@
               </marker>
             </defs>
 
-            <!-- Cluster: src/ (svelte frontend) — bubble because child is active -->
-            <rect class="node-bg cluster bubble" x="30" y="55" width="290" height="270" rx="8"/>
-            <text class="cluster-label" x="44" y="72">src/lib/</text>
-
-            <!-- Cluster: crates/ (rust backend) -->
-            <rect class="node-bg cluster" x="350" y="55" width="220" height="200" rx="8"/>
-            <text class="cluster-label" x="364" y="72">crates/</text>
-
             <!-- =========== EDGES =========== -->
-            <!-- App.svelte -> NotificationPane (active flow) -->
-            <path class="edge active" d="M 110 145 L 175 175" marker-end="url(#arrow-active)"/>
-            <!-- NotificationPane -> Terminal.svelte (sibling) -->
-            <path class="edge" d="M 195 200 Q 145 240 110 265" marker-end="url(#arrow-faint)"/>
-            <!-- NotificationPane -> bus.ts (claims subscriptions) -->
-            <path class="edge active" d="M 220 195 Q 290 215 260 280" marker-end="url(#arrow-active)"/>
-            <!-- bus.ts -> RiftBus (rust crate, IPC bridge) -->
-            <path class="edge active" d="M 270 285 Q 350 270 410 165" marker-end="url(#arrow-active)"/>
-            <!-- RiftBus -> pty.rs -->
-            <path class="edge" d="M 425 175 L 510 175" marker-end="url(#arrow-faint)"/>
-            <!-- App.svelte -> Terminal.svelte (background) -->
-            <path class="edge background" d="M 90 155 Q 60 215 90 260"/>
+            <!-- Active edges from RIFT vault to its direct dependencies -->
+            <!-- RIFT -> r006 terminal-emulator-rust (active research dep) -->
+            <path class="edge active" d="M 180 100 L 230 60" marker-end="url(#arrow-active)"/>
+            <!-- RIFT -> r004 tauri-svelte-xterm (active research dep, recent) -->
+            <path class="edge active" d="M 180 100 L 250 110" marker-end="url(#arrow-active)"/>
+            <!-- RIFT -> s001 aegis (skill dep) -->
+            <path class="edge" d="M 180 100 L 230 145" marker-end="url(#arrow-faint)"/>
+            <!-- RIFT -> pr001 global-rules (practice dep) -->
+            <path class="edge" d="M 180 100 L 110 60" marker-end="url(#arrow-faint)"/>
+            <!-- RIFT -> pr003 lessons (practice dep) -->
+            <path class="edge" d="M 180 100 L 105 140" marker-end="url(#arrow-faint)"/>
+
+            <!-- Sibling project edges (faint, ambient ring connections) -->
+            <path class="edge background" d="M 50 40 Q 30 80 45 120"/>
+            <path class="edge background" d="M 45 120 Q 80 175 145 175"/>
+            <path class="edge background" d="M 215 175 Q 280 175 315 130"/>
+            <path class="edge background" d="M 315 130 Q 335 75 305 30"/>
 
             <!-- =========== NODES =========== -->
 
-            <!-- App.svelte : RECENT (file circle) -->
-            <circle class="node-state-recent" cx="90" cy="135" r="18"/>
-            <text class="node-glyph recent" x="90" y="135">◐</text>
-            <text class="node-label recent" x="90" y="167">App.svelte</text>
+            <!-- RIFT (p006) : ACTIVE — center, the project being worked -->
+            <circle class="node-state-active" cx="180" cy="100" r="16"/>
+            <text class="node-glyph active" x="180" y="100">◐</text>
+            <text class="node-label active" x="180" y="128">RIFT (p006)</text>
+            <text class="attribution-badge" x="180" y="78" text-anchor="middle">CLAUDE</text>
 
-            <!-- NotificationPane.svelte : ACTIVE (the file claude is editing) -->
-            <circle class="node-state-active" cx="200" cy="185" r="22"/>
-            <text class="node-glyph active" x="200" y="185">◐</text>
-            <text class="node-label active" x="200" y="222">NotificationPane.svelte</text>
-            <text class="attribution-badge" x="200" y="153" text-anchor="middle">CLAUDE</text>
+            <!-- r006 terminal-emulator-rust : AMBIENT (research dep) -->
+            <circle class="node-state-ambient" cx="240" cy="55" r="9"/>
+            <text class="node-glyph" x="240" y="55">◐</text>
+            <text class="node-label" x="240" y="76">r006 term-rust</text>
 
-            <!-- Terminal.svelte : AMBIENT -->
-            <circle class="node-state-ambient" cx="90" cy="270" r="16"/>
-            <text class="node-glyph" x="90" y="270">◐</text>
-            <text class="node-label" x="90" y="298">Terminal.svelte</text>
+            <!-- r004 tauri-svelte-xterm : RECENT (Phase 3.5b drag-promote shipped) -->
+            <circle class="node-state-recent" cx="258" cy="113" r="10"/>
+            <text class="node-glyph recent" x="258" y="113">◐</text>
+            <text class="node-label recent" x="258" y="134">r004 tauri-svx</text>
 
-            <!-- bus.ts : RECENT (subscriptions touched) -->
-            <circle class="node-state-recent" cx="260" cy="290" r="17"/>
-            <text class="node-glyph recent" x="260" y="290">◐</text>
-            <text class="node-label recent" x="260" y="319">bus.ts</text>
+            <!-- s001 aegis : AMBIENT (skill — soft-square) -->
+            <rect class="node-state-ambient" x="231" y="142" width="18" height="18" rx="3"/>
+            <text class="node-glyph" x="240" y="151">⚙</text>
+            <text class="node-label" x="240" y="174">s001 aegis</text>
 
-            <!-- src/ directory (soft square) — AMBIENT, sits to the side as anchor -->
-            <rect class="node-state-ambient" x="22" y="195" width="32" height="32" rx="4"/>
-            <text class="node-glyph" x="38" y="211">▾</text>
-            <text class="node-label" x="38" y="240">src/</text>
+            <!-- pr001 global-rules : RECENT (practices, recently revised) -->
+            <circle class="node-state-recent" cx="100" cy="55" r="10"/>
+            <text class="node-glyph recent" x="100" y="55">◐</text>
+            <text class="node-label recent" x="100" y="76">pr001 rules</text>
 
-            <!-- RiftBus (crate, square) : RECENT — receives the new subscription -->
-            <rect class="node-state-recent" x="395" y="148" width="36" height="36" rx="4"/>
-            <text class="node-glyph recent" x="413" y="166">⚙</text>
-            <text class="node-label recent" x="413" y="198">RiftBus</text>
+            <!-- pr003 lessons : AMBIENT -->
+            <circle class="node-state-ambient" cx="95" cy="145" r="9"/>
+            <text class="node-glyph" x="95" y="145">◐</text>
+            <text class="node-label" x="95" y="166">pr003 lessons</text>
 
-            <!-- pty.rs (file circle) : AMBIENT -->
-            <circle class="node-state-ambient" cx="525" cy="175" r="16"/>
-            <text class="node-glyph" x="525" y="175">⚙</text>
-            <text class="node-label" x="525" y="203">pty.rs</text>
+            <!-- Sibling projects ring — fainter, no glow, perimeter -->
+            <!-- BD (p001) -->
+            <circle class="node-state-background" cx="50" cy="35" r="7"/>
+            <text class="node-label background" x="50" y="22">BD</text>
 
-            <!-- crates/ directory (square) : BACKGROUND -->
-            <rect class="node-state-background" x="355" y="215" width="28" height="28" rx="3"/>
-            <text class="node-glyph background" x="369" y="229">▾</text>
-            <text class="node-label background" x="369" y="256">crates/</text>
+            <!-- ANC (p002) -->
+            <circle class="node-state-background" cx="40" cy="115" r="7"/>
+            <text class="node-label background" x="22" y="118">ANC</text>
+
+            <!-- AIDE (p003) -->
+            <circle class="node-state-background" cx="155" cy="180" r="7"/>
+            <text class="node-label background" x="155" y="195">AIDE</text>
+
+            <!-- ATH (p004) -->
+            <circle class="node-state-background" cx="210" cy="180" r="7"/>
+            <text class="node-label background" x="210" y="195">ATH</text>
+
+            <!-- WEB (p005) -->
+            <circle class="node-state-background" cx="315" cy="30" r="7"/>
+            <text class="node-label background" x="315" y="18">WEB</text>
 
           </svg>
         </div>
@@ -921,60 +913,86 @@
           </div>
           <div class="tree-body">
 
-            <div class="tree-row">
-              <span class="tree-icon">▾</span><span>Rift_TerminalV2/</span>
-            </div>
+            <!-- Node-based file tree: same node geometry as the index graph,
+                 hand-positioned to render as a tree. Edges are L-shaped
+                 amber-dim strokes (vertical from parent, short horizontal to child).
+                 Levels: L0 x=20, L1 x=50, L2 x=80; row spacing ~24px. -->
+            <svg class="tree-svg" viewBox="0 0 320 360" preserveAspectRatio="xMinYMin meet">
 
-            <div class="tree-row tree-indent-1 recent">
-              <span class="tree-icon">▾</span><span>src/</span>
-              <span class="tree-attribution">CLAUDE</span>
-            </div>
+              <!-- =========== EDGES (L-shaped parent->child) =========== -->
+              <!-- src/ trunk down to App.svelte, lib/, main.ts, styles.css -->
+              <path class="edge" d="M 20 30 L 20 178"/>
+              <path class="edge" d="M 20 50 L 44 50"/>     <!-- -> App.svelte -->
+              <path class="edge" d="M 20 74 L 44 74"/>     <!-- -> lib/ -->
+              <path class="edge" d="M 20 226 L 44 226"/>   <!-- -> main.ts (offset, after lib children) -->
+              <path class="edge" d="M 20 250 L 44 250"/>   <!-- -> styles.css -->
 
-            <div class="tree-row tree-indent-2 recent">
-              <span class="tree-icon">▾</span><span>lib/</span>
-            </div>
+              <!-- lib/ trunk down to its children -->
+              <path class="edge" d="M 50 80 L 50 202"/>
+              <path class="edge" d="M 50 102 L 74 102"/>   <!-- -> NotificationPane -->
+              <path class="edge" d="M 50 126 L 74 126"/>   <!-- -> Popout -->
+              <path class="edge" d="M 50 150 L 74 150"/>   <!-- -> Terminal -->
+              <path class="edge" d="M 50 174 L 74 174"/>   <!-- -> TabBar -->
+              <path class="edge" d="M 50 198 L 74 198"/>   <!-- -> bus.ts -->
 
-            <!-- ACTIVE row: the file claude is editing this very second -->
-            <div class="tree-row tree-indent-3 active">
-              <span class="tree-icon">◐</span><span>NotificationPane.svelte</span>
-              <span class="tree-attribution">CLAUDE</span>
-            </div>
-            <div class="tree-row tree-indent-3 recent">
-              <span class="tree-icon">◐</span><span>NotificationPane.test.ts</span>
-              <span class="tree-attribution hook">HOOK</span>
-            </div>
-            <div class="tree-row tree-indent-3">
-              <span class="tree-icon">◐</span><span>StatusLine.svelte</span>
-            </div>
-            <div class="tree-row tree-indent-3">
-              <span class="tree-icon">◐</span><span>bus.ts</span>
-              <span class="tree-attribution agent">SCOUT</span>
-            </div>
+              <!-- src-tauri/ and crates/ are top-level siblings of src/ — collapsed -->
 
-            <div class="tree-row tree-indent-2 recent">
-              <span class="tree-icon">◐</span><span>App.svelte</span>
-            </div>
-            <div class="tree-row tree-indent-2">
-              <span class="tree-icon">◐</span><span>Terminal.svelte</span>
-            </div>
-            <div class="tree-row tree-indent-2">
-              <span class="tree-icon">◐</span><span>main.ts</span>
-            </div>
+              <!-- =========== NODES =========== -->
 
-            <div class="tree-row tree-indent-1">
-              <span class="tree-icon">▸</span><span>crates/</span>
-            </div>
-            <div class="tree-row tree-indent-1">
-              <span class="tree-icon">▸</span><span>src-tauri/</span>
-            </div>
+              <!-- L0: src/ (directory, soft-square, expanded) -->
+              <rect class="node-state-ambient" x="14" y="24" width="12" height="12" rx="2"/>
+              <text class="node-glyph" x="20" y="30">▾</text>
+              <text class="tree-node-label" x="32" y="30">src/</text>
 
-            <div class="tree-row tree-indent-1 pinned">
-              <span class="tree-icon">📜</span><span>RIFT_V2_VISION.md</span>
-            </div>
-            <div class="tree-row tree-indent-1">
-              <span class="tree-icon">📜</span><span>CLAUDE.md</span>
-              <span class="tree-attribution aegis">AEG</span>
-            </div>
+              <!-- L1: App.svelte (file, recent-decay) -->
+              <circle class="node-state-recent" cx="50" cy="50" r="5"/>
+              <text class="tree-node-label recent" x="60" y="53">App.svelte</text>
+
+              <!-- L1: lib/ (directory, soft-square, expanded) -->
+              <rect class="node-state-ambient" x="44" y="68" width="12" height="12" rx="2"/>
+              <text class="node-glyph" x="50" y="74">▾</text>
+              <text class="tree-node-label" x="62" y="74">lib/</text>
+
+              <!-- L2: NotificationPane.svelte — ACTIVE -->
+              <circle class="node-state-active" cx="80" cy="102" r="6"/>
+              <text class="tree-node-label active" x="91" y="105">NotificationPane.svelte</text>
+              <text class="attribution-badge" x="241" y="105">CLAUDE</text>
+
+              <!-- L2: Popout.svelte — recent-decay -->
+              <circle class="node-state-recent" cx="80" cy="126" r="5"/>
+              <text class="tree-node-label recent" x="90" y="129">Popout.svelte</text>
+
+              <!-- L2: Terminal.svelte — ambient -->
+              <circle class="node-state-ambient" cx="80" cy="150" r="5"/>
+              <text class="tree-node-label" x="90" y="153">Terminal.svelte</text>
+
+              <!-- L2: TabBar.svelte — ambient -->
+              <circle class="node-state-ambient" cx="80" cy="174" r="5"/>
+              <text class="tree-node-label" x="90" y="177">TabBar.svelte</text>
+
+              <!-- L2: bus.ts — recent-decay (active edge path from terminal-side action) -->
+              <circle class="node-state-recent" cx="80" cy="198" r="5"/>
+              <text class="tree-node-label recent" x="90" y="201">bus.ts</text>
+
+              <!-- L1: main.ts (file, ambient) -->
+              <circle class="node-state-ambient" cx="50" cy="226" r="5"/>
+              <text class="tree-node-label" x="60" y="229">main.ts</text>
+
+              <!-- L1: styles.css (file, ambient) -->
+              <circle class="node-state-ambient" cx="50" cy="250" r="5"/>
+              <text class="tree-node-label" x="60" y="253">styles.css</text>
+
+              <!-- L0: src-tauri/ (collapsed directory) -->
+              <rect class="node-state-ambient" x="14" y="278" width="12" height="12" rx="2"/>
+              <text class="node-glyph" x="20" y="284">▶</text>
+              <text class="tree-node-label" x="32" y="284">src-tauri/</text>
+
+              <!-- L0: crates/ (collapsed directory) -->
+              <rect class="node-state-ambient" x="14" y="308" width="12" height="12" rx="2"/>
+              <text class="node-glyph" x="20" y="314">▶</text>
+              <text class="tree-node-label" x="32" y="314">crates/</text>
+
+            </svg>
 
           </div>
         </div>
