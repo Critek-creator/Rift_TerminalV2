@@ -118,7 +118,18 @@
 
 ### Phase 8 — Index integration
 
-**Out:** Index tab + Index graph view (two views of same data, §10.12). **§10.18 graph-library decision RESOLVED 2026-04-27** — D3 modular (`d3-force` + `d3-selection` + `d3-zoom` + `d3-drag`) per `decisions/§10.18_graph_library.md`. Phase 8 entry unblocked; next beat is `/aegis --plan phase 8` to lock subphase sequence.
+**Out:** Index tab + Index graph view (two views of same data, §10.12) + data-enrichment layer attaching vault tags to fs nodes (§10.14). **§10.18 graph-library decision RESOLVED 2026-04-27** — D3 modular (`d3-force` + `d3-selection` + `d3-zoom` + `d3-drag`) per `decisions/§10.18_graph_library.md`.
+
+- Index translator (`crates/rift-bus/src/translators/index.rs`) — passive observer + lightweight cache; subscribes to Index-service update events; emits `Category::Index` envelopes with `kind` ∈ {`vault.update`, `enrichment`}. Vault-walker source reads `~/.claude/abyssal-index/MAIN_INDEX.md` + `vaults/` + frontmatter cross-references; live updates via `notify` crate watcher; debounce 100ms to coalesce bursts.
+- Index tab (`src/lib/IndexTabContent.svelte`) — capability-driven per §10.7; mirrors AegisTabContent 4-section anatomy.
+- Index graph (`src/lib/IndexGraph.svelte`) — D3 force-sim + pan/zoom + click-to-pin + drag-into-terminal (reuses Phase 6.6 primitive, payload = vault path). SVG filters for amber-glow + matte-black per §10.3.
+- Cockpit slot — IndexGraph occupies right-pane top (~55%); fs tree slides to right-pane bottom (~45%) per `rift-v2-mockup-integrated.html`.
+- Data enrichment — Index publishes `kind=enrichment` envelopes mapping `repo:`/`source:` frontmatter to fs paths; Tree.svelte consumes and renders vault badges. Cross-translator discipline preserved: Index publishes about fs paths; fs translator never reads Index state.
+- v1 = transient node positions (force-layout on every load; user can pin individual nodes via fx/fy in memory; no global save/load). v1.x adds layout persistence menu if asked.
+- Sync = live + 100ms debounce. Manual refresh button = v1.x affordance.
+- `rift-config.toml` extension — additive `[index]` section (`ignore_globs`, `sync_mode`, reserved `camera_transform` / `node_positions` for v1.x persistence). All `#[serde(default)]` so older configs don't break.
+
+- Subphases (locked 2026-04-27 via `/aegis --plan phase 8`): 8.0 §10.18 graph-lib decision (commit 0a2682e — already shipped) → 8.1 Index translator scaffold + `Category::Index` envelope types → 8.2 Index tab + IndexTabContent.svelte (capability-driven empty state) → 8.3 IndexGraph.svelte D3 skeleton on static fixture (pr003 `d3-svelte-effect-lifecycle` mitigation: r004 canonical mount pattern referenced in BV brief) → 8.4 cockpit slot wiring per mockup #3 — **Tranche-1 ships at end of 8.4** (GUI surface visible end-to-end with fixture data) → 8.5 vault-walker source + live data wiring (`notify` watcher, 100ms debounce, separate tokio task per Phase 7.1 setup() pattern) → 8.6 cross-translator data enrichment (Tree.svelte consumes Category::Index kind=enrichment) → 8.7 drag-into-terminal (Phase 6.6 primitive reuse, vault-path payload) + `rift-config.toml` `[index]` additive extension — **Tranche-2 ships at end of 8.7 (Phase 8 v1 COMPLETE).** No formal spec-patch subphase needed (§10.12 / §10.14 / §10.18 cover Phase 8 architecture).
 - Translator module subscribes to Index update events.
 - Tab view = list/tree. Graph view = node-edge free-form layout (the Abyssal Index vault network, per 2026-04-27 mockup #3 rework). Pan/zoom required.
 
