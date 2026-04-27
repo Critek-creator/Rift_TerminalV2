@@ -79,6 +79,31 @@ pub use translators::fs::read_text;
 pub use translators::fs::write_text;
 
 // ---------------------------------------------------------------------------
+// Index translator re-exports (Phase 8.1)
+// ---------------------------------------------------------------------------
+
+/// Publish a `Category::Index / kind="vault.update"` envelope via the index translator.
+///
+/// Convenience re-export so callers can write `rift_bus::publish_vault_update(...)`.
+/// Full path also works: `rift_bus::translators::index::publish_vault_update(...)`.
+pub use translators::index::publish_vault_update;
+
+/// Publish a `Category::Index / kind="enrichment"` envelope via the index translator.
+///
+/// Convenience re-export so callers can write `rift_bus::publish_index_enrichment(...)`.
+/// Full path also works: `rift_bus::translators::index::publish_index_enrichment(...)`.
+pub use translators::index::publish_index_enrichment;
+
+/// Re-export [`VaultUpdatePayload`] so callers can write `rift_bus::VaultUpdatePayload`.
+pub use translators::index::VaultUpdatePayload;
+
+/// Re-export [`IndexEnrichmentPayload`] so callers can write `rift_bus::IndexEnrichmentPayload`.
+pub use translators::index::IndexEnrichmentPayload;
+
+/// Re-export [`VaultChangeKind`] so callers can write `rift_bus::VaultChangeKind`.
+pub use translators::index::VaultChangeKind;
+
+// ---------------------------------------------------------------------------
 // config re-exports (Phase 6.7)
 // ---------------------------------------------------------------------------
 

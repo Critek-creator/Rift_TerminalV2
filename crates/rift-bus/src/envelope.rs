@@ -28,6 +28,8 @@ pub enum Category {
     Agent,
     /// Filesystem watcher events (read, write, create, delete).
     Fs,
+    /// Abyssal Index vault events (vault.update, enrichment).
+    Index,
     /// Aegis private translator events (private, optional integration).
     Aegis,
     /// Status-line snapshots (ctx %, session use, model, …).
@@ -125,6 +127,7 @@ mod tests {
             Category::Hook,
             Category::Agent,
             Category::Fs,
+            Category::Index,
             Category::Aegis,
             Category::Status,
             Category::System,
