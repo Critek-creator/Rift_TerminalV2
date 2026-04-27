@@ -21,17 +21,29 @@
 - **Owner:** future Phase 3.x builder.
 - **Acceptance:** drag a notification tab outside the strip → promotes to right-side pane next to terminal; drag back → returns to tab strip; only one promoted at a time; pop-out container can stack overlays with click-outside-dismiss.
 
-### D-006 — Translator surface (in-process bridge shipped, external CLI binary remains)
-- **Phase:** 5.1+5.2+5.3 (in-process Tauri↔bus bridge shipped 2026-04-26) → 5.4 (`rift hook` CLI binary) remains.
-- **What's shipped:** `bus_subscribe` / `bus_unsubscribe` / `bus_publish` Tauri commands give the webview full producer/consumer access to `RiftBus`. NotificationPane subscribes per-tab via `categoryFilter` prop and renders into the §10.4 four-section anatomy (status counts, live activity strip, recent events log, persistent state with kind histogram). Demo publish button validates webview→bus→subscriber→webview round-trip end to end. Tab→category map: `hooks → Category::Hook`; `errors`/`commands` placeholders until their translator design lands.
+### D-006 — Translator surface (in-process bridge + CLI shipped, translator design + build-guard remain)
+- **Phase:** 5.1+5.2+5.3 (in-process Tauri↔bus bridge shipped 2026-04-26) + 5.4 (CLI binary shipped 2026-04-27, commits `e426e1d` + `9ba1c53`) → translator design + §9 build-time guard remain.
+- **What's shipped:** `bus_subscribe` / `bus_unsubscribe` / `bus_publish` Tauri commands give the webview full producer/consumer access to `RiftBus`. NotificationPane subscribes per-tab via `categoryFilter` prop and renders into the §10.4 four-section anatomy. Tab→category map: `hooks → Category::Hook`; `errors`/`commands` placeholders. **Phase 5.4:** `crates/rift-cli` ships `rift hook <event-type>` + `rift status` (clap-based, 8/8 unit tests green). Socket resolution: `--socket` arg > `$RIFT_SOCKET_NAME` > helpful error pointing at both. Payload precedence: `--payload` inline JSON > stdin (parsed if JSON, else wrapped `{"stdin": "..."}`) > Null. `pty_start` now spawns child shells via `PtySession::spawn_with_options` injecting `RIFT_SOCKET_NAME=<live socket>` from `BusIpcState`, so `rift hook` from inside a Rift terminal "just works" without manual setup.
 - **What remains:**
-  - **`rift hook <event-type>` CLI binary** — connects to Rift's IPC server (`rift-v2-<pid>.sock`), reads JSON payload from stdin, publishes a `Category::Hook` envelope. Wired into Claude Code `settings.json` so user sees real Claude hooks land in the Hooks tab.
   - **Errors / commands category translators** — design open. Errors likely a `Category::System` filter on `kind: "error"`; commands likely PTY-derived from input lines.
   - **Build-time enforcement that no direct external-system calls happen outside `translators/` modules** (§9 build-time guard). Easy to add: a clippy lint or grep CI check looking for direct `tokio::net::*` / `reqwest` / `claude_*` outside designated paths.
-- **Concrete unblocking event:** explicit `/aegis` invocation to ship 5.4 — most natural when the user wants real Claude Code hooks rendering in the Hooks tab.
-- **Files affected (when resumed):** new `crates/rift-cli/{Cargo.toml,src/main.rs}` workspace member, new `crates/rift-bus` test for cross-process publish, optional CI script `tools/check-translator-boundary.sh`.
-- **Owner:** Phase 5.4 builder.
-- **Acceptance:** edit Claude Code `settings.json` to invoke `rift hook PreToolUse` (etc.); next tool use produces an envelope visible in the Hooks tab live activity strip + recent log.
+  - **Global Claude Code `settings.json` wiring** — split out to D-008 (deferred by user choice to avoid interfering with all sessions until Rift is daily-usable).
+- **Concrete unblocking event:** explicit `/aegis` invocation to design errors/commands translators OR to wire the §9 build-time guard. Independent of D-008.
+- **Files affected (when resumed):** new `crates/rift-bus/translators/` module tree (or top-level `translators/` if the design lands cross-cutting), optional CI script `tools/check-translator-boundary.sh`.
+- **Owner:** future translator-design builder.
+- **Acceptance:** errors-translator surfaces shell stderr / Tauri command Errs as `Category::System kind: "error"` envelopes visible in the Errors tab; commands-translator surfaces submitted command lines as `Category::Pty kind: "command.submitted"`; CI fails on a deliberate test PR that adds a direct `reqwest::Client::new()` outside `translators/`.
+
+### D-008 — Global Claude Code `settings.json` hooks wiring for `rift hook`
+- **Phase:** 5.4 close — deferred by explicit user choice on 2026-04-27.
+- **Why deferred:** wiring `rift hook PreToolUse` / `PostToolUse` / etc. into `~/.claude/settings.json` would make EVERY Claude Code session (not just Rift's embedded ones) fire the binary on hook events. Until Rift is daily-driver usable AND a built `rift.exe` artifact is reliably on PATH, that's noise + potential failure surface across all sessions. Engineering is done; this is a deployment + lifestyle handshake the user wants to make consciously, not autopilot.
+- **What's needed:**
+  - Built `rift.exe` artifact reachable from any shell (PATH addition OR absolute path in settings.json).
+  - Global hook entries in `~/.claude/settings.json` for PreToolUse / PostToolUse / UserPromptSubmit / SessionStart / SessionEnd / Notification / Stop / SubagentStop, each piping the hook JSON payload through stdin to `rift hook <event-type>`.
+  - Live Rift instance exposing `RIFT_SOCKET_NAME` — without one, `rift hook` from a non-Rift Claude Code session falls back to the documented "no socket name" error path. Acceptable graceful failure (Claude Code doesn't crash on hook errors), but worth confirming end-to-end before flipping the switch globally.
+- **Concrete unblocking event:** explicit user invocation ("ship D-008" / "wire the global hooks") once Rift is daily-usable. Not gated on any other Rift phase.
+- **Files affected (when resumed):** `~/.claude/settings.json` (global, NOT in this repo); PATH or absolute reference to the built `rift.exe`.
+- **Owner:** Garth (user-controlled — both the deployment decision and the per-session impact).
+- **Acceptance:** with Rift running, fire any Claude Code tool use from any project → corresponding envelope appears in Rift's Hooks tab live activity strip + recent log; non-Rift sessions log a graceful "no socket name" error without breaking Claude Code.
 
 ### D-007 — Mockup #2 (GUI alone) and Mockup #3 (integrated) not built before Phase 6
 - **Phase:** 0 → 6
