@@ -29,3 +29,22 @@ pub use translators::commands::publish as publish_command;
 
 /// Re-export [`CommandBuffer`] so callers can write `rift_bus::CommandBuffer`.
 pub use translators::commands::CommandBuffer;
+
+/// Publish a `Category::Fs` envelope via the filesystem translator.
+///
+/// Convenience re-export so callers can write `rift_bus::publish_fs_event(...)`.
+/// Full path also works: `rift_bus::translators::fs::publish_fs_event(...)`.
+pub use translators::fs::publish_fs_event;
+
+/// Spawn a filesystem watcher that publishes `Category::Fs` envelopes.
+///
+/// Convenience re-export so callers can write `rift_bus::spawn_fs_watcher(...)`.
+/// Full path also works: `rift_bus::translators::fs::spawn_fs_watcher(...)`.
+pub use translators::fs::spawn_fs_watcher;
+
+/// Re-export [`FsWatcher`] so callers can write `rift_bus::FsWatcher` (needed
+/// for Tauri state management).
+pub use translators::fs::FsWatcher;
+
+/// Re-export [`FsWatcherError`] so callers can write `rift_bus::FsWatcherError`.
+pub use translators::fs::FsWatcherError;

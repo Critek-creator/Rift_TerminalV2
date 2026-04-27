@@ -25,8 +25,8 @@ use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use rift_bus::{
-    publish_command, publish_error, Category, CommandBuffer, Envelope, IpcServer, RiftBus,
-    SubscribeFilter,
+    publish_command, publish_error, spawn_fs_watcher, Category, CommandBuffer, Envelope, IpcServer,
+    RiftBus, SubscribeFilter,
 };
 use rift_core::pty::{PtyControl, PtyDims, PtyOptions, PtySession};
 use serde::Serialize;
@@ -465,6 +465,34 @@ pub fn run() {
             // still subscribe through Tauri commands either way.
             let bus = RiftBus::default();
             app.manage(bus.clone());
+
+            // --- Filesystem watcher (Phase 6.1) ---
+            // Phase 6.7 unblock: replace with config-driven root when the
+            // project-config system ships.
+            let fs_root = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+            // Phase 6.7 unblock: move ignore globs to the project config system.
+            let fs_ignore_globs: Vec<String> = [
+                ".git/**",
+                "node_modules/**",
+                "target/**",
+                "dist/**",
+                "*.log",
+            ]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+            match spawn_fs_watcher(bus.clone(), fs_root, fs_ignore_globs) {
+                Ok(watcher) => {
+                    app.manage(watcher);
+                }
+                Err(e) => {
+                    let msg = e.to_string();
+                    tracing::error!("rift-fs-watcher failed to start: {msg}");
+                    publish_error(&bus, "tauri.setup.fs_watcher", &msg, None);
+                    // Do NOT fail setup — Rift ships even without the watcher,
+                    // mirroring the IpcServer best-effort pattern.
+                }
+            }
 
             let socket_name = format!("{IPC_SOCKET_PREFIX}-{}.sock", std::process::id());
             let bus_for_ipc = bus;
