@@ -1,9 +1,16 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Default capabilities for the main window during Phase 0 scaffold.",
+  "description": "Default capabilities for main + cockpit-detached windows. Window controls (minimize/maximize/close) granted so the custom TitleBar.svelte buttons fire. Webview-create granted so cockpit_detach (Phase 6.4) can spawn the detached cockpit window.",
   "windows": ["main", "cockpit-detached"],
   "permissions": [
-    "core:default"
+    "core:default",
+    "core:window:allow-minimize",
+    "core:window:allow-maximize",
+    "core:window:allow-unmaximize",
+    "core:window:allow-toggle-maximize",
+    "core:window:allow-close",
+    "core:window:allow-start-dragging",
+    "core:webview:allow-create-webview-window"
   ]
 }
