@@ -10,6 +10,7 @@
   } from './lib/TabBar.svelte';
   import Terminal from './lib/Terminal.svelte';
   import NotificationPane from './lib/NotificationPane.svelte';
+  import AegisTabContent from './lib/AegisTabContent.svelte';
   import StatusLine from './lib/StatusLine.svelte';
   import Popout from './lib/Popout.svelte';
   import { popouts } from './lib/popouts.svelte';
@@ -22,6 +23,7 @@
     hooks: 'hook',
     errors: 'system',     // v1: all Category::System envelopes are errors (kind="error" is the only System kind emitted); kind-filter is a future enhancement
     commands: 'pty',      // v1: all Category::Pty envelopes; only kind emitted is "command.submitted"; kind-filter deferred
+    aegis: 'aegis',       // Phase 7.2 — Aegis integration tab (private translator, feature-gated)
   };
 
   // ----- session tabs -----
@@ -33,6 +35,7 @@
     { id: 'errors',   title: 'errors',   icon: '⚡', enabled: true },
     { id: 'hooks',    title: 'hooks',    icon: '⚓', enabled: true },
     { id: 'commands', title: 'commands', icon: '⌘', enabled: true },
+    { id: 'aegis',    title: 'aegis',    icon: '◉', enabled: true },
   ]);
 
   // ----- which surface is in the main pane -----
@@ -192,16 +195,22 @@
 
         <!-- notification pane — only mount when a notif tab is active.
              Re-key on the tab id so switching tabs gives the pane a fresh
-             subscription rather than reusing one tied to the previous tab. -->
+             subscription rather than reusing one tied to the previous tab.
+             Phase 7.2: aegis tab routes to AegisTabContent; all others
+             continue to use the generic NotificationPane. -->
         {#if activeNotifTab}
           {#key activeNotifTab.id}
             <div class="surface visible">
-              <NotificationPane
-                title={activeNotifTab.title}
-                icon={activeNotifTab.icon}
-                accent={notifAccent(activeNotifTab.id)}
-                categoryFilter={CATEGORY_BY_NOTIF[activeNotifTab.id]}
-              />
+              {#if activeNotifTab.id === 'aegis'}
+                <AegisTabContent />
+              {:else}
+                <NotificationPane
+                  title={activeNotifTab.title}
+                  icon={activeNotifTab.icon}
+                  accent={notifAccent(activeNotifTab.id)}
+                  categoryFilter={CATEGORY_BY_NOTIF[activeNotifTab.id]}
+                />
+              {/if}
             </div>
           {/key}
         {/if}
@@ -219,19 +228,23 @@
       </div>
 
       <!-- Phase 3.5a — promoted notification side-pane.
-           Independent NotificationPane instance (not driven by `active`).
+           Independent NotificationPane / AegisTabContent instance (not driven by `active`).
            Re-keyed on the promoted id so the subscription resets cleanly
            when one promoted tab replaces another. -->
       {#if promotedTab}
         {#key promotedTab.id}
           <aside class="promoted-pane">
-            <NotificationPane
-              title={promotedTab.title}
-              icon={promotedTab.icon}
-              accent={notifAccent(promotedTab.id)}
-              categoryFilter={CATEGORY_BY_NOTIF[promotedTab.id]}
-              onDragBack={demoteTab}
-            />
+            {#if promotedTab.id === 'aegis'}
+              <AegisTabContent onDragBack={demoteTab} />
+            {:else}
+              <NotificationPane
+                title={promotedTab.title}
+                icon={promotedTab.icon}
+                accent={notifAccent(promotedTab.id)}
+                categoryFilter={CATEGORY_BY_NOTIF[promotedTab.id]}
+                onDragBack={demoteTab}
+              />
+            {/if}
           </aside>
         {/key}
       {/if}
