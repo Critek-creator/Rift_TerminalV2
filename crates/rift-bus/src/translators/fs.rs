@@ -78,6 +78,7 @@ use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use serde_json::json;
 use thiserror::Error;
 
+use crate::config::DEFAULT_IGNORE_GLOBS;
 use crate::{Category, Envelope, RiftBus};
 
 // ---------------------------------------------------------------------------
@@ -88,15 +89,6 @@ use crate::{Category, Envelope, RiftBus};
 /// Files exceeding this limit return [`FsWatcherError::FileTooLarge`] rather
 /// than potentially freezing the webview with a massive string allocation.
 pub const MAX_READ_BYTES: u64 = 8 * 1024 * 1024; // 8 MiB
-
-/// Default ignore globs used by [`validate_project_path`] and the watcher.
-const DEFAULT_IGNORE_GLOBS: &[&str] = &[
-    ".git/**",
-    "node_modules/**",
-    "target/**",
-    "dist/**",
-    "*.log",
-];
 
 // ---------------------------------------------------------------------------
 // TreeNode — static snapshot of a directory subtree
@@ -353,9 +345,6 @@ pub enum FsWatcherError {
         path.display()
     )]
     FileTooLarge { path: PathBuf, size: u64, max: u64 },
-    /// `std::env::current_dir()` failed (e.g. cwd deleted out from under us).
-    #[error("failed to determine current working directory: {0}")]
-    CurrentDirFailed(#[source] std::io::Error),
 }
 
 // ---------------------------------------------------------------------------
@@ -365,8 +354,8 @@ pub enum FsWatcherError {
 /// Compile the default ignore globs into a [`GlobSet`].
 ///
 /// Called once per [`validate_project_path`] invocation — cheap enough for
-/// per-request use. Phase 6.7 can memoize this into managed state if profiling
-/// shows it as a hot path.
+/// per-request use. `DEFAULT_IGNORE_GLOBS` is imported from `crate::config`
+/// (single source of truth — Phase 6.7 consolidation).
 fn default_ignore_globset() -> GlobSet {
     let mut builder = GlobSetBuilder::new();
     for pattern in DEFAULT_IGNORE_GLOBS {
@@ -388,7 +377,6 @@ fn default_ignore_globset() -> GlobSet {
 ///
 /// # Errors
 ///
-/// - [`FsWatcherError::CurrentDirFailed`] — `std::env::current_dir()` fails.
 /// - [`FsWatcherError::CanonicalizeFailed`] — the joined path cannot be
 ///   canonicalized (file does not exist, permission denied, etc.).
 /// - [`FsWatcherError::PathOutsideRoot`] — canonicalized path is outside root.
@@ -399,13 +387,20 @@ fn default_ignore_globset() -> GlobSet {
 /// `dunce::canonicalize` resolves symlinks only to the extent the OS does so
 /// on the first canonicalization call. Phase 6.x may add an explicit
 /// "no symlink escape" check; v1 matches the watcher's existing posture.
-pub fn validate_project_path(rel_path: &str) -> Result<PathBuf, FsWatcherError> {
-    // Resolve project root via dunce to avoid Windows \\?\ UNC prefix issues
-    // (pr003 gotcha: windows-canonicalize-unc-prefix-vs-notify-callback-paths).
-    let root = std::env::current_dir().map_err(FsWatcherError::CurrentDirFailed)?;
+///
+/// # Project root migration (Phase 6.7)
+///
+/// `root` is now an explicit parameter (was `std::env::current_dir()` in 6.5).
+/// Callers in `src-tauri` pass the managed `ProjectRoot` state so that
+/// `project_swap` actually re-roots read/write — Validator 6.7 lesson
+/// `fs_read_write-still-reads-current_dir-after-project_swap`.
+pub fn validate_project_path(root: &Path, rel_path: &str) -> Result<PathBuf, FsWatcherError> {
+    // Canonicalize the caller-provided root via dunce to avoid Windows
+    // `\\?\` UNC prefix issues (pr003 gotcha:
+    // windows-canonicalize-unc-prefix-vs-notify-callback-paths).
     let canon_root =
-        dunce::canonicalize(&root).map_err(|source| FsWatcherError::CanonicalizeFailed {
-            path: root.clone(),
+        dunce::canonicalize(root).map_err(|source| FsWatcherError::CanonicalizeFailed {
+            path: root.to_path_buf(),
             source,
         })?;
 
@@ -448,8 +443,8 @@ pub fn validate_project_path(rel_path: &str) -> Result<PathBuf, FsWatcherError> 
 ///
 /// All path-validation errors from [`validate_project_path`] plus
 /// [`FsWatcherError::FileTooLarge`] and [`FsWatcherError::IoFailed`].
-pub fn read_text(rel_path: &str) -> Result<String, FsWatcherError> {
-    let abs_path = validate_project_path(rel_path)?;
+pub fn read_text(root: &Path, rel_path: &str) -> Result<String, FsWatcherError> {
+    let abs_path = validate_project_path(root, rel_path)?;
 
     // Check file size before reading to avoid large allocations.
     let meta = std::fs::metadata(&abs_path).map_err(|source| FsWatcherError::IoFailed {
@@ -488,8 +483,8 @@ pub fn read_text(rel_path: &str) -> Result<String, FsWatcherError> {
 ///
 /// All path-validation errors from [`validate_project_path`] plus
 /// [`FsWatcherError::IoFailed`].
-pub fn write_text(rel_path: &str, content: &str) -> Result<(), FsWatcherError> {
-    let abs_path = validate_project_path(rel_path)?;
+pub fn write_text(root: &Path, rel_path: &str, content: &str) -> Result<(), FsWatcherError> {
+    let abs_path = validate_project_path(root, rel_path)?;
 
     // v1: only write to existing files. canonicalize (inside validate) already
     // confirmed the path exists. Racy by nature — documented above.
@@ -1024,33 +1019,9 @@ mod tests {
     }
 
     // ---------------------------------------------------------------------------
-    // CWD-mutating test helpers (T12-T15)
-    //
-    // validate_project_path reads std::env::current_dir() for the project root.
-    // Cargo runs tests in parallel threads inside the same process, so cwd
-    // mutations are process-global. We:
-    //   1. Serialize all cwd-mutating tests with a static Mutex.
-    //   2. Capture the *real* binary cwd once (before any tempdir is created)
-    //      and restore to it — never to another test's tempdir.
+    // T12-T15 — Phase 6.7 root-as-parameter migration eliminated the cwd-lock
+    // machinery; tests now pass tempdir directly as the root parameter.
     // ---------------------------------------------------------------------------
-
-    use std::path::PathBuf;
-    use std::sync::{Mutex, OnceLock};
-
-    /// The process working directory captured before any test run. Guards
-    /// against restoring to a tempdir that another test has already cleaned up.
-    fn real_cwd() -> PathBuf {
-        static REAL_CWD: OnceLock<PathBuf> = OnceLock::new();
-        REAL_CWD
-            .get_or_init(|| std::env::current_dir().expect("real_cwd init"))
-            .clone()
-    }
-
-    /// Mutex that serializes all tests that mutate the process cwd.
-    fn cwd_lock() -> &'static Mutex<()> {
-        static CWD_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        CWD_LOCK.get_or_init(|| Mutex::new(()))
-    }
 
     // T12 — validate_project_path_strips_under_root: a valid relative path
     // inside the tempdir resolves to an absolute canonical path under root.
@@ -1058,22 +1029,14 @@ mod tests {
     fn validate_project_path_strips_under_root() {
         use tempfile::tempdir;
 
-        // Capture real cwd BEFORE acquiring the lock (tempdir may not exist yet).
-        let restore_to = real_cwd();
-        let _guard = cwd_lock().lock().unwrap_or_else(|p| p.into_inner());
-
         let dir = tempdir().expect("tempdir");
         let root = dunce::canonicalize(dir.path()).expect("canon root");
 
         std::fs::create_dir(root.join("sub")).unwrap();
         std::fs::write(root.join("sub").join("file.rs"), b"hello").unwrap();
 
-        std::env::set_current_dir(&root).expect("set_current_dir");
-        let result = validate_project_path("sub/file.rs");
-        // Restore before any assert so tempdir cleanup is safe.
-        std::env::set_current_dir(&restore_to).expect("restore cwd");
-
-        let abs_path = result.expect("validate_project_path should succeed for sub/file.rs");
+        let abs_path = validate_project_path(&root, "sub/file.rs")
+            .expect("validate_project_path should succeed for sub/file.rs");
         assert!(
             abs_path.starts_with(&root),
             "resolved path should be under root: {abs_path:?}"
@@ -1090,18 +1053,12 @@ mod tests {
     fn validate_project_path_rejects_traversal() {
         use tempfile::tempdir;
 
-        let restore_to = real_cwd();
-        let _guard = cwd_lock().lock().unwrap_or_else(|p| p.into_inner());
-
         let dir = tempdir().expect("tempdir");
         let root = dunce::canonicalize(dir.path()).expect("canon root");
 
-        std::env::set_current_dir(&root).expect("set_current_dir");
         // "../outside.txt" — parent dir may or may not exist; either
         // CanonicalizeFailed (not found) or PathOutsideRoot. Both = correct rejection.
-        let result = validate_project_path("../outside.txt");
-        std::env::set_current_dir(&restore_to).expect("restore cwd");
-
+        let result = validate_project_path(&root, "../outside.txt");
         assert!(
             result.is_err(),
             "traversal path should be rejected; got Ok({:?})",
@@ -1115,9 +1072,6 @@ mod tests {
     fn validate_project_path_rejects_ignored_glob() {
         use tempfile::tempdir;
 
-        let restore_to = real_cwd();
-        let _guard = cwd_lock().lock().unwrap_or_else(|p| p.into_inner());
-
         let dir = tempdir().expect("tempdir");
         let root = dunce::canonicalize(dir.path()).expect("canon root");
 
@@ -1125,10 +1079,7 @@ mod tests {
         std::fs::create_dir(root.join("target")).unwrap();
         std::fs::write(root.join("target").join("foo.txt"), b"").unwrap();
 
-        std::env::set_current_dir(&root).expect("set_current_dir");
-        let result = validate_project_path("target/foo.txt");
-        std::env::set_current_dir(&restore_to).expect("restore cwd");
-
+        let result = validate_project_path(&root, "target/foo.txt");
         assert!(
             matches!(result, Err(FsWatcherError::PathIgnored { .. })),
             "target/foo.txt should be rejected as PathIgnored; got: {result:?}"
@@ -1141,9 +1092,6 @@ mod tests {
     fn read_text_size_cap() {
         use tempfile::tempdir;
 
-        let restore_to = real_cwd();
-        let _guard = cwd_lock().lock().unwrap_or_else(|p| p.into_inner());
-
         let dir = tempdir().expect("tempdir");
         let root = dunce::canonicalize(dir.path()).expect("canon root");
 
@@ -1151,10 +1099,7 @@ mod tests {
         let oversized: Vec<u8> = vec![b'a'; (MAX_READ_BYTES as usize) + 1];
         std::fs::write(root.join("big.bin"), &oversized).unwrap();
 
-        std::env::set_current_dir(&root).expect("set_current_dir");
-        let result = read_text("big.bin");
-        std::env::set_current_dir(&restore_to).expect("restore cwd");
-
+        let result = read_text(&root, "big.bin");
         match result {
             Err(FsWatcherError::FileTooLarge { size, max, .. }) => {
                 assert!(

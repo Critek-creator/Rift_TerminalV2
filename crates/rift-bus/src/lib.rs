@@ -7,6 +7,7 @@
 // Future: translator-module registry.
 
 pub mod bus;
+pub mod config;
 pub mod envelope;
 pub mod ipc;
 pub mod translators;
@@ -76,3 +77,19 @@ pub use translators::fs::read_text;
 ///
 /// Convenience re-export; full path: `rift_bus::translators::fs::write_text(...)`.
 pub use translators::fs::write_text;
+
+// ---------------------------------------------------------------------------
+// config re-exports (Phase 6.7)
+// ---------------------------------------------------------------------------
+
+/// Top-level Rift configuration struct.
+pub use config::{CockpitConfig, DetachedPos, FsConfig, ProjectEntry, RiftConfig};
+
+/// Load config from the platform config directory (default on missing file).
+pub use config::load_config;
+
+/// Save config to the platform config directory (atomic write).
+pub use config::save_config;
+
+/// Canonical default filesystem ignore globs (single source of truth).
+pub use config::DEFAULT_IGNORE_GLOBS;

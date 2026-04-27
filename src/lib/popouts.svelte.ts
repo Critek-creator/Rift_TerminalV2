@@ -29,6 +29,10 @@ export type PopoutContent =
       kind: 'viewer';
       /** Project-relative path forwarded to fs_read_text / fs_write_text. */
       path: string;
+    }
+  | {
+      /** Phase 6.7 — project picker (switch active project). */
+      kind: 'project-picker';
     };
 
 export interface PopoutEntry {

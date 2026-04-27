@@ -3,6 +3,7 @@
   import { invoke } from '@tauri-apps/api/core';
   import { listen } from '@tauri-apps/api/event';
   import { onMount } from 'svelte';
+  import { popouts } from './popouts.svelte';
 
   const appWindow = getCurrentWindow();
 
@@ -50,12 +51,29 @@
       console.error('[TitleBar] cockpit_detach failed:', err);
     }
   }
+
+  function openProjectPicker(): void {
+    popouts.summon({
+      content: { kind: 'project-picker' },
+      width: 'min(640px, 80vw)',
+    });
+  }
 </script>
 
 <header class="titlebar" data-tauri-drag-region>
   <span class="brand"><span class="glyph">◆</span>RIFT</span>
   <span class="spacer" data-tauri-drag-region></span>
   <div class="controls">
+    <!-- PROJECT button — opens the project-picker popout (Phase 6.7). -->
+    <button
+      type="button"
+      class="btn project"
+      aria-label="switch project"
+      onclick={openProjectPicker}
+      title="switch project (Ctrl+P later — Phase 6.x)"
+    >
+      ▦ PROJECT
+    </button>
     <!-- DETACH GUI chip (mockup line 656). Hidden while detached; replaced by inert state label. -->
     {#if !detached}
       <button type="button" class="btn detach" aria-label="detach cockpit to second window" onclick={detachGui}>
@@ -114,6 +132,18 @@
   .btn.close:hover {
     color: var(--term-red);
     border-color: var(--term-red);
+  }
+  /* PROJECT button — same shape as DETACH GUI, same border vocabulary */
+  .btn.project {
+    width: auto;
+    padding: 0 6px;
+    font-size: 9px;
+    letter-spacing: 0.08em;
+  }
+  .btn.project:hover {
+    color: var(--amber-bright);
+    border-color: var(--amber-bright);
+    text-shadow: var(--glow-amber);
   }
   /* DETACH GUI button — wider than the window controls, same border vocabulary */
   .btn.detach {

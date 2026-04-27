@@ -9,6 +9,7 @@
   // amber-bordered card, JetBrains Mono inherit, soft fade-in.
 
   import { popouts, type PopoutEntry } from './popouts.svelte';
+  import ProjectPicker from './ProjectPicker.svelte';
   import Viewer from './Viewer.svelte';
 
   interface Props {
@@ -77,11 +78,13 @@
   const zIndex = $derived(1000 + stackIndex * 10);
   const cardWidth = $derived(entry.width ?? 'min(640px, 80vw)');
 
-  /** Display title for the card header — viewer uses the basename of path. */
+  /** Display title for the card header. */
   const cardTitle = $derived(
     entry.content.kind === 'viewer'
       ? (entry.content.path.split('/').at(-1) ?? entry.content.path)
-      : entry.content.title,
+      : entry.content.kind === 'project-picker'
+        ? 'Switch Project'
+        : entry.content.title,
   );
 </script>
 
@@ -113,7 +116,11 @@
       {/if}
     </header>
 
-    <div class="card-body" class:card-body-viewer={entry.content.kind === 'viewer'}>
+    <div
+      class="card-body"
+      class:card-body-viewer={entry.content.kind === 'viewer'}
+      class:card-body-picker={entry.content.kind === 'project-picker'}
+    >
       {#if entry.content.kind === 'text'}
         <p class="text-body">{entry.content.body}</p>
       {:else if entry.content.kind === 'confirm'}
@@ -131,6 +138,10 @@
              state, and keyboard shortcuts (Ctrl+E / Ctrl+S / Esc). The
              popout chrome provides the backdrop, close-X, and title bar. -->
         <Viewer path={entry.content.path} popoutId={entry.id} />
+      {:else if entry.content.kind === 'project-picker'}
+        <!-- Phase 6.7: ProjectPicker owns its own keyboard handling (Esc
+             stopPropagation per pr003 popout-keydown-bubble-collision). -->
+        <ProjectPicker popoutId={entry.id} />
       {/if}
     </div>
   </div>
@@ -197,6 +208,15 @@
   }
   /* Viewer manages its own padding + scrolling — strip the card padding. */
   .card-body-viewer {
+    padding: 0;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    flex: 1;
+  }
+  /* ProjectPicker manages its own padding — strip the card padding. */
+  .card-body-picker {
     padding: 0;
     overflow: hidden;
     display: flex;

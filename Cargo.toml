@@ -30,6 +30,8 @@ anyhow = "1"
 notify = "6"
 globset = "0.4"
 dunce = "1"
+toml = "0.8"
+directories = "5"
 
 [profile.release]
 codegen-units = 1

@@ -17,22 +17,34 @@ mod cockpit_window;
 //   * `rift_bus_status` reports subscriber count + replay length + socket
 //     name for diagnostics.
 //
+// Phase 6.7: Config + ProjectRoot + WatcherRegistry.
+//   * `config_get`    — load RiftConfig (defaults on first launch).
+//   * `config_save`   — persist RiftConfig atomically.
+//   * `project_swap`  — swap the active project root + live watcher.
+//   * `WatcherRegistry` — drop-safe single-watcher state; replaces the
+//     previous `app.manage(watcher)` pattern.
+//   * `ProjectRoot`   — Tauri-managed canonical project root path, read by
+//     `fs_tree`, `fs_read_text`, and `fs_write_text`. Consolidates the
+//     duplicate `env::current_dir()` calls flagged by Validator 6.2.
+//
 // Real-time mechanism per `decisions/§10.15_real-time_update_mechanism.md`:
 // Tier 1 = `Channel<T>` for in-process high-throughput streams (PTY
 // output) + Tauri `app.emit` for low-frequency notifications. Tier 2 =
 // `RiftBus` + `IpcServer` for cross-process translator integration.
 
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use rift_bus::{
-    build_tree, publish_command, publish_error, read_text, spawn_fs_watcher, write_text, Category,
-    CommandBuffer, Envelope, IpcServer, RiftBus, SubscribeFilter, TreeNode,
-    FS_TREE_DEFAULT_MAX_DEPTH,
+    build_tree, load_config, publish_command, publish_error, read_text, save_config,
+    spawn_fs_watcher, write_text, Category, CommandBuffer, Envelope, FsWatcher, IpcServer, RiftBus,
+    RiftConfig, SubscribeFilter, TreeNode, DEFAULT_IGNORE_GLOBS, FS_TREE_DEFAULT_MAX_DEPTH,
 };
 use rift_core::pty::{PtyControl, PtyDims, PtyOptions, PtySession};
 use serde::Serialize;
+use serde_json::json;
 use tauri::ipc::Channel;
 use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::sync::oneshot;
@@ -167,6 +179,66 @@ impl BusSubscriptionRegistry {
         {
             let _ = tx.send(());
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// WatcherRegistry (Phase 6.7)
+//
+// Replaces the old `app.manage(watcher)` pattern. Holds at most one live
+// FsWatcher; `replace` drops the old watcher cleanly before installing the
+// new one (pr003 gotcha: `command-buffer-leak-on-natural-pty-exit` applied
+// to watchers — drop fully before mounting new).
+// ---------------------------------------------------------------------------
+
+#[derive(Default)]
+struct WatcherRegistry {
+    current: Mutex<Option<FsWatcher>>,
+}
+
+impl WatcherRegistry {
+    /// Install `w` as the active watcher.  Drops the previous watcher first
+    /// (which closes its notify OS thread and dispatcher thread cleanly).
+    /// Returns the previous watcher, if any.
+    fn replace(&self, w: FsWatcher) -> Option<FsWatcher> {
+        self.current
+            .lock()
+            .expect("watcher registry poisoned")
+            .replace(w)
+    }
+
+    /// Drop the current watcher, leaving the registry empty.
+    fn clear(&self) {
+        *self.current.lock().expect("watcher registry poisoned") = None;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// ProjectRoot (Phase 6.7)
+//
+// Tauri-managed canonical project root. Initialized from current_dir() at
+// startup; mutated by project_swap. fs_tree / fs_read_text / fs_write_text
+// read from here instead of calling current_dir() themselves — consolidates
+// the duplicate env::current_dir() calls flagged by Validator 6.2.
+// ---------------------------------------------------------------------------
+
+struct ProjectRoot {
+    path: Mutex<PathBuf>,
+}
+
+impl ProjectRoot {
+    fn new(path: PathBuf) -> Self {
+        Self {
+            path: Mutex::new(path),
+        }
+    }
+
+    fn get(&self) -> PathBuf {
+        self.path.lock().expect("project root poisoned").clone()
+    }
+
+    fn set(&self, path: PathBuf) {
+        *self.path.lock().expect("project root poisoned") = path;
     }
 }
 
@@ -417,30 +489,25 @@ fn bus_unsubscribe(state: State<'_, BusSubscriptionRegistry>, id: u64) {
     state.remove(id);
 }
 
-/// Return a static snapshot of the filesystem tree rooted at the process
-/// working directory.
+/// Return a static snapshot of the filesystem tree rooted at the current
+/// project root (managed [`ProjectRoot`] state — Phase 6.7).
 ///
-/// Uses the same root and ignore-glob set as the live watcher spawned during
-/// [`run`] setup.
-///
-/// # Phase 6.7 unblock
-/// When the project-config system ships, the root and globs will be driven by
-/// config state rather than re-computed inline here.
+/// Globs are read from the current [`RiftConfig`]'s `fs.ignore_globs`.
+/// Falling back to [`DEFAULT_IGNORE_GLOBS`] on config-load failure ensures
+/// the command always succeeds even if the config file is absent.
 #[tauri::command]
-fn fs_tree(bus: State<'_, RiftBus>) -> Result<TreeNode, String> {
-    // Mirror the watcher's root and ignore-globs (Phase 6.7 unblock: move to
-    // config-driven storage so the command and watcher share the same values).
-    let root = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
-    let ignore_patterns: Vec<String> = [
-        ".git/**",
-        "node_modules/**",
-        "target/**",
-        "dist/**",
-        "*.log",
-    ]
-    .iter()
-    .map(|s| s.to_string())
-    .collect();
+fn fs_tree(
+    bus: State<'_, RiftBus>,
+    project_root: State<'_, ProjectRoot>,
+) -> Result<TreeNode, String> {
+    let root = project_root.get();
+
+    // Load config to obtain the user's ignore-glob list. Fall back to the
+    // canonical defaults if the config is unavailable (first launch, parse
+    // error, etc.) so the command always succeeds.
+    let ignore_patterns: Vec<String> = load_config()
+        .map(|cfg| cfg.fs.ignore_globs)
+        .unwrap_or_else(|_| DEFAULT_IGNORE_GLOBS.iter().map(|s| s.to_string()).collect());
 
     let mut builder = globset::GlobSetBuilder::new();
     for pattern in &ignore_patterns {
@@ -485,13 +552,18 @@ fn bus_publish(
 
 /// Read the text of a project-relative file and return it to the frontend.
 ///
-/// Path validation (via [`read_text`]) runs first — directory traversal,
-/// ignored-glob paths, and files exceeding 8 MiB are all rejected before any
-/// I/O. Failures are published as `Category::System / kind="error"` envelopes
-/// for diagnostic visibility (mirrors the `fs_tree` pattern).
+/// Uses the managed [`ProjectRoot`] as the base for path validation —
+/// Phase 6.7 consolidation closes Validator lesson
+/// `fs_read_write-still-reads-current_dir-after-project_swap`. After
+/// `project_swap`, this command resolves paths against the swapped root.
 #[tauri::command]
-fn fs_read_text(bus: State<'_, RiftBus>, path: String) -> Result<String, String> {
-    read_text(&path).map_err(|e| {
+fn fs_read_text(
+    bus: State<'_, RiftBus>,
+    project_root: State<'_, ProjectRoot>,
+    path: String,
+) -> Result<String, String> {
+    let root = project_root.get();
+    read_text(&root, &path).map_err(|e| {
         let msg = e.to_string();
         publish_error(bus.inner(), "tauri.command.fs_read_text", &msg, None);
         msg
@@ -500,16 +572,159 @@ fn fs_read_text(bus: State<'_, RiftBus>, path: String) -> Result<String, String>
 
 /// Write text content to an existing project-relative file.
 ///
-/// Only writes to files that already exist (v1 constraint — see `write_text`
-/// doc for the racy-lstat note). Path validation runs first. Failures are
-/// published as `Category::System / kind="error"` envelopes.
+/// Mirrors `fs_read_text`'s `ProjectRoot` discipline so post-swap writes
+/// land in the swapped project, not the launch cwd.
 #[tauri::command]
-fn fs_write_text(bus: State<'_, RiftBus>, path: String, content: String) -> Result<(), String> {
-    write_text(&path, &content).map_err(|e| {
+fn fs_write_text(
+    bus: State<'_, RiftBus>,
+    project_root: State<'_, ProjectRoot>,
+    path: String,
+    content: String,
+) -> Result<(), String> {
+    let root = project_root.get();
+    write_text(&root, &path, &content).map_err(|e| {
         let msg = e.to_string();
         publish_error(bus.inner(), "tauri.command.fs_write_text", &msg, None);
         msg
     })
+}
+
+// ---------------------------------------------------------------------------
+// Phase 6.7 commands — config + project_swap
+// ---------------------------------------------------------------------------
+
+/// Return the current [`RiftConfig`] (loads from disk; returns defaults on
+/// first launch or missing file).
+#[tauri::command]
+fn config_get(bus: State<'_, RiftBus>) -> Result<RiftConfig, String> {
+    load_config().map_err(|e| {
+        let msg = e.to_string();
+        publish_error(bus.inner(), "tauri.command.config_get", &msg, None);
+        msg
+    })
+}
+
+/// Persist `cfg` to the platform config directory (atomic write).
+#[tauri::command]
+fn config_save(bus: State<'_, RiftBus>, cfg: RiftConfig) -> Result<(), String> {
+    save_config(&cfg).map_err(|e| {
+        let msg = e.to_string();
+        publish_error(bus.inner(), "tauri.command.config_save", &msg, None);
+        msg
+    })
+}
+
+/// Swap the active project to `path`.
+///
+/// Sequence (Design F):
+///  1. Canonicalize `path` via `dunce` (pr003 gotcha).
+///  2. Verify it is a directory.
+///  3. Drop the old watcher (WatcherRegistry::clear).
+///  4. Spawn a new watcher on `path`.
+///  5. On watcher failure → publish error, return Err (config NOT saved — rollback).
+///  6. Update ProjectRoot managed state.
+///  7. Upsert + sort + cap ProjectEntry in RiftConfig; save atomically.
+///  8. Publish `Category::System / kind="project.changed"` envelope so
+///     Tree.svelte re-fetches the tree and clears treeActivity.
+#[tauri::command]
+fn project_swap(
+    bus: State<'_, RiftBus>,
+    watcher_reg: State<'_, WatcherRegistry>,
+    project_root: State<'_, ProjectRoot>,
+    path: String,
+) -> Result<(), String> {
+    // Step 1: Canonicalize via dunce (avoids Windows \\?\ UNC prefix issues).
+    let canon = dunce::canonicalize(&path)
+        .map_err(|e| format!("project_swap: canonicalize failed: {e}"))?;
+
+    // Step 2: Verify the path is a directory.
+    if !canon.metadata().map(|m| m.is_dir()).unwrap_or(false) {
+        return Err(format!(
+            "project_swap: '{}' is not a directory",
+            canon.display()
+        ));
+    }
+
+    // Read config to get the ignore globs for the new watcher.
+    let mut cfg = load_config().unwrap_or_default();
+    let ignore_globs = cfg.fs.ignore_globs.clone();
+
+    // Step 3: Drop the old watcher cleanly BEFORE spawning the new one.
+    // (pr003 `command-buffer-leak-on-natural-pty-exit` applied to watchers.)
+    watcher_reg.clear();
+
+    // Step 4: Spawn the new watcher.
+    let bus_clone = bus.inner().clone();
+    match spawn_fs_watcher(bus_clone.clone(), canon.clone(), ignore_globs) {
+        Ok(new_watcher) => {
+            watcher_reg.replace(new_watcher);
+        }
+        Err(e) => {
+            // Step 5: Watcher spawn failed — publish error, return Err without
+            // saving config (rollback semantics: old watcher is already gone but
+            // at least config doesn't record a broken project).
+            let msg = format!("project_swap: watcher spawn failed: {e}");
+            publish_error(bus.inner(), "tauri.command.project_swap", &msg, None);
+            return Err(msg);
+        }
+    }
+
+    // Step 6: Update the managed ProjectRoot.
+    project_root.set(canon.clone());
+
+    // Step 7: Upsert the ProjectEntry, sort descending, cap at 10 (LRU).
+    let name = canon
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| canon.to_string_lossy().into_owned());
+
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+
+    // Update existing entry or insert a new one.
+    if let Some(existing) = cfg.projects.iter_mut().find(|e| e.path == canon) {
+        existing.last_used_ms = now_ms;
+        existing.name = name;
+    } else {
+        cfg.projects.push(rift_bus::ProjectEntry {
+            name,
+            path: canon.clone(),
+            last_used_ms: now_ms,
+        });
+    }
+
+    // Sort by last_used_ms descending, cap to 10 (LRU eviction).
+    cfg.projects
+        .sort_by_key(|e| std::cmp::Reverse(e.last_used_ms));
+    cfg.projects.truncate(10);
+
+    if let Err(e) = save_config(&cfg) {
+        // Config save failing is non-fatal — the watcher is already running on
+        // the new root. Log and continue; the swap succeeded.
+        tracing::warn!("project_swap: config save failed (non-fatal): {e}");
+        publish_error(
+            bus.inner(),
+            "tauri.command.project_swap.config_save",
+            e.to_string(),
+            None,
+        );
+    }
+
+    // Step 8: Publish project.changed so Tree.svelte re-fetches + clears activity.
+    let path_str = canon.to_string_lossy().to_string();
+    let mut env = Envelope::new(Category::System, "project.changed");
+    env.payload = json!({
+        "path": path_str,
+        "name": canon
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| path_str.clone()),
+    });
+    bus.publish(env);
+
+    Ok(())
 }
 
 /// Tiny owned handle so spawned tasks can call `remove` without holding
@@ -546,24 +761,25 @@ pub fn run() {
             let bus = RiftBus::default();
             app.manage(bus.clone());
 
-            // --- Filesystem watcher (Phase 6.1) ---
-            // Phase 6.7 unblock: replace with config-driven root when the
-            // project-config system ships.
-            let fs_root = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
-            // Phase 6.7 unblock: move ignore globs to the project config system.
-            let fs_ignore_globs: Vec<String> = [
-                ".git/**",
-                "node_modules/**",
-                "target/**",
-                "dist/**",
-                "*.log",
-            ]
-            .iter()
-            .map(|s| s.to_string())
-            .collect();
+            // --- Phase 6.7: Config-driven root + WatcherRegistry ---
+            //
+            // Compute the canonical project root via dunce (pr003 gotcha:
+            // windows-canonicalize-unc-prefix-vs-notify-callback-paths).
+            let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+            let fs_root = dunce::canonicalize(&cwd).unwrap_or(cwd);
+
+            // Load config for ignore globs. Fall back to defaults on first launch.
+            let cfg = load_config().unwrap_or_default();
+            let fs_ignore_globs = cfg.fs.ignore_globs.clone();
+
+            // Register the canonical project root.
+            app.manage(ProjectRoot::new(fs_root.clone()));
+
+            // Register the WatcherRegistry; spawn the initial watcher.
+            let watcher_reg = WatcherRegistry::default();
             match spawn_fs_watcher(bus.clone(), fs_root, fs_ignore_globs) {
                 Ok(watcher) => {
-                    app.manage(watcher);
+                    watcher_reg.replace(watcher);
                 }
                 Err(e) => {
                     let msg = e.to_string();
@@ -573,6 +789,7 @@ pub fn run() {
                     // mirroring the IpcServer best-effort pattern.
                 }
             }
+            app.manage(watcher_reg);
 
             let socket_name = format!("{IPC_SOCKET_PREFIX}-{}.sock", std::process::id());
             let bus_for_ipc = bus;
@@ -612,6 +829,9 @@ pub fn run() {
             fs_tree,
             fs_read_text,
             fs_write_text,
+            config_get,
+            config_save,
+            project_swap,
             cockpit_window::cockpit_detach,
             cockpit_window::cockpit_reattach,
             cockpit_window::cockpit_status,

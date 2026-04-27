@@ -23,6 +23,7 @@ tracing = { workspace = true }
 rift-bus = { path = "../crates/rift-bus" }
 rift-core = { path = "../crates/rift-core" }
 globset = { workspace = true }
+dunce = { workspace = true }
 
 [features]
 default = ["custom-protocol"]

@@ -363,6 +363,7 @@
 
   $effect(() => {
     let unsubscribeFn: (() => Promise<void>) | undefined;
+    let unsubscribeSysFn: (() => Promise<void>) | undefined;
     let mounted = true;
 
     // Fetch initial tree snapshot.
@@ -390,9 +391,40 @@
         console.error('[Tree] bus subscribe failed', err);
       });
 
+    // Phase 6.7: Subscribe to system envelopes for project.changed.
+    // Uses sync-shell + IIFE pattern (pr003 svelte5-async-cleanup-via-sync-shell-iife).
+    void (async () => {
+      try {
+        const unsub = await subscribe({ category: 'system' }, (env) => {
+          if (env.kind !== 'project.changed') return;
+          // Clear stale activity from the previous project.
+          treeActivity.clear();
+          // Re-fetch the tree for the new project root.
+          invoke<TreeNode>('fs_tree', {})
+            .then((root) => {
+              if (mounted) {
+                treeRoot = root;
+                fetchError = null;
+              }
+            })
+            .catch((err: unknown) => {
+              if (mounted) fetchError = String(err);
+            });
+        });
+        if (mounted) {
+          unsubscribeSysFn = unsub;
+        } else {
+          unsub().catch(() => {});
+        }
+      } catch (err: unknown) {
+        console.error('[Tree] system bus subscribe failed', err);
+      }
+    })();
+
     return () => {
       mounted = false;
       unsubscribeFn?.().catch(() => {});
+      unsubscribeSysFn?.().catch(() => {});
     };
   });
 

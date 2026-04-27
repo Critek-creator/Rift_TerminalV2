@@ -149,10 +149,23 @@ function getEntry(path: string): ActivityEntry {
   return entries.get(path) ?? AMBIENT_DEFAULT;
 }
 
+/**
+ * Reset all activity entries. Called by Tree.svelte on project.changed so
+ * the new project starts with a clean slate (no stale glow from the prior
+ * project). Assign-replace for Svelte 5 reactivity.
+ *
+ * Future consumers (Phase 8 graph) can also call this to reset view state
+ * without re-mounting the component.
+ */
+function clear(): void {
+  entries = new Map();
+}
+
 export const treeActivity = {
   mark,
   cycle,
   getEntry,
+  clear,
   /** Reactive snapshot of all tracked entries. Consumers bind `$derived`
    *  on this for reactivity. */
   get snapshot(): Map<string, ActivityEntry> {
