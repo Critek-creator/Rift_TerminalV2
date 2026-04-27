@@ -23,9 +23,14 @@ tracing = { workspace = true }
 rift-bus = { path = "../crates/rift-bus" }
 rift-core = { path = "../crates/rift-core" }
 # Phase 7 — Aegis private translator (feature-gated optional path dep).
-# Public builds (default features) never resolve this path; the
-# crate is gitignored and only present on private dev machines.
-# See decision A in PHASE 7 PLAN (commit 749ec91).
+# IMPORTANT: optional=true gates COMPILATION of this dep, but does NOT
+# prevent Cargo from reading the manifest at the path during workspace
+# metadata resolution. So cargo build --workspace --locked WILL FAIL on
+# a fresh public clone where crates/rift-aegis/ does not exist on disk.
+# This is tracked as DEFERRED.md D-011 — fix path under planning. Local
+# dev works because the gitignored crate is present. Do not push to
+# origin/main until D-011 is resolved (it would turn CI red).
+# See decision A in PHASE 7 PLAN (commit 749ec91) for the architecture.
 rift-aegis = { path = "../crates/rift-aegis", optional = true }
 globset = { workspace = true }
 dunce = { workspace = true }

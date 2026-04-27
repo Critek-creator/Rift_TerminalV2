@@ -37,6 +37,12 @@ src-tauri/gen/
 # ---------------------------------------------------------------
 # The rift-aegis crate is private. Never committed to the public
 # repo. Mechanism: optional path dep + feature flag in src-tauri
-# (see src-tauri/Cargo.toml [features] aegis). Public CI builds
-# default features → rift-aegis path never resolved → green.
+# (see src-tauri/Cargo.toml [features] aegis).
+#
+# KNOWN ISSUE — DEFERRED.md D-011: cargo metadata resolution reads
+# the manifest at this path even when the feature is off, so a
+# fresh public clone (without this dir locally) fails gate 3
+# (cargo build --workspace --locked). Local dev works because the
+# crate is present locally. Do not push to origin/main until D-011
+# is resolved. Fix path under planning.
 /crates/rift-aegis/

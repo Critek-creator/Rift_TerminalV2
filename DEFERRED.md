@@ -24,6 +24,31 @@
 - **Unblocking event**: (a) Sentinel architecture spec lands as a separate planning beat post-v1, AND (b) a Sentinel-side implementation produces detectable misbehavior events on a documented schema. Then Rift's Agents tab subscribes to `sentinel.*` envelopes and renders them alongside existing Aegis-derived `agent.*` events.
 - Created during Phase 7.0 architecture lock (this commit). No code change required to open this deferral — pure spec deferral. Phase 7.5 will write the placeholder card and reference this entry inline.
 
+### D-011 — Public-CI build fails on fresh checkout (active 2026-04-27, opened by Phase 7.5 Validator finding)
+
+**Empirical finding** (Phase 7.5 Validator, opus rust-expert independent investigation): the Phase 7.1 architectural claim that `cargo build --workspace --locked` succeeds on a fresh public clone (no `crates/rift-aegis/` dir present, default features) is **FACTUALLY INCORRECT**. Removing the gitignored `crates/rift-aegis/` directory and running the gate produces:
+
+```
+failed to read crates/rift-aegis/Cargo.toml
+system cannot find the path specified (os error 3)
+```
+
+Root cause: Cargo resolves optional path deps at workspace-metadata stage regardless of feature flag state. The `optional = true` attribute on `rift-aegis = { path = "../crates/rift-aegis", optional = true }` in `src-tauri/Cargo.toml` only gates whether the dep is COMPILED — it does NOT prevent Cargo from trying to read the manifest at the path during workspace resolution.
+
+**Implication**: every `phase 7.x` commit so far (7.1 / 7.2 / 7.5) lands green on local CI because `crates/rift-aegis/` exists locally (gitignored). On a fresh public clone — which is what GitHub Actions CI runs on — gate 3 (`cargo build --workspace --locked`) fails immediately. **CI is broken on `origin/main` right now**, but unobserved because the 2 unpushed commits (also 7.0) keep the broken state local. Pushing without addressing this will turn `.github/workflows/ci.yml` red.
+
+**Fix options** (architectural decision required — defer to a separate planning beat):
+
+- **(a) Move rift-aegis outside the workspace.** rift-aegis becomes a sibling cargo project (e.g. `~/rift-aegis-private/` or a git submodule). src-tauri imports via Cargo `[patch]` section or feature-gated overlay manifest. Pro: clean separation, no public surface at all. Con: more git remotes / submodule management; CI needs path-injection.
+
+- **(b) Commit a minimal permanent stub.** Track `crates/rift-aegis/Cargo.toml` (minimal — just `[package]` block) and `crates/rift-aegis/src/lib.rs` (minimal — `pub async fn probe(_bus: rift_bus::RiftBus) {}` no-op stub) in the public repo. Gitignore additional source files (`detect.rs`, `snapshot.rs`, etc.). Private dev fills in the real implementation behind feature-gated re-exports. Pro: Cargo metadata resolves cleanly; minimal public surface. Con: lib.rs being tracked means private edits to it surface as "modified" in `git status` — needs careful merge strategy.
+
+- **(c) CI-time stub injection.** Add a workflow step in `.github/workflows/ci.yml` that creates a minimal `crates/rift-aegis/{Cargo.toml, src/lib.rs}` stub BEFORE any cargo command. Pro: zero changes to source repo; private dev local state untouched. Con: stub injection is a workflow-only concern that can drift from production reality; private dev still needs the real crate, so two stub forms exist (CI's + private's).
+
+**Unblocking event**: Phase 7-or-later beat where coordinator runs `/aegis --plan D-011` to lock the option, then ships the fix as a single commit. Recommended priority: **before next push to origin/main** — currently safe because 4 commits (7.0/7.1/7.2/7.5-merge) are unpushed; merge becomes blocking the moment user pushes.
+
+**Companion fix landed in this commit** (the same commit that opens D-011): the misleading comments in `src-tauri/Cargo.toml:25-28` + `.gitignore:35-41` claiming "Public CI builds default features → rift-aegis path never resolved → green" are corrected to reflect the actual local-only behavior.
+
 ---
 
 ## Closed deferrals
