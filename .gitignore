@@ -25,3 +25,6 @@ dist/
 # Tauri build artifacts
 src-tauri/target/
 src-tauri/gen/
+
+# Claude Code project-local state
+.claude/

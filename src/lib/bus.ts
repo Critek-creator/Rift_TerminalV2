@@ -1,0 +1,68 @@
+/**
+ * Frontend ↔ RiftBus bridge.
+ *
+ * Mirrors `crates/rift-bus/src/envelope.rs`. Keep these types in sync
+ * — the Rust side is the source of truth.
+ *
+ * Spec: `decisions/§10.15_real-time_update_mechanism.md`.
+ */
+
+import { Channel, invoke } from '@tauri-apps/api/core';
+
+export type Category =
+  | 'pty'
+  | 'hook'
+  | 'agent'
+  | 'fs'
+  | 'aegis'
+  | 'status'
+  | 'system';
+
+export interface Envelope {
+  version: number;
+  category: Category;
+  kind: string;
+  ts: number;
+  payload: unknown;
+}
+
+export interface SubscribeOptions {
+  /** Filter to a single category. Omit to receive every category. */
+  category?: Category;
+}
+
+/**
+ * Subscribe to bus envelopes. Replay snapshot drains synchronously into
+ * `onEnvelope` first, followed by live events. Returns an `unsubscribe`
+ * function — call it on component teardown.
+ */
+export async function subscribe(
+  options: SubscribeOptions,
+  onEnvelope: (envelope: Envelope) => void,
+): Promise<() => Promise<void>> {
+  const channel = new Channel<Envelope>();
+  channel.onmessage = onEnvelope;
+  const id = await invoke<number>('bus_subscribe', {
+    category: options.category ?? null,
+    onEnvelope: channel,
+  });
+  return async () => {
+    await invoke('bus_unsubscribe', { id });
+  };
+}
+
+/**
+ * Publish an envelope to the bus. Useful for demo/debug paths and the
+ * eventual translator-module pattern when a translator runs in-process.
+ */
+export async function publish(
+  category: Category,
+  kind: string,
+  payload?: unknown,
+): Promise<void> {
+  await invoke('bus_publish', {
+    category,
+    kind,
+    payload: payload ?? null,
+  });
+}

@@ -1,0 +1,910 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Rift Terminal v2 — Cockpit Mockup (GUI alone, detached)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  /* =========================================================
+     ABYSSAL ARTS BRAND PALETTE — synced with rift-v2-mockup.html
+     ========================================================= */
+  :root {
+    --bg-base:       #080806;
+    --bg-surface:    #0F0F0D;
+    --bg-elevated:   #14140F;
+    --bg-hover:      #1a1a14;
+    --bg-panel:      #0c0c0a;
+    --border-subtle: #2a2418;
+    --border-active: #4a3818;
+    --border-glow:   #d4890a;
+
+    --amber-primary: #D4890A;
+    --amber-warm:    #B07A12;
+    --amber-bright:  #f59e0b;
+    --amber-dim:     #8B6914;
+    --amber-faint:   #5a4410;
+
+    --term-red:      #CC3333;
+    --term-green:    #33CC33;
+    --term-blue:     #4a9eff;
+    --term-purple:   #b078e8;
+    --term-cyan:     #4ad4d4;
+    --term-white:    #d8d4c8;
+
+    --glow-amber:        0 0 8px rgba(212, 137, 10, 0.35);
+    --glow-amber-strong: 0 0 14px rgba(245, 158, 11, 0.65);
+    --glow-amber-faint:  0 0 4px rgba(212, 137, 10, 0.2);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body {
+    height: 100%;
+    overflow: hidden;
+    background: var(--bg-base);
+    color: var(--amber-primary);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* Scanlines + CRT vignette — brand fingerprint */
+  body::before {
+    content: '';
+    position: fixed; inset: 0; pointer-events: none;
+    background: repeating-linear-gradient(
+      to bottom,
+      rgba(0,0,0,0) 0px,
+      rgba(0,0,0,0) 2px,
+      rgba(0,0,0,0.06) 2px,
+      rgba(0,0,0,0.06) 3px
+    );
+    z-index: 9999;
+  }
+  body::after {
+    content: '';
+    position: fixed; inset: 0; pointer-events: none;
+    background: radial-gradient(ellipse at center, rgba(0,0,0,0) 50%, rgba(0,0,0,0.45) 100%);
+    z-index: 9998;
+  }
+
+  .app-shell {
+    position: relative;
+    width: 100vw; height: 100vh;
+    background:
+      radial-gradient(ellipse at 20% 10%, rgba(212, 137, 10, 0.025), transparent 60%),
+      radial-gradient(ellipse at 80% 90%, rgba(176, 122, 18, 0.02), transparent 50%),
+      var(--bg-base);
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* =========================================================
+     TITLE BAR — "Cockpit (detached)" variant
+     ========================================================= */
+  .titlebar {
+    height: 32px;
+    background: var(--bg-elevated);
+    border-bottom: 1px solid var(--border-subtle);
+    display: flex; align-items: center;
+    padding: 0 12px;
+    user-select: none; flex-shrink: 0;
+  }
+  .titlebar-brand {
+    color: var(--amber-primary);
+    font-weight: 700; font-size: 12px; letter-spacing: 0.15em;
+    text-shadow: var(--glow-amber);
+  }
+  .titlebar-brand .glyph { color: var(--amber-bright); margin-right: 6px; }
+  .titlebar-mode {
+    margin-left: 12px;
+    color: var(--amber-dim);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    border-left: 1px solid var(--border-subtle);
+    padding-left: 12px;
+  }
+  .titlebar-mode .reattach {
+    color: var(--amber-warm);
+    margin-left: 14px;
+    border: 1px solid var(--amber-faint);
+    padding: 1px 8px;
+    cursor: pointer;
+    font-size: 10px;
+  }
+  .titlebar-mode .reattach:hover { color: var(--amber-primary); border-color: var(--amber-primary); }
+  .titlebar-spacer { flex: 1; }
+  .titlebar-controls { display: flex; gap: 8px; }
+  .titlebar-btn {
+    width: 14px; height: 14px;
+    background: transparent;
+    border: 1px solid var(--amber-dim);
+    color: var(--amber-dim);
+    font-size: 10px; line-height: 12px;
+    text-align: center; cursor: pointer;
+  }
+  .titlebar-btn:hover { color: var(--amber-primary); border-color: var(--amber-primary); }
+
+  /* =========================================================
+     TOP CHROME — project swap + view toggles
+     ========================================================= */
+  .top-chrome {
+    height: 38px;
+    background: var(--bg-surface);
+    border-bottom: 1px solid var(--border-subtle);
+    display: flex; align-items: stretch;
+    flex-shrink: 0;
+  }
+  .project-swap {
+    display: flex; align-items: center; gap: 10px;
+    padding: 0 14px;
+    border-right: 1px solid var(--border-subtle);
+    color: var(--amber-primary);
+    font-size: 12px; font-weight: 600;
+    letter-spacing: 0.06em;
+    cursor: pointer;
+    background: var(--bg-elevated);
+    text-shadow: var(--glow-amber);
+  }
+  .project-swap:hover { background: var(--bg-hover); }
+  .project-swap .icon { color: var(--amber-bright); }
+  .project-swap .chevron { color: var(--amber-dim); margin-left: 2px; }
+
+  .view-toggles { display: flex; align-items: stretch; }
+  .view-toggle {
+    display: flex; align-items: center; gap: 6px;
+    padding: 0 14px;
+    border-right: 1px solid var(--border-subtle);
+    color: var(--amber-dim);
+    font-size: 11px;
+    cursor: pointer;
+    letter-spacing: 0.04em;
+  }
+  .view-toggle:hover { color: var(--amber-warm); background: var(--bg-hover); }
+  .view-toggle.active {
+    color: var(--amber-primary);
+    background: var(--bg-base);
+    text-shadow: var(--glow-amber-faint);
+  }
+  .view-toggle.active::before {
+    content: ''; position: absolute;
+  }
+
+  .top-spacer { flex: 1; }
+
+  .top-meta {
+    display: flex; align-items: center; gap: 14px;
+    padding: 0 14px;
+    border-left: 1px solid var(--border-subtle);
+    color: var(--amber-dim);
+    font-size: 10px;
+    letter-spacing: 0.06em;
+  }
+  .top-meta .pill {
+    border: 1px solid var(--amber-faint);
+    padding: 1px 7px;
+    color: var(--amber-warm);
+  }
+  .top-meta .pill.active { color: var(--amber-bright); border-color: var(--amber-bright); }
+
+  /* =========================================================
+     MAIN BODY — file tree | graph canvas | viewer
+     ========================================================= */
+  .body-row {
+    flex: 1;
+    display: flex;
+    overflow: hidden;
+  }
+
+  /* ---- Left: File Tree (Index-enriched) ---- */
+  .pane-tree {
+    width: 240px;
+    background: var(--bg-panel);
+    border-right: 1px solid var(--border-subtle);
+    display: flex; flex-direction: column;
+    overflow: hidden;
+  }
+  .pane-header {
+    height: 28px;
+    padding: 0 12px;
+    background: var(--bg-elevated);
+    border-bottom: 1px solid var(--border-subtle);
+    display: flex; align-items: center; justify-content: space-between;
+    color: var(--amber-warm);
+    font-size: 10px; font-weight: 700; letter-spacing: 0.12em;
+  }
+  .pane-header .meta {
+    color: var(--amber-faint);
+    font-weight: 400;
+    font-size: 9px;
+  }
+  .tree-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px 0;
+    font-size: 11px;
+    line-height: 1.65;
+  }
+  .tree-body::-webkit-scrollbar { width: 5px; }
+  .tree-body::-webkit-scrollbar-thumb { background: var(--amber-faint); }
+
+  .tree-row {
+    display: flex; align-items: center; gap: 5px;
+    padding: 1px 8px 1px 0;
+    color: var(--amber-dim);
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .tree-row:hover { background: var(--bg-hover); color: var(--amber-warm); }
+  .tree-row.active { color: var(--amber-primary); background: rgba(212, 137, 10, 0.08); text-shadow: var(--glow-amber-faint); }
+  .tree-row.pinned { color: var(--amber-bright); }
+  .tree-row.pinned::after { content: '◆'; margin-left: auto; color: var(--amber-bright); font-size: 9px; }
+  .tree-row.recent { color: var(--amber-warm); }
+  .tree-icon { display: inline-block; width: 14px; text-align: center; font-size: 11px; opacity: 0.85; }
+  .tree-indent-1 { padding-left: 14px; }
+  .tree-indent-2 { padding-left: 28px; }
+  .tree-indent-3 { padding-left: 42px; }
+  .tree-attribution {
+    margin-left: auto;
+    font-size: 8px;
+    color: var(--term-purple);
+    border: 1px solid var(--term-purple);
+    padding: 0 4px;
+    line-height: 11px;
+  }
+  .tree-attribution.aegis { color: var(--amber-primary); border-color: var(--amber-primary); }
+  .tree-attribution.hook { color: var(--term-cyan); border-color: var(--term-cyan); }
+
+  /* ---- Center: Graph Canvas ---- */
+  .pane-graph {
+    flex: 1;
+    background:
+      radial-gradient(ellipse at 50% 50%, rgba(20,20,15,0.6), transparent 70%),
+      var(--bg-base);
+    position: relative;
+    overflow: hidden;
+  }
+  .graph-header {
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 28px;
+    padding: 0 12px;
+    background: linear-gradient(to bottom, var(--bg-elevated), transparent);
+    border-bottom: 1px solid var(--border-subtle);
+    display: flex; align-items: center; gap: 14px;
+    color: var(--amber-warm);
+    font-size: 10px; letter-spacing: 0.12em; font-weight: 700;
+    z-index: 10;
+  }
+  .graph-header .breadcrumb { color: var(--amber-dim); font-weight: 400; letter-spacing: 0.06em; }
+  .graph-header .breadcrumb .sep { color: var(--amber-faint); margin: 0 6px; }
+  .graph-header .breadcrumb .leaf { color: var(--amber-primary); }
+  .graph-header .ctrl { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+  .graph-header .ctrl .ctrl-btn {
+    color: var(--amber-dim);
+    border: 1px solid var(--amber-faint);
+    padding: 1px 6px;
+    font-size: 9px;
+    cursor: pointer;
+  }
+  .graph-header .ctrl .ctrl-btn:hover { color: var(--amber-primary); border-color: var(--amber-primary); }
+
+  .graph-svg {
+    width: 100%;
+    height: 100%;
+    display: block;
+  }
+
+  /* SVG node visual states ------------------------------------------- */
+  .node-bg            { fill: var(--bg-elevated); stroke: var(--amber-faint); stroke-width: 1; }
+  .node-bg.cluster    { fill: rgba(212, 137, 10, 0.04); stroke: var(--border-subtle); stroke-dasharray: 2 3; }
+  .node-bg.cluster.bubble {
+    /* hierarchical bubble-up: cluster glows softly because children are active */
+    fill: rgba(212, 137, 10, 0.07);
+    stroke: var(--amber-faint);
+    stroke-dasharray: 2 3;
+    filter: drop-shadow(0 0 4px rgba(212, 137, 10, 0.18));
+  }
+
+  /* Activity states */
+  .node-state-active {
+    fill: var(--bg-elevated);
+    stroke: var(--amber-bright);
+    stroke-width: 2;
+    filter: drop-shadow(0 0 12px rgba(245, 158, 11, 0.85));
+  }
+  .node-state-recent {
+    fill: var(--bg-elevated);
+    stroke: var(--amber-primary);
+    stroke-width: 1.5;
+    filter: drop-shadow(0 0 6px rgba(212, 137, 10, 0.55));
+  }
+  .node-state-pinned {
+    fill: var(--bg-elevated);
+    stroke: var(--amber-bright);
+    stroke-width: 2;
+    stroke-dasharray: 3 2;
+    filter: drop-shadow(0 0 8px rgba(245, 158, 11, 0.55));
+  }
+  .node-state-ambient {
+    fill: var(--bg-elevated);
+    stroke: var(--amber-warm);
+    stroke-width: 1;
+    filter: drop-shadow(0 0 3px rgba(176, 122, 18, 0.3));
+  }
+  .node-state-background {
+    fill: var(--bg-surface);
+    stroke: var(--border-subtle);
+    stroke-width: 1;
+    opacity: 0.55;
+  }
+
+  /* Activity pulse animation — subtle, only on .active */
+  .node-state-active animate { /* declared inline */ }
+  @keyframes pulse-glow {
+    0%, 100% { filter: drop-shadow(0 0 12px rgba(245, 158, 11, 0.85)); }
+    50%      { filter: drop-shadow(0 0 18px rgba(245, 158, 11, 1.0)); }
+  }
+  .node-state-active { animation: pulse-glow 1.6s ease-in-out infinite; }
+
+  .node-label {
+    fill: var(--amber-dim);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    font-weight: 500;
+    text-anchor: middle;
+  }
+  .node-label.active   { fill: var(--amber-bright); font-weight: 700; }
+  .node-label.recent   { fill: var(--amber-primary); font-weight: 600; }
+  .node-label.pinned   { fill: var(--amber-bright); font-weight: 700; }
+  .node-label.background { fill: var(--amber-faint); }
+
+  .node-glyph {
+    fill: var(--amber-warm);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    font-weight: 700;
+    text-anchor: middle;
+    dominant-baseline: middle;
+    pointer-events: none;
+  }
+  .node-glyph.active { fill: var(--amber-bright); }
+  .node-glyph.recent { fill: var(--amber-primary); }
+  .node-glyph.background { fill: var(--amber-faint); }
+
+  /* Edges */
+  .edge {
+    stroke: var(--amber-faint);
+    stroke-width: 1;
+    fill: none;
+    opacity: 0.5;
+  }
+  .edge.active {
+    stroke: var(--amber-primary);
+    stroke-width: 1.5;
+    opacity: 0.9;
+    filter: drop-shadow(0 0 3px rgba(212, 137, 10, 0.5));
+  }
+  .edge.background {
+    stroke: var(--border-subtle);
+    opacity: 0.3;
+  }
+
+  /* Cluster labels */
+  .cluster-label {
+    fill: var(--amber-warm);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 0.08em;
+    font-weight: 700;
+  }
+
+  /* Floating attribution badge inside graph */
+  .attribution-badge {
+    fill: var(--term-purple);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 8px;
+    font-weight: 700;
+  }
+
+  /* ---- Right: Viewer Pane ---- */
+  .pane-viewer {
+    width: 380px;
+    background: var(--bg-panel);
+    border-left: 1px solid var(--border-subtle);
+    display: flex; flex-direction: column;
+    overflow: hidden;
+  }
+  .viewer-tab-strip {
+    height: 26px;
+    background: var(--bg-surface);
+    border-bottom: 1px solid var(--border-subtle);
+    display: flex;
+  }
+  .viewer-tab {
+    display: flex; align-items: center; gap: 6px;
+    padding: 0 12px;
+    border-right: 1px solid var(--border-subtle);
+    color: var(--amber-dim);
+    font-size: 10px;
+    cursor: pointer;
+    user-select: none;
+  }
+  .viewer-tab.active {
+    background: var(--bg-panel);
+    color: var(--amber-primary);
+    text-shadow: var(--glow-amber-faint);
+  }
+  .viewer-path {
+    padding: 6px 12px;
+    background: var(--bg-elevated);
+    border-bottom: 1px solid var(--border-subtle);
+    color: var(--amber-warm);
+    font-size: 10px;
+    letter-spacing: 0.04em;
+    display: flex; gap: 8px; align-items: center;
+  }
+  .viewer-path .pinned-mark { color: var(--amber-bright); }
+  .viewer-body {
+    flex: 1;
+    overflow: auto;
+    padding: 10px 14px;
+    font-size: 11px;
+    line-height: 1.6;
+  }
+  .viewer-body::-webkit-scrollbar { width: 5px; }
+  .viewer-body::-webkit-scrollbar-thumb { background: var(--amber-faint); }
+  .viewer-line {
+    display: flex;
+    gap: 12px;
+    white-space: pre;
+  }
+  .viewer-ln {
+    color: var(--amber-faint);
+    width: 24px;
+    text-align: right;
+    user-select: none;
+    flex-shrink: 0;
+  }
+  .syn-kw  { color: var(--term-purple); }
+  .syn-fn  { color: var(--amber-bright); }
+  .syn-str { color: var(--term-green); }
+  .syn-com { color: var(--amber-faint); font-style: italic; }
+  .syn-typ { color: var(--term-cyan); }
+  .syn-mac { color: var(--term-blue); }
+
+  /* =========================================================
+     STATUS STRIP — activity legend + counters
+     ========================================================= */
+  .statusline {
+    flex-shrink: 0;
+    background: var(--bg-surface);
+    border-top: 1px solid var(--border-subtle);
+    height: 24px;
+    display: flex;
+    align-items: stretch;
+    user-select: none;
+    font-size: 10px;
+  }
+  .stat-seg {
+    display: flex; align-items: center; gap: 8px;
+    padding: 0 12px;
+    border-right: 1px solid var(--border-subtle);
+  }
+  .stat-seg-label { color: var(--amber-faint); letter-spacing: 0.08em; font-weight: 700; }
+  .stat-seg-value { color: var(--amber-primary); font-weight: 700; }
+  .stat-seg-spacer { flex: 1; }
+
+  .legend-dot {
+    display: inline-block;
+    width: 10px; height: 10px;
+    margin-right: 4px;
+    border-radius: 50%;
+    vertical-align: -1px;
+  }
+  .legend-dot.active   { background: var(--amber-bright); box-shadow: 0 0 6px var(--amber-bright); }
+  .legend-dot.recent   { background: var(--amber-primary); box-shadow: 0 0 4px var(--amber-primary); }
+  .legend-dot.pinned   { background: transparent; border: 2px solid var(--amber-bright); width: 8px; height: 8px; }
+  .legend-dot.ambient  { background: var(--amber-warm); }
+  .legend-dot.background { background: var(--bg-elevated); border: 1px solid var(--border-subtle); }
+  .legend-text { color: var(--amber-dim); }
+
+</style>
+</head>
+<body>
+
+<div class="app-shell">
+
+  <!-- ============================================================
+       TITLE BAR — detached cockpit window
+       ============================================================ -->
+  <div class="titlebar">
+    <div class="titlebar-brand"><span class="glyph">◆</span>RIFT</div>
+    <div class="titlebar-mode">
+      COCKPIT · DETACHED
+      <span class="reattach">↺ RE-ATTACH</span>
+    </div>
+    <div class="titlebar-spacer"></div>
+    <div class="titlebar-controls">
+      <div class="titlebar-btn">−</div>
+      <div class="titlebar-btn">▢</div>
+      <div class="titlebar-btn">×</div>
+    </div>
+  </div>
+
+  <!-- ============================================================
+       TOP CHROME — project swap + view toggles + meta
+       ============================================================ -->
+  <div class="top-chrome">
+    <div class="project-swap">
+      <span class="icon">◈</span>
+      <span>Rift_TerminalV2</span>
+      <span class="chevron">▾</span>
+    </div>
+    <div class="view-toggles">
+      <div class="view-toggle active">⌘ GRAPH</div>
+      <div class="view-toggle">≡ INDEX</div>
+      <div class="view-toggle">⊞ SECTIONS</div>
+    </div>
+    <div class="top-spacer"></div>
+    <div class="top-meta">
+      <span class="pill active">FS</span>
+      <span class="pill active">INDEX</span>
+      <span class="pill active">AEGIS</span>
+      <span class="pill">AGENTS</span>
+      <span style="color: var(--amber-faint);">decay 12s · pin retains</span>
+    </div>
+  </div>
+
+  <!-- ============================================================
+       MAIN BODY
+       ============================================================ -->
+  <div class="body-row">
+
+    <!-- ============================ LEFT: FILE TREE ============================ -->
+    <div class="pane-tree">
+      <div class="pane-header">
+        <span>FILE TREE</span>
+        <span class="meta">142 files · 18 dirs</span>
+      </div>
+      <div class="tree-body">
+
+        <div class="tree-row active">
+          <span class="tree-icon">▾</span><span>Rift_TerminalV2/</span>
+        </div>
+
+        <div class="tree-row tree-indent-1 recent">
+          <span class="tree-icon">▾</span><span>crates/</span>
+          <span class="tree-attribution aegis">AEG</span>
+        </div>
+
+        <div class="tree-row tree-indent-2 pinned">
+          <span class="tree-icon">▾</span><span>rift-core/</span>
+        </div>
+        <div class="tree-row tree-indent-3 active">
+          <span class="tree-icon">⚙</span><span>pty.rs</span>
+          <span class="tree-attribution">CLAUDE</span>
+        </div>
+        <div class="tree-row tree-indent-3 recent">
+          <span class="tree-icon">⚙</span><span>grid.rs</span>
+        </div>
+        <div class="tree-row tree-indent-3">
+          <span class="tree-icon">⚙</span><span>config.rs</span>
+        </div>
+        <div class="tree-row tree-indent-3">
+          <span class="tree-icon">⚙</span><span>lib.rs</span>
+        </div>
+
+        <div class="tree-row tree-indent-2 recent">
+          <span class="tree-icon">▾</span><span>rift-bus/</span>
+          <span class="tree-attribution hook">HOOK</span>
+        </div>
+        <div class="tree-row tree-indent-3 active">
+          <span class="tree-icon">⚙</span><span>envelope.rs</span>
+          <span class="tree-attribution">SCOUT</span>
+        </div>
+        <div class="tree-row tree-indent-3 recent">
+          <span class="tree-icon">⚙</span><span>broadcast.rs</span>
+        </div>
+        <div class="tree-row tree-indent-3">
+          <span class="tree-icon">⚙</span><span>ipc_server.rs</span>
+        </div>
+
+        <div class="tree-row tree-indent-2">
+          <span class="tree-icon">▸</span><span>rift-ui/</span>
+        </div>
+        <div class="tree-row tree-indent-2">
+          <span class="tree-icon">▸</span><span>rift-cli/</span>
+        </div>
+
+        <div class="tree-row tree-indent-1 recent">
+          <span class="tree-icon">▾</span><span>src/</span>
+          <span class="tree-attribution">CLAUDE</span>
+        </div>
+        <div class="tree-row tree-indent-2 active">
+          <span class="tree-icon">◐</span><span>App.svelte</span>
+        </div>
+        <div class="tree-row tree-indent-2 recent">
+          <span class="tree-icon">◐</span><span>Terminal.svelte</span>
+        </div>
+        <div class="tree-row tree-indent-2">
+          <span class="tree-icon">◐</span><span>StatusLine.svelte</span>
+        </div>
+        <div class="tree-row tree-indent-2">
+          <span class="tree-icon">◐</span><span>main.ts</span>
+        </div>
+
+        <div class="tree-row tree-indent-1">
+          <span class="tree-icon">▸</span><span>src-tauri/</span>
+        </div>
+
+        <div class="tree-row tree-indent-1 pinned">
+          <span class="tree-icon">▾</span><span>decisions/</span>
+        </div>
+        <div class="tree-row tree-indent-2 pinned">
+          <span class="tree-icon">📜</span><span>§10.15_real-time…md</span>
+        </div>
+
+        <div class="tree-row tree-indent-1">
+          <span class="tree-icon">▾</span><span>docs/</span>
+        </div>
+        <div class="tree-row tree-indent-2 recent">
+          <span class="tree-icon">📜</span><span>RIFT_V2_VISION.md</span>
+          <span class="tree-attribution aegis">AEG</span>
+        </div>
+        <div class="tree-row tree-indent-2">
+          <span class="tree-icon">📜</span><span>PHASE_PLAN.md</span>
+        </div>
+
+        <div class="tree-row tree-indent-1">
+          <span class="tree-icon">📜</span><span>CLAUDE.md</span>
+        </div>
+        <div class="tree-row tree-indent-1">
+          <span class="tree-icon">📜</span><span>Cargo.toml</span>
+        </div>
+        <div class="tree-row tree-indent-1">
+          <span class="tree-icon">📜</span><span>package.json</span>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- ============================ CENTER: GRAPH ============================ -->
+    <div class="pane-graph">
+      <div class="graph-header">
+        <span>GRAPH</span>
+        <span class="breadcrumb">
+          Rift_TerminalV2 <span class="sep">›</span>
+          crates <span class="sep">›</span>
+          <span class="leaf">rift-core</span>
+        </span>
+        <div class="ctrl">
+          <span class="ctrl-btn">FIT</span>
+          <span class="ctrl-btn">RESET</span>
+          <span class="ctrl-btn">UNPIN ALL</span>
+          <span style="color: var(--amber-faint); margin-left: 6px;">2 pinned · 4 active · 9 ambient · 14 background</span>
+        </div>
+      </div>
+
+      <svg class="graph-svg" viewBox="0 0 1100 700" preserveAspectRatio="xMidYMid meet">
+        <defs>
+          <marker id="arrow-faint" viewBox="0 0 6 6" refX="6" refY="3" markerWidth="5" markerHeight="5" orient="auto">
+            <path d="M 0 0 L 6 3 L 0 6 z" fill="#5a4410" opacity="0.6"/>
+          </marker>
+          <marker id="arrow-active" viewBox="0 0 6 6" refX="6" refY="3" markerWidth="5" markerHeight="5" orient="auto">
+            <path d="M 0 0 L 6 3 L 0 6 z" fill="#D4890A"/>
+          </marker>
+        </defs>
+
+        <!-- Cluster: rift-core (bubble-up because children are active) -->
+        <rect class="node-bg cluster bubble" x="60" y="80" width="430" height="270" rx="10"/>
+        <text class="cluster-label" x="80" y="100">crates / rift-core</text>
+
+        <!-- Cluster: rift-bus -->
+        <rect class="node-bg cluster bubble" x="540" y="80" width="380" height="220" rx="10"/>
+        <text class="cluster-label" x="560" y="100">crates / rift-bus</text>
+
+        <!-- Cluster: src (Svelte frontend) -->
+        <rect class="node-bg cluster" x="60" y="400" width="430" height="240" rx="10"/>
+        <text class="cluster-label" x="80" y="420">src/ (svelte frontend)</text>
+
+        <!-- Cluster: src-tauri -->
+        <rect class="node-bg cluster" x="540" y="340" width="380" height="240" rx="10"/>
+        <text class="cluster-label" x="560" y="360">src-tauri/</text>
+
+        <!-- =========== EDGES (drawn before nodes so nodes layer on top) =========== -->
+        <!-- pty.rs <-> grid.rs (active edge — currently being touched together) -->
+        <path class="edge active" d="M 200 180 L 280 220" marker-end="url(#arrow-active)"/>
+        <!-- grid.rs -> renderer (in src-tauri) -->
+        <path class="edge" d="M 320 230 Q 460 270 600 410" marker-end="url(#arrow-faint)"/>
+        <!-- pty.rs -> rift-bus envelope.rs (active flow) -->
+        <path class="edge active" d="M 200 175 Q 380 130 620 175" marker-end="url(#arrow-active)"/>
+        <!-- envelope.rs <-> broadcast.rs -->
+        <path class="edge active" d="M 660 180 L 770 175" marker-end="url(#arrow-active)"/>
+        <!-- broadcast.rs -> Terminal.svelte (live PTY stream) -->
+        <path class="edge active" d="M 800 200 Q 600 320 290 510" marker-end="url(#arrow-active)"/>
+        <!-- App.svelte -> Terminal.svelte -->
+        <path class="edge" d="M 180 510 L 250 510" marker-end="url(#arrow-faint)"/>
+        <!-- App.svelte -> StatusLine.svelte -->
+        <path class="edge" d="M 180 510 Q 220 580 320 590" marker-end="url(#arrow-faint)"/>
+        <!-- ipc_server.rs -> broadcast.rs (background, no glow) -->
+        <path class="edge background" d="M 870 235 L 810 195"/>
+        <!-- main.rs (src-tauri) -> rift-bus -->
+        <path class="edge" d="M 700 410 Q 760 320 800 280" marker-end="url(#arrow-faint)"/>
+        <!-- config.rs -> lib.rs -->
+        <path class="edge background" d="M 200 260 L 360 295"/>
+
+        <!-- =========== NODES =========== -->
+
+        <!-- pty.rs : ACTIVE -->
+        <circle class="node-state-active" cx="180" cy="170" r="22"/>
+        <text class="node-glyph active" x="180" y="170">⚙</text>
+        <text class="node-label active" x="180" y="208">pty.rs</text>
+
+        <!-- grid.rs : RECENT (decaying) -->
+        <circle class="node-state-recent" cx="305" cy="225" r="20"/>
+        <text class="node-glyph recent" x="305" y="225">⚙</text>
+        <text class="node-label recent" x="305" y="261">grid.rs</text>
+
+        <!-- config.rs : AMBIENT -->
+        <circle class="node-state-ambient" cx="180" cy="270" r="18"/>
+        <text class="node-glyph" x="180" y="270">⚙</text>
+        <text class="node-label" x="180" y="304">config.rs</text>
+
+        <!-- lib.rs : AMBIENT -->
+        <circle class="node-state-ambient" cx="380" cy="305" r="18"/>
+        <text class="node-glyph" x="380" y="305">⚙</text>
+        <text class="node-label" x="380" y="339">lib.rs</text>
+
+        <!-- envelope.rs : ACTIVE + PINNED -->
+        <circle class="node-state-pinned" cx="640" cy="180" r="22"/>
+        <text class="node-glyph active" x="640" y="180">⚙</text>
+        <text class="node-label pinned" x="640" y="218">envelope.rs ◆</text>
+        <text class="attribution-badge" x="640" y="148" text-anchor="middle">SCOUT</text>
+
+        <!-- broadcast.rs : RECENT -->
+        <circle class="node-state-recent" cx="790" cy="190" r="20"/>
+        <text class="node-glyph recent" x="790" y="190">⚙</text>
+        <text class="node-label recent" x="790" y="226">broadcast.rs</text>
+
+        <!-- ipc_server.rs : BACKGROUND -->
+        <circle class="node-state-background" cx="880" cy="245" r="17"/>
+        <text class="node-glyph background" x="880" y="245">⚙</text>
+        <text class="node-label background" x="880" y="278">ipc_server.rs</text>
+
+        <!-- App.svelte : ACTIVE -->
+        <circle class="node-state-active" cx="155" cy="510" r="22"/>
+        <text class="node-glyph active" x="155" y="510">◐</text>
+        <text class="node-label active" x="155" y="548">App.svelte</text>
+
+        <!-- Terminal.svelte : RECENT -->
+        <circle class="node-state-recent" cx="280" cy="510" r="20"/>
+        <text class="node-glyph recent" x="280" y="510">◐</text>
+        <text class="node-label recent" x="280" y="546">Terminal.svelte</text>
+
+        <!-- StatusLine.svelte : AMBIENT -->
+        <circle class="node-state-ambient" cx="350" cy="595" r="17"/>
+        <text class="node-glyph" x="350" y="595">◐</text>
+        <text class="node-label" x="350" y="628">StatusLine.svelte</text>
+
+        <!-- main.ts : BACKGROUND -->
+        <circle class="node-state-background" cx="430" cy="510" r="16"/>
+        <text class="node-glyph background" x="430" y="510">◐</text>
+        <text class="node-label background" x="430" y="540">main.ts</text>
+
+        <!-- main.rs (src-tauri) : RECENT + PINNED -->
+        <circle class="node-state-pinned" cx="640" cy="425" r="20"/>
+        <text class="node-glyph recent" x="640" y="425">⚙</text>
+        <text class="node-label pinned" x="640" y="461">main.rs ◆</text>
+
+        <!-- commands.rs (src-tauri) : AMBIENT -->
+        <circle class="node-state-ambient" cx="780" cy="445" r="17"/>
+        <text class="node-glyph" x="780" y="445">⚙</text>
+        <text class="node-label" x="780" y="479">commands.rs</text>
+
+        <!-- tauri.conf.json (src-tauri) : BACKGROUND -->
+        <circle class="node-state-background" cx="850" cy="525" r="14"/>
+        <text class="node-glyph background" x="850" y="525">⚙</text>
+        <text class="node-label background" x="850" y="552">tauri.conf.json</text>
+
+        <!-- build.rs (src-tauri) : BACKGROUND -->
+        <circle class="node-state-background" cx="700" cy="540" r="14"/>
+        <text class="node-glyph background" x="700" y="540">⚙</text>
+        <text class="node-label background" x="700" y="567">build.rs</text>
+
+        <!-- Cargo.toml : AMBIENT -->
+        <circle class="node-state-ambient" cx="990" cy="380" r="16"/>
+        <text class="node-glyph" x="990" y="380">📜</text>
+        <text class="node-label" x="990" y="411">Cargo.toml</text>
+
+      </svg>
+    </div>
+
+    <!-- ============================ RIGHT: VIEWER ============================ -->
+    <div class="pane-viewer">
+      <div class="viewer-tab-strip">
+        <div class="viewer-tab active">
+          <span style="color: var(--amber-bright);">◆</span>
+          <span>envelope.rs</span>
+        </div>
+        <div class="viewer-tab">
+          <span>main.rs</span>
+        </div>
+        <div class="viewer-tab" style="color: var(--amber-faint);">
+          <span>+ open</span>
+        </div>
+      </div>
+      <div class="viewer-path">
+        <span class="pinned-mark">◆</span>
+        <span>crates/rift-bus/src/envelope.rs</span>
+        <span style="color: var(--amber-faint); margin-left: auto;">142 lines · pinned 3m</span>
+      </div>
+      <div class="viewer-body">
+<div class="viewer-line"><span class="viewer-ln">1</span><span class="syn-com">// Rift Integration Protocol — envelope (v1)</span></div>
+<div class="viewer-line"><span class="viewer-ln">2</span><span class="syn-com">// See decisions/§10.15_real-time_update_mechanism.md</span></div>
+<div class="viewer-line"><span class="viewer-ln">3</span><span> </span></div>
+<div class="viewer-line"><span class="viewer-ln">4</span><span class="syn-kw">use</span><span> serde::{</span><span class="syn-typ">Deserialize</span><span>, </span><span class="syn-typ">Serialize</span><span>};</span></div>
+<div class="viewer-line"><span class="viewer-ln">5</span><span> </span></div>
+<div class="viewer-line"><span class="viewer-ln">6</span><span class="syn-mac">#[derive(</span><span class="syn-typ">Clone</span><span class="syn-mac">, </span><span class="syn-typ">Debug</span><span class="syn-mac">, </span><span class="syn-typ">Serialize</span><span class="syn-mac">, </span><span class="syn-typ">Deserialize</span><span class="syn-mac">)]</span></div>
+<div class="viewer-line"><span class="viewer-ln">7</span><span class="syn-kw">pub struct</span><span> </span><span class="syn-typ">Envelope</span><span> {</span></div>
+<div class="viewer-line"><span class="viewer-ln">8</span><span>    </span><span class="syn-kw">pub</span><span> version: </span><span class="syn-typ">u16</span><span>,         </span><span class="syn-com">// schema break only</span></div>
+<div class="viewer-line"><span class="viewer-ln">9</span><span>    </span><span class="syn-kw">pub</span><span> category: </span><span class="syn-typ">Category</span><span>,    </span><span class="syn-com">// pty | hook | agent | …</span></div>
+<div class="viewer-line"><span class="viewer-ln">10</span><span>    </span><span class="syn-kw">pub</span><span> kind: </span><span class="syn-typ">String</span><span>,         </span><span class="syn-com">// type within category</span></div>
+<div class="viewer-line"><span class="viewer-ln">11</span><span>    </span><span class="syn-kw">pub</span><span> ts: </span><span class="syn-typ">u64</span><span>,</span></div>
+<div class="viewer-line"><span class="viewer-ln">12</span><span>    </span><span class="syn-kw">pub</span><span> payload: </span><span class="syn-typ">serde_json</span><span>::</span><span class="syn-typ">Value</span><span>,</span></div>
+<div class="viewer-line"><span class="viewer-ln">13</span><span>}</span></div>
+<div class="viewer-line"><span class="viewer-ln">14</span><span> </span></div>
+<div class="viewer-line"><span class="viewer-ln">15</span><span class="syn-kw">impl</span><span> </span><span class="syn-typ">Envelope</span><span> {</span></div>
+<div class="viewer-line"><span class="viewer-ln">16</span><span>    </span><span class="syn-kw">pub fn</span><span> </span><span class="syn-fn">new</span><span>(category: </span><span class="syn-typ">Category</span><span>, kind: </span><span class="syn-kw">impl</span><span> </span><span class="syn-typ">Into</span><span>&lt;</span><span class="syn-typ">String</span><span>&gt;) -&gt; </span><span class="syn-typ">Self</span><span> {</span></div>
+<div class="viewer-line"><span class="viewer-ln">17</span><span>        </span><span class="syn-typ">Self</span><span> {</span></div>
+<div class="viewer-line"><span class="viewer-ln">18</span><span>            version: </span><span class="syn-mac">CURRENT_VERSION</span><span>,</span></div>
+<div class="viewer-line"><span class="viewer-ln">19</span><span>            category,</span></div>
+<div class="viewer-line"><span class="viewer-ln">20</span><span>            kind: kind.</span><span class="syn-fn">into</span><span>(),</span></div>
+<div class="viewer-line"><span class="viewer-ln">21</span><span>            ts: </span><span class="syn-fn">now_unix_ms</span><span>(),</span></div>
+<div class="viewer-line"><span class="viewer-ln">22</span><span>            payload: </span><span class="syn-typ">serde_json</span><span>::</span><span class="syn-typ">Value</span><span>::</span><span class="syn-typ">Null</span><span>,</span></div>
+<div class="viewer-line"><span class="viewer-ln">23</span><span>        }</span></div>
+<div class="viewer-line"><span class="viewer-ln">24</span><span>    }</span></div>
+<div class="viewer-line"><span class="viewer-ln">25</span><span>}</span></div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ============================================================
+       STATUS STRIP — activity legend + counters
+       ============================================================ -->
+  <div class="statusline">
+    <div class="stat-seg">
+      <span class="stat-seg-label">PROJECT</span>
+      <span class="stat-seg-value">Rift_TerminalV2</span>
+    </div>
+    <div class="stat-seg">
+      <span class="legend-dot active"></span><span class="legend-text">active 4</span>
+      <span class="legend-dot recent"></span><span class="legend-text">recent 5</span>
+      <span class="legend-dot ambient"></span><span class="legend-text">ambient 9</span>
+      <span class="legend-dot pinned"></span><span class="legend-text">pinned 2</span>
+      <span class="legend-dot background"></span><span class="legend-text">background 14</span>
+    </div>
+    <div class="stat-seg-spacer"></div>
+    <div class="stat-seg">
+      <span class="stat-seg-label">FS EVT/s</span>
+      <span class="stat-seg-value">12.4</span>
+    </div>
+    <div class="stat-seg">
+      <span class="stat-seg-label">DECAY</span>
+      <span class="stat-seg-value">12s</span>
+    </div>
+    <div class="stat-seg">
+      <span class="stat-seg-label">SUBSCRIBED</span>
+      <span class="stat-seg-value">fs · idx · aegis</span>
+    </div>
+  </div>
+
+</div>
+
+</body>
+</html>

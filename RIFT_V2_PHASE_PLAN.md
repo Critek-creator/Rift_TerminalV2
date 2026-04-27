@@ -1,0 +1,171 @@
+# Rift V2 — Phased Implementation Plan
+
+*Generated: 2026-04-26 by `/aegis` (PLAN mode, TIER-SOLO)*
+*Source-of-truth refs: `RIFT_V2_VISION.md` v0.5 (locked) + `rift-v2-mockup.html` + p006 v1 lessons*
+*Status: DRAFT — pick a starting move; revise after §10.15 resolves*
+
+---
+
+## Anchor
+
+- **Vision is locked** at v0.5 (2026-04-26). One open spec question remains: **§10.15 real-time update mechanism.**
+- **Stack is locked** (§5): **Tauri 2 + Svelte 5 + xterm.js** (Rust backend, web frontend).
+- **V1 = `C:/Users/Critek/Documents/Abyssal_Arts_main/Projects/Rift_Terminal`** — shipped Phase 7 with MSI on 2026-04-24. Per CLAUDE.md it is a "cautionary museum exhibit" — *concepts* transfer (hook system, observability layer, IPC framing/replay), *code* does not. V1's wgpu+glyphon native stack is the wrong shape for V2's GUI requirement.
+- **No source code, no build system, no tests** in this repo yet. Working tree currently holds: `RIFT_V2_VISION.md`, `rift-v2-mockup.html`, `CLAUDE.md`, this file.
+
+---
+
+## Build Sequencing — 9 phases
+
+| Phase | Name                              | Gate(s)                       | Locked spec refs            |
+|-------|-----------------------------------|-------------------------------|-----------------------------|
+| 0     | Repo + Tauri scaffold             | none                          | §5, §8                      |
+| 1     | Terminal foundation (PTY+xterm)   | none                          | §3, §5                      |
+| 2     | Visual system (lanes/tags/CRT)    | none                          | §10.1, §10.2, §10.3         |
+| 3     | Tab/Pane/Pop-out architecture     | none                          | §10.4–§10.10                |
+| 4     | Integration Decoupling Protocol   | **§10.15 must close here**    | §9, §10.13–§10.14           |
+| 5     | First integration: hooks tab      | depends on Phase 4            | §10.7, §10.8                |
+| 6     | GUI Cockpit foundation            | mockups #2+#3 first; **§10.18 graph-lib decision** | §11                         |
+| 7     | Aegis private translator module   | depends on Phase 4 + Phase 5  | §9 two-doc, §10.13          |
+| 8     | Index integration (tab + graph)   | depends on Phase 6            | §10.12, §10.14              |
+| 9     | v1 ship: MSI + signing + runbook  | all above PASS                | §13 packaging               |
+
+### Phase 0 — Repo + Tauri scaffold
+
+**Out:** working `cargo tauri dev` cycle, empty webview, Aegis BV wired.
+- `npm create tauri-app@latest` (template: Svelte 5 + TS).
+- Workspace shape: `src-tauri/` (Rust), `src/` (Svelte), `static/`, `tauri.conf.json`.
+- Pin Rust toolchain (`rust-toolchain.toml`) + Node version.
+- Wire `/aegis --bv` and the Completeness PostToolUse hook for build discipline (§8).
+- Write `Cargo.toml` workspace root with `rift-core` member placeholder.
+
+### Phase 1 — Terminal foundation
+
+**Out:** terminal that runs cmd/powershell/bash, keyboard works, resize works.
+- Rust: `portable-pty 0.9` (transferrable from V1; **apply pty-exit-windows lesson** — ConPTY exit-watcher OS thread + AtomicBool alive flag).
+- Tauri commands: `pty_start`, `pty_write`, `pty_resize`, `pty_kill`.
+- Tauri events: `pty_output(bytes)`, `pty_exited(code)`.
+- Frontend: xterm.js mounted in a Svelte component; `invoke`/`listen` bridge.
+- Acceptance: type a command, see output, resize window, exit cleanly on Windows.
+
+### Phase 2 — Visual system
+
+**Out:** mockup parity (compare side-by-side with `rift-v2-mockup.html`).
+- Lane classifier (Rust): structured-output annotation (which lane each line belongs to). For raw PTY without source attribution, default off-white (user input echo) / amber (prompt) per lane table §10.1.
+- Tag prefix component (Svelte): bordered uppercase boxes (`CLAUDE`, `AGENT`, `HOOK`, `AEGIS`, `OK`, `WARN`, `ERR`, `SYS`).
+- Status line component: 2 rows, color-block backgrounds, **SKILL segment is non-negotiable** (§10.2).
+- CRT aesthetic: CSS scanlines + vignette overlays.
+- JetBrains Mono via fontsource or local font file.
+- Acceptance: open repo, alt-tab to mockup HTML, verify pixel-level visual match.
+
+### Phase 3 — Tab/Pane/Pop-out architecture
+
+**Out:** tab strip, drag-to-promote, pop-out modal, default tab set.
+- `Tab` Svelte component (persistent surfaces).
+- `Pane` (split inside tab OR promoted notification tab — only **one** promoted at a time per §10.5).
+- `Popout` (ephemeral, e.g. rule editor).
+- Drag-tab-out → promotes to pane. Drag-pane-back → returns to tab. Same gesture handles GUI window detach in Phase 6.
+- Default tab set per §10.7: **Errors / Hooks / Commands / one open slot.**
+- Tab anatomy (§10.4 / §10.8): 4 modular sections per tab — status header / live activity / recent events / persistent state.
+- Section catalog (§10.10) — extensible, self-discovering. v1 ships hardcoded; integration registration deferred to Phase 4+.
+- Per-tab independent toggle (§10.6).
+
+### Phase 4 — Integration Decoupling Protocol
+
+**🚧 GATE: §10.15 real-time update mechanism MUST resolve before this phase.** Recommend `/aegis --research` dispatch with the spec, the V1 IPC pattern (UDS + named pipe + framing + replay), and Tauri's IPC primitives as inputs.
+
+**Out:** Rift Integration Protocol v1 spec doc + reference implementation in Rust + a green test that a fake translator module can subscribe to events and invoke a control endpoint.
+- Define internal event/state JSON schema (Rust types + JSON-schema export).
+- Three capability classes (§9): **event subscription / control endpoints / data enrichment.**
+- `translators/` directory — every external system enters through a module here. **No direct Claude/Aegis/MCP calls outside translators** (§9 build-time enforcement).
+- Feature detection at runtime: bare Rift renders anonymous activity; integration presence lights up enrichment.
+- **Critical**: keep this protocol public-facing. Aegis's translator goes in Phase 7 as a private module, not here.
+
+### Phase 5 — Hooks tab (first integration)
+
+**Out:** real Claude Code hook events flowing into the Hooks tab.
+- A built-in `hook_translator` module that subscribes to Claude Code's hook event surface and emits Rift internal events.
+- Hooks tab renders cyan-lane events with `HOOK` tag prefix.
+- Section catalog populated for hooks: live activity strip + recent log + state panel.
+- Acceptance: trigger a Claude Code hook in the embedded session, see it land in the Hooks tab.
+
+### Phase 6 — GUI Cockpit foundation
+
+**Prerequisites:** Mockup #2 (GUI alone, detached) and Mockup #3 (terminal+GUI integrated). **§10.18 graph-library decision (Cytoscape / D3 / Sigma)** must close before code starts. Recommend a small spike: render same fixture in all 3 libs, decide on perf + interaction quality.
+
+**Out:** detachable graph window with filesystem activity rendering.
+- Detachable window architecture (default attached, drag-to-detach, drag-back-to-attach — same gesture as tab promote/return per §10.5).
+- Filesystem watcher (Rust, `notify` crate) → emits read/write/create/delete events.
+- Graph model: file-as-node, type icons, IDE-tree mirror.
+- Activity visualization: glow-on-touch, decay, pin (click), background (clicked-and-released vs ambient).
+- Hierarchical bubble-up (§11).
+- Friction-reduction in-cockpit editor: **scope-bounded per §11** — full syntax highlighting (tree-sitter), quick edit/save. **OUT OF SCOPE: multi-file refactor, debug tooling, extensions.**
+
+### Phase 7 — Aegis private translator
+
+**Out:** the Aegis ↔ Rift module (private repo OR private workspace member, NOT public).
+- Lives outside `translators/` public set; loads conditionally at runtime when Aegis presence is detected.
+- Aegis tab populated, SKILL segment in status line confirms loaded skill.
+- Sentinel events surface as agent-misbehavior in Agents tab — **Sentinel is source of truth, Rift is display layer** (§10.11).
+
+### Phase 8 — Index integration
+
+**Out:** Index tab + Index graph view (two views of same data, §10.12).
+- Translator module subscribes to Index update events.
+- Tab view = list/tree. Graph view = node-edge with filesystem cross-references.
+
+### Phase 9 — v1 ship
+
+**Out:** signed MSI installer + GitHub release + runbook.
+- Apply V1 lessons: `cargo-wix` invoked from package dir (not workspace root), workspace-relative paths in `.wxs`, conditional code-signing in CI.
+- Release runbook documents the full Phase 0→9 build verification flow.
+
+---
+
+## Anti-Patterns to actively guard against
+
+Per CLAUDE.md §7 + RIFT_V2_VISION §7:
+- **No wrapper architecture.** This is V1's original sin. V2 is standalone.
+- **No silent stubbing or deferring.** If something is deferred, log it loudly in `DEFERRED.md`, never bury in `// for now`.
+- **No floating text.** Every UI element belongs to a tab/pane/pop-out.
+- **No shortcuts on lane classification or section catalog** — these are load-bearing visuals.
+- **No direct external-system calls outside translator modules** (§9 build-time enforcement).
+
+---
+
+## Open spec items — must-resolve list
+
+| Ref     | Item                                          | Action                            | Gates phase |
+|---------|-----------------------------------------------|-----------------------------------|-------------|
+| §10.15  | Real-time update mechanism                    | `/aegis --research`               | Phase 4     |
+| §10.16  | Section catalog brainstorm                    | `/aegis --think` during Phase 5   | Phase 5     |
+| §10.17  | Agent tab grouping/filtering                  | `/aegis --think` during Phase 7   | Phase 7     |
+| §10.18  | GUI rendering tech (Cytoscape/D3/Sigma)       | spike + `/aegis --crit`           | Phase 6     |
+
+---
+
+## Lessons that transfer from V1 (p006 vault)
+
+- `pty-exit-windows` — ConPTY exit-watcher 250ms poll + Arc<AtomicBool> alive flag. Apply Phase 1.
+- `pre-publish-before-start-ipc-server` — eliminate subscribe-vs-publish race. Apply Phase 4.
+- `serialize-deserialize-asymmetry-bidirectional-protocol` — round-trip tests mandatory for any new envelope. Apply Phase 4.
+- `cargo-wix-workspace-member-light-path-resolution` — invoke from package dir or use workspace-relative `.wxs` paths. Apply Phase 9.
+- `envelope-version-additive-categories-no-bump` — adding new event categories is additive; only schema breaks bump version. Apply Phase 4.
+- `coordinator-surgical-recovery` — mid-edit interrupt protocol. Apply throughout build.
+
+## Lessons that DO NOT transfer
+
+- V1's wgpu+glyphon native renderer stack — Tauri webview replaces it.
+- V1's tmux + capture-pane testing surface — `/aegis --verify` Tauri profile would be needed (not yet built; consider creation under the 5-gate protocol when Phase 2 lands).
+
+---
+
+## Recommended starting move
+
+**Phase 0 + close §10.15 in parallel.** Phase 0 has no spec dependencies; §10.15 research can run independently and will be done by the time Phase 0 + Phase 1 + Phase 2 wrap.
+
+Concrete next-message options:
+- `[A]` Start Phase 0: scaffold the Tauri+Svelte project with `npm create tauri-app@latest` and wire workspace.
+- `[B]` Resolve §10.15 first: `/aegis --research real-time update mechanism Tauri 2 IPC vs websocket vs event bus`.
+- `[C]` Build Mockup #2 (GUI alone) — closes Phase 6 prerequisite ahead of time.
+- `[D]` Revise this plan before any code (changes you want?).

@@ -1,0 +1,131 @@
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+
+/* =========================================================
+   ABYSSAL ARTS BRAND PALETTE — synced with rift-v2-mockup.html
+   ========================================================= */
+:root {
+  --bg-base:       #080806;
+  --bg-surface:    #0F0F0D;
+  --bg-elevated:   #14140F;
+  --bg-hover:      #1a1a14;
+  --bg-panel:      #0c0c0a;
+  --border-subtle: #2a2418;
+  --border-active: #4a3818;
+
+  --amber-primary: #D4890A;
+  --amber-warm:    #B07A12;
+  --amber-bright:  #f59e0b;
+  --amber-dim:     #8B6914;
+  --amber-faint:   #5a4410;
+
+  --term-red:      #CC3333;
+  --term-green:    #33CC33;
+  --term-blue:     #4a9eff;   /* claude lane */
+  --term-purple:   #b078e8;   /* agent lane */
+  --term-cyan:     #4ad4d4;   /* hook lane */
+  --term-white:    #d8d4c8;
+
+  --glow-amber:        0 0 8px rgba(212, 137, 10, 0.35);
+  --glow-amber-strong: 0 0 14px rgba(245, 158, 11, 0.65);
+  --glow-amber-faint:  0 0 4px rgba(212, 137, 10, 0.2);
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body, #app {
+  height: 100%;
+  background: var(--bg-base);
+  color: var(--amber-primary);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+body { overflow: hidden; }
+
+/* =========================================================
+   SCANLINES + CRT VIGNETTE — brand fingerprint (§10.3)
+   Pointer-events: none so they never intercept input.
+   ========================================================= */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    to bottom,
+    rgba(0, 0, 0, 0)   0px,
+    rgba(0, 0, 0, 0)   2px,
+    rgba(0, 0, 0, 0.06) 2px,
+    rgba(0, 0, 0, 0.06) 3px
+  );
+  z-index: 9999;
+}
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(
+    ellipse at center,
+    rgba(0, 0, 0, 0)    50%,
+    rgba(0, 0, 0, 0.45) 100%
+  );
+  z-index: 9998;
+}
+
+/* =========================================================
+   APP SHELL — textured background gradient layered on bg-base
+   ========================================================= */
+.app-shell {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  background:
+    radial-gradient(ellipse at 20% 10%, rgba(212, 137, 10, 0.025), transparent 60%),
+    radial-gradient(ellipse at 80% 90%, rgba(176, 122, 18, 0.02),  transparent 50%),
+    var(--bg-base);
+  display: flex;
+  flex-direction: column;
+}
+
+/* =========================================================
+   LANE CLASSES — used by Rift-rendered output (post-Phase 4
+   when integration events are mapped through the protocol).
+   xterm output bypasses these: ANSI escape codes drive xterm
+   colours directly via the theme set in Terminal.svelte.
+   ========================================================= */
+.lane-prompt   { color: var(--amber-bright); text-shadow: var(--glow-amber); }
+.lane-user     { color: var(--term-white); }
+.lane-system   { color: var(--amber-warm); }
+.lane-claude   { color: var(--term-blue); }
+.lane-agent    { color: var(--term-purple); }
+.lane-hook     { color: var(--term-cyan); }
+.lane-aegis    { color: var(--amber-primary); }
+.lane-success  { color: var(--term-green); }
+.lane-error    { color: var(--term-red); }
+.lane-muted    { color: var(--amber-dim); }
+.lane-meta     { color: var(--amber-faint); font-style: italic; }
+
+/* =========================================================
+   TAG PREFIX — small bordered uppercase boxes (§10.1)
+   ========================================================= */
+.tag {
+  display: inline-block;
+  padding: 0 6px;
+  margin-right: 8px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  border: 1px solid currentColor;
+  line-height: 14px;
+}
+.tag-claude { color: var(--term-blue);     border-color: var(--term-blue); }
+.tag-agent  { color: var(--term-purple);   border-color: var(--term-purple); }
+.tag-hook   { color: var(--term-cyan);     border-color: var(--term-cyan); }
+.tag-aegis  { color: var(--amber-primary); border-color: var(--amber-primary); }
+.tag-system { color: var(--amber-warm);    border-color: var(--amber-warm); }
+.tag-error  { color: var(--term-red);      border-color: var(--term-red); }
+.tag-ok     { color: var(--term-green);    border-color: var(--term-green); }

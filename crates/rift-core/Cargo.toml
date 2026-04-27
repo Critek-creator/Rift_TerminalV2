@@ -1,0 +1,15 @@
+[package]
+name = "rift-core"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Rift core — PTY layer + shell resolution"
+rust-version.workspace = true
+
+[dependencies]
+portable-pty = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }

@@ -1,0 +1,22 @@
+[package]
+name = "rift-cli"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Rift Terminal CLI — speak the Rift Integration Protocol from a shell"
+rust-version.workspace = true
+
+[[bin]]
+name = "rift"
+path = "src/main.rs"
+
+[dependencies]
+rift-bus = { path = "../rift-bus" }
+clap = { workspace = true }
+tokio = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }
