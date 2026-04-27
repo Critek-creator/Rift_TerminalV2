@@ -17,6 +17,13 @@
 
 <!-- D-007 closed 2026-04-27, see C-013 below -->
 
+### D-010 — Sentinel implementation (active 2026-04-27, opened by Phase 7.0 architecture lock)
+- Spec §10.11 names Sentinel as the source-of-truth for agent misbehavior detection (stuck / runaway / unauthorized edits); Rift is the display layer.
+- Sentinel does NOT yet exist in the workspace — no crate, no source file, no Aegis-side spec defining the event surface. Greenfield post-v1 work.
+- v1 scope: Phase 7.5 ships an empty Agents-tab placeholder card "Sentinel: integration not loaded" per §10.7 capability-driven empty-state pattern. No detection logic, no event subscription — pure visual stub that lights up when a future Sentinel translator self-registers.
+- **Unblocking event**: (a) Sentinel architecture spec lands as a separate planning beat post-v1, AND (b) a Sentinel-side implementation produces detectable misbehavior events on a documented schema. Then Rift's Agents tab subscribes to `sentinel.*` envelopes and renders them alongside existing Aegis-derived `agent.*` events.
+- Created during Phase 7.0 architecture lock (this commit). No code change required to open this deferral — pure spec deferral. Phase 7.5 will write the placeholder card and reference this entry inline.
+
 ---
 
 ## Closed deferrals

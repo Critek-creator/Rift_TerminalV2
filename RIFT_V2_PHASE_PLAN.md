@@ -106,10 +106,15 @@
 
 ### Phase 7 — Aegis private translator
 
-**Out:** the Aegis ↔ Rift module (private repo OR private workspace member, NOT public).
-- Lives outside `translators/` public set; loads conditionally at runtime when Aegis presence is detected.
-- Aegis tab populated, SKILL segment in status line confirms loaded skill.
-- Sentinel events surface as agent-misbehavior in Agents tab — **Sentinel is source of truth, Rift is display layer** (§10.11).
+**Out:** the Aegis ↔ Rift module (**private workspace member**, NOT public). Architecture LOCKED 2026-04-27 via `/aegis --plan phase 7`.
+
+- Lives outside `translators/` public set as `crates/rift-aegis/` (workspace member excluded from public CI + `.gitignore` on public branches; `tools/check-translator-boundary.sh` extended to verify the path is gitignored on public-branch pushes).
+- Loads conditionally at runtime: Aegis-presence probe at startup (a) checks `~/.claude/skills/aegis/SKILL.md` existence and (b) `linkme`/`inventory` self-registration if compiled in → emits `aegis.detected` envelope. Probe runs on a separate tokio task to avoid blocking Tauri `setup()`.
+- Aegis tab populated from three sources: (c1) startup snapshot — parse `~/.claude/skills/aegis/SKILL.md` HTML-comment version + scan `~/.claude/settings.json` hooks → `aegis.context` envelope; (c2) live tail — `notify`-watched `~/.claude/aegis.log` → `aegis.invocation` envelope per appended line; (c3) lazy load — `~/.claude/anti-claude-lessons.md` read on tab focus only (too large for snapshot).
+- SKILL segment in status line: `~/.claude/scripts/aegis-log.mjs` UserPromptSubmit hook extended to spool per-session `.aegis/session/<project>/skill.json`; rift-aegis tails the spool → emits `aegis.session.skill_loaded` envelope. Status line also gains live ctx % / session % / week % via the same envelope (closes the Phase 2 acceptance gap noted at `src/lib/StatusLine.svelte:6`).
+- Sentinel: **NOT IMPLEMENTED in v1** — no Sentinel crate, no source file, no Aegis-side spec yet. Agents tab renders capability-driven empty-state card "Sentinel: integration not loaded" per §10.7 pattern. Sentinel implementation deferred to post-v1 as `D-010` in `DEFERRED.md`.
+- §10.17 (agent tab grouping/filtering) → standalone `/aegis --think` brainstorm beat at end of phase (subphase 7.6); doc-only output.
+- Subphases (locked 2026-04-27 via `/aegis --plan phase 7`): 7.0 spec patch (this commit) → 7.1 rift-aegis private workspace member + load detection → tranche-3 fan-out: 7.2 Aegis tab + AegisTabContent → 7.3 quick-action buttons → 7.4 live SKILL status line → 7.5 Sentinel placeholder card. **Tranche-3 ships at end of 7.5.** Then 7.6 §10.17 brainstorm beat (separate, no BV).
 
 ### Phase 8 — Index integration
 
