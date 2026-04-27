@@ -7,6 +7,9 @@
  * Spec: `decisions/§10.15_real-time_update_mechanism.md`.
  */
 
+// Note: invoke().catch() handlers here are intentionally minimal — backend Tauri
+// commands publish errors via rift_bus::publish_error before returning Err, so
+// every error the frontend sees is already captured in Category::System on the bus.
 import { Channel, invoke } from '@tauri-apps/api/core';
 
 export type Category =

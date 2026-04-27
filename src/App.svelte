@@ -14,8 +14,8 @@
   // so the pane stays in placeholder mode until a translator lights it up.
   const CATEGORY_BY_NOTIF: Record<string, Category | undefined> = {
     hooks: 'hook',
-    errors: undefined,    // wires to Category::System filtered to error kinds in a future phase
-    commands: undefined,  // wires when a command translator exists
+    errors: 'system',     // v1: all Category::System envelopes are errors (kind="error" is the only System kind emitted); kind-filter is a future enhancement
+    commands: 'pty',      // v1: all Category::Pty envelopes; only kind emitted is "command.submitted"; kind-filter deferred
   };
 
   // ----- session tabs -----

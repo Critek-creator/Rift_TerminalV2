@@ -24,7 +24,10 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
-use rift_bus::{Category, Envelope, IpcServer, RiftBus, SubscribeFilter};
+use rift_bus::{
+    publish_command, publish_error, Category, CommandBuffer, Envelope, IpcServer, RiftBus,
+    SubscribeFilter,
+};
 use rift_core::pty::{PtyControl, PtyDims, PtyOptions, PtySession};
 use serde::Serialize;
 use tauri::ipc::Channel;
@@ -70,6 +73,46 @@ impl PtyRegistry {
             .sessions
             .lock()
             .expect("pty registry poisoned")
+            .remove(&id);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Command buffer registry (Phase 5.4 — commands translator)
+// ---------------------------------------------------------------------------
+
+/// Tracks per-session [`CommandBuffer`] instances. Keyed by the same session
+/// id used in [`PtyRegistry`]. std Mutex — no `.await` crosses the lock.
+#[derive(Default)]
+struct CommandBufferRegistry {
+    buffers: Mutex<HashMap<u32, CommandBuffer>>,
+}
+
+impl CommandBufferRegistry {
+    fn insert(&self, id: u32) {
+        self.buffers
+            .lock()
+            .expect("command buffer registry poisoned")
+            .insert(id, CommandBuffer::new());
+    }
+
+    /// Feed bytes into the session's buffer. Returns completed
+    /// `(command_string, raw_len)` pairs; empty if the session is not found.
+    fn feed(&self, id: u32, bytes: &[u8]) -> Vec<(String, usize)> {
+        let mut guard = self
+            .buffers
+            .lock()
+            .expect("command buffer registry poisoned");
+        match guard.get_mut(&id) {
+            Some(buf) => buf.feed(bytes),
+            None => Vec::new(),
+        }
+    }
+
+    fn remove(&self, id: u32) {
+        self.buffers
+            .lock()
+            .expect("command buffer registry poisoned")
             .remove(&id);
     }
 }
@@ -177,9 +220,20 @@ async fn pty_start(
     if let Some(ipc) = app.try_state::<BusIpcState>() {
         opts = opts.with_env("RIFT_SOCKET_NAME", ipc.socket_name.clone());
     }
-    let (mut output, control) = PtySession::spawn_with_options(opts).map_err(|e| e.to_string())?;
+    let (mut output, control) = PtySession::spawn_with_options(opts).map_err(|e| {
+        let msg = e.to_string();
+        publish_error(
+            app.state::<RiftBus>().inner(),
+            "tauri.command.pty_start",
+            &msg,
+            None,
+        );
+        msg
+    })?;
     let registry = app.state::<PtyRegistry>().inner().clone();
     let id = registry.insert(control);
+    // Register a fresh CommandBuffer for this session (commands translator).
+    app.state::<CommandBufferRegistry>().insert(id);
 
     let drain_app = app.clone();
     tauri::async_runtime::spawn(async move {
@@ -205,35 +259,78 @@ async fn pty_start(
 }
 
 #[tauri::command]
-fn pty_write(state: State<'_, PtyRegistry>, id: u32, bytes: Vec<u8>) -> Result<(), String> {
-    state
-        .get(id)
-        .ok_or_else(|| format!("pty session {id} not found"))?
-        .write(&bytes)
-        .map_err(|e| e.to_string())
+fn pty_write(
+    state: State<'_, PtyRegistry>,
+    bus: State<'_, RiftBus>,
+    cmd_bufs: State<'_, CommandBufferRegistry>,
+    id: u32,
+    bytes: Vec<u8>,
+) -> Result<(), String> {
+    let control = state.get(id).ok_or_else(|| {
+        let msg = format!("pty session {id} not found");
+        publish_error(bus.inner(), "tauri.command.pty_write", &msg, None);
+        msg
+    })?;
+    control.write(&bytes).map_err(|e| {
+        let msg = e.to_string();
+        publish_error(bus.inner(), "tauri.command.pty_write", &msg, None);
+        msg
+    })?;
+    // Write succeeded — feed bytes into the command buffer and publish each
+    // completed command line. Failed writes (above) do NOT emit here (§3c).
+    for (cmd, raw_len) in cmd_bufs.feed(id, &bytes) {
+        publish_command(bus.inner(), id, cmd, raw_len);
+    }
+    Ok(())
 }
 
 #[tauri::command]
-fn pty_resize(state: State<'_, PtyRegistry>, id: u32, rows: u16, cols: u16) -> Result<(), String> {
-    state
-        .get(id)
-        .ok_or_else(|| format!("pty session {id} not found"))?
+fn pty_resize(
+    state: State<'_, PtyRegistry>,
+    bus: State<'_, RiftBus>,
+    id: u32,
+    rows: u16,
+    cols: u16,
+) -> Result<(), String> {
+    let control = state.get(id).ok_or_else(|| {
+        let msg = format!("pty session {id} not found");
+        publish_error(bus.inner(), "tauri.command.pty_resize", &msg, None);
+        msg
+    })?;
+    control
         .resize(PtyDims {
             rows: rows.max(1),
             cols: cols.max(1),
             pixel_width: 0,
             pixel_height: 0,
         })
-        .map_err(|e| e.to_string())
+        .map_err(|e| {
+            let msg = e.to_string();
+            publish_error(bus.inner(), "tauri.command.pty_resize", &msg, None);
+            msg
+        })
 }
 
 #[tauri::command]
-fn pty_kill(state: State<'_, PtyRegistry>, id: u32) -> Result<(), String> {
-    state
-        .get(id)
-        .ok_or_else(|| format!("pty session {id} not found"))?
-        .kill()
-        .map_err(|e| e.to_string())
+fn pty_kill(
+    state: State<'_, PtyRegistry>,
+    bus: State<'_, RiftBus>,
+    cmd_bufs: State<'_, CommandBufferRegistry>,
+    id: u32,
+) -> Result<(), String> {
+    let control = state.get(id).ok_or_else(|| {
+        let msg = format!("pty session {id} not found");
+        publish_error(bus.inner(), "tauri.command.pty_kill", &msg, None);
+        msg
+    })?;
+    control.kill().map_err(|e| {
+        let msg = e.to_string();
+        publish_error(bus.inner(), "tauri.command.pty_kill", &msg, None);
+        msg
+    })?;
+    // Clean up the command buffer for this session.
+    cmd_bufs.remove(id);
+    Ok(())
 }
 
 #[tauri::command]
@@ -264,7 +361,14 @@ async fn bus_subscribe(
 
     let filter = match category.as_deref() {
         None => SubscribeFilter::All,
-        Some(raw) => SubscribeFilter::Category(parse_category(raw)?),
+        Some(raw) => SubscribeFilter::Category(parse_category(raw).inspect_err(|msg| {
+            publish_error(
+                app.state::<RiftBus>().inner(),
+                "tauri.command.bus_subscribe",
+                msg,
+                None,
+            );
+        })?),
     };
 
     let (close_tx, mut close_rx) = oneshot::channel::<()>();
@@ -317,7 +421,9 @@ fn bus_publish(
     kind: String,
     payload: Option<serde_json::Value>,
 ) -> Result<(), String> {
-    let cat = parse_category(&category)?;
+    let cat = parse_category(&category).inspect_err(|msg| {
+        publish_error(bus.inner(), "tauri.command.bus_publish", msg, None);
+    })?;
     let mut env = Envelope::new(cat, kind);
     if let Some(p) = payload {
         env.payload = p;
@@ -351,6 +457,7 @@ pub fn run() {
     tauri::Builder::default()
         .manage(PtyRegistry::default())
         .manage(BusSubscriptionRegistry::default())
+        .manage(CommandBufferRegistry::default())
         .setup(|app| {
             // Bus is always present; the IPC server is best-effort and may
             // fail to bind (e.g. if the socket name is taken). Frontend can
