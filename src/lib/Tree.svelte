@@ -1,5 +1,5 @@
 <script module lang="ts">
-  // Tree.svelte — Phase 6.2
+  // Tree.svelte — Phase 6.3
   //
   // Module script: exports the TreeNode type so consumers (App.svelte, Phase 8
   // graph pane) can import it without importing the component itself.
@@ -29,10 +29,18 @@
   //
   // Visual state classes (ambient | recent | active | background) are read
   // from `treeActivity` and applied reactively via `$derived`.
+  //
+  // Phase 6.3 additions:
+  //   • Per-directory collapse state (collapsedDirs Set, toggleCollapse).
+  //   • Layout walk skips subtrees of collapsed dirs.
+  //   • Aggregate glow + hasPinnedDescendant for collapsed dirs (sub-walk,
+  //     capped at MAX_BUBBLE_DEPTH levels below the collapsed dir).
+  //   • Reactive ▾/▶ glyph via collapsedDirs read in render.
+  //   • Click routing: dir click → toggleCollapse, file click → treeActivity.cycle.
 
   import { invoke } from '@tauri-apps/api/core';
   import { subscribe, type Envelope } from './bus';
-  import { treeActivity } from './treeActivity.svelte';
+  import { treeActivity, type ActivityState } from './treeActivity.svelte';
 
   // ---------------------------------------------------------------------------
   // Layout constants
@@ -49,6 +57,13 @@
   const DIR_W = 10;
   const DIR_H = 9;
   const FILE_R = 4.5; // circle radius
+
+  /**
+   * Maximum recursion depth for the aggregate sub-walk on collapsed dirs.
+   * Prevents pathological bubble-up on deep/noisy project trees.
+   * 6 levels covers the overwhelming majority of real project layouts.
+   */
+  const MAX_BUBBLE_DEPTH = 6;
 
   // ---------------------------------------------------------------------------
   // Props — bindable outputs for App.svelte's pane header
@@ -73,8 +88,77 @@
   let treeRoot = $state<TreeNode | null>(null);
   let fetchError = $state<string | null>(null);
 
+  /**
+   * Set of directory paths currently collapsed by the user.
+   * Empty by default (all dirs expanded). Svelte 5 Set reactivity requires
+   * assign-replace on mutation — see toggleCollapse.
+   */
+  let collapsedDirs = $state(new Set<string>());
+
+  // ---------------------------------------------------------------------------
+  // Collapse helpers (design call A)
+  // ---------------------------------------------------------------------------
+
+  /** Toggle collapse state for a directory path. Assign-replace for Svelte 5 reactivity. */
+  function toggleCollapse(path: string): void {
+    const next = new Set(collapsedDirs);
+    if (next.has(path)) next.delete(path); else next.add(path);
+    collapsedDirs = next;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Aggregate helpers for collapsed dirs (design call C)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Compute the synthetic ActivityState for a collapsed directory from its
+   * aggregate glow and pinned-descendant flag.
+   * Pinned > any glow > ambient, mirroring the file visual hierarchy.
+   */
+  function aggregateStateFromGlow(glow: number, hasPinned: boolean): ActivityState {
+    if (hasPinned) return 'active';   // any pinned descendant → dir reads as active
+    if (glow > 0)  return 'recent';   // any decaying glow → dir reads as recent
+    return 'ambient';
+  }
+
+  /**
+   * Walk descendants of a collapsed dir (not emitted to layout) to compute:
+   *   aggregateGlow    — max glowIntensity across all reachable descendants.
+   *   hasPinnedDesc    — true if any descendant has state === 'active'.
+   *
+   * Stops descending after MAX_BUBBLE_DEPTH levels to bound cost on deep trees.
+   * Out-of-tree activity (paths not in snapshot) is simply absent — no crash.
+   */
+  function computeAggregate(
+    node: TreeNode,
+    depthRemaining: number,
+  ): { aggregateGlow: number; hasPinnedDesc: boolean } {
+    let aggregateGlow = 0;
+    let hasPinnedDesc = false;
+
+    if (depthRemaining <= 0) return { aggregateGlow, hasPinnedDesc };
+
+    for (const child of node.children) {
+      const entry = treeActivity.getEntry(child.path);
+      if (entry.glowIntensity > aggregateGlow) aggregateGlow = entry.glowIntensity;
+      if (entry.state === 'active') hasPinnedDesc = true;
+
+      if (child.isDir && child.children.length > 0) {
+        const sub = computeAggregate(child, depthRemaining - 1);
+        if (sub.aggregateGlow > aggregateGlow) aggregateGlow = sub.aggregateGlow;
+        if (sub.hasPinnedDesc) hasPinnedDesc = true;
+      }
+
+      // Short-circuit: can't improve beyond maximum values.
+      if (hasPinnedDesc && aggregateGlow >= 1.0) break;
+    }
+
+    return { aggregateGlow, hasPinnedDesc };
+  }
+
   // ---------------------------------------------------------------------------
   // Flat layout — computed reactively from treeRoot + treeActivity.snapshot
+  //               + collapsedDirs (design calls B, C)
   // ---------------------------------------------------------------------------
 
   interface LayoutNode {
@@ -83,11 +167,16 @@
     y: number;
     parentX: number | null;
     parentY: number | null;
+    /** Non-null only for collapsed dirs: max descendant glow [0,1]. */
+    aggregateGlow: number | null;
+    /** Non-null only for collapsed dirs: synthetic state driven by descendants. */
+    aggregateState: ActivityState | null;
   }
 
   const layout = $derived.by((): LayoutNode[] => {
-    // Access snapshot so this derived re-runs when activity changes.
+    // Read snapshot + collapsedDirs so this derived re-runs when either changes.
     void treeActivity.snapshot;
+    void collapsedDirs;
 
     if (!treeRoot) return [];
     const rows: LayoutNode[] = [];
@@ -101,10 +190,26 @@
     ) {
       const x = ROOT_X + depth * X_STEP;
       const y = ROW_H / 2 + row * ROW_H;
-      rows.push({ node, x, y, parentX, parentY });
+      const isCollapsed = node.isDir && collapsedDirs.has(node.path);
+
+      let aggregateGlow: number | null = null;
+      let aggState: ActivityState | null = null;
+
+      if (isCollapsed) {
+        // Pre-compute aggregate so render doesn't re-walk on every paint.
+        const agg = computeAggregate(node, MAX_BUBBLE_DEPTH);
+        aggregateGlow = agg.aggregateGlow;
+        aggState = aggregateStateFromGlow(agg.aggregateGlow, agg.hasPinnedDesc);
+      }
+
+      rows.push({ node, x, y, parentX, parentY, aggregateGlow, aggregateState: aggState });
       row++;
-      for (const child of node.children) {
-        walk(child, depth + 1, x, y);
+
+      // Skip children of collapsed dirs (design call B).
+      if (!isCollapsed) {
+        for (const child of node.children) {
+          walk(child, depth + 1, x, y);
+        }
       }
     }
 
@@ -291,15 +396,31 @@
   });
 
   // ---------------------------------------------------------------------------
-  // Helpers for per-node rendering
+  // Helpers for per-node rendering (design calls D, E, G)
   // ---------------------------------------------------------------------------
 
+  /**
+   * State class for files and expanded dirs — reads the node's OWN activity entry.
+   * Collapsed dirs use aggregateState from the layout (pre-computed in the walk).
+   * Do NOT call this for collapsed dirs; it would return the dir's own (irrelevant) entry.
+   */
   function stateClass(path: string): string {
     return treeActivity.getEntry(path).state;
   }
 
-  function handleNodeClick(path: string) {
-    treeActivity.cycle(path);
+  /**
+   * Click routing:
+   *   dir  → toggleCollapse (design call E)
+   *   file → treeActivity.cycle (existing Phase 6.2 behaviour)
+   *
+   * Phase 6.x: shift-click on dir to pin (currently click = toggle only).
+   */
+  function handleNodeClick(node: TreeNode): void {
+    if (node.isDir) {
+      toggleCollapse(node.path);
+    } else {
+      treeActivity.cycle(node.path);
+    }
   }
 
   /** L-shaped edge: vertical drop then horizontal run to child node. */
@@ -338,7 +459,7 @@
       <!-- Edges — rendered below nodes so nodes paint on top -->
       {#each layout as item (item.node.path + '_edge')}
         {#if item.parentX !== null && item.parentY !== null}
-          {@const sc = stateClass(item.node.path)}
+          {@const sc = item.aggregateState ?? stateClass(item.node.path)}
           <path
             class="edge {sc === 'active' ? 'active' : sc === 'background' ? 'background' : ''}"
             d={edgePath(item.parentX, item.parentY, item.x, item.y)}
@@ -346,19 +467,24 @@
         {/if}
       {/each}
 
-      <!-- Nodes -->
+      <!-- Nodes (design calls D, F, G) -->
       {#each layout as item (item.node.path)}
-        {@const sc = stateClass(item.node.path)}
-        {@const glow = treeActivity.getEntry(item.node.path).glowIntensity}
+        {@const isCollapsedDir = item.node.isDir && collapsedDirs.has(item.node.path)}
+        {@const sc = item.aggregateState ?? stateClass(item.node.path)}
+        {@const glow = isCollapsedDir
+          ? (item.aggregateGlow ?? 0)
+          : treeActivity.getEntry(item.node.path).glowIntensity}
         <!-- svelte-ignore a11y_click_events_have_key_events -->
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <g
           class="tree-node"
-          onclick={() => handleNodeClick(item.node.path)}
+          onclick={() => handleNodeClick(item.node)}
           style="cursor: pointer;"
         >
           {#if item.node.isDir}
-            <!-- Directory: rounded rectangle -->
+            <!-- Directory: rounded rectangle.
+                 Collapsed dirs use aggregateGlow for drop-shadow;
+                 expanded dirs use their own entry's glow (design call F). -->
             <rect
               class="node-bg node-state-{sc}"
               x={item.x - DIR_W / 2}
@@ -371,7 +497,8 @@
                 ? `filter: drop-shadow(0 0 ${4 + glow * 8}px rgba(212,137,10,${0.3 + glow * 0.45}));`
                 : ''}
             />
-            <!-- Folder glyph: ▾ (expanded, since all nodes are shown) -->
+            <!-- Folder glyph: ▶ when collapsed, ▾ when expanded (design call D).
+                 Glyph state class tracks the same sc as the dir bg. -->
             <text
               class="node-glyph {sc}"
               x={item.x}
@@ -379,7 +506,7 @@
               text-anchor="middle"
               dominant-baseline="middle"
               font-size="7"
-            >▾</text>
+            >{isCollapsedDir ? '▶' : '▾'}</text>
           {:else}
             <!-- File: circle -->
             <circle
