@@ -15,17 +15,19 @@
 
 <!-- D-008 closed 2026-04-27, see C-012 below -->
 
-### D-007 — Mockup #2 (GUI alone) and Mockup #3 (integrated) not built before Phase 6
-- **Phase:** 0 → 6
-- **Why deferred:** mockup #2 IS now built (`rift-v2-mockup-gui.html`, 2026-04-26). Mockup #3 (terminal+GUI integrated cockpit) remains pending per §11.
-- **Concrete unblocking event:** before Phase 6 GUI implementation begins.
-- **Files affected:** `rift-v2-mockup-integrated.html` does not exist yet.
-- **Owner:** Garth + Claude.
-- **Acceptance:** integrated cockpit view showing terminal + GUI side-by-side with locked visual vocabulary.
+<!-- D-007 closed 2026-04-27, see C-013 below -->
 
 ---
 
 ## Closed deferrals
+
+### C-013 — D-007 Mockup #3 integrated cockpit (closed 2026-04-27)
+- New `rift-v2-mockup-integrated.html` (1042 lines) — the default attached cockpit experience per §11. Single window with shared titlebar (`◆ RIFT` + `COCKPIT — INTEGRATED` mode label + `↗ DETACH GUI` button mirroring mockup #2's RE-ATTACH) + horizontal split (terminal LEFT 62%, GUI RIGHT 38%) + full-width 2-row status line.
+- Visual vocabulary inherits 100% from mockups #1 and #2 — same `:root` palette tokens, same scanlines + vignette, same JetBrains Mono, same lane colors / tag styles / line classes / tab anatomy / tree-row classes / project-swap + view-toggles chrome.
+- Integration moment locked: terminal issues `claude "add an error boundary wrapper to NotificationPane.svelte per §10.4"`; mid-flow the GUI-right surface lights up — graph node for `NotificationPane.svelte` glows amber-bright with `CLAUDE` attribution label, sibling files (`App.svelte`, `bus.ts`) carry recent-decay state, edges trace `App.svelte → NotificationPane.svelte → bus.ts → RiftBus`, AND the file-tree row marks NotificationPane as ACTIVE with the same CLAUDE badge. One terminal action → two GUI surfaces light up on the same file. Readable in a single glance.
+- Right column stacked layout: graph (~55% height, hand-placed SVG with 5-8 nodes — RiftBus, App.svelte, NotificationPane.svelte, Terminal.svelte, bus.ts, pty.rs) on top; 12-15 row file tree on bottom.
+- 1px `var(--border-subtle)` vertical divider between cockpit-left and cockpit-right; resize handle deferred (out of scope for visual mockup).
+- Mockup plan §11 now complete: #1 terminal-alone (rift-v2-mockup.html, ✓), #2 GUI-alone detached (rift-v2-mockup-gui.html, ✓), #3 integrated attached (rift-v2-mockup-integrated.html, ✓ — this entry).
 
 ### C-012 — D-008 global hooks wiring (closed 2026-04-27, Phase 5.7)
 - **Binary install:** `cargo install --path crates/rift-cli --locked` puts release-optimized `rift.exe` at `C:\Users\Critek\.cargo\bin\rift.exe` (already on PATH for Rust dev). The cargo-build target/debug/rift.exe collision between rift-cli and src-tauri remains as a workspace-build warning but doesn't affect the installed binary — `cargo install` writes only the rift-cli bin to `~/.cargo/bin/`, separate from the local `target/`. No bin rename needed.
