@@ -1,7 +1,9 @@
 <script lang="ts">
   // §10.5 — tab strip; left group = session tabs, right group = notification
   // tabs. Phase 3 ships click-to-switch + +/× for sessions + per-tab toggle
-  // for notifications (§10.6). Drag-promote-to-pane lands a later phase.
+  // for notifications (§10.6). Phase 3.5a adds drag-promote: drag a notif
+  // tab off the strip → App promotes it to a fixed-width right-side pane;
+  // drag the pane handle back onto the strip → demote.
 
   export type SessionTab = { id: number; title: string };
   export type NotifTab = {
@@ -21,23 +23,32 @@
     sessions: SessionTab[];
     notifs: NotifTab[];
     active: ActiveSurface;
+    promotedId: string | null;
     onActivateSession: (id: number) => void;
     onActivateNotif: (id: string) => void;
     onCloseSession: (id: number) => void;
     onAddSession: () => void;
     onToggleNotif: (id: string) => void;
+    onPromote: (id: string) => void;
+    onDemote: () => void;
   }
 
   let {
     sessions,
     notifs,
     active,
+    promotedId,
     onActivateSession,
     onActivateNotif,
     onCloseSession,
     onAddSession,
     onToggleNotif,
+    onPromote,
+    onDemote,
   }: Props = $props();
+
+  // Drop-target highlight state — true while a drag is hovering the strip.
+  let dropActive = $state(false);
 
   function isActiveSession(id: number) {
     return active.kind === 'session' && active.id === id;
@@ -45,9 +56,54 @@
   function isActiveNotif(id: string) {
     return active.kind === 'notification' && active.id === id;
   }
+  function isPromoted(id: string) {
+    return promotedId === id;
+  }
+
+  function onNotifClick(tab: NotifTab) {
+    if (!tab.enabled) return;
+    // Promoted tab in strip = no-op; user interacts with the side pane instead.
+    if (isPromoted(tab.id)) return;
+    onActivateNotif(tab.id);
+  }
+
+  function onNotifDragStart(e: DragEvent, tab: NotifTab) {
+    if (!tab.enabled) return;
+    if (e.dataTransfer) {
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', tab.id);
+    }
+    onPromote(tab.id);
+  }
+
+  function onStripDragOver(e: DragEvent) {
+    // preventDefault to mark the strip as a valid drop target.
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+    dropActive = true;
+  }
+  function onStripDragEnter(e: DragEvent) {
+    e.preventDefault();
+    dropActive = true;
+  }
+  function onStripDragLeave() {
+    dropActive = false;
+  }
+  function onStripDrop(e: DragEvent) {
+    e.preventDefault();
+    dropActive = false;
+    onDemote();
+  }
 </script>
 
-<nav class="tabbar">
+<nav
+  class="tabbar"
+  class:drop-active={dropActive}
+  ondragover={onStripDragOver}
+  ondragenter={onStripDragEnter}
+  ondragleave={onStripDragLeave}
+  ondrop={onStripDrop}
+>
   <div class="group">
     {#each sessions as tab (tab.id)}
       <button
@@ -85,12 +141,21 @@
         class="tab notif"
         class:active={isActiveNotif(tab.id)}
         class:disabled={!tab.enabled}
+        class:promoted={isPromoted(tab.id)}
+        class:promoted-cyan={isPromoted(tab.id) && tab.id === 'hooks'}
+        class:promoted-red={isPromoted(tab.id) && tab.id === 'errors'}
         aria-current={isActiveNotif(tab.id) ? 'page' : 'false'}
-        onclick={() => tab.enabled && onActivateNotif(tab.id)}
+        draggable={tab.enabled}
+        onclick={() => onNotifClick(tab)}
+        ondragstart={(e) => onNotifDragStart(e, tab)}
         oncontextmenu={(e) => { e.preventDefault(); onToggleNotif(tab.id); }}
-        title={tab.enabled ? 'click to open · right-click to disable' : 'right-click to enable'}
+        title={tab.enabled
+          ? (isPromoted(tab.id)
+              ? 'promoted to side pane · drag pane handle back to dock'
+              : 'click to open · drag to promote · right-click to disable')
+          : 'right-click to enable'}
       >
-        <span class="icon">{tab.icon}</span>
+        <span class="icon">{isPromoted(tab.id) ? '↗' : tab.icon}</span>
         <span>{tab.title}</span>
         {#if tab.badge && tab.enabled}
           <span class="badge" class:alert={tab.badge.alert}>{tab.badge.text}</span>
@@ -108,6 +173,9 @@
     display: flex;
     align-items: stretch;
     flex-shrink: 0;
+  }
+  .tabbar.drop-active {
+    box-shadow: inset 0 0 0 1px var(--amber-bright);
   }
   .group { display: flex; align-items: stretch; }
   .group.right {
@@ -149,6 +217,8 @@
     background: var(--amber-bright);
     box-shadow: 0 0 6px var(--amber-bright);
   }
+  .tab.notif { cursor: grab; }
+  .tab.notif:active { cursor: grabbing; }
   .tab.notif.disabled {
     color: var(--amber-faint);
     text-decoration: line-through;
@@ -159,6 +229,17 @@
     color: var(--amber-dim);
     opacity: 0.85;
   }
+  .tab.notif.promoted {
+    opacity: 0.55;
+    cursor: default;
+  }
+  .tab.notif.promoted .icon {
+    color: var(--amber-bright);
+    text-shadow: var(--glow-amber-faint);
+    opacity: 1;
+  }
+  .tab.notif.promoted-cyan .icon { color: var(--term-cyan); }
+  .tab.notif.promoted-red .icon { color: var(--term-red); }
 
   .icon { font-size: 11px; opacity: 0.85; }
 

@@ -10,6 +10,10 @@
   // the four sections. Without a filter, it falls back to the empty
   // chassis (Phase 3 behaviour) so tabs without registered translators
   // remain inert.
+  //
+  // Phase 3.5a: when `onDragBack` is provided (the side-pane instance),
+  // a small drag-handle bar renders above the status header. Dragging
+  // it back onto the tab strip triggers demote in the parent.
 
   import { onMount, onDestroy } from 'svelte';
   import { subscribe, publish, type Category, type Envelope } from './bus';
@@ -20,9 +24,12 @@
     accent?: 'amber' | 'cyan' | 'purple' | 'red';
     /** When set, drives `bus_subscribe`. */
     categoryFilter?: Category;
+    /** Phase 3.5a — side-pane only. Renders a draggable handle bar
+     *  whose drop on the tab strip demotes the pane back to a tab. */
+    onDragBack?: () => void;
   }
 
-  let { title, icon, accent = 'amber', categoryFilter }: Props = $props();
+  let { title, icon, accent = 'amber', categoryFilter, onDragBack }: Props = $props();
 
   const RECENT_LOG_LIMIT = 100;
   const LIVE_ACTIVITY_WINDOW_MS = 4000;
@@ -110,9 +117,34 @@
       return String(payload);
     }
   }
+
+  function onHandleDragStart(e: DragEvent) {
+    if (e.dataTransfer) {
+      e.dataTransfer.effectAllowed = 'move';
+      // Sentinel payload — the tab strip's drop handler doesn't read it,
+      // it just calls onDemote(), but we still need data set for the
+      // drag to be considered valid by the platform.
+      e.dataTransfer.setData('text/plain', '__promoted_pane__');
+    }
+  }
 </script>
 
 <section class="pane" data-accent={accent}>
+  {#if onDragBack}
+    <div
+      class="drag-handle"
+      role="button"
+      tabindex="0"
+      draggable={true}
+      ondragstart={onHandleDragStart}
+      title="drag back to tab strip to dock"
+    >
+      <span class="handle-glyph">↙</span>
+      <span class="handle-title">{title}</span>
+      <span class="handle-hint">drag to dock</span>
+    </div>
+  {/if}
+
   <header class="status">
     <span class="title"><span class="icon">{icon}</span>{title.toUpperCase()}</span>
     <span class="state">
@@ -203,6 +235,40 @@
   .pane[data-accent="cyan"]   { --accent: var(--term-cyan); }
   .pane[data-accent="purple"] { --accent: var(--term-purple); }
   .pane[data-accent="red"]    { --accent: var(--term-red); }
+
+  .drag-handle {
+    height: 26px;
+    padding: 0 12px;
+    background: var(--bg-surface);
+    border-bottom: 1px solid var(--border-subtle);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    cursor: grab;
+    user-select: none;
+    color: var(--amber-warm);
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    font-weight: 700;
+  }
+  .drag-handle:active { cursor: grabbing; }
+  .drag-handle:hover { background: var(--bg-hover); }
+  .drag-handle .handle-glyph {
+    color: var(--accent, var(--amber-primary));
+    font-size: 12px;
+    text-shadow: var(--glow-amber-faint);
+  }
+  .drag-handle .handle-title {
+    color: var(--accent, var(--amber-primary));
+    text-transform: uppercase;
+  }
+  .drag-handle .handle-hint {
+    margin-left: auto;
+    color: var(--amber-faint);
+    font-style: italic;
+    font-weight: 400;
+    letter-spacing: 0.04em;
+  }
 
   .status {
     height: 30px;

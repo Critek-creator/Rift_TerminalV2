@@ -10,16 +10,14 @@
 <!-- D-002 closed 2026-04-26, see C-007 below -->
 
 
-### D-005 — Tab/Pane/Pop-out architecture (partial — drag-promote + pop-out remain)
-- **Phase:** 3 (chassis shipped) → 3.5 (drag-promote pane + pop-out infrastructure)
-- **What's shipped (2026-04-26):** multi-session terminal tabs (`+`/`×`/click-to-switch with state preserved via `display:none` + xterm `refresh()` on visibility transition), notification-pane 4-section anatomy per §10.4 + §10.8 (status header / live activity strip / recent events log / persistent state panel), per-tab independent toggle §10.6 (right-click), default tab set Errors/Hooks/Commands per §10.7.
+### D-005 — Tab/Pane/Pop-out architecture (partial — only pop-out remains)
+- **Phase:** 3.5 (drag-promote shipped 2026-04-27, see C-010) → 3.5b (pop-out infrastructure)
 - **What remains:**
-  - **Drag-tab-out / drag-pane-back gesture (§10.5)** — promotes a notification tab to a pane alongside the main terminal; only one promoted tab at a time. Benefits from interactive iteration.
   - **Pop-out infrastructure (§10.5)** — ephemeral overlay container (rule editor, file viewer, agent confirm). Deferred because no pop-out content exists until Phase 5+.
-- **Concrete unblocking event:** explicit `/aegis` invocation to ship 3.3 (drag-promote) and 3.4 (pop-out infrastructure), or natural phase progression once Phase 5 has content that needs them.
-- **Files affected (when resumed):** new `lib/Pane.svelte`, new `lib/Popout.svelte`, gesture glue in `App.svelte` + `TabBar.svelte`.
-- **Owner:** future Phase 3.x builder.
-- **Acceptance:** drag a notification tab outside the strip → promotes to right-side pane next to terminal; drag back → returns to tab strip; only one promoted at a time; pop-out container can stack overlays with click-outside-dismiss.
+- **Concrete unblocking event:** explicit `/aegis` invocation to ship 3.5b, or natural phase progression once Phase 5 has content that needs pop-outs.
+- **Files affected (when resumed):** new `lib/Popout.svelte`, summon glue in `App.svelte`.
+- **Owner:** future Phase 3.5b builder.
+- **Acceptance:** pop-out container can stack overlays with click-outside-dismiss; first consumer (likely rule editor or file viewer) renders inside without leaking layout.
 
 <!-- D-006 closed 2026-04-26 in three commits, see C-009 below -->
 
@@ -46,6 +44,17 @@
 ---
 
 ## Closed deferrals
+
+### C-010 — D-005 drag-promote half (closed 2026-04-27, Phase 3.5a)
+- Drag any notification tab off the tab strip → promotes it to a fixed-width 420 px right-side pane alongside the active session/empty surface. Drag the pane's drag-handle back onto the tab strip → demotes. HTML5 native drag-and-drop API; tab-strip nav is the demote drop target (`ondragover` preventDefault + `ondrop` → `onDemote`).
+- Max 1 promoted at a time enforced structurally via `let promoted = $state<string | null>(null)` in `App.svelte`. Promoting a 2nd tab assigns over any prior value, auto-demoting the 1st. Toggling-disable on the promoted tab also auto-demotes (`toggleNotif` → if `promoted === id`, set `promoted = null`).
+- Layout split: when `promoted != null`, `<main>` switches to `flex-direction: row` with `.main-left` (flex 1, columnar) + `.promoted-pane` (flex `0 0 420px`, `border-left`). `Terminal.svelte`'s existing ResizeObserver path catches the column→row transition and refits cols/rows.
+- Promoted side-pane is a SECOND `NotificationPane` instance independent of the active-tab pane; both are wrapped in `{#key id}` blocks so swapping the promoted tab destroys the prior subscription cleanly via `onDestroy → unsubscribe` before mounting the new one (`drag-promote-rekey-on-swap` lesson).
+- Promoted tab visual marker: `↗` glyph (lane-accent colored — cyan for hooks, red for errors, amber default), opacity 0.55, click-in-strip is no-op while promoted (demote only via drag-back).
+- `NotificationPane` gained optional `onDragBack` prop that gates rendering of a small drag-handle bar above the existing status header. Handle's `dragstart` sets `dataTransfer.setData('text/plain', ...)` for cross-browser drag validity (`html5-dnd-setdata-required-for-validity` lesson); the strip's `ondrop` is what actually fires `onDemote`.
+- Files: `src/App.svelte` (+108 / −41), `src/lib/TabBar.svelte` (+85 / −2), `src/lib/NotificationPane.svelte` (+67 / −1). Net 3 files, +260 / −44.
+- Verification: all 6 CI gates exit 0 — `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo build --workspace --locked`, `cargo test --workspace --locked` (46 tests preserved), `npm run check` (107 files / 0 errors / 0 warnings), `bash tools/check-translator-boundary.sh`. Runtime acceptance (drag gestures + 2-column layout transition + Terminal refit) deferred to first `/aegis --verify` chain on this project (`.aegis/verify.toml` is on `from_bv = "autonomous"`).
+- **Sister deferral state:** D-005 still ACTIVE for pop-out half (no consumer until Phase 5+).
 
 ### C-001 — §10.15 real-time update mechanism (closed 2026-04-26)
 - Resolved by `decisions/§10.15_real-time_update_mechanism.md`. Two-tier architecture: `tauri::ipc::Channel<T>` + Tauri events for in-process; tokio broadcast + UDS/named-pipe IPC server (V1 pattern) for cross-process. Vision §10.15 to be patched to LOCKED in v0.6.

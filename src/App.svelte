@@ -32,6 +32,11 @@
   // ----- which surface is in the main pane -----
   let active = $state<ActiveSurface>({ kind: 'session', id: 0 });
 
+  // ----- promoted notification tab (Phase 3.5a) -----
+  // Holds the id of the single promoted tab, or null when no pane is docked.
+  // Max-1 promotion is enforced structurally — string|null can hold one id.
+  let promoted = $state<string | null>(null);
+
   // ----- handlers -----
   function activateSession(id: number) {
     active = { kind: 'session', id };
@@ -54,13 +59,33 @@
   }
   function toggleNotif(id: string) {
     notifs = notifs.map((n) => (n.id === id ? { ...n, enabled: !n.enabled } : n));
-    if (active.kind === 'notification' && active.id === id) {
-      const enabled = notifs.find((n) => n.id === id)?.enabled;
-      if (!enabled) {
+    const enabled = notifs.find((n) => n.id === id)?.enabled;
+    if (!enabled) {
+      // Disabled tabs shouldn't render anywhere — pull them from main and side.
+      if (active.kind === 'notification' && active.id === id) {
         const fallback = sessions.at(0);
         active = fallback ? { kind: 'session', id: fallback.id } : { kind: 'empty' };
       }
+      if (promoted === id) {
+        promoted = null;
+      }
     }
+  }
+
+  // Phase 3.5a — promote a notif tab to the right-side pane.
+  // Reassigning `promoted` enforces max-1 (a 2nd promote auto-replaces the 1st).
+  function promoteTab(id: string) {
+    promoted = id;
+    // The promoted tab now lives in the side pane, not the main area —
+    // if it was the active main surface, recompute active.
+    if (active.kind === 'notification' && active.id === id) {
+      const fallback = sessions.at(0);
+      active = fallback ? { kind: 'session', id: fallback.id } : { kind: 'empty' };
+    }
+  }
+  function demoteTab() {
+    promoted = null;
+    // active stays as-is — user clicks the tab in the strip to view it again.
   }
 
   function notifAccent(id: string): 'amber' | 'cyan' | 'purple' | 'red' {
@@ -73,6 +98,12 @@
     if (a.kind !== 'notification') return undefined;
     return notifs.find((n) => n.id === a.id);
   });
+  // The promoted tab's data — looked up fresh from `notifs` so its
+  // enabled/title/icon stay reactive with toggles.
+  const promotedTab = $derived.by(() => {
+    if (promoted === null) return undefined;
+    return notifs.find((n) => n.id === promoted);
+  });
 </script>
 
 <div class="app-shell">
@@ -81,49 +112,72 @@
     {sessions}
     {notifs}
     {active}
+    promotedId={promoted}
     onActivateSession={activateSession}
     onActivateNotif={activateNotif}
     onCloseSession={closeSession}
     onAddSession={addSession}
     onToggleNotif={toggleNotif}
+    onPromote={promoteTab}
+    onDemote={demoteTab}
   />
 
-  <main class="main">
-    <!-- session terminals — keep all alive, hide inactive ones to preserve scrollback -->
-    {#each sessions as s (s.id)}
-      <div
-        class="surface"
-        class:visible={active.kind === 'session' && active.id === s.id}
-      >
-        <Terminal visible={active.kind === 'session' && active.id === s.id} />
-      </div>
-    {/each}
+  <main class="main" class:split={promoted !== null}>
+    <div class="main-left">
+      <!-- session terminals — keep all alive, hide inactive ones to preserve scrollback -->
+      {#each sessions as s (s.id)}
+        <div
+          class="surface"
+          class:visible={active.kind === 'session' && active.id === s.id}
+        >
+          <Terminal visible={active.kind === 'session' && active.id === s.id} />
+        </div>
+      {/each}
 
-    <!-- notification pane — only mount when a notif tab is active.
-         Re-key on the tab id so switching tabs gives the pane a fresh
-         subscription rather than reusing one tied to the previous tab. -->
-    {#if activeNotifTab}
-      {#key activeNotifTab.id}
-        <div class="surface visible">
+      <!-- notification pane — only mount when a notif tab is active.
+           Re-key on the tab id so switching tabs gives the pane a fresh
+           subscription rather than reusing one tied to the previous tab. -->
+      {#if activeNotifTab}
+        {#key activeNotifTab.id}
+          <div class="surface visible">
+            <NotificationPane
+              title={activeNotifTab.title}
+              icon={activeNotifTab.icon}
+              accent={notifAccent(activeNotifTab.id)}
+              categoryFilter={CATEGORY_BY_NOTIF[activeNotifTab.id]}
+            />
+          </div>
+        {/key}
+      {/if}
+
+      <!-- empty state — no tabs open -->
+      {#if active.kind === 'empty'}
+        <div class="surface visible empty-state">
+          <div class="empty-card">
+            <div class="empty-glyph">◆</div>
+            <div class="empty-title">no surface active</div>
+            <div class="empty-hint">click <kbd>+</kbd> to open a new shell</div>
+          </div>
+        </div>
+      {/if}
+    </div>
+
+    <!-- Phase 3.5a — promoted notification side-pane.
+         Independent NotificationPane instance (not driven by `active`).
+         Re-keyed on the promoted id so the subscription resets cleanly
+         when one promoted tab replaces another. -->
+    {#if promotedTab}
+      {#key promotedTab.id}
+        <aside class="promoted-pane">
           <NotificationPane
-            title={activeNotifTab.title}
-            icon={activeNotifTab.icon}
-            accent={notifAccent(activeNotifTab.id)}
-            categoryFilter={CATEGORY_BY_NOTIF[activeNotifTab.id]}
+            title={promotedTab.title}
+            icon={promotedTab.icon}
+            accent={notifAccent(promotedTab.id)}
+            categoryFilter={CATEGORY_BY_NOTIF[promotedTab.id]}
+            onDragBack={demoteTab}
           />
-        </div>
+        </aside>
       {/key}
-    {/if}
-
-    <!-- empty state — no tabs open -->
-    {#if active.kind === 'empty'}
-      <div class="surface visible empty-state">
-        <div class="empty-card">
-          <div class="empty-glyph">◆</div>
-          <div class="empty-title">no surface active</div>
-          <div class="empty-hint">click <kbd>+</kbd> to open a new shell</div>
-        </div>
-      </div>
     {/if}
   </main>
 
@@ -143,6 +197,29 @@
     min-height: 0;
     background: var(--bg-base);
     position: relative;
+  }
+  /* When a notif tab is promoted, switch to a 2-column layout:
+     main-left holds the existing session/notif/empty surfaces (flex 1),
+     promoted-pane is a fixed-width 420px aside on the right. */
+  .main.split {
+    flex-direction: row;
+  }
+
+  .main-left {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    min-width: 0;
+  }
+
+  .promoted-pane {
+    flex: 0 0 420px;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    border-left: 1px solid var(--border-subtle);
+    background: var(--bg-base);
   }
 
   .surface {
