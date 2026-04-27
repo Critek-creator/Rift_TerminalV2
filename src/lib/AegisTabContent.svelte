@@ -6,13 +6,12 @@
   //                          lesson count. Rare; typically one per session.
   //   c2  aegis.invocation — live tail of ~/.claude/aegis.log. One per line.
   //
-  // c3 (lazy lessons pop-out) is deferred.
-  // TODO 7.3-followup: when this component gains a "lessons" pop-out trigger,
-  // add an aegis_read_lessons Tauri command + handler.
+  // Phase 7.3: quick-action buttons (open lessons / open settings in OS editor).
   //
   // pr003 svelte5-async-cleanup-via-sync-shell-iife: the cleanup returned from
   // $effect must be SYNC. Async teardown (bus unsubscribe) is wrapped in IIFE.
 
+  import { invoke } from '@tauri-apps/api/core';
   import { subscribe, type Envelope } from './bus';
   import AegisTabRenderer from './AegisTabRenderer.svelte';
 
@@ -125,6 +124,40 @@
       })();
     };
   });
+
+  // ---------------------------------------------------------------------------
+  // Phase 7.3 — quick-action button state
+  // ---------------------------------------------------------------------------
+
+  let quickActionError = $state<string | null>(null);
+
+  function clearErrorAfterDelay() {
+    setTimeout(() => {
+      quickActionError = null;
+    }, 3000);
+  }
+
+  function openLessons() {
+    void (async () => {
+      try {
+        await invoke('aegis_open_lessons');
+      } catch (err) {
+        quickActionError = err instanceof Error ? err.message : String(err);
+        clearErrorAfterDelay();
+      }
+    })();
+  }
+
+  function openSettings() {
+    void (async () => {
+      try {
+        await invoke('aegis_open_settings');
+      } catch (err) {
+        quickActionError = err instanceof Error ? err.message : String(err);
+        clearErrorAfterDelay();
+      }
+    })();
+  }
 
   // ---------------------------------------------------------------------------
   // Drag-handle (Phase 3.5a promoted-pane)
@@ -247,6 +280,15 @@
           <span class="skill-path-label">skill path</span>
           <span class="skill-path">~/.claude/skills/aegis/SKILL.md</span>
         </div>
+      {/if}
+
+      <!-- Phase 7.3: quick-action buttons -->
+      <div class="quick-actions">
+        <button class="qa-btn" onclick={openLessons}>Open Lessons</button>
+        <button class="qa-btn" onclick={openSettings}>Open Settings</button>
+      </div>
+      {#if quickActionError}
+        <div class="qa-error">{quickActionError}</div>
       {/if}
     </div>
   </footer>
@@ -481,5 +523,43 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  /* Phase 7.3: quick-action buttons — amber-bordered small boxes per §10.1 */
+  .quick-actions {
+    display: flex;
+    flex-direction: row;
+    gap: 6px;
+    margin-top: 10px;
+    padding-top: 8px;
+    border-top: 1px solid var(--border-subtle);
+  }
+  .qa-btn {
+    padding: 2px 8px;
+    border: 1px solid var(--accent);
+    color: var(--accent);
+    background: rgba(212, 137, 10, 0.06);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    cursor: pointer;
+    text-transform: uppercase;
+    transition: background 0.1s;
+  }
+  .qa-btn:hover {
+    background: rgba(212, 137, 10, 0.14);
+  }
+  .qa-btn:active {
+    background: rgba(212, 137, 10, 0.22);
+  }
+  /* Error text — §10.1 terminal red lane */
+  .qa-error {
+    margin-top: 4px;
+    color: #cc3333;
+    font-size: 9px;
+    font-style: italic;
+    letter-spacing: 0.04em;
+    word-break: break-all;
   }
 </style>

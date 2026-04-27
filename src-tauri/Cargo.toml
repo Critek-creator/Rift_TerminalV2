@@ -34,6 +34,7 @@ rift-core = { path = "../crates/rift-core" }
 rift-aegis = { path = "../crates/rift-aegis", optional = true }
 globset = { workspace = true }
 dunce = { workspace = true }
+directories = { workspace = true }
 
 [features]
 default = ["custom-protocol"]

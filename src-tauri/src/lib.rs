@@ -593,6 +593,97 @@ fn fs_write_text(
 }
 
 // ---------------------------------------------------------------------------
+// Phase 7.3 commands — aegis quick-actions (open files in OS default editor)
+// ---------------------------------------------------------------------------
+
+/// Open `~/.claude/anti-claude-lessons.md` in the OS default editor.
+///
+/// Uses `std::process::Command` — no shell plugin required (std-process
+/// is sufficient for these two hardcoded paths per Phase 7.3 spec).
+/// Resolves `~/.claude/` via `directories::BaseDirs` (cross-platform,
+/// already a workspace dep). Fails gracefully: returns `Err(String)` + logs
+/// a `tracing::warn!` if the file is missing or the OS command exits nonzero.
+#[tauri::command]
+async fn aegis_open_lessons() -> Result<(), String> {
+    open_in_os_editor(".claude/anti-claude-lessons.md")
+}
+
+/// Open `~/.claude/settings.json` in the OS default editor.
+///
+/// Same mechanics as `aegis_open_lessons` — see its doc for invariants.
+#[tauri::command]
+async fn aegis_open_settings() -> Result<(), String> {
+    open_in_os_editor(".claude/settings.json")
+}
+
+/// Shared helper: resolve `~/<rel_path>` and open it in the OS default editor.
+///
+/// Cross-platform dispatch:
+///   - Windows  → `cmd /C start "" "<path>"`
+///   - macOS    → `open "<path>"`
+///   - Linux    → `xdg-open "<path>"`
+///
+/// Returns `Err` (with a descriptive message) if:
+///   - `BaseDirs::new()` fails (very rare: no home dir).
+///   - The resolved file does not exist on disk.
+///   - The spawned process exits with a non-zero status.
+fn open_in_os_editor(rel_to_home: &str) -> Result<(), String> {
+    use directories::BaseDirs;
+
+    let base = BaseDirs::new().ok_or_else(|| {
+        let msg = "aegis_open: could not resolve home directory".to_string();
+        tracing::warn!("{msg}");
+        msg
+    })?;
+
+    let target = base.home_dir().join(rel_to_home);
+
+    if !target.exists() {
+        let msg = format!("aegis_open: file not found: {}", target.display());
+        tracing::warn!("{msg}");
+        return Err(msg);
+    }
+
+    let path_str = target.to_string_lossy().into_owned();
+
+    #[cfg(target_os = "windows")]
+    let status = {
+        std::process::Command::new("cmd")
+            .args(["/C", "start", "", &path_str])
+            .status()
+    };
+
+    #[cfg(target_os = "macos")]
+    let status = std::process::Command::new("open").arg(&path_str).status();
+
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    let status = std::process::Command::new("xdg-open")
+        .arg(&path_str)
+        .status();
+
+    match status {
+        Ok(s) if s.success() => Ok(()),
+        Ok(s) => {
+            let msg = format!(
+                "aegis_open: OS editor command exited with status {} for {}",
+                s,
+                target.display()
+            );
+            tracing::warn!("{msg}");
+            Err(msg)
+        }
+        Err(e) => {
+            let msg = format!(
+                "aegis_open: failed to spawn OS editor for {}: {e}",
+                target.display()
+            );
+            tracing::warn!("{msg}");
+            Err(msg)
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Phase 6.7 commands — config + project_swap
 // ---------------------------------------------------------------------------
 
@@ -851,6 +942,8 @@ pub fn run() {
             cockpit_window::cockpit_detach,
             cockpit_window::cockpit_reattach,
             cockpit_window::cockpit_status,
+            aegis_open_lessons,
+            aegis_open_settings,
         ])
         .run(tauri::generate_context!())
         .expect("rift: tauri runtime failed to start");
