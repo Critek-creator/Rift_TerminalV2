@@ -118,7 +118,7 @@
 
 ### Phase 8 — Index integration
 
-**Out:** Index tab + Index graph view (two views of same data, §10.12). **§10.18 graph-library decision (Cytoscape / D3 / Sigma) must close before code starts** — render same fixture in all 3 libs, decide on perf + interaction quality.
+**Out:** Index tab + Index graph view (two views of same data, §10.12). **§10.18 graph-library decision RESOLVED 2026-04-27** — D3 modular (`d3-force` + `d3-selection` + `d3-zoom` + `d3-drag`) per `decisions/§10.18_graph_library.md`. Phase 8 entry unblocked; next beat is `/aegis --plan phase 8` to lock subphase sequence.
 - Translator module subscribes to Index update events.
 - Tab view = list/tree. Graph view = node-edge free-form layout (the Abyssal Index vault network, per 2026-04-27 mockup #3 rework). Pan/zoom required.
 
@@ -148,7 +148,7 @@ Per CLAUDE.md §7 + RIFT_V2_VISION §7:
 | §10.15  | Real-time update mechanism                    | `/aegis --research`               | Phase 4     |
 | §10.16  | Section catalog brainstorm                    | `/aegis --think` during Phase 5   | Phase 5     |
 | §10.17  | Agent tab grouping/filtering                  | RESOLVED 2026-04-27 — see `decisions/§10.17_agent_tab_grouping_filtering.md` | Phase 7 ✓   |
-| §10.18  | GUI rendering tech (Cytoscape/D3/Sigma)       | spike + `/aegis --crit`           | Phase 8     |
+| §10.18  | GUI rendering tech (Cytoscape/D3/Sigma)       | RESOLVED 2026-04-27 — see `decisions/§10.18_graph_library.md` (D3 modular) | Phase 8     |
 
 ---
 
