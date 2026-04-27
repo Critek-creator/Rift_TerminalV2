@@ -33,16 +33,16 @@ src-tauri/gen/
 .aegis/session/
 
 # ---------------------------------------------------------------
-# Aegis private translator (D-011 close — track stub, ignore impl)
+# Aegis private translator (D-011 close — track stubs, ignore impl)
 # ---------------------------------------------------------------
-# Public clones get the empty `rift-aegis` stub crate (Cargo.toml +
-# src/lib.rs are TRACKED). The real implementation lives in
-# additional gitignored .rs files alongside lib.rs (detect.rs,
-# snapshot.rs, etc.). lib.rs cfg-gates `pub mod detect; pub mod
-# snapshot; ...` behind the `private_modules` feature, which
-# src-tauri's `aegis` feature enables. Public CI builds default
-# features → private_modules off → stub compiles to empty crate
-# without needing the private files. See DEFERRED.md C-014.
-crates/rift-aegis/src/*
-!crates/rift-aegis/src/lib.rs
+# Public clones get the empty `rift-aegis` stub crate. TRACKED files:
+# Cargo.toml, src/lib.rs, src/detect.rs (empty stub), src/snapshot.rs
+# (empty stub). GITIGNORED files: src/*_private.rs (the real impl —
+# detect_private.rs, snapshot_private.rs, etc.). lib.rs uses
+# `#[cfg_attr(feature = "private_modules", path = "*_private.rs")]`
+# to swap the module source to the real impl when the feature is on
+# (src-tauri's `aegis` feature enables it). rustfmt walks `pub mod`
+# regardless of cfg, so the public stubs MUST exist on disk — and they
+# do. See DEFERRED.md C-014.
+crates/rift-aegis/src/*_private.rs
 crates/rift-aegis/target/

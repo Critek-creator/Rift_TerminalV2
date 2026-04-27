@@ -253,10 +253,9 @@ RUST
 # ---------------------------------------------------------------------------
 check_rift_aegis_private_files_ignored() {
     local private_files
-    private_files=$(git ls-files 'crates/rift-aegis/src/*.rs' 2>/dev/null \
-        | grep -v '^crates/rift-aegis/src/lib\.rs$' || true)
+    private_files=$(git ls-files 'crates/rift-aegis/src/*_private.rs' 2>/dev/null || true)
     if [ -n "$private_files" ]; then
-        printf '[translator-boundary] FORBIDDEN: rift-aegis private impl files are tracked in git (D-011 close — only Cargo.toml + src/lib.rs may be tracked):\n' >&2
+        printf '[translator-boundary] FORBIDDEN: rift-aegis private impl files (*_private.rs) are tracked in git (D-011 close — only stubs may be tracked):\n' >&2
         printf '%s\n' "$private_files" | sed 's/^/  /' >&2
         return 1
     fi

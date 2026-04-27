@@ -21,11 +21,21 @@
 //! segment. See PHASE 7 PLAN (commit 749ec91) and DEFERRED.md C-014
 //! (D-011 close — public-CI stub mechanism).
 
-#[cfg(feature = "private_modules")]
+// Public stub `detect.rs` and `snapshot.rs` are tracked. When the
+// `private_modules` feature is on, the cfg_attr path attribute swaps the
+// module's source file to the gitignored real implementation (`detect_
+// private.rs` / `snapshot_private.rs`). rustfmt walks `pub mod` regardless
+// of cfg, so the public stubs MUST exist on disk — they do.
+#[cfg_attr(feature = "private_modules", path = "detect_private.rs")]
 pub mod detect;
-#[cfg(feature = "private_modules")]
+
+#[cfg_attr(feature = "private_modules", path = "snapshot_private.rs")]
 pub mod snapshot;
 
+// Re-exports stay cfg-gated: the public stubs are empty (no `probe` /
+// `publish_snapshot` / `spawn_log_tail` symbols), so re-exporting from
+// them on public CI would fail to resolve. The real impl files contain
+// these symbols and the re-exports activate only when the feature is on.
 #[cfg(feature = "private_modules")]
 pub use detect::probe;
 #[cfg(feature = "private_modules")]
