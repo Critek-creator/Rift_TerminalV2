@@ -215,6 +215,22 @@
         </div>
       {/if}
     </div>
+
+    <!--
+      Sentinel placeholder (Phase 7.5, capability-driven empty state per §10.7).
+      DEFERRED.md D-010 names the unblocking event:
+      Sentinel architecture spec lands AND a Sentinel-side implementation
+      produces sentinel.* envelopes on a documented schema. Then this card
+      becomes a live subscriber.
+    -->
+    <div class="sentinel-card">
+      <div class="sentinel-heading">Sentinel</div>
+      <div class="sentinel-status">integration not loaded</div>
+      <div class="sentinel-subtitle">
+        Source-of-truth for agent misbehavior detection (§10.11). Will populate
+        when a Sentinel translator self-registers and emits sentinel.* envelopes.
+      </div>
+    </div>
   </footer>
 </section>
 
@@ -432,4 +448,36 @@
   }
   .histo-kind { color: var(--accent, var(--amber-primary)); }
   .histo-count { color: var(--amber-warm); font-weight: 700; font-variant-numeric: tabular-nums; }
+
+  /* Sentinel placeholder card — capability-driven empty state (§10.7, Phase 7.5) */
+  .sentinel-card {
+    margin-top: 10px;
+    padding: 8px 10px;
+    border: 1px dashed var(--border-subtle);
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    opacity: 0.6;
+  }
+  .sentinel-heading {
+    color: var(--amber-warm);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+  .sentinel-status {
+    color: var(--amber-faint);
+    font-size: 10px;
+    font-style: italic;
+    letter-spacing: 0.04em;
+  }
+  .sentinel-subtitle {
+    color: var(--amber-faint);
+    font-size: 9px;
+    font-weight: 400;
+    letter-spacing: 0.03em;
+    line-height: 1.5;
+    opacity: 0.8;
+  }
 </style>
