@@ -134,6 +134,12 @@ fn read_payload(inline: Option<&str>, no_stdin: bool) -> Result<serde_json::Valu
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
+
+    /// Serializes tests that mutate the SOCKET_ENV_VAR process-global env var.
+    /// `cargo test` runs tests in parallel by default; without this lock the
+    /// env-fallback and missing-error tests race on the same global state.
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
     fn read_payload_inline_json() {
@@ -162,9 +168,11 @@ mod tests {
 
     #[test]
     fn resolve_socket_env_fallback() {
-        // SAFETY: tests run in a single process; there is no other test
-        // mutating this var. Restore after to avoid leaking into other
-        // tests.
+        // ENV_LOCK serializes against resolve_socket_missing_helpful_error,
+        // which manipulates the same SOCKET_ENV_VAR process-global env var.
+        // Without this lock the two tests race under cargo's default parallel
+        // execution (one removes mid-set of the other).
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let prev = std::env::var(SOCKET_ENV_VAR).ok();
         std::env::set_var(SOCKET_ENV_VAR, "from-env.sock");
         let s = resolve_socket(None).unwrap();
@@ -177,6 +185,8 @@ mod tests {
 
     #[test]
     fn resolve_socket_missing_helpful_error() {
+        // See ENV_LOCK rationale on resolve_socket_env_fallback above.
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let prev = std::env::var(SOCKET_ENV_VAR).ok();
         std::env::remove_var(SOCKET_ENV_VAR);
         let err = resolve_socket(None).unwrap_err();
