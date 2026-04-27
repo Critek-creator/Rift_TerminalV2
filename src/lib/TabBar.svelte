@@ -50,6 +50,11 @@
   // Drop-target highlight state — true while a drag is hovering the strip.
   let dropActive = $state(false);
 
+  // Phase 6.6 regression-preventer (design call E):
+  // Marker MIME type written by onNotifDragStart so onStripDrop can distinguish
+  // a notif-tab drag from a tree-node drag (or any other foreign drop source).
+  const NOTIF_TAB_MIME = 'application/x-rift-notif-tab';
+
   function isActiveSession(id: number) {
     return active.kind === 'session' && active.id === id;
   }
@@ -71,6 +76,9 @@
     if (!tab.enabled) return;
     if (e.dataTransfer) {
       e.dataTransfer.effectAllowed = 'move';
+      // Phase 6.6: marker MIME lets onStripDrop identify notif-tab drags and
+      // ignore drops from other sources (e.g. tree-node drags).
+      e.dataTransfer.setData(NOTIF_TAB_MIME, tab.id);
       e.dataTransfer.setData('text/plain', tab.id);
     }
     onPromote(tab.id);
@@ -92,6 +100,10 @@
   function onStripDrop(e: DragEvent) {
     e.preventDefault();
     dropActive = false;
+    // Phase 6.6: only demote when the drop carries a notif-tab payload.
+    // Drops from foreign sources (e.g. tree-node paths) are acknowledged
+    // (preventDefault already ran for visual coherence) but otherwise ignored.
+    if (!e.dataTransfer?.types.includes(NOTIF_TAB_MIME)) return;
     onDemote();
   }
 </script>

@@ -25,6 +25,58 @@
   let sessionId: number | null = null;
   let alive = false;
 
+  // ---------------------------------------------------------------------------
+  // Drag-node-into-terminal (Phase 6.6 — design calls A, C, D)
+  // ---------------------------------------------------------------------------
+
+  /** Custom MIME type that Tree.svelte sets on tree-path drags. */
+  const TREE_PATH_MIME = 'application/x-rift-tree-path';
+
+  /** True while a valid tree-path drag hovers the terminal host. */
+  let dragHover = $state(false);
+
+  /**
+   * Quote a path for shell insertion.
+   * Wraps in double-quotes when the path contains spaces — safe for cmd,
+   * PowerShell, and bash (the three shells a Windows Rift user most likely runs).
+   *
+   * Paths containing literal `"` characters are NOT escaped in v1 (extremely
+   * rare; Phase 6.x should add backslash/caret escaping if it surfaces).
+   */
+  function quotePath(path: string): string {
+    return path.includes(' ') ? `"${path}"` : path;
+  }
+
+  /**
+   * Insert path text at the terminal cursor exactly as if the user typed it.
+   * Appends a trailing space for ergonomics (user can keep typing or hit Enter).
+   * Guards against term being unmounted mid-drag.
+   */
+  function pasteIntoTerminal(path: string): void {
+    if (!term) return;
+    term.paste(quotePath(path) + ' ');
+  }
+
+  function onTermDragOver(e: DragEvent): void {
+    // Only claim the drop when the payload is ours — lets other drag sources pass through.
+    if (!e.dataTransfer?.types.includes(TREE_PATH_MIME)) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+    dragHover = true;
+  }
+
+  function onTermDragLeave(): void {
+    dragHover = false;
+  }
+
+  function onTermDrop(e: DragEvent): void {
+    dragHover = false;
+    const path = e.dataTransfer?.getData(TREE_PATH_MIME);
+    if (!path) return;
+    e.preventDefault();
+    pasteIntoTerminal(path);
+  }
+
   const encoder = new TextEncoder();
 
   $effect(() => {
@@ -129,7 +181,17 @@
   });
 </script>
 
-<div class="terminal-host" bind:this={host}></div>
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<div
+  class="terminal-host"
+  class:drag-hover={dragHover}
+  bind:this={host}
+  role="application"
+  aria-label="terminal"
+  ondragover={onTermDragOver}
+  ondragleave={onTermDragLeave}
+  ondrop={onTermDrop}
+></div>
 
 <style>
   .terminal-host {
@@ -138,5 +200,9 @@
     padding: 8px;
     overflow: hidden;
     min-height: 0;
+  }
+  /* Phase 6.6 — subtle amber inset glow while a tree-path drag hovers */
+  .terminal-host.drag-hover {
+    box-shadow: inset 0 0 0 2px var(--amber-bright);
   }
 </style>

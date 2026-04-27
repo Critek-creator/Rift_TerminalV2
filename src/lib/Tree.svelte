@@ -446,6 +446,29 @@
     // Elbow at (px, cy) — vertical segment down then horizontal to child.
     return `M ${px} ${py + DIR_H / 2 + 2} L ${px} ${cy} L ${cx - FILE_R - 2} ${cy}`;
   }
+
+  // ---------------------------------------------------------------------------
+  // Drag-node-into-terminal (Phase 6.6 — design calls A, B)
+  // ---------------------------------------------------------------------------
+
+  /** Custom MIME type isolates tree-path drags from all other drag sources. */
+  const TREE_PATH_MIME = 'application/x-rift-tree-path';
+
+  /**
+   * Dragstart handler for tree nodes (files AND dirs).
+   * Sets effectAllowed to 'copy' and writes the project-relative path as the
+   * primary payload.  A secondary text/plain entry (prefixed 'rift-tree:') aids
+   * browser-level drag-image tooltips on platforms that surface it.
+   */
+  function onNodeDragStart(e: DragEvent, node: TreeNode): void {
+    if (!e.dataTransfer) return;
+    e.dataTransfer.effectAllowed = 'copy';
+    e.dataTransfer.setData(TREE_PATH_MIME, node.path);
+    // Secondary — some platforms show text/plain in the drag ghost; prefix
+    // discriminates our payload from any generic text drop that might land
+    // on a foreign target.
+    e.dataTransfer.setData('text/plain', `rift-tree:${node.path}`);
+  }
 </script>
 
 <!--
@@ -494,10 +517,16 @@
           : treeActivity.getEntry(item.node.path).glowIntensity}
         <!-- svelte-ignore a11y_click_events_have_key_events -->
         <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <!-- `draggable` lives on HTMLAttributes in Svelte's TS surface so direct
+             usage on an SVG <g> fails type-check; spread bypasses the check
+             while preserving runtime behavior (Chromium webview2 supports
+             draggable on SVG since ~2018). -->
         <g
           class="tree-node"
+          {...({ draggable: 'true' } as Record<string, string>)}
           onclick={() => handleNodeClick(item.node)}
           ondblclick={() => handleNodeDblClick(item.node)}
+          ondragstart={(e) => onNodeDragStart(e, item.node)}
           style="cursor: pointer;"
         >
           {#if item.node.isDir}
