@@ -129,3 +129,88 @@ body::after {
 .tag-system { color: var(--amber-warm);    border-color: var(--amber-warm); }
 .tag-error  { color: var(--term-red);      border-color: var(--term-red); }
 .tag-ok     { color: var(--term-green);    border-color: var(--term-green); }
+
+/* =========================================================
+   COCKPIT SPLIT — terminal left, GUI right (Phase 6.2 §10.5)
+   These global classes are referenced by App.svelte scoped
+   styles but kept here for mockup parity.
+   ========================================================= */
+
+/* =========================================================
+   GUI TREE CHROME — node-state + edge vocabulary (Phase 6.2)
+   Class names are :global in Tree.svelte; duplicated here so
+   any future consumer (graph pane) can reference the same
+   vocabulary without re-declaring.
+   ========================================================= */
+.node-state-ambient {
+  fill: var(--bg-elevated);
+  stroke: var(--amber-warm);
+  stroke-width: 1;
+  filter: drop-shadow(0 0 3px rgba(176, 122, 18, 0.3));
+}
+.node-state-recent {
+  fill: var(--bg-elevated);
+  stroke: var(--amber-primary);
+  stroke-width: 1.5;
+  filter: drop-shadow(0 0 6px rgba(212, 137, 10, 0.55));
+}
+.node-state-active {
+  fill: var(--bg-elevated);
+  stroke: var(--amber-bright);
+  stroke-width: 2;
+  filter: drop-shadow(0 0 12px rgba(245, 158, 11, 0.85));
+}
+.node-state-background {
+  fill: var(--bg-surface);
+  stroke: var(--border-subtle);
+  stroke-width: 1;
+  opacity: 0.55;
+}
+
+.node-glyph {
+  fill: var(--amber-warm);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  font-weight: 700;
+  text-anchor: middle;
+  dominant-baseline: middle;
+  pointer-events: none;
+}
+.node-glyph.active     { fill: var(--amber-bright); }
+.node-glyph.recent     { fill: var(--amber-primary); }
+.node-glyph.background { fill: var(--amber-faint); }
+
+.tree-node-label {
+  fill: var(--amber-dim);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  font-weight: 500;
+  dominant-baseline: middle;
+}
+.tree-node-label.active     { fill: var(--amber-bright); font-weight: 700; }
+.tree-node-label.recent     { fill: var(--amber-warm);   font-weight: 600; }
+.tree-node-label.background { fill: var(--amber-faint); }
+
+.edge {
+  stroke: var(--amber-faint);
+  stroke-width: 1;
+  fill: none;
+  opacity: 0.5;
+}
+.edge.active {
+  stroke: var(--amber-primary);
+  stroke-width: 1.5;
+  opacity: 0.9;
+  filter: drop-shadow(0 0 3px rgba(212, 137, 10, 0.5));
+}
+.edge.background {
+  stroke: var(--border-subtle);
+  opacity: 0.3;
+}
+
+.attribution-badge {
+  fill: var(--term-blue);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 7px;
+  font-weight: 700;
+}

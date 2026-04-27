@@ -17,3 +17,6 @@ interprocess = { workspace = true }
 notify = { workspace = true }
 globset = { workspace = true }
 dunce = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3"

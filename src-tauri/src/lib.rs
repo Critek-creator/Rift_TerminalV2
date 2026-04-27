@@ -25,8 +25,8 @@ use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use rift_bus::{
-    publish_command, publish_error, spawn_fs_watcher, Category, CommandBuffer, Envelope, IpcServer,
-    RiftBus, SubscribeFilter,
+    build_tree, publish_command, publish_error, spawn_fs_watcher, Category, CommandBuffer,
+    Envelope, IpcServer, RiftBus, SubscribeFilter, TreeNode, FS_TREE_DEFAULT_MAX_DEPTH,
 };
 use rift_core::pty::{PtyControl, PtyDims, PtyOptions, PtySession};
 use serde::Serialize;
@@ -414,6 +414,53 @@ fn bus_unsubscribe(state: State<'_, BusSubscriptionRegistry>, id: u64) {
     state.remove(id);
 }
 
+/// Return a static snapshot of the filesystem tree rooted at the process
+/// working directory.
+///
+/// Uses the same root and ignore-glob set as the live watcher spawned during
+/// [`run`] setup.
+///
+/// # Phase 6.7 unblock
+/// When the project-config system ships, the root and globs will be driven by
+/// config state rather than re-computed inline here.
+#[tauri::command]
+fn fs_tree(bus: State<'_, RiftBus>) -> Result<TreeNode, String> {
+    // Mirror the watcher's root and ignore-globs (Phase 6.7 unblock: move to
+    // config-driven storage so the command and watcher share the same values).
+    let root = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+    let ignore_patterns: Vec<String> = [
+        ".git/**",
+        "node_modules/**",
+        "target/**",
+        "dist/**",
+        "*.log",
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect();
+
+    let mut builder = globset::GlobSetBuilder::new();
+    for pattern in &ignore_patterns {
+        let glob = globset::Glob::new(pattern).map_err(|e| {
+            let msg = format!("fs_tree: invalid ignore glob '{pattern}': {e}");
+            publish_error(bus.inner(), "tauri.command.fs_tree", &msg, None);
+            msg
+        })?;
+        builder.add(glob);
+    }
+    let ignore_globs = builder.build().map_err(|e| {
+        let msg = format!("fs_tree: failed to build GlobSet: {e}");
+        publish_error(bus.inner(), "tauri.command.fs_tree", &msg, None);
+        msg
+    })?;
+
+    build_tree(&root, FS_TREE_DEFAULT_MAX_DEPTH, &ignore_globs).map_err(|e| {
+        let msg = e.to_string();
+        publish_error(bus.inner(), "tauri.command.fs_tree", &msg, None);
+        msg
+    })
+}
+
 /// Frontend → bus. Construct an [`Envelope`] and publish it.
 #[tauri::command]
 fn bus_publish(
@@ -529,6 +576,7 @@ pub fn run() {
             bus_subscribe,
             bus_unsubscribe,
             bus_publish,
+            fs_tree,
         ])
         .run(tauri::generate_context!())
         .expect("rift: tauri runtime failed to start");

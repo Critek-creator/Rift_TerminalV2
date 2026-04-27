@@ -48,3 +48,15 @@ pub use translators::fs::FsWatcher;
 
 /// Re-export [`FsWatcherError`] so callers can write `rift_bus::FsWatcherError`.
 pub use translators::fs::FsWatcherError;
+
+/// Re-export [`TreeNode`] so callers can write `rift_bus::TreeNode`.
+pub use translators::fs::TreeNode;
+
+/// Build a static filesystem tree snapshot.
+///
+/// Convenience re-export so callers can write `rift_bus::build_tree(...)`.
+/// Full path: `rift_bus::translators::fs::build_tree(...)`.
+pub use translators::fs::build_tree;
+
+/// Default walk depth for [`build_tree`].
+pub use translators::fs::FS_TREE_DEFAULT_MAX_DEPTH;

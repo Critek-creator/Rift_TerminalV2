@@ -10,6 +10,7 @@
   import StatusLine from './lib/StatusLine.svelte';
   import Popout from './lib/Popout.svelte';
   import { popouts } from './lib/popouts.svelte';
+  import Tree from './lib/Tree.svelte';
   import type { Category } from './lib/bus';
 
   // Tab id → bus category. `undefined` = no integration registered yet,
@@ -106,6 +107,11 @@
     if (promoted === null) return undefined;
     return notifs.find((n) => n.id === promoted);
   });
+
+  // Phase 6.2 — cockpit right pane header data.
+  // Tree.svelte computes these internally and pushes them up via $bindable props.
+  let nodeCount = $state(0);
+  let watchedPathLabel = $state('…');
 </script>
 
 <div class="app-shell">
@@ -124,63 +130,78 @@
     onDemote={demoteTab}
   />
 
-  <main class="main" class:split={promoted !== null}>
-    <div class="main-left">
-      <!-- session terminals — keep all alive, hide inactive ones to preserve scrollback -->
-      {#each sessions as s (s.id)}
-        <div
-          class="surface"
-          class:visible={active.kind === 'session' && active.id === s.id}
-        >
-          <Terminal visible={active.kind === 'session' && active.id === s.id} />
-        </div>
-      {/each}
+  <!-- Phase 6.2 — always-on cockpit: left = terminal surface, right = file tree -->
+  <main class="cockpit">
+    <!-- Left half: existing terminal / notification / empty surfaces + optional promoted pane -->
+    <div class="cockpit-left" class:split={promoted !== null}>
+      <div class="main-left">
+        <!-- session terminals — keep all alive, hide inactive ones to preserve scrollback -->
+        {#each sessions as s (s.id)}
+          <div
+            class="surface"
+            class:visible={active.kind === 'session' && active.id === s.id}
+          >
+            <Terminal visible={active.kind === 'session' && active.id === s.id} />
+          </div>
+        {/each}
 
-      <!-- notification pane — only mount when a notif tab is active.
-           Re-key on the tab id so switching tabs gives the pane a fresh
-           subscription rather than reusing one tied to the previous tab. -->
-      {#if activeNotifTab}
-        {#key activeNotifTab.id}
-          <div class="surface visible">
+        <!-- notification pane — only mount when a notif tab is active.
+             Re-key on the tab id so switching tabs gives the pane a fresh
+             subscription rather than reusing one tied to the previous tab. -->
+        {#if activeNotifTab}
+          {#key activeNotifTab.id}
+            <div class="surface visible">
+              <NotificationPane
+                title={activeNotifTab.title}
+                icon={activeNotifTab.icon}
+                accent={notifAccent(activeNotifTab.id)}
+                categoryFilter={CATEGORY_BY_NOTIF[activeNotifTab.id]}
+              />
+            </div>
+          {/key}
+        {/if}
+
+        <!-- empty state — no tabs open -->
+        {#if active.kind === 'empty'}
+          <div class="surface visible empty-state">
+            <div class="empty-card">
+              <div class="empty-glyph">◆</div>
+              <div class="empty-title">no surface active</div>
+              <div class="empty-hint">click <kbd>+</kbd> to open a new shell</div>
+            </div>
+          </div>
+        {/if}
+      </div>
+
+      <!-- Phase 3.5a — promoted notification side-pane.
+           Independent NotificationPane instance (not driven by `active`).
+           Re-keyed on the promoted id so the subscription resets cleanly
+           when one promoted tab replaces another. -->
+      {#if promotedTab}
+        {#key promotedTab.id}
+          <aside class="promoted-pane">
             <NotificationPane
-              title={activeNotifTab.title}
-              icon={activeNotifTab.icon}
-              accent={notifAccent(activeNotifTab.id)}
-              categoryFilter={CATEGORY_BY_NOTIF[activeNotifTab.id]}
+              title={promotedTab.title}
+              icon={promotedTab.icon}
+              accent={notifAccent(promotedTab.id)}
+              categoryFilter={CATEGORY_BY_NOTIF[promotedTab.id]}
+              onDragBack={demoteTab}
             />
-          </div>
+          </aside>
         {/key}
-      {/if}
-
-      <!-- empty state — no tabs open -->
-      {#if active.kind === 'empty'}
-        <div class="surface visible empty-state">
-          <div class="empty-card">
-            <div class="empty-glyph">◆</div>
-            <div class="empty-title">no surface active</div>
-            <div class="empty-hint">click <kbd>+</kbd> to open a new shell</div>
-          </div>
-        </div>
       {/if}
     </div>
 
-    <!-- Phase 3.5a — promoted notification side-pane.
-         Independent NotificationPane instance (not driven by `active`).
-         Re-keyed on the promoted id so the subscription resets cleanly
-         when one promoted tab replaces another. -->
-    {#if promotedTab}
-      {#key promotedTab.id}
-        <aside class="promoted-pane">
-          <NotificationPane
-            title={promotedTab.title}
-            icon={promotedTab.icon}
-            accent={notifAccent(promotedTab.id)}
-            categoryFilter={CATEGORY_BY_NOTIF[promotedTab.id]}
-            onDragBack={demoteTab}
-          />
-        </aside>
-      {/key}
-    {/if}
+    <!-- Right half: filesystem tree -->
+    <div class="cockpit-right">
+      <div class="pane-header">
+        <span>FILE TREE</span>
+        <span class="meta">{nodeCount} files · {watchedPathLabel}</span>
+      </div>
+      <div class="tree-body">
+        <Tree bind:nodeCount bind:watchedPathLabel />
+      </div>
+    </div>
   </main>
 
   <StatusLine
@@ -205,18 +226,29 @@
 </div>
 
 <style>
-  .main {
+  /* Phase 6.2 — cockpit outer shell: terminal left, file tree right. */
+  .cockpit {
     flex: 1;
     display: flex;
-    flex-direction: column;
+    flex-direction: row;
     min-height: 0;
     background: var(--bg-base);
     position: relative;
+    overflow: hidden;
   }
-  /* When a notif tab is promoted, switch to a 2-column layout:
-     main-left holds the existing session/notif/empty surfaces (flex 1),
-     promoted-pane is a fixed-width 420px aside on the right. */
-  .main.split {
+
+  /* Left half — holds the terminal/notif/empty area + optional promoted pane. */
+  .cockpit-left {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+    border-right: 1px solid var(--border-subtle);
+  }
+  /* When a notif tab is promoted, the left column switches to row layout so
+     the promoted pane sits alongside the main terminal area. */
+  .cockpit-left.split {
     flex-direction: row;
   }
 
@@ -236,6 +268,52 @@
     border-left: 1px solid var(--border-subtle);
     background: var(--bg-base);
   }
+
+  /* Right half — filesystem tree pane. */
+  .cockpit-right {
+    flex: 0 0 38%;
+    min-width: 360px;
+    max-width: 520px;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg-panel);
+  }
+
+  /* Pane header — FILE TREE title + meta. Shared vocabulary with NotificationPane. */
+  .pane-header {
+    height: 24px;
+    padding: 0 10px;
+    background: var(--bg-elevated);
+    border-bottom: 1px solid var(--border-subtle);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    color: var(--amber-warm);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    flex-shrink: 0;
+    user-select: none;
+  }
+  .pane-header .meta {
+    color: var(--amber-faint);
+    font-weight: 400;
+    font-size: 9px;
+    letter-spacing: 0.04em;
+  }
+
+  /* Tree body scrolls; Tree.svelte owns the SVG. */
+  .tree-body {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 4px 0;
+  }
+  .tree-body::-webkit-scrollbar { width: 5px; }
+  .tree-body::-webkit-scrollbar-thumb { background: var(--amber-faint); }
 
   .surface {
     display: none;

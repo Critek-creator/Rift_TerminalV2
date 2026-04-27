@@ -81,6 +81,173 @@ use thiserror::Error;
 use crate::{Category, Envelope, RiftBus};
 
 // ---------------------------------------------------------------------------
+// TreeNode — static snapshot of a directory subtree
+// ---------------------------------------------------------------------------
+
+/// Default walk depth for [`build_tree`]. Keeps the initial payload small
+/// while still covering typical project layouts.
+pub const FS_TREE_DEFAULT_MAX_DEPTH: u32 = 6;
+
+/// A node in the filesystem tree snapshot returned by [`build_tree`].
+///
+/// Serialized with `camelCase` field names so that Tauri's JSON bridge
+/// produces `isDir` / `children` (matching the TypeScript interface).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TreeNode {
+    /// Relative path from the walk root, forward-slash normalized.
+    pub path: String,
+    /// Basename only (last path segment).
+    pub name: String,
+    /// `true` for directories, `false` for files.
+    pub is_dir: bool,
+    /// Children — populated for directories up to `max_depth`; empty for
+    /// files or when the depth limit is reached.
+    pub children: Vec<TreeNode>,
+}
+
+// ---------------------------------------------------------------------------
+// build_tree
+// ---------------------------------------------------------------------------
+
+/// Build a static [`TreeNode`] tree rooted at `root`.
+///
+/// * `max_depth` — how many directory levels to descend.  0 = root only
+///   (no children enumerated).
+/// * `ignore_globs` — paths (relative, forward-slash) that match are skipped.
+///
+/// Children are sorted: directories first, then files, alphabetical within
+/// each group.
+///
+/// # Errors
+///
+/// Returns [`FsWatcherError::ReadDirFailed`] if `read_dir` fails on any
+/// directory encountered during the walk.
+pub fn build_tree(
+    root: &Path,
+    max_depth: u32,
+    ignore_globs: &GlobSet,
+) -> Result<TreeNode, FsWatcherError> {
+    // Apply dunce::canonicalize at the entry point, matching the watcher.
+    let canon = dunce::canonicalize(root).map_err(|source| FsWatcherError::CanonicalizeFailed {
+        path: root.to_path_buf(),
+        source,
+    })?;
+
+    let name = canon
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| canon.to_string_lossy().into_owned());
+
+    let mut root_node = TreeNode {
+        path: String::new(), // root itself is "" relative to itself
+        name,
+        is_dir: true,
+        children: Vec::new(),
+    };
+
+    if max_depth > 0 {
+        root_node.children = collect_children(&canon, &canon, 1, max_depth, ignore_globs)?;
+    }
+
+    Ok(root_node)
+}
+
+/// Recursive helper — enumerate `dir` and return its children as `TreeNode`s.
+fn collect_children(
+    root: &Path,
+    dir: &Path,
+    current_depth: u32,
+    max_depth: u32,
+    ignore_globs: &GlobSet,
+) -> Result<Vec<TreeNode>, FsWatcherError> {
+    let entries = std::fs::read_dir(dir).map_err(|source| FsWatcherError::ReadDirFailed {
+        path: dir.to_path_buf(),
+        source,
+    })?;
+
+    let mut dirs: Vec<TreeNode> = Vec::new();
+    let mut files: Vec<TreeNode> = Vec::new();
+
+    for entry_result in entries {
+        let entry = match entry_result {
+            Ok(e) => e,
+            Err(source) => {
+                return Err(FsWatcherError::ReadDirFailed {
+                    path: dir.to_path_buf(),
+                    source,
+                })
+            }
+        };
+
+        let full_path = entry.path();
+
+        // Compute the relative path and apply the ignore filter.
+        let rel = match relative_path(root, &full_path) {
+            Some(r) => r,
+            None => {
+                tracing::warn!(
+                    "build_tree: path outside root skipped: {}",
+                    full_path.display()
+                );
+                continue;
+            }
+        };
+
+        // Filter files directly; for directories also probe a synthetic child path
+        // so that patterns like `target/**` suppress the directory node itself
+        // (the glob only matches paths *inside* the dir, not the dir entry).
+        let file_type = match entry.file_type() {
+            Ok(ft) => ft,
+            Err(_) => continue, // Skip entries whose type cannot be determined.
+        };
+
+        if file_type.is_dir() {
+            // A directory is filtered when either:
+            //   (a) its own relative path is directly matched, or
+            //   (b) a synthetic child path is matched — covers `dir/**` patterns.
+            let probe = format!("{rel}/__probe__");
+            if !should_publish(&rel, ignore_globs) || !should_publish(&probe, ignore_globs) {
+                continue;
+            }
+        } else if !should_publish(&rel, ignore_globs) {
+            continue;
+        }
+
+        let name = entry.file_name().to_string_lossy().into_owned();
+
+        if file_type.is_dir() {
+            let mut node = TreeNode {
+                path: rel,
+                name,
+                is_dir: true,
+                children: Vec::new(),
+            };
+            if current_depth < max_depth {
+                node.children =
+                    collect_children(root, &full_path, current_depth + 1, max_depth, ignore_globs)?;
+            }
+            dirs.push(node);
+        } else {
+            files.push(TreeNode {
+                path: rel,
+                name,
+                is_dir: false,
+                children: Vec::new(),
+            });
+        }
+    }
+
+    // Sort each group alphabetically (case-insensitive for cross-platform consistency).
+    dirs.sort_by_key(|a| a.name.to_lowercase());
+    files.sort_by_key(|a| a.name.to_lowercase());
+
+    // Dirs first, then files.
+    dirs.extend(files);
+    Ok(dirs)
+}
+
+// ---------------------------------------------------------------------------
 // FsEvent — the typed taxonomy passed to publish_fs_event
 // ---------------------------------------------------------------------------
 
@@ -138,6 +305,13 @@ pub enum FsWatcherError {
     /// The OS rejected the dispatcher thread spawn (thread limit, OOM, etc.).
     #[error("failed to spawn rift-fs-dispatcher thread: {0}")]
     DispatcherSpawnFailed(#[source] std::io::Error),
+    /// `read_dir` failed on a directory during a [`build_tree`] walk.
+    #[error("failed to read directory '{}': {source}", path.display())]
+    ReadDirFailed {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -567,5 +741,100 @@ mod tests {
             relative_path(root, outside).is_none(),
             "outside-root path returns None"
         );
+    }
+
+    // T9 — build_tree_basic: root with one subdirectory and a sibling file.
+    // Tree shape: root { a/(dir) { b.txt(file) }, c.txt(file) }
+    // Dirs come first in the children list.
+    #[test]
+    fn build_tree_basic() {
+        use tempfile::tempdir;
+        let dir = tempdir().expect("tempdir");
+        let root = dir.path();
+
+        // Create fixture: a/ (dir), a/b.txt (file), c.txt (file)
+        std::fs::create_dir(root.join("a")).unwrap();
+        std::fs::write(root.join("a").join("b.txt"), b"").unwrap();
+        std::fs::write(root.join("c.txt"), b"").unwrap();
+
+        let empty_globs = make_globset(&[]);
+        let tree = build_tree(root, FS_TREE_DEFAULT_MAX_DEPTH, &empty_globs)
+            .expect("build_tree should succeed");
+
+        assert!(tree.is_dir, "root must be a dir");
+        assert_eq!(tree.children.len(), 2, "root should have 2 children");
+
+        // First child is the directory (dirs first).
+        let a = &tree.children[0];
+        assert_eq!(a.name, "a");
+        assert!(a.is_dir);
+        assert_eq!(a.path, "a");
+        assert_eq!(a.children.len(), 1, "a/ should have 1 child");
+        let b = &a.children[0];
+        assert_eq!(b.name, "b.txt");
+        assert!(!b.is_dir);
+        assert_eq!(b.path, "a/b.txt");
+
+        // Second child is the file.
+        let c = &tree.children[1];
+        assert_eq!(c.name, "c.txt");
+        assert!(!c.is_dir);
+        assert_eq!(c.path, "c.txt");
+    }
+
+    // T10 — build_tree_max_depth: with max_depth=1 the subdirectory's children
+    // are not enumerated (children vec is empty for the dir node).
+    #[test]
+    fn build_tree_max_depth() {
+        use tempfile::tempdir;
+        let dir = tempdir().expect("tempdir");
+        let root = dir.path();
+
+        std::fs::create_dir(root.join("a")).unwrap();
+        std::fs::write(root.join("a").join("b.txt"), b"").unwrap();
+        std::fs::write(root.join("c.txt"), b"").unwrap();
+
+        let empty_globs = make_globset(&[]);
+        let tree =
+            build_tree(root, 1, &empty_globs).expect("build_tree(max_depth=1) should succeed");
+
+        // Root should still see its immediate children.
+        assert_eq!(tree.children.len(), 2);
+        let a = tree.children.iter().find(|n| n.name == "a").unwrap();
+        assert!(a.is_dir);
+        // At max_depth=1 the subdir's children must NOT be populated.
+        assert!(
+            a.children.is_empty(),
+            "a/ children should be empty at max_depth=1"
+        );
+    }
+
+    // T11 — build_tree_ignores_globs: paths matching ignore globs are excluded.
+    #[test]
+    fn build_tree_ignores_globs() {
+        use tempfile::tempdir;
+        let dir = tempdir().expect("tempdir");
+        let root = dir.path();
+
+        // Fixture: target/foo.txt (should be filtered) + src/bar.rs (should appear)
+        std::fs::create_dir(root.join("target")).unwrap();
+        std::fs::write(root.join("target").join("foo.txt"), b"").unwrap();
+        std::fs::create_dir(root.join("src")).unwrap();
+        std::fs::write(root.join("src").join("bar.rs"), b"").unwrap();
+
+        let globs = make_globset(&["target/**"]);
+        let tree =
+            build_tree(root, FS_TREE_DEFAULT_MAX_DEPTH, &globs).expect("build_tree should succeed");
+
+        // Only src/ should appear at the root level.
+        assert_eq!(
+            tree.children.len(),
+            1,
+            "only src/ should survive glob filtering; got: {:?}",
+            tree.children.iter().map(|n| &n.name).collect::<Vec<_>>()
+        );
+        assert_eq!(tree.children[0].name, "src");
+        assert_eq!(tree.children[0].children.len(), 1);
+        assert_eq!(tree.children[0].children[0].name, "bar.rs");
     }
 }
