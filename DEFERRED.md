@@ -17,6 +17,8 @@
 
 <!-- D-007 closed 2026-04-27, see C-013 below -->
 
+<!-- D-011 closed 2026-04-27, see C-014 below -->
+
 ### D-010 — Sentinel implementation (active 2026-04-27, opened by Phase 7.0 architecture lock)
 - Spec §10.11 names Sentinel as the source-of-truth for agent misbehavior detection (stuck / runaway / unauthorized edits); Rift is the display layer.
 - Sentinel does NOT yet exist in the workspace — no crate, no source file, no Aegis-side spec defining the event surface. Greenfield post-v1 work.
@@ -25,34 +27,32 @@
 - Created during Phase 7.0 architecture lock (this commit). No code change required to open this deferral — pure spec deferral. Phase 7.5 will write the placeholder card and reference this entry inline.
 - Phase 7.5 placeholder card landed in `src/lib/NotificationPane.svelte` (persistent-state section, bottom of the state-panel footer).
 
-### D-011 — Public-CI build fails on fresh checkout (active 2026-04-27, opened by Phase 7.5 Validator finding)
-
-**Empirical finding** (Phase 7.5 Validator, opus rust-expert independent investigation): the Phase 7.1 architectural claim that `cargo build --workspace --locked` succeeds on a fresh public clone (no `crates/rift-aegis/` dir present, default features) is **FACTUALLY INCORRECT**. Removing the gitignored `crates/rift-aegis/` directory and running the gate produces:
-
-```
-failed to read crates/rift-aegis/Cargo.toml
-system cannot find the path specified (os error 3)
-```
-
-Root cause: Cargo resolves optional path deps at workspace-metadata stage regardless of feature flag state. The `optional = true` attribute on `rift-aegis = { path = "../crates/rift-aegis", optional = true }` in `src-tauri/Cargo.toml` only gates whether the dep is COMPILED — it does NOT prevent Cargo from trying to read the manifest at the path during workspace resolution.
-
-**Implication**: every `phase 7.x` commit so far (7.1 / 7.2 / 7.5) lands green on local CI because `crates/rift-aegis/` exists locally (gitignored). On a fresh public clone — which is what GitHub Actions CI runs on — gate 3 (`cargo build --workspace --locked`) fails immediately. **CI is broken on `origin/main` right now**, but unobserved because the 2 unpushed commits (also 7.0) keep the broken state local. Pushing without addressing this will turn `.github/workflows/ci.yml` red.
-
-**Fix options** (architectural decision required — defer to a separate planning beat):
-
-- **(a) Move rift-aegis outside the workspace.** rift-aegis becomes a sibling cargo project (e.g. `~/rift-aegis-private/` or a git submodule). src-tauri imports via Cargo `[patch]` section or feature-gated overlay manifest. Pro: clean separation, no public surface at all. Con: more git remotes / submodule management; CI needs path-injection.
-
-- **(b) Commit a minimal permanent stub.** Track `crates/rift-aegis/Cargo.toml` (minimal — just `[package]` block) and `crates/rift-aegis/src/lib.rs` (minimal — `pub async fn probe(_bus: rift_bus::RiftBus) {}` no-op stub) in the public repo. Gitignore additional source files (`detect.rs`, `snapshot.rs`, etc.). Private dev fills in the real implementation behind feature-gated re-exports. Pro: Cargo metadata resolves cleanly; minimal public surface. Con: lib.rs being tracked means private edits to it surface as "modified" in `git status` — needs careful merge strategy.
-
-- **(c) CI-time stub injection.** Add a workflow step in `.github/workflows/ci.yml` that creates a minimal `crates/rift-aegis/{Cargo.toml, src/lib.rs}` stub BEFORE any cargo command. Pro: zero changes to source repo; private dev local state untouched. Con: stub injection is a workflow-only concern that can drift from production reality; private dev still needs the real crate, so two stub forms exist (CI's + private's).
-
-**Unblocking event**: Phase 7-or-later beat where coordinator runs `/aegis --plan D-011` to lock the option, then ships the fix as a single commit. Recommended priority: **before next push to origin/main** — currently safe because 4 commits (7.0/7.1/7.2/7.5-merge) are unpushed; merge becomes blocking the moment user pushes.
-
-**Companion fix landed in this commit** (the same commit that opens D-011): the misleading comments in `src-tauri/Cargo.toml:25-28` + `.gitignore:35-41` claiming "Public CI builds default features → rift-aegis path never resolved → green" are corrected to reflect the actual local-only behavior.
-
 ---
 
 ## Closed deferrals
+
+### C-014 — D-011 public-CI fresh-clone build (closed 2026-04-27)
+
+Resolved via the **minimal-stub + cfg-gated private modules** pattern (option b variant from D-011's three options). Verified end-to-end with a public-clone simulation (move `detect.rs` + `snapshot.rs` aside, run `cargo build --workspace --locked` → exit 0; restore + run `cargo build -p rift --features aegis --locked` → exit 0).
+
+**Mechanism (4 surgical edits + 1 boundary-check update)**:
+- `crates/rift-aegis/Cargo.toml` (now TRACKED): added `[features] private_modules = []` empty-feature section. Deps unchanged (rift-bus path + tokio + serde + serde_json + tracing + directories + notify) so the private impl can compile when the feature flag is on; on public CI those deps go unresolved (rift-aegis itself is the optional path dep).
+- `crates/rift-aegis/src/lib.rs` (now TRACKED): every `pub mod` and `pub use` line wrapped in `#[cfg(feature = "private_modules")]`. Public stub compiles to empty; private dev with the feature on activates the modules. Cargo only resolves `pub mod detect;` to a file lookup when the cfg is active, so `detect.rs` does NOT need to exist on public clones.
+- `src-tauri/Cargo.toml`: `aegis` feature flipped from `["dep:rift-aegis"]` to `["dep:rift-aegis", "rift-aegis/private_modules"]`. Feature unification: `cargo build -p rift --features aegis` propagates `private_modules` to rift-aegis automatically.
+- `.gitignore`: pattern flipped from `/crates/rift-aegis/` (full-dir ignore) to `crates/rift-aegis/src/*` + `!crates/rift-aegis/src/lib.rs` (ignore private impl files; track Cargo.toml + lib.rs). Also keeps `crates/rift-aegis/target/` ignored.
+- `tools/check-translator-boundary.sh`: `check_rift_aegis_gitignored` (Phase 7.1, full-dir-must-be-ignored invariant) replaced with `check_rift_aegis_private_files_ignored` (the new invariant — only `lib.rs` may be tracked among `src/*.rs`; any other tracked `.rs` under `src/` fails the boundary check). Self-test (`--test` mode) still runs cleanly.
+
+**Verification (all 9 canonical gates green on the fixed state)**:
+1. fmt; 2. clippy workspace; 3. build workspace --locked (PUBLIC CLONE SIM — `detect.rs` + `snapshot.rs` moved aside; rift-aegis compiles to empty); 4. test workspace --locked; 5. npm check; 6. boundary (rewired). 7. build -p rift --features aegis --locked (PRIVATE DEV SIM — files restored; rift-aegis activates `private_modules`); 8. test -p rift-aegis --features private_modules --locked → 14 tests pass; 9. clippy -p rift --features aegis.
+
+**Updated CI gate 8 wording (BV mode going forward)**: tests for rift-aegis now require the `--features private_modules` flag (or `-p rift --features aegis` propagation). The previous form `cargo test -p rift-aegis --locked` returns "0 tests" because the modules are cfg-gated. Future BV briefs should specify `cargo test -p rift-aegis --features private_modules --locked`.
+
+**Trade-offs vs the other two options**:
+- (a) submodule / sibling cargo project: rejected for git-remote complexity.
+- (c) CI-time stub injection: rejected — would have left rust-analyzer broken on public clones (no tracked Cargo.toml means `cargo metadata` fails locally too, even outside CI).
+- The chosen (b) variant gets us: clean public-clone DX (rust-analyzer works), zero private-dev friction (no skip-worktree dance — private dev's gitignored `detect.rs` / `snapshot.rs` are silently absent from `git status`), single-source-of-truth Cargo.toml (private impl deps live in the tracked Cargo.toml; tested unused on public CI).
+
+Now safe to push: `origin/main` will accept all 13 unpushed commits without turning CI red.
 
 ### C-013 — D-007 Mockup #3 integrated cockpit (closed 2026-04-27)
 - New `rift-v2-mockup-integrated.html` (1042 lines) — the default attached cockpit experience per §11. Single window with shared titlebar (`◆ RIFT` + `COCKPIT — INTEGRATED` mode label + `↗ DETACH GUI` button mirroring mockup #2's RE-ATTACH) + horizontal split (terminal LEFT 62%, GUI RIGHT 38%) + full-width 2-row status line.

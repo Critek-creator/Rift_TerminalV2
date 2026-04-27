@@ -240,19 +240,25 @@ RUST
 }
 
 # ---------------------------------------------------------------------------
-# check_rift_aegis_gitignored
+# check_rift_aegis_private_files_ignored
 #
-# Decision A (Phase 7 PLAN, commit 749ec91): crates/rift-aegis/ must remain
-# gitignored at all times. If it exists on disk but is NOT gitignored, a
-# developer accidentally ran `git add` on a private crate — fail loudly.
-# If the directory doesn't exist we're in clean public-only state; skip.
+# D-011 close (DEFERRED.md C-014): the rift-aegis crate ships a public stub
+# (crates/rift-aegis/Cargo.toml + crates/rift-aegis/src/lib.rs are TRACKED).
+# The real implementation lives in additional .rs files alongside lib.rs
+# (detect.rs, snapshot.rs, etc.) that MUST remain gitignored. If any of
+# those private files exist on disk but show up under `git ls-files`, a
+# developer accidentally committed private code — fail loudly.
+#
+# Skip cleanly when the private files don't exist locally (public clone).
 # ---------------------------------------------------------------------------
-check_rift_aegis_gitignored() {
-    if [ -d "crates/rift-aegis" ]; then
-        if ! git check-ignore -q crates/rift-aegis/ 2>/dev/null; then
-            printf '[translator-boundary] FORBIDDEN: crates/rift-aegis/ exists on disk but is NOT gitignored (decision A in PHASE 7 PLAN)\n' >&2
-            return 1
-        fi
+check_rift_aegis_private_files_ignored() {
+    local private_files
+    private_files=$(git ls-files 'crates/rift-aegis/src/*.rs' 2>/dev/null \
+        | grep -v '^crates/rift-aegis/src/lib\.rs$' || true)
+    if [ -n "$private_files" ]; then
+        printf '[translator-boundary] FORBIDDEN: rift-aegis private impl files are tracked in git (D-011 close — only Cargo.toml + src/lib.rs may be tracked):\n' >&2
+        printf '%s\n' "$private_files" | sed 's/^/  /' >&2
+        return 1
     fi
     return 0
 }
@@ -273,7 +279,7 @@ case "${1:-}" in
         # Normal CI mode: allocate tmpout, run scan, clean up.
         _ci_tmpout=$(mktemp)
         trap 'rm -f "$_ci_tmpout"' EXIT
-        check_rift_aegis_gitignored || exit 1
+        check_rift_aegis_private_files_ignored || exit 1
         SCAN_TMPOUT="$_ci_tmpout"
         run_scan
         _exit=$?

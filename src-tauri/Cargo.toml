@@ -23,14 +23,13 @@ tracing = { workspace = true }
 rift-bus = { path = "../crates/rift-bus" }
 rift-core = { path = "../crates/rift-core" }
 # Phase 7 — Aegis private translator (feature-gated optional path dep).
-# IMPORTANT: optional=true gates COMPILATION of this dep, but does NOT
-# prevent Cargo from reading the manifest at the path during workspace
-# metadata resolution. So cargo build --workspace --locked WILL FAIL on
-# a fresh public clone where crates/rift-aegis/ does not exist on disk.
-# This is tracked as DEFERRED.md D-011 — fix path under planning. Local
-# dev works because the gitignored crate is present. Do not push to
-# origin/main until D-011 is resolved (it would turn CI red).
-# See decision A in PHASE 7 PLAN (commit 749ec91) for the architecture.
+# Public clones see the empty `rift-aegis` stub (Cargo.toml + src/lib.rs
+# tracked). Real implementation lives in gitignored sibling files
+# (detect.rs, snapshot.rs) loaded only when the `private_modules`
+# feature flag is on (see DEFERRED.md C-014). Our `aegis` feature below
+# enables both `dep:rift-aegis` AND `rift-aegis/private_modules` so
+# private dev's `cargo build --features aegis` activates the real impl
+# while public CI's default-features build skips compilation entirely.
 rift-aegis = { path = "../crates/rift-aegis", optional = true }
 globset = { workspace = true }
 dunce = { workspace = true }
@@ -39,7 +38,8 @@ directories = { workspace = true }
 [features]
 default = ["custom-protocol"]
 custom-protocol = ["tauri/custom-protocol"]
-# Phase 7 — Aegis private translator. Off by default; on when the
-# gitignored crates/rift-aegis/ is present locally and dev runs
-# `cargo build --features aegis`.
-aegis = ["dep:rift-aegis"]
+# Phase 7 — Aegis private translator. Off by default. When on,
+# enables `dep:rift-aegis` AND `rift-aegis/private_modules` (the
+# latter activates the real impl in the gitignored sibling files
+# alongside the tracked stub lib.rs). See DEFERRED.md C-014.
+aegis = ["dep:rift-aegis", "rift-aegis/private_modules"]

@@ -33,16 +33,16 @@ src-tauri/gen/
 .aegis/session/
 
 # ---------------------------------------------------------------
-# Aegis private translator (Phase 7 — feature-gated optional dep)
+# Aegis private translator (D-011 close — track stub, ignore impl)
 # ---------------------------------------------------------------
-# The rift-aegis crate is private. Never committed to the public
-# repo. Mechanism: optional path dep + feature flag in src-tauri
-# (see src-tauri/Cargo.toml [features] aegis).
-#
-# KNOWN ISSUE — DEFERRED.md D-011: cargo metadata resolution reads
-# the manifest at this path even when the feature is off, so a
-# fresh public clone (without this dir locally) fails gate 3
-# (cargo build --workspace --locked). Local dev works because the
-# crate is present locally. Do not push to origin/main until D-011
-# is resolved. Fix path under planning.
-/crates/rift-aegis/
+# Public clones get the empty `rift-aegis` stub crate (Cargo.toml +
+# src/lib.rs are TRACKED). The real implementation lives in
+# additional gitignored .rs files alongside lib.rs (detect.rs,
+# snapshot.rs, etc.). lib.rs cfg-gates `pub mod detect; pub mod
+# snapshot; ...` behind the `private_modules` feature, which
+# src-tauri's `aegis` feature enables. Public CI builds default
+# features → private_modules off → stub compiles to empty crate
+# without needing the private files. See DEFERRED.md C-014.
+crates/rift-aegis/src/*
+!crates/rift-aegis/src/lib.rs
+crates/rift-aegis/target/

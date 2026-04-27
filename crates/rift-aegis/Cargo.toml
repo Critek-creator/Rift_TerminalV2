@@ -1,0 +1,28 @@
+[package]
+name = "rift-aegis"
+version = "0.1.0"
+edition = "2021"
+authors = ["Abyssal Arts"]
+license = "Proprietary"
+description = "Rift ↔ Aegis private translator (Phase 7 — public stub + cfg-gated private impl)"
+publish = false
+
+[features]
+# When enabled, lib.rs activates `pub mod detect; pub mod snapshot;`
+# and re-exports their public symbols. Requires the gitignored
+# detect.rs / snapshot.rs files alongside lib.rs to exist on disk.
+# src-tauri's `aegis` feature enables this. Public CI never enables
+# it; the stub crate compiles to empty. See DEFERRED.md C-014.
+private_modules = []
+
+[dependencies]
+rift-bus = { path = "../rift-bus" }
+tokio = { version = "1", features = ["fs", "rt", "time", "sync"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tracing = "0.1"
+directories = "5"
+notify = "6"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "time"] }
