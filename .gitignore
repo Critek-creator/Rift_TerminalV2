@@ -31,3 +31,12 @@ src-tauri/gen/
 
 # Aegis Verifier session state (ephemeral — verify.toml + lessons/ ARE committed)
 .aegis/session/
+
+# ---------------------------------------------------------------
+# Aegis private translator (Phase 7 — feature-gated optional dep)
+# ---------------------------------------------------------------
+# The rift-aegis crate is private. Never committed to the public
+# repo. Mechanism: optional path dep + feature flag in src-tauri
+# (see src-tauri/Cargo.toml [features] aegis). Public CI builds
+# default features → rift-aegis path never resolved → green.
+/crates/rift-aegis/

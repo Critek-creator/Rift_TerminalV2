@@ -22,9 +22,18 @@ tokio = { workspace = true }
 tracing = { workspace = true }
 rift-bus = { path = "../crates/rift-bus" }
 rift-core = { path = "../crates/rift-core" }
+# Phase 7 — Aegis private translator (feature-gated optional path dep).
+# Public builds (default features) never resolve this path; the
+# crate is gitignored and only present on private dev machines.
+# See decision A in PHASE 7 PLAN (commit 749ec91).
+rift-aegis = { path = "../crates/rift-aegis", optional = true }
 globset = { workspace = true }
 dunce = { workspace = true }
 
 [features]
 default = ["custom-protocol"]
 custom-protocol = ["tauri/custom-protocol"]
+# Phase 7 — Aegis private translator. Off by default; on when the
+# gitignored crates/rift-aegis/ is present locally and dev runs
+# `cargo build --features aegis`.
+aegis = ["dep:rift-aegis"]

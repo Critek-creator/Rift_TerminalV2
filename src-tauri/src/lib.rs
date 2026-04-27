@@ -37,6 +37,9 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
+#[cfg(feature = "aegis")]
+use rift_aegis::probe as aegis_probe;
+
 use rift_bus::{
     build_tree, load_config, publish_command, publish_error, read_text, save_config,
     spawn_fs_watcher, write_text, Category, CommandBuffer, Envelope, FsWatcher, IpcServer, RiftBus,
@@ -796,6 +799,14 @@ pub fn run() {
             let app_handle = app.handle().clone();
             let socket_name_for_task = socket_name.clone();
 
+            // Phase 7.1 — Aegis private translator load-detection probe.
+            // Feature-gated: only compiled when `--features aegis` is set
+            // AND the gitignored crates/rift-aegis/ exists locally. Public
+            // builds skip this entirely. Clone before bus_for_ipc is moved
+            // into the IPC spawn below.
+            #[cfg(feature = "aegis")]
+            let aegis_bus = bus_for_ipc.clone();
+
             tauri::async_runtime::spawn(async move {
                 match IpcServer::start(bus_for_ipc, &socket_name_for_task).await {
                     Ok(server) => {
@@ -812,6 +823,11 @@ pub fn run() {
                         tracing::error!("rift-bus IPC server failed to start: {e}");
                     }
                 }
+            });
+
+            #[cfg(feature = "aegis")]
+            tauri::async_runtime::spawn(async move {
+                aegis_probe(aegis_bus).await;
             });
 
             Ok(())

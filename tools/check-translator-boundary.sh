@@ -240,6 +240,24 @@ RUST
 }
 
 # ---------------------------------------------------------------------------
+# check_rift_aegis_gitignored
+#
+# Decision A (Phase 7 PLAN, commit 749ec91): crates/rift-aegis/ must remain
+# gitignored at all times. If it exists on disk but is NOT gitignored, a
+# developer accidentally ran `git add` on a private crate — fail loudly.
+# If the directory doesn't exist we're in clean public-only state; skip.
+# ---------------------------------------------------------------------------
+check_rift_aegis_gitignored() {
+    if [ -d "crates/rift-aegis" ]; then
+        if ! git check-ignore -q crates/rift-aegis/ 2>/dev/null; then
+            printf '[translator-boundary] FORBIDDEN: crates/rift-aegis/ exists on disk but is NOT gitignored (decision A in PHASE 7 PLAN)\n' >&2
+            return 1
+        fi
+    fi
+    return 0
+}
+
+# ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 case "${1:-}" in
@@ -255,6 +273,7 @@ case "${1:-}" in
         # Normal CI mode: allocate tmpout, run scan, clean up.
         _ci_tmpout=$(mktemp)
         trap 'rm -f "$_ci_tmpout"' EXIT
+        check_rift_aegis_gitignored || exit 1
         SCAN_TMPOUT="$_ci_tmpout"
         run_scan
         _exit=$?
