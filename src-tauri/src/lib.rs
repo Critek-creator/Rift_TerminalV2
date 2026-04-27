@@ -245,6 +245,7 @@ async fn pty_start(
                 let code = exit_rx.await.unwrap_or(u32::MAX);
                 let _ = watcher_app.emit("pty_exited", PtyExitedEvent { id, code });
                 watcher_registry.remove(id);
+                watcher_app.state::<CommandBufferRegistry>().remove(id);
             });
         }
 

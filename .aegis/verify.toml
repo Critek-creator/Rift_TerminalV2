@@ -1,0 +1,16 @@
+# Aegis Verifier project config — Rift Terminal V2 (p006)
+# Profile: tauri-webview (process spawn + stderr/stdout/HTTP-probe verification)
+# Created: 2026-04-26 (option [A] from /aegis --bv chain handshake — D-006 Errors translator)
+# Updated: 2026-04-26 (rust-ci → tauri-webview after profile landed)
+
+[verify]
+profile = "tauri-webview"
+max_iterations = 3
+total_wall_time_minutes = 20
+
+[verify.chain]
+# Triggered when /aegis --bv Validator returns runtime_verification_needed=true.
+# "autonomous" = chain to /aegis --verify silently with this profile.
+# "handshake"  = always show Y/N/E/A user prompt.
+# "never"      = skip verify regardless of Validator recommendation.
+from_bv = "autonomous"

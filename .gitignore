@@ -28,3 +28,6 @@ src-tauri/gen/
 
 # Claude Code project-local state
 .claude/
+
+# Aegis Verifier session state (ephemeral — verify.toml + lessons/ ARE committed)
+.aegis/session/
