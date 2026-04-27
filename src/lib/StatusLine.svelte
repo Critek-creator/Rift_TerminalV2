@@ -3,8 +3,8 @@
   // brand-amber backgrounds. All values bold. Phase 2 ships the visual
   // chassis; live values plumb in later phases:
   //   * dir / repo / git    → Phase 5 (lightweight Rust helper)
-  //   * ctx / session / use → Phase 7 (Aegis private translator)
-  //   * skill               → Phase 7 (Aegis presence detection)
+  //   * ctx / session / use → still pending — needs Claude Code hook with usage payload (Phase 7.4b candidate)
+  //   * skill               → live via aegis.session.skill_loaded (Phase 7.4)
 
   interface Props {
     dir?: string;
