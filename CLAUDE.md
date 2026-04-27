@@ -4,9 +4,22 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Status
 
-**Pre-implementation.** Vision and architecture are locked at v0.5 (2026-04-26). No source code, no build system, no tests yet — the repo currently contains only the vision spec and the visual source-of-truth mockup. Implementation has not started; one technical item (real-time update mechanism, §10.15) is still open.
+**Implementation underway, D-006 fully closed 2026-04-26.** Vision and architecture locked at v0.5 (2026-04-26); §10.15 real-time-update mechanism LOCKED via `decisions/§10.15_real-time_update_mechanism.md`. Workspace has three Rust crates (`crates/rift-bus` — protocol/transport/translators, `crates/rift-cli` — `rift hook`/`rift status` CLI, `crates/rift-core` — PTY abstraction), the `src-tauri/` Tauri shell, and the Svelte 5 frontend under `src/`. §9 Integration Decoupling is now CI-enforced. See `DEFERRED.md` for active vs closed deferrals (D-005 drag-promote/pop-out, D-007 mockup #3, D-008 global hooks wiring remain DEFERRED).
 
-When implementation begins, this file should be updated with build/test/lint commands.
+## Build / Test / Lint
+
+CI commands (mirror `.github/workflows/ci.yml`):
+
+```bash
+cargo fmt --all --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo build --workspace --locked
+cargo test --workspace --locked
+npm run check
+bash tools/check-translator-boundary.sh
+```
+
+Run `npm run tauri:dev` to spawn the dev environment (Tauri shell + Vite at `http://localhost:1420`). The boundary check enforces §9 — direct external-system primitives (`tokio::net::`, `reqwest::`, `claude_*`, `mcp_*`) outside `crates/rift-bus/src/translators/` (or the bus's internal `ipc.rs`) fail CI. `bash tools/check-translator-boundary.sh --help` for usage; `--test` mode confirms the check catches violations end-to-end.
 
 ## Source-of-Truth Files
 
