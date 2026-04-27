@@ -256,24 +256,30 @@
     // the simulation re-settles after user releases the node.
     // Cursor changes indicate drag state.
     // ------------------------------------------------------------------
+    // Use regular `function` syntax (not arrows) so `this` is bound to the
+    // dragged element in all three callbacks. d3-drag binds `this` to the
+    // element the drag was initiated on, regardless of where mouseup lands —
+    // critical because at drag-end, `event.sourceEvent.currentTarget` is the
+    // document (where d3-drag attached the mouseup listener), not the node.
+    // See pr003 lesson `d3-drag-this-binding-not-event-currenttarget`.
     const dragBehavior: DragBehavior<SVGGElement, VaultNode, VaultNode | SubjectPosition> = drag<SVGGElement, VaultNode>()
-      .on('start', (event: D3DragEvent<SVGGElement, VaultNode, VaultNode>, d: VaultNode) => {
+      .on('start', function (this: SVGGElement, event: D3DragEvent<SVGGElement, VaultNode, VaultNode>, d: VaultNode) {
         // Re-heat simulation so the graph reacts visually to the drag.
         if (!event.active) simulation.alpha(0.3).restart();
         d.fx = d.x;
         d.fy = d.y;
-        select(event.sourceEvent.currentTarget as SVGGElement).attr('cursor', 'grabbing');
+        select(this).attr('cursor', 'grabbing');
       })
       .on('drag', (event: D3DragEvent<SVGGElement, VaultNode, VaultNode>, d: VaultNode) => {
         d.fx = event.x;
         d.fy = event.y;
       })
-      .on('end', (event: D3DragEvent<SVGGElement, VaultNode, VaultNode>, d: VaultNode) => {
+      .on('end', function (this: SVGGElement, event: D3DragEvent<SVGGElement, VaultNode, VaultNode>, d: VaultNode) {
         // Release pin — let simulation settle the node naturally.
         if (!event.active) simulation.alphaTarget(0);
         d.fx = null;
         d.fy = null;
-        select(event.sourceEvent.currentTarget as SVGGElement).attr('cursor', 'grab');
+        select(this).attr('cursor', 'grab');
       });
 
     // Apply drag to node groups.
