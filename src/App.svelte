@@ -16,6 +16,7 @@
   import Popout from './lib/Popout.svelte';
   import { popouts } from './lib/popouts.svelte';
   import Tree from './lib/Tree.svelte';
+  import IndexGraph from './lib/IndexGraph.svelte';
   import { subscribe, type Category } from './lib/bus';
 
   // Tab id → bus category. `undefined` = no integration registered yet,
@@ -287,15 +288,34 @@
       {/if}
     </div>
 
-    <!-- Right half: filesystem tree (Phase 6.4 — hidden when cockpit is detached) -->
+    <!-- Right half: IndexGraph (top 55%) + File Tree (bottom 45%) (Phase 8.4 — hidden when cockpit is detached) -->
     <div class="cockpit-right">
       {#if !cockpitDetached}
-        <div class="pane-header">
-          <span>FILE TREE</span>
-          <span class="meta">{nodeCount} files · {watchedPathLabel}</span>
+        <!-- Phase 8.4 — Graph pane (top slot). IndexGraph.svelte renders width:100%/height:100%
+             inside .graph-pane; border-bottom is the horizontal divider per mockup #3. -->
+        <div class="graph-pane">
+          <div class="pane-header">
+            <span>INDEX</span>
+            <span class="meta">vault graph · fixture</span>
+          </div>
+          <div class="graph-body">
+            <!-- TODO(8.5): wire IndexGraph to subscribe(Category::Index) for live vault-walker data -->
+            <IndexGraph />
+          </div>
         </div>
-        <div class="tree-body">
-          <Tree bind:nodeCount bind:watchedPathLabel />
+
+        <!-- Horizontal divider — 1px solid border-subtle, no resize affordance in v1 (deferred per p006) -->
+        <div class="cockpit-h-divider"></div>
+
+        <!-- Tree pane (bottom slot) — all existing Tree props preserved unchanged -->
+        <div class="tree-pane">
+          <div class="pane-header">
+            <span>FILE TREE</span>
+            <span class="meta">{nodeCount} files · {watchedPathLabel}</span>
+          </div>
+          <div class="tree-body">
+            <Tree bind:nodeCount bind:watchedPathLabel />
+          </div>
         </div>
       {:else}
         <div class="detached-placeholder">
@@ -378,7 +398,7 @@
     background: var(--bg-base);
   }
 
-  /* Right half — filesystem tree pane. */
+  /* Right half — graph + tree stacked column (Phase 8.4). */
   .cockpit-right {
     flex: 0 0 38%;
     min-width: 360px;
@@ -388,7 +408,47 @@
     background: var(--bg-panel);
   }
 
-  /* Pane header — FILE TREE title + meta. Shared vocabulary with NotificationPane. */
+  /* Phase 8.4 — Graph pane (top slot, 55% of cockpit-right height).
+     flex: 0 0 55% matches mockup #3 .gui-graph canonical sizing. */
+  .graph-pane {
+    flex: 0 0 55%;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
+    background: var(--bg-base);
+  }
+
+  /* Graph body — fills the remaining height below graph pane-header.
+     IndexGraph SVG renders at width:100%/height:100% inside this container. */
+  .graph-body {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  /* Phase 8.4 — Horizontal divider between graph and tree panes.
+     1px solid, no resize affordance in v1 (resize handle deferred per p006). */
+  .cockpit-h-divider {
+    flex: 0 0 1px;
+    background: var(--border-subtle);
+    width: 100%;
+  }
+
+  /* Tree pane (bottom slot, 45% of cockpit-right height).
+     flex: 1 1 45% matches mockup #3 .gui-tree canonical sizing. */
+  .tree-pane {
+    flex: 1 1 45%;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
+    background: var(--bg-panel);
+  }
+
+  /* Pane header — FILE TREE / INDEX title + meta. Shared vocabulary with NotificationPane. */
   .pane-header {
     height: 24px;
     padding: 0 10px;
