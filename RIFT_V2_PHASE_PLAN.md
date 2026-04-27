@@ -147,7 +147,7 @@ Per CLAUDE.md §7 + RIFT_V2_VISION §7:
 |---------|-----------------------------------------------|-----------------------------------|-------------|
 | §10.15  | Real-time update mechanism                    | `/aegis --research`               | Phase 4     |
 | §10.16  | Section catalog brainstorm                    | `/aegis --think` during Phase 5   | Phase 5     |
-| §10.17  | Agent tab grouping/filtering                  | `/aegis --think` during Phase 7   | Phase 7     |
+| §10.17  | Agent tab grouping/filtering                  | RESOLVED 2026-04-27 — see `decisions/§10.17_agent_tab_grouping_filtering.md` | Phase 7 ✓   |
 | §10.18  | GUI rendering tech (Cytoscape/D3/Sigma)       | spike + `/aegis --crit`           | Phase 8     |
 
 ---
