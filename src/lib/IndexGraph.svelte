@@ -1,22 +1,32 @@
 <script lang="ts">
-  // IndexGraph.svelte — Phase 8.3
+  // IndexGraph.svelte — Phase 8.5
   //
   // D3 force-directed graph of Abyssal Index vault nodes.
-  // Renders a static fixture of 10 real vault nodes + representative edges.
+  // Phase 8.5: replaced static fixture with live data from Category::Index
+  // subscription (vault.update + walk.complete envelopes).
   //
-  // DOM ownership contract:
-  //   Svelte owns:  <svg> container + <defs> + outer <g class="zoom-target">
+  // Data flow:
+  //   vault_walker (Rust) →  Category::Index/vault.update  → nodes/edges state
+  //   vault_walker (Rust) →  Category::Index/walk.complete → walkComplete flag
+  //   D3 simulation reads the reactive arrays each time they change.
+  //
+  // Fallback:
+  //   If walkComplete is true and nodes is still empty (abyssal-index absent),
+  //   the static fixture is displayed — §10.7 capability-driven empty state,
+  //   mirroring how Aegis tab handles "not detected".
+  //
+  // DOM ownership contract (unchanged from 8.3):
+  //   Svelte owns:  <svg> + <defs> + outer <g class="zoom-target"> + empty-state overlay
   //   D3 owns:      everything appended *inside* .zoom-target
   //                 (<g class="links"> and <g class="nodes">)
-  // There are NO Svelte {#each} blocks targeting children D3 also renders.
+  //   NO Svelte {#each} blocks inside zoom-target.
   //
-  // Lifecycle (per r004 canonical mount pattern + pr003 d3-svelte-effect-lifecycle):
-  //   $effect guard → container present → build sim → bind zoom → bind drag
-  //   → cleanup: simulation.stop() + simulation.on('tick', null) [BOTH required]
-  //
-  // TODO(8.4): mount in cockpit Index slot per mockup #3 integrated view.
-  // TODO(8.5): replace static fixture with vault-walker live data via Category::Index subscription.
+  // Lifecycle:
+  //   $effect guard → container present → build sim on current nodes/edges
+  //   → bind zoom → bind drag → cleanup: simulation.stop() + .on('tick', null)
+  //   The $effect re-runs whenever `nodes` or `edges` reactive state changes.
 
+  import { onMount } from 'svelte';
   import { forceSimulation, forceLink, forceManyBody, forceCenter } from 'd3-force';
   import type { Simulation, SimulationNodeDatum, SimulationLinkDatum } from 'd3-force';
   import { select } from 'd3-selection';
@@ -24,6 +34,7 @@
   import type { ZoomBehavior, ZoomTransform } from 'd3-zoom';
   import { drag } from 'd3-drag';
   import type { DragBehavior, D3DragEvent, SubjectPosition } from 'd3-drag';
+  import { subscribe } from './bus';
 
   // ---------------------------------------------------------------------------
   // Types
@@ -40,12 +51,10 @@
     id: string;
     kind: VaultKind;
     label: string;
-    /** D3-managed position + velocity (set on SimulationNodeDatum) */
     x?: number;
     y?: number;
     vx?: number;
     vy?: number;
-    /** null = free; number = pinned. */
     fx?: number | null;
     fy?: number | null;
   }
@@ -53,7 +62,7 @@
   /**
    * A directed link between two vault nodes.
    * D3 resolves source/target from string IDs into VaultNode references after
-   * forceLink processes the array; the union type reflects both states.
+   * forceLink processes the array.
    */
   interface VaultLink extends SimulationLinkDatum<VaultNode> {
     source: string | VaultNode;
@@ -61,25 +70,20 @@
   }
 
   // ---------------------------------------------------------------------------
-  // Static fixture — 10 real Abyssal Index vault nodes + representative edges
+  // vault.update envelope payload shape (mirrors VaultUpdatePayload in Rust)
+  // ---------------------------------------------------------------------------
+
+  interface VaultUpdatePayload {
+    vault_id: string;
+    path: string;
+    change_kind: 'created' | 'modified' | 'deleted';
+  }
+
+  // ---------------------------------------------------------------------------
+  // Static fixture — fallback when walkComplete=true but no live data
   //
-  // Node IDs match actual vault filenames (without .md) in the Abyssal Index.
-  // Edges reflect real cross-vault dependencies:
-  //   p006 → r004   (Rift v2 uses Tauri+Svelte stack documented in r004)
-  //   p003 → r004   (AIDE uses same Tauri+Svelte stack)
-  //   pr001 ↔ pr003 (global rules ↔ gotchas are tightly coupled)
-  //   pr003 → p006  (gotchas entry d3-svelte-effect-lifecycle filed for Rift)
-  //   pr003 → p003  (gotchas entries reference AIDE project evidence)
-  //   pr001 → p006  (global practices govern Rift build)
-  //   pr001 → p003  (global practices govern AIDE build)
-  //   p001 → pr001  (personal practices vault links global rules)
-  //   p002 → pr001  (second personal vault also links global rules)
-  //   p004 → r004   (fourth project also on Tauri stack)
-  //   p005 → pr001  (fifth project governed by global practices)
-  //   r004 → pr003  (r004 cross-references gotchas for lifecycle patterns)
-  //   p006 → pr003  (Rift v2 phase plan references gotchas entries)
-  //   p004 → pr001  (project governed by global rules)
-  //   p001 → p006   (Abyssal Arts main project spawned Rift v2)
+  // Preserved from 8.3. Used only when ~/.claude/abyssal-index/ is absent.
+  // When live data is present the fixture is superseded.
   // ---------------------------------------------------------------------------
 
   const STATIC_NODES: VaultNode[] = [
@@ -114,6 +118,141 @@
   ];
 
   // ---------------------------------------------------------------------------
+  // Live data state (Phase 8.5)
+  // ---------------------------------------------------------------------------
+
+  /** Map of vault_id → node. Updated by vault.update envelopes. */
+  let liveNodeMap = $state<Map<string, VaultNode>>(new Map());
+
+  /**
+   * True once a walk.complete envelope arrives. Lets the graph distinguish
+   * "still loading from walker" from "walker done / abyssal-index absent".
+   */
+  let walkComplete = $state(false);
+
+  /**
+   * Derive the active node/edge arrays from liveNodeMap.
+   * When walkComplete=true and liveNodeMap is empty → use static fixture.
+   */
+  const activeNodes = $derived.by<VaultNode[]>(() => {
+    if (liveNodeMap.size > 0) {
+      return Array.from(liveNodeMap.values());
+    }
+    if (walkComplete) {
+      // Fallback: abyssal-index absent or walker found no vaults.
+      return STATIC_NODES.map((n) => ({ ...n }));
+    }
+    // Still loading — render nothing yet (graph will re-trigger when data arrives).
+    return [];
+  });
+
+  /**
+   * Rebuild edges from cross_refs stored on nodes.
+   * When using the static fixture, use STATIC_LINKS.
+   */
+  const activeEdges = $derived.by<VaultLink[]>(() => {
+    if (liveNodeMap.size === 0 && walkComplete) {
+      return STATIC_LINKS.map((l) => ({ ...l }));
+    }
+    // Build edges from the cross_refs stored in each node's `crossRefs` extra
+    // field. We attach crossRefs to nodes when processing vault.update envelopes.
+    const edges: VaultLink[] = [];
+    for (const [id, node] of liveNodeMap) {
+      const refs = (node as VaultNode & { crossRefs?: string[] }).crossRefs ?? [];
+      for (const ref of refs) {
+        if (liveNodeMap.has(ref)) {
+          edges.push({ source: id, target: ref });
+        }
+      }
+    }
+    return edges;
+  });
+
+  // ---------------------------------------------------------------------------
+  // Infer VaultKind from vault_id prefix
+  // ---------------------------------------------------------------------------
+
+  function inferKind(vaultId: string): VaultKind {
+    if (vaultId.startsWith('pr'))  return 'pr';
+    if (vaultId.startsWith('lore')) return 'lore';
+    if (vaultId.startsWith('agt')) return 'agt';
+    if (vaultId.startsWith('p'))   return 'p';
+    if (vaultId.startsWith('r'))   return 'r';
+    if (vaultId.startsWith('s'))   return 's';
+    if (vaultId.startsWith('h'))   return 'h';
+    return 'p'; // default
+  }
+
+  // ---------------------------------------------------------------------------
+  // Category::Index subscription — mount-race guarded (pr003 subscribe-mount-race)
+  // ---------------------------------------------------------------------------
+
+  onMount(() => {
+    let cancelled = false;
+    let unsub: (() => Promise<void>) | undefined;
+
+    void (async () => {
+      try {
+        const u = await subscribe({ category: 'index' }, (env) => {
+          if (env.kind === 'vault.update') {
+            const p = env.payload as VaultUpdatePayload;
+            if (p.change_kind === 'deleted') {
+              // Remove the node.
+              liveNodeMap = new Map(
+                [...liveNodeMap].filter(([k]) => k !== p.vault_id),
+              );
+            } else {
+              // Create or update the node. Preserve existing D3 position if
+              // the node already exists (avoids layout jump on modify).
+              const existing = liveNodeMap.get(p.vault_id);
+              // Extract cross_refs from payload if present (8.5 walker includes them).
+              const raw = env.payload as VaultUpdatePayload & {
+                cross_refs?: string[];
+                name?: string;
+              };
+              const newNode: VaultNode & { crossRefs?: string[] } = {
+                id: p.vault_id,
+                kind: inferKind(p.vault_id),
+                label: raw.name ? `${p.vault_id} — ${raw.name}` : p.vault_id,
+                crossRefs: raw.cross_refs ?? [],
+                // Preserve existing D3 x/y so the node doesn't snap to origin.
+                x: existing?.x,
+                y: existing?.y,
+                vx: existing?.vx,
+                vy: existing?.vy,
+                fx: existing?.fx ?? null,
+                fy: existing?.fy ?? null,
+              };
+              const next = new Map(liveNodeMap);
+              next.set(p.vault_id, newNode);
+              liveNodeMap = next;
+            }
+          } else if (env.kind === 'walk.complete') {
+            walkComplete = true;
+          }
+        });
+
+        if (cancelled) {
+          void u().catch(() => {});
+        } else {
+          unsub = u;
+        }
+      } catch (err) {
+        console.warn('[IndexGraph] Category::Index subscribe failed:', err);
+        // Ensure static fallback renders even if subscribe fails.
+        walkComplete = true;
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      void (async () => {
+        await unsub?.();
+      })();
+    };
+  });
+
+  // ---------------------------------------------------------------------------
   // Component state
   // ---------------------------------------------------------------------------
 
@@ -128,9 +267,10 @@
   let simulation: Simulation<VaultNode, VaultLink>;
 
   // ---------------------------------------------------------------------------
-  // Canonical Svelte 5 $effect mount pattern (r004 GRAPH LIB section verbatim)
+  // D3 simulation $effect — re-runs when activeNodes or activeEdges change
   //
   // Guard:     if (!container) return   — prevents D3 from running before DOM mount
+  // Guard:     if (activeNodes.length === 0) return — no data yet (loading)
   // Cleanup:   simulation.stop()        — halts the simulation loop
   //            simulation.on('tick', null) — detaches tick listener (leak guard)
   //            BOTH are required (r004 + pr003 d3-svelte-effect-lifecycle)
@@ -139,45 +279,35 @@
   $effect(() => {
     if (!container) return;
 
-    // Deep-copy the fixture arrays so D3 can mutate x/y/vx/vy/fx/fy safely
-    // without corrupting the module-level constants on re-mount.
-    const nodes: VaultNode[] = STATIC_NODES.map((n) => ({ ...n }));
-    const links: VaultLink[] = STATIC_LINKS.map((l) => ({ ...l }));
+    // Snapshot the derived arrays (D3 mutates them in-place via x/y/vx/vy).
+    const nodes: VaultNode[] = activeNodes.map((n) => ({ ...n }));
+    const links: VaultLink[] = activeEdges.map((l) => ({ ...l }));
+
+    // Nothing to render yet — still waiting for walk.complete or live data.
+    if (nodes.length === 0) return;
 
     // ------------------------------------------------------------------
-    // Dimensions — read from the SVG element's bounding rect.
-    // container.getBoundingClientRect() is safe here because $effect runs
-    // after the DOM has painted (Svelte 5 guarantee).
+    // Dimensions
     // ------------------------------------------------------------------
     const rect = container.getBoundingClientRect();
     const W = rect.width  || 640;
     const H = rect.height || 480;
 
     // ------------------------------------------------------------------
-    // D3 selection of the inner group that D3 fully owns.
-    // Svelte rendered the <g class="zoom-target"> scaffold; D3 appends
-    // into it.  We never let Svelte {#each} render children here.
+    // D3 selection
     // ------------------------------------------------------------------
     const svg = select<SVGSVGElement, unknown>(container);
     const g   = svg.select<SVGGElement>('g.zoom-target');
 
-    // Remove any previously D3-appended children (e.g. on hot-module reload
-    // where the component re-mounts without a full page refresh).
     g.selectAll('*').remove();
 
-    // Link group — rendered first so nodes paint on top.
     const linkGroup = g.append('g').attr('class', 'links');
-    // Node group.
     const nodeGroup = g.append('g').attr('class', 'nodes');
 
     // ------------------------------------------------------------------
     // Force simulation
-    // alphaDecay: 0.0228 (D3 default — do NOT touch alphaTarget;
-    //   pr003: d3-force-alpha-decay-vs-alpha-target-confusion)
-    // alphaTarget left at 0 (D3 default) — simulation settles cleanly.
     // ------------------------------------------------------------------
     simulation = forceSimulation<VaultNode, VaultLink>(nodes)
-      // alphaDecay is 0.0228 by default — explicitly noted; not changed.
       .force(
         'link',
         forceLink<VaultNode, VaultLink>(links)
@@ -198,10 +328,9 @@
       .attr('class', 'graph-edge');
 
     // ------------------------------------------------------------------
-    // D3 data joins — nodes (each node is a <g> containing circle + text)
+    // D3 data joins — nodes
     // ------------------------------------------------------------------
 
-    /** Map vault kind → CSS class name for color styling. */
     function kindClass(kind: VaultKind): string {
       return `node-${kind}`;
     }
@@ -213,13 +342,11 @@
       .attr('class', (d) => `graph-node ${kindClass(d.kind)}`)
       .attr('cursor', 'grab');
 
-    // Circle per node — r=8, category-colored via CSS class.
     nodeSel
       .append('circle')
       .attr('r', 8)
       .attr('class', (d) => `node-circle ${kindClass(d.kind)}`);
 
-    // Label below the node.
     nodeSel
       .append('text')
       .attr('class', 'node-label')
@@ -227,8 +354,6 @@
       .attr('text-anchor', 'middle')
       .text((d) => d.id);
 
-    // Amber-glow filter reference on hover — applied via CSS class toggle
-    // but we also wire mouseenter/mouseleave for the CSS class approach.
     nodeSel
       .on('mouseenter', function () {
         select(this).classed('hovered', true);
@@ -238,7 +363,7 @@
       });
 
     // ------------------------------------------------------------------
-    // Tick handler — updates node + link positions each simulation step.
+    // Tick handler
     // ------------------------------------------------------------------
     function tick(): void {
       linkSel
@@ -252,19 +377,10 @@
     }
 
     // ------------------------------------------------------------------
-    // Drag behavior — pins fx/fy on drag-start; releases on drag-end so
-    // the simulation re-settles after user releases the node.
-    // Cursor changes indicate drag state.
+    // Drag behavior
     // ------------------------------------------------------------------
-    // Use regular `function` syntax (not arrows) so `this` is bound to the
-    // dragged element in all three callbacks. d3-drag binds `this` to the
-    // element the drag was initiated on, regardless of where mouseup lands —
-    // critical because at drag-end, `event.sourceEvent.currentTarget` is the
-    // document (where d3-drag attached the mouseup listener), not the node.
-    // See pr003 lesson `d3-drag-this-binding-not-event-currenttarget`.
     const dragBehavior: DragBehavior<SVGGElement, VaultNode, VaultNode | SubjectPosition> = drag<SVGGElement, VaultNode>()
       .on('start', function (this: SVGGElement, event: D3DragEvent<SVGGElement, VaultNode, VaultNode>, d: VaultNode) {
-        // Re-heat simulation so the graph reacts visually to the drag.
         if (!event.active) simulation.alpha(0.3).restart();
         d.fx = d.x;
         d.fy = d.y;
@@ -275,42 +391,28 @@
         d.fy = event.y;
       })
       .on('end', function (this: SVGGElement, event: D3DragEvent<SVGGElement, VaultNode, VaultNode>, d: VaultNode) {
-        // Release pin — let simulation settle the node naturally.
         if (!event.active) simulation.alphaTarget(0);
         d.fx = null;
         d.fy = null;
         select(this).attr('cursor', 'grab');
       });
 
-    // Apply drag to node groups.
-    // The cast is required because d3-drag types use a generic that doesn't
-    // perfectly align with d3-selection's .call() overloads without assertion.
     nodeSel.call(dragBehavior as unknown as (sel: typeof nodeSel) => void);
 
     // ------------------------------------------------------------------
-    // Pan + zoom — d3-zoom on the SVG container; transform applied to the
-    // inner <g class="zoom-target"> group.  The {x, y, k} triple is the
-    // serializable zoom state (Phase 8.7 will persist it; no-op here).
+    // Pan + zoom
     // ------------------------------------------------------------------
     const zoomBehavior: ZoomBehavior<SVGSVGElement, unknown> = zoom<SVGSVGElement, unknown>()
       .scaleExtent([0.2, 5])
       .on('zoom', (event: { transform: ZoomTransform }) => {
-        // Serialize: event.transform.x, event.transform.y, event.transform.k
-        // (retained as plain numbers — ready for Phase 8.7 persistence).
         g.attr('transform', event.transform.toString());
       });
 
     svg.call(zoomBehavior);
-
-    // Set a sensible initial zoom identity so the graph starts centered.
     svg.call(zoomBehavior.transform, zoomIdentity);
 
     // ------------------------------------------------------------------
     // CLEANUP — BOTH steps required (r004 canonical; pr003 leak guard)
-    //   simulation.stop()          — halts requestAnimationFrame loop
-    //   simulation.on('tick', null) — detaches the tick listener closure
-    //     (stop() alone leaves the listener registered; re-mount would
-    //      double-fire the old tick handler until GC collects it)
     // ------------------------------------------------------------------
     return () => {
       simulation.stop();
@@ -323,72 +425,114 @@
   IndexGraph — SVG scaffold only.
   D3 populates everything inside <g class="zoom-target"> imperatively.
   NO Svelte {#each} inside zoom-target — D3 owns that subtree.
-
-  TODO(8.4): mount in cockpit Index slot per mockup #3 integrated view.
 -->
-<svg
-  bind:this={container}
-  class="index-graph"
-  aria-label="Abyssal Index vault graph"
->
-  <defs>
+<div class="index-graph-wrapper">
+  {#if !walkComplete && liveNodeMap.size === 0}
     <!--
-      Amber-glow SVG filter — applied to nodes on hover via CSS class.
-      Two-layer approach: Gaussian blur spreads the glow halo, drop-shadow
-      composites it back onto the node with the brand flood-color (#f59e0b).
-      Matches §10.3 non-negotiable aesthetic (amber-bright = #f59e0b).
+      Loading state — walker hasn't completed yet.
+      Shows until walk.complete arrives or subscribe fails.
     -->
-    <filter id="amber-glow" x="-50%" y="-50%" width="200%" height="200%">
-      <feGaussianBlur in="SourceGraphic" stdDeviation="3" result="blur" />
-      <feDropShadow
-        dx="0"
-        dy="0"
-        stdDeviation="3"
-        flood-color="#f59e0b"
-        flood-opacity="0.85"
-      />
-    </filter>
-    <!--
-      Faint-glow variant — always-on ambient glow for unselected nodes.
-      Softer than the hover glow to establish depth without distraction.
-    -->
-    <filter id="ambient-glow" x="-30%" y="-30%" width="160%" height="160%">
-      <feGaussianBlur in="SourceGraphic" stdDeviation="1.5" result="blur" />
-      <feDropShadow
-        dx="0"
-        dy="0"
-        stdDeviation="2"
-        flood-color="#D4890A"
-        flood-opacity="0.35"
-      />
-    </filter>
-  </defs>
+    <div class="index-graph-overlay">
+      <span class="overlay-text">scanning vault...</span>
+    </div>
+  {/if}
 
-  <!--
-    zoom-target: the group D3 transforms for pan/zoom.
-    D3 appends <g class="links"> and <g class="nodes"> here at mount time.
-    Do NOT add Svelte children inside this element.
-  -->
-  <g class="zoom-target"></g>
-</svg>
+  <svg
+    bind:this={container}
+    class="index-graph"
+    aria-label="Abyssal Index vault graph"
+  >
+    <defs>
+      <!--
+        Amber-glow SVG filter — applied to nodes on hover via CSS class.
+        Matches §10.3 non-negotiable aesthetic (amber-bright = #f59e0b).
+      -->
+      <filter id="amber-glow" x="-50%" y="-50%" width="200%" height="200%">
+        <feGaussianBlur in="SourceGraphic" stdDeviation="3" result="blur" />
+        <feDropShadow
+          dx="0"
+          dy="0"
+          stdDeviation="3"
+          flood-color="#f59e0b"
+          flood-opacity="0.85"
+        />
+      </filter>
+      <!--
+        Faint-glow variant — always-on ambient glow for unselected nodes.
+      -->
+      <filter id="ambient-glow" x="-30%" y="-30%" width="160%" height="160%">
+        <feGaussianBlur in="SourceGraphic" stdDeviation="1.5" result="blur" />
+        <feDropShadow
+          dx="0"
+          dy="0"
+          stdDeviation="2"
+          flood-color="#D4890A"
+          flood-opacity="0.35"
+        />
+      </filter>
+    </defs>
+
+    <!--
+      zoom-target: the group D3 transforms for pan/zoom.
+      D3 appends <g class="links"> and <g class="nodes"> here at mount time.
+      Do NOT add Svelte children inside this element.
+    -->
+    <g class="zoom-target"></g>
+  </svg>
+</div>
 
 <style>
   /* -------------------------------------------------------------------------
-     IndexGraph layout wrapper
-     Full-bleed inside whatever slot App.svelte / cockpit provides (8.4).
+     Wrapper — positions the overlay above the SVG
+     ------------------------------------------------------------------------- */
+  .index-graph-wrapper {
+    position: relative;
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+
+  /* -------------------------------------------------------------------------
+     IndexGraph layout — full-bleed inside whatever slot App.svelte / cockpit provides
      ------------------------------------------------------------------------- */
   .index-graph {
     display: block;
     width: 100%;
     height: 100%;
     background: var(--bg-base);
-    /* Prevent text-selection during drag operations */
     user-select: none;
     -webkit-user-select: none;
   }
 
   /* -------------------------------------------------------------------------
-     Edge lines — faint amber stroke matching the tree edge vocabulary
+     Loading overlay — shown while walk hasn't completed and no live data
+     ------------------------------------------------------------------------- */
+  .index-graph-overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+    z-index: 1;
+  }
+
+  .overlay-text {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--amber-dim);
+    opacity: 0.6;
+    letter-spacing: 0.05em;
+    animation: overlay-pulse 2s ease-in-out infinite;
+  }
+
+  @keyframes overlay-pulse {
+    0%, 100% { opacity: 0.4; }
+    50%       { opacity: 0.8; }
+  }
+
+  /* -------------------------------------------------------------------------
+     Edge lines — faint amber stroke
      ------------------------------------------------------------------------- */
   :global(.graph-edge) {
     stroke: var(--amber-faint);
@@ -403,19 +547,11 @@
   :global(.node-circle) {
     stroke-width: 1.5;
     fill: var(--bg-elevated);
-    /* Ambient glow always-on */
     filter: url(#ambient-glow);
     transition: filter 0.15s ease, stroke-width 0.15s ease;
   }
 
-  /* Category-driven stroke colors (§10.1 lane table mapping):
-       p    → project vaults      → amber-warm    (project lane = amber)
-       pr   → practice vaults     → amber-primary  (rules/gotchas = amber-primary)
-       r    → research vaults     → term-cyan      (research = hook lane cyan)
-       s    → skill vaults        → term-purple    (skill = agent lane purple)
-       lore → lore vaults         → term-blue      (lore = claude lane blue)
-       agt  → agent vaults        → term-purple    (agent lane)
-       h    → hook vaults         → term-cyan      (hook lane)                   */
+  /* Category-driven stroke colors (§10.1 lane table) */
   :global(.node-circle.node-p)    { stroke: var(--amber-warm); }
   :global(.node-circle.node-pr)   { stroke: var(--amber-primary); }
   :global(.node-circle.node-r)    { stroke: var(--term-cyan); }
@@ -424,7 +560,7 @@
   :global(.node-circle.node-agt)  { stroke: var(--term-purple); }
   :global(.node-circle.node-h)    { stroke: var(--term-cyan); }
 
-  /* Hover state — full amber-glow filter (matches node-state-active vocabulary) */
+  /* Hover state */
   :global(.graph-node.hovered .node-circle) {
     filter: url(#amber-glow);
     stroke: var(--amber-bright);
@@ -432,8 +568,7 @@
   }
 
   /* -------------------------------------------------------------------------
-     Node labels — below the circle, JetBrains Mono, amber-dim default
-     Matches .tree-node-label voice from Tree.svelte / mockup §tree section.
+     Node labels
      ------------------------------------------------------------------------- */
   :global(.node-label) {
     fill: var(--amber-dim);
@@ -450,8 +585,7 @@
   }
 
   /* -------------------------------------------------------------------------
-     Zoom-target group — D3 sets the transform attribute directly at runtime;
-     will-change hint reduces compositor overhead during pan/zoom.
+     Zoom-target group
      ------------------------------------------------------------------------- */
   :global(.zoom-target) {
     will-change: transform;

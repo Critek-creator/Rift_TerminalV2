@@ -104,6 +104,23 @@ pub use translators::index::IndexEnrichmentPayload;
 pub use translators::index::VaultChangeKind;
 
 // ---------------------------------------------------------------------------
+// Vault-walker re-exports (Phase 8.5)
+// ---------------------------------------------------------------------------
+
+/// Run the Abyssal Index vault-walker (boot walk + live notify watcher).
+///
+/// This is an `async fn` — callers must wrap it in `tauri::async_runtime::spawn`
+/// (or equivalent) per the Phase 7.1 setup() pattern:
+/// ```ignore
+/// tauri::async_runtime::spawn(async move {
+///     rift_bus::spawn_vault_walker(bus, vault_root).await;
+/// });
+/// ```
+///
+/// Convenience re-export; full path: `rift_bus::translators::vault_walker::spawn_vault_walker(...)`.
+pub use translators::vault_walker::spawn_vault_walker;
+
+// ---------------------------------------------------------------------------
 // config re-exports (Phase 6.7)
 // ---------------------------------------------------------------------------
 

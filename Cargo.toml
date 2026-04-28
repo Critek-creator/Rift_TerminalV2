@@ -33,6 +33,7 @@ globset = "0.4"
 dunce = "1"
 toml = "0.8"
 directories = "5"
+serde_yaml = "0.9"
 
 [profile.release]
 codegen-units = 1
