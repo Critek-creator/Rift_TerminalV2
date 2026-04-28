@@ -208,7 +208,7 @@
         {#if recentEntries.length === 0}
           <div class="empty">subscribed to <span class="cat">index</span> — no events received yet</div>
         {:else}
-          {#each recentEntries as e (e.ts + e.kind)}
+          {#each recentEntries as e, i (e.ts + ':' + e.kind + ':' + i)}
             <IndexTabRenderer
               entry={{
                 ts: e.ts,

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Status
 
-**Implementation underway, all active deferrals closed 2026-04-27 (D-005, D-006, D-007, D-008).** Vision and architecture locked at v0.5 (2026-04-26); §10.15 real-time-update mechanism LOCKED via `decisions/§10.15_real-time_update_mechanism.md`. Workspace has three Rust crates (`crates/rift-bus` — protocol/transport/translators, `crates/rift-cli` — `rift hook`/`rift status` CLI, `crates/rift-core` — PTY abstraction), the `src-tauri/` Tauri shell, and the Svelte 5 frontend under `src/`. §9 Integration Decoupling is now CI-enforced. All 3 mockups (terminal alone / GUI alone detached / integrated cockpit) now live; see `DEFERRED.md` closed-deferrals section for ship history.
+**Implementation underway. All v1 deferrals closed 2026-04-27 (D-005, D-006, D-007, D-008, D-011) except D-010 (Sentinel, deferred post-v1 by design) and D-012 (StatusLine live-value plumbing, open — needs Claude Code usage-payload hook).** Vision and architecture locked at v0.6 (2026-04-27); §10.15 real-time-update mechanism LOCKED via `decisions/§10.15_real-time_update_mechanism.md`; §10.17 agent tab grouping resolved via `decisions/§10.17_agent_tab_grouping_filtering.md`. Workspace has four Rust crates (`crates/rift-bus` — protocol/transport/translators, `crates/rift-cli` — `rift hook`/`rift status` CLI, `crates/rift-core` — PTY abstraction, `crates/rift-aegis` — private optional feature-gated path dep), the `src-tauri/` Tauri shell, and the Svelte 5 frontend under `src/`. §9 Integration Decoupling is CI-enforced. All 3 mockups (terminal alone / GUI alone detached / integrated cockpit) live; see `DEFERRED.md` closed-deferrals section for ship history.
 
 ## Build / Test / Lint
 

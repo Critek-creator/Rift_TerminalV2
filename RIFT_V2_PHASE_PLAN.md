@@ -1,17 +1,17 @@
 # Rift V2 — Phased Implementation Plan
 
-*Generated: 2026-04-26 by `/aegis` (PLAN mode, TIER-SOLO)*
-*Source-of-truth refs: `RIFT_V2_VISION.md` v0.5 (locked) + `rift-v2-mockup.html` + p006 v1 lessons*
-*Status: DRAFT — pick a starting move; revise after §10.15 resolves*
+*Generated: 2026-04-26 by `/aegis` (PLAN mode, TIER-SOLO). Revised 2026-04-27 after Phase 7 ship + §10.15/§10.17 resolution.*
+*Source-of-truth refs: `RIFT_V2_VISION.md` v0.6 (locked) + `rift-v2-mockup.html` + p006 v1 lessons*
+*Status: ACTIVE — Phase 8.x in flight; Phases 0-7 shipped.*
 
 ---
 
 ## Anchor
 
-- **Vision is locked** at v0.5 (2026-04-26). One open spec question remains: **§10.15 real-time update mechanism.**
+- **Vision is locked** at v0.6 (2026-04-27). §10.15 (real-time update mechanism) closed via `decisions/§10.15_real-time_update_mechanism.md`. §10.17 closed via `decisions/§10.17_agent_tab_grouping_filtering.md`.
 - **Stack is locked** (§5): **Tauri 2 + Svelte 5 + xterm.js** (Rust backend, web frontend).
 - **V1 = `C:/Users/Critek/Documents/Abyssal_Arts_main/Projects/Rift_Terminal`** — shipped Phase 7 with MSI on 2026-04-24. Per CLAUDE.md it is a "cautionary museum exhibit" — *concepts* transfer (hook system, observability layer, IPC framing/replay), *code* does not. V1's wgpu+glyphon native stack is the wrong shape for V2's GUI requirement.
-- **No source code, no build system, no tests** in this repo yet. Working tree currently holds: `RIFT_V2_VISION.md`, `rift-v2-mockup.html`, `CLAUDE.md`, this file.
+- **Workspace state (2026-04-27):** 4 Rust crates (`rift-bus` / `rift-cli` / `rift-core` / `rift-aegis` private path-dep) + `src-tauri/` shell + Svelte 5 frontend under `src/`. CI: fmt + clippy + build + test + svelte-check + §9 boundary check (ubuntu-latest). All v1 active deferrals closed except D-010 (Sentinel — post-v1 by design) and D-012 (StatusLine live-value plumbing — open).
 
 ---
 

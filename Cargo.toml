@@ -5,6 +5,7 @@ members = [
     "crates/rift-bus",
     "crates/rift-core",
     "crates/rift-cli",
+    "crates/rift-aegis",
 ]
 
 [workspace.package]

@@ -74,10 +74,22 @@
   // "X seconds ago" labels stay accurate without per-event work.
   let tickTimer: ReturnType<typeof setInterval> | undefined;
 
+  // Mount-race guard — Tree.svelte / App.svelte $effect pattern. If the
+  // component unmounts before `subscribe()` resolves, the in-flight handle
+  // would otherwise leak (`unsubscribe` is still undefined when onDestroy
+  // runs). On resolution we check `mounted` and clean up immediately if
+  // we lost the race.
+  let mounted = true;
+
   onMount(async () => {
     if (categoryFilter) {
       try {
-        unsubscribe = await subscribe({ category: categoryFilter }, handleEnvelope);
+        const u = await subscribe({ category: categoryFilter }, handleEnvelope);
+        if (!mounted) {
+          void u().catch(() => {});
+        } else {
+          unsubscribe = u;
+        }
       } catch (err) {
         console.error(`[NotificationPane:${title}] bus_subscribe failed`, err);
       }
@@ -88,6 +100,7 @@
   });
 
   onDestroy(() => {
+    mounted = false;
     if (tickTimer) clearInterval(tickTimer);
     unsubscribe?.().catch(() => {});
   });
@@ -186,7 +199,7 @@
       {:else if recentEvents.length === 0}
         <div class="empty">subscribed to <span class="cat">{categoryFilter}</span> — no events received yet</div>
       {:else}
-        {#each recentEvents as e (e.ts + e.kind)}
+        {#each recentEvents as e, i (e.ts + ':' + e.kind + ':' + i)}
           <div class="row">
             <span class="ts">{formatTs(e.ts)}</span>
             <span class="kind">{e.kind}</span>

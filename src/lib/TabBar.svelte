@@ -11,7 +11,17 @@
     title: string;
     icon: string;
     enabled: boolean;
-    badge?: { text: string; alert?: boolean };
+    // §10.7 capability gate — tab renders only when its integration has
+    // declared itself via at least one envelope on its category. Base set
+    // (errors / hooks / commands) initializes detected=true; integration
+    // tabs (aegis, index, …) initialize false and flip on first envelope.
+    detected: boolean;
+    // §10.9 badge counter — total envelopes received since this tab was
+    // last viewed/promoted. Reset to 0 when activated or promoted.
+    unreadCount: number;
+    // §10.9 live border — timestamp of most recent envelope. Combined with
+    // a 1s tick `tickNow` prop, a 3-second window drives the pulsing border.
+    lastActivityTs: number | null;
   };
 
   export type ActiveSurface =
@@ -24,6 +34,8 @@
     notifs: NotifTab[];
     active: ActiveSurface;
     promotedId: string | null;
+    /** Updated every ~1s by App.svelte; drives the live-border decay window. */
+    tickNow: number;
     onActivateSession: (id: number) => void;
     onActivateNotif: (id: string) => void;
     onCloseSession: (id: number) => void;
@@ -38,6 +50,7 @@
     notifs,
     active,
     promotedId,
+    tickNow,
     onActivateSession,
     onActivateNotif,
     onCloseSession,
@@ -46,6 +59,17 @@
     onPromote,
     onDemote,
   }: Props = $props();
+
+  // §10.9 — "Amber border animates around a tab when something is live/active
+  // inside it." A tab is "live" if any envelope arrived in the last 3 seconds.
+  const LIVE_WINDOW_MS = 3000;
+  function isLive(tab: NotifTab): boolean {
+    return tab.lastActivityTs !== null && (tickNow - tab.lastActivityTs) < LIVE_WINDOW_MS;
+  }
+  // Visible notifs are detected ones — capability-gate filter (§10.7).
+  // Disabled tabs still render (struck-through) so the user can re-enable
+  // them via right-click; only undetected tabs are completely hidden.
+  const visibleNotifs = $derived(notifs.filter((n) => n.detected));
 
   // Drop-target highlight state — true while a drag is hovering the strip.
   let dropActive = $state(false);
@@ -170,7 +194,7 @@
   </div>
 
   <div class="group right">
-    {#each notifs as tab (tab.id)}
+    {#each visibleNotifs as tab (tab.id)}
       <button
         type="button"
         class="tab notif"
@@ -179,6 +203,7 @@
         class:promoted={isPromoted(tab.id)}
         class:promoted-cyan={isPromoted(tab.id) && tab.id === 'hooks'}
         class:promoted-red={isPromoted(tab.id) && tab.id === 'errors'}
+        class:live={isLive(tab) && tab.enabled}
         aria-current={isActiveNotif(tab.id) ? 'page' : 'false'}
         draggable={tab.enabled}
         onclick={() => onNotifClick(tab)}
@@ -192,8 +217,10 @@
       >
         <span class="icon">{isPromoted(tab.id) ? '↗' : tab.icon}</span>
         <span>{tab.title}</span>
-        {#if tab.badge && tab.enabled}
-          <span class="badge" class:alert={tab.badge.alert}>{tab.badge.text}</span>
+        {#if tab.unreadCount > 0 && tab.enabled}
+          <span class="badge" aria-label="{tab.unreadCount} unread events">
+            {tab.unreadCount > 99 ? '99+' : tab.unreadCount}
+          </span>
         {/if}
       </button>
     {/each}
@@ -311,14 +338,35 @@
     margin-left: 2px;
     min-width: 16px;
     text-align: center;
+    letter-spacing: 0.04em;
   }
-  .badge.alert {
-    background: var(--term-red);
-    color: var(--term-white);
-    animation: pulse 2s ease-in-out infinite;
+
+  /* §10.9 — live-active animated amber border. The pulse runs on the bottom
+     border (sits under the existing 2px amber active-state border without
+     conflicting) plus a soft outer glow. Disabled / promoted tabs do not
+     pulse — the strip is for "look here" signaling, and a promoted tab is
+     already living in its side pane. */
+  .tab.notif.live::after {
+    content: '';
+    position: absolute;
+    inset: auto 0 0 0;
+    height: 2px;
+    background: var(--amber-bright);
+    box-shadow: 0 0 6px var(--amber-bright);
+    animation: notif-live-pulse 1.4s ease-in-out infinite;
+    pointer-events: none;
   }
-  @keyframes pulse {
-    0%, 100% { opacity: 1; }
-    50%      { opacity: 0.6; }
+  /* When the tab is also active, the existing ::before solid bar is the
+     primary signal; the live ::after still pulses underneath but shifts to
+     an outer glow halo so the two cues don't fight visually. */
+  .tab.notif.live.active::after {
+    inset: 0;
+    background: transparent;
+    border: 1px solid var(--amber-bright);
+    box-shadow: 0 0 10px rgba(245, 158, 11, 0.55);
+  }
+  @keyframes notif-live-pulse {
+    0%, 100% { opacity: 1;   box-shadow: 0 0 6px  var(--amber-bright); }
+    50%      { opacity: 0.55; box-shadow: 0 0 12px var(--amber-bright); }
   }
 </style>

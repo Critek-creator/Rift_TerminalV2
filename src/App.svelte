@@ -34,13 +34,33 @@
   let sessions = $state<SessionTab[]>([{ id: 0, title: 'rift' }]);
 
   // ----- notification tabs (default set per §10.7) -----
+  // Capability-gating (§10.7): base set (errors / hooks / commands) is
+  // always present; integration tabs (aegis, index, …) appear only after
+  // the integration declares itself via an envelope on its category.
+  // - `aegis` → flips on `aegis.detected` from rift-aegis startup probe (Phase 7.1).
+  // - `index` → CURRENTLY initialized detected=true because the Index translator
+  //   is wired (Phase 8.1) but doesn't emit a startup-ready envelope yet.
+  //   TODO(8.5): tighten to envelope-driven once vault-walker publishes — then
+  //   change this back to `detected: false` and let the master subscription flip it.
+  // unreadCount + lastActivityTs drive the §10.9 badge counter and live border.
   let notifs = $state<NotifTab[]>([
-    { id: 'errors',   title: 'errors',   icon: '⚡', enabled: true },
-    { id: 'hooks',    title: 'hooks',    icon: '⚓', enabled: true },
-    { id: 'commands', title: 'commands', icon: '⌘', enabled: true },
-    { id: 'aegis',    title: 'aegis',    icon: '◉', enabled: true },
-    { id: 'index',    title: 'index',    icon: '◈', enabled: true },
+    { id: 'errors',   title: 'errors',   icon: '⚡', enabled: true, detected: true,  unreadCount: 0, lastActivityTs: null },
+    { id: 'hooks',    title: 'hooks',    icon: '⚓', enabled: true, detected: true,  unreadCount: 0, lastActivityTs: null },
+    { id: 'commands', title: 'commands', icon: '⌘', enabled: true, detected: true,  unreadCount: 0, lastActivityTs: null },
+    { id: 'aegis',    title: 'aegis',    icon: '◉', enabled: true, detected: false, unreadCount: 0, lastActivityTs: null },
+    { id: 'index',    title: 'index',    icon: '◈', enabled: true, detected: true,  unreadCount: 0, lastActivityTs: null },
   ]);
+
+  // Reverse map for envelope routing — Category → notif tab id. Used by the
+  // master subscription below to attribute incoming envelopes to the right
+  // tab. The forward map (notif id → Category) is in CATEGORY_BY_NOTIF.
+  const NOTIF_BY_CATEGORY: Record<string, string> = {
+    hook: 'hooks',
+    system: 'errors',
+    pty: 'commands',
+    aegis: 'aegis',
+    index: 'index',
+  };
 
   // ----- which surface is in the main pane -----
   let active = $state<ActiveSurface>({ kind: 'session', id: 0 });
@@ -67,11 +87,15 @@
     // attach/detach a notif side-pane; the side pane's drag-back handle (or
     // another click on the same tab) is the path to demote.
     //
-    // The `active` state machine intentionally never becomes `notification`
-    // anymore — the kind:notification branch in the surface render below
-    // becomes unreachable but is kept for future "notif fullscreen" gestures
-    // if operational signal demands them.
-    promoted = (promoted === id) ? null : id;
+    // The `active` state machine never becomes `notification` — notif tabs
+    // promote to a side pane via `promoted`, never replace the main surface.
+    // If a future "notif fullscreen" gesture is needed, re-introduce a
+    // dedicated state-machine variant with explicit semantics; do NOT revive
+    // the previous unreachable branches that this commit removed.
+    const wasPromoted = promoted === id;
+    promoted = wasPromoted ? null : id;
+    // §10.9 ack — promoting a tab into the side pane counts as viewing it.
+    if (!wasPromoted) ackUnread(id);
   }
   function addSession() {
     const id = nextSessionId++;
@@ -89,28 +113,24 @@
   function toggleNotif(id: string) {
     notifs = notifs.map((n) => (n.id === id ? { ...n, enabled: !n.enabled } : n));
     const enabled = notifs.find((n) => n.id === id)?.enabled;
-    if (!enabled) {
-      // Disabled tabs shouldn't render anywhere — pull them from main and side.
-      if (active.kind === 'notification' && active.id === id) {
-        const fallback = sessions.at(0);
-        active = fallback ? { kind: 'session', id: fallback.id } : { kind: 'empty' };
-      }
-      if (promoted === id) {
-        promoted = null;
-      }
+    if (!enabled && promoted === id) {
+      promoted = null;
     }
+  }
+
+  // §10.9 — viewing or promoting a notif tab acknowledges its badge.
+  // Called from activateNotif (above) and promoteTab (below).
+  function ackUnread(id: string) {
+    notifs = notifs.map((n) => (n.id === id && n.unreadCount > 0 ? { ...n, unreadCount: 0 } : n));
   }
 
   // Phase 3.5a — promote a notif tab to the right-side pane.
   // Reassigning `promoted` enforces max-1 (a 2nd promote auto-replaces the 1st).
+  // `active` is never `notification` (notif tabs only ever live in `promoted`),
+  // so the prior fallback-recompute branch was unreachable and has been removed.
   function promoteTab(id: string) {
     promoted = id;
-    // The promoted tab now lives in the side pane, not the main area —
-    // if it was the active main surface, recompute active.
-    if (active.kind === 'notification' && active.id === id) {
-      const fallback = sessions.at(0);
-      active = fallback ? { kind: 'session', id: fallback.id } : { kind: 'empty' };
-    }
+    ackUnread(id); // §10.9 — promotion = view, clear the badge
   }
   function demoteTab() {
     promoted = null;
@@ -145,32 +165,103 @@
   // then kept current via `cockpit_detached` / `cockpit_reattached` events.
   let cockpitDetached = $state(false);
 
+  // §10.9 live-border tick — drives TabBar.svelte's `isLive` derived. The
+  // 1-second cadence is fast enough to feel responsive without burning CPU;
+  // the live window itself is 3s in TabBar.
+  let tickNow = $state(Date.now());
+
+  $effect(() => {
+    const t = setInterval(() => { tickNow = Date.now(); }, 1000);
+    return () => clearInterval(t);
+  });
+
+  // §10.7 capability-gate + §10.9 badge counter + live border —
+  // master envelope subscription lives at App level so it works regardless
+  // of which tab is currently mounted (panes only mount when active).
+  // Per-envelope effect: flip detected=true, bump unreadCount (unless tab
+  // is currently in view), update lastActivityTs.
+  // pr003 svelte5-async-cleanup-via-sync-shell-iife pattern + cancelled-flag
+  // mount-race guard match the SKILL subscription below.
+  $effect(() => {
+    let cancelled = false;
+    let unsub: (() => Promise<void>) | undefined;
+
+    void (async () => {
+      try {
+        const u = await subscribe({}, (env) => {
+          const id = NOTIF_BY_CATEGORY[env.category];
+          if (!id) return;
+          // Pty has many kinds in the long run; today only "command.submitted"
+          // is published, but kind-filter here makes the policy explicit so
+          // future Category::Pty kinds (e.g. resize, exit) don't accidentally
+          // count toward the Commands tab badge.
+          if (env.category === 'pty' && env.kind !== 'command.submitted') return;
+          const now = Date.now();
+          notifs = notifs.map((n) => {
+            if (n.id !== id) return n;
+            const inView = promoted === id;
+            return {
+              ...n,
+              detected: true,
+              lastActivityTs: now,
+              unreadCount: inView ? 0 : n.unreadCount + 1,
+            };
+          });
+        });
+        if (cancelled) {
+          void u().catch(() => {});
+        } else {
+          unsub = u;
+        }
+      } catch (err) {
+        console.warn('[App] master notif subscribe failed:', err);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      void (async () => {
+        await unsub?.();
+      })();
+    };
+  });
+
   // Phase 7.4 — live SKILL segment.
   // Subscribes at App level (not inside AegisTabContent) so the status-line
   // SKILL segment updates regardless of which tab is active.
   // pr003 svelte5-async-cleanup-via-sync-shell-iife: $effect cleanup is SYNC;
-  // async unsubscribe wrapped in IIFE.
+  // async unsubscribe wrapped in IIFE. Mount-race guarded via `cancelled`
+  // flag — if cleanup fires before subscribe resolves, the resolved
+  // unsubscribe is invoked immediately so the subscription doesn't leak.
   let aegisSkillName = $state('');
 
-  let _skillUnsub: (() => Promise<void>) | undefined;
-
   $effect(() => {
+    let cancelled = false;
+    let unsub: (() => Promise<void>) | undefined;
+
     void (async () => {
       try {
-        _skillUnsub = await subscribe({ category: 'aegis' }, (env) => {
+        const u = await subscribe({ category: 'aegis' }, (env) => {
           if (env.kind === 'aegis.session.skill_loaded') {
             const p = env.payload as { skill_name?: string; skill_version?: string | null };
             aegisSkillName = p.skill_name ?? '';
           }
         });
+        if (cancelled) {
+          // Cleanup already ran while subscribe was in flight — clean up now.
+          void u().catch(() => {});
+        } else {
+          unsub = u;
+        }
       } catch (err) {
         console.warn('[App] skill_loaded subscribe failed:', err);
       }
     })();
 
     return () => {
+      cancelled = true;
       void (async () => {
-        await _skillUnsub?.();
+        await unsub?.();
       })();
     };
   });
@@ -218,6 +309,7 @@
     {sessions}
     {notifs}
     {active}
+    {tickNow}
     promotedId={promoted}
     onActivateSession={activateSession}
     onActivateNotif={activateNotif}
