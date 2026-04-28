@@ -5,6 +5,7 @@
   import { Terminal as XTerm } from '@xterm/xterm';
   import { FitAddon } from '@xterm/addon-fit';
   import '@xterm/xterm/css/xterm.css';
+  import { deferredFit } from './terminal-fit-timing';
 
   type PtyExited = { id: number; code: number };
 
@@ -144,9 +145,8 @@
     // recalculation), then a single requestAnimationFrame guarantees the
     // browser has actually computed final layout dimensions before we measure.
     // This narrowly addresses pr003 lesson `terminal-fit-races-initial-flex-layout`.
-    await tick();
-    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
-    fit.fit();
+    // Timing sequence extracted to `terminal-fit-timing.ts` for unit-testability.
+    await deferredFit(fit.fit.bind(fit), tick);
 
     const onChunk = new Channel<number[]>();
     onChunk.onmessage = (chunk) => {
