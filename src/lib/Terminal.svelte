@@ -146,7 +146,11 @@
     // browser has actually computed final layout dimensions before we measure.
     // This narrowly addresses pr003 lesson `terminal-fit-races-initial-flex-layout`.
     // Timing sequence extracted to `terminal-fit-timing.ts` for unit-testability.
-    await deferredFit(fit.fit.bind(fit), tick);
+    await deferredFit(
+      fit.fit.bind(fit),
+      tick,
+      () => host.getBoundingClientRect(),
+    );
 
     const onChunk = new Channel<number[]>();
     onChunk.onmessage = (chunk) => {

@@ -27,7 +27,7 @@
   //   The $effect re-runs whenever `nodes` or `edges` reactive state changes.
 
   import { onMount } from 'svelte';
-  import { forceSimulation, forceLink, forceManyBody, forceCenter } from 'd3-force';
+  import { forceSimulation, forceLink, forceManyBody, forceX, forceY } from 'd3-force';
   import type { Simulation, SimulationNodeDatum, SimulationLinkDatum } from 'd3-force';
   import { select } from 'd3-selection';
   import { zoom, zoomIdentity } from 'd3-zoom';
@@ -280,11 +280,12 @@
     if (!container) return;
 
     // Snapshot the derived arrays (D3 mutates them in-place via x/y/vx/vy).
-    const nodes: VaultNode[] = activeNodes.map((n) => ({ ...n }));
-    const links: VaultLink[] = activeEdges.map((l) => ({ ...l }));
+    // Vault nodes only — the synthetic INDEX root is added below.
+    const vaultNodes: VaultNode[] = activeNodes.map((n) => ({ ...n }));
+    const vaultLinks: VaultLink[] = activeEdges.map((l) => ({ ...l }));
 
     // Nothing to render yet — still waiting for walk.complete or live data.
-    if (nodes.length === 0) return;
+    if (vaultNodes.length === 0) return;
 
     // ------------------------------------------------------------------
     // Dimensions
@@ -305,37 +306,89 @@
     const nodeGroup = g.append('g').attr('class', 'nodes');
 
     // ------------------------------------------------------------------
-    // Force simulation
+    // Radial layout (2026-04-28)
     //
-    // Parameters tuned for the live-data scale (~40 vault nodes from the
-    // Abyssal Index) — the original 8.3 values (charge=-300, link=90) were
-    // calibrated for the 10-node static fixture and produced an extreme
-    // spread when applied to 4× the node count (Phase 8.5 visual regression
-    // — graph nodes scattered well outside the viewport even at max zoom-out).
+    // Synthetic INDEX root pinned at viewport center; every vault is linked
+    // to INDEX with a long spoke (RADIUS) plus its real cross-ref edges.
+    // forceX/forceY pull each vault toward its kind's angular sector, so
+    // nodes group by category (projects at 12 o'clock, research at 3, etc.)
+    // rather than scattering across the canvas.
     //
-    // Charge strength scales inversely with node count: stronger repulsion
-    // on small graphs (preserves 8.3 layout when fixture fallback fires),
-    // weaker on large graphs (keeps live-data graph viewport-fit).
-    //   N ≤ 12  → -300  (matches static fixture aesthetic)
-    //   N ≤ 25  → -150
-    //   N ≥ 26  → -80   (live data scale)
-    // distanceMax caps repulsion radius so isolated nodes don't fly to infinity.
+    // The INDEX-spoke link gives every vault a single "tether" that keeps
+    // the whole graph viewport-bounded; the radial forceX/Y produces the
+    // kind-clustering the user requested ("logical system with INDEX node
+    // at center with lines connecting outward to each vault in proper order").
     // ------------------------------------------------------------------
-    const chargeStrength = nodes.length <= 12 ? -300 : nodes.length <= 25 ? -150 : -80;
-    const linkDistance   = nodes.length <= 12 ? 90  : nodes.length <= 25 ? 60  : 45;
+    const RADIUS = Math.min(W, H) * 0.36;
+    const INDEX_ID = '__INDEX__';
+
+    /** Angular sector per vault kind (radians; 0 = 3 o'clock, π/2 = 6 o'clock). */
+    const KIND_ANGLE: Record<VaultKind, number> = {
+      p:    -Math.PI / 2,           // 12 o'clock  — projects
+      pr:   -Math.PI / 4,           // 1:30        — practices
+      r:     0,                      // 3 o'clock   — research
+      s:     Math.PI / 4,            // 4:30        — skills
+      lore:  Math.PI / 2,            // 6 o'clock   — lore
+      agt:   3 * Math.PI / 4,        // 7:30        — agents
+      h:     Math.PI,                // 9 o'clock   — history
+    };
+
+    // Synthetic INDEX node, pinned at viewport center.
+    const indexNode: VaultNode = {
+      id: INDEX_ID,
+      kind: 'p',                      // sentinel — special-cased in render below
+      label: 'INDEX',
+      fx: W / 2,
+      fy: H / 2,
+    };
+
+    // Spoke links from INDEX → every vault.
+    const indexLinks: VaultLink[] = vaultNodes.map((n) => ({ source: INDEX_ID, target: n.id }));
+
+    const nodes: VaultNode[] = [indexNode, ...vaultNodes];
+    const links: VaultLink[] = [...indexLinks, ...vaultLinks];
+
+    // Charge scales with node count — weaker on large graphs to keep the
+    // radial constraint dominant.
+    const chargeStrength = vaultNodes.length <= 12 ? -240 : vaultNodes.length <= 25 ? -140 : -70;
 
     simulation = forceSimulation<VaultNode, VaultLink>(nodes)
       .force(
         'link',
         forceLink<VaultNode, VaultLink>(links)
           .id((d) => d.id)
-          .distance(linkDistance),
+          .distance((d) => {
+            // INDEX-spoke links are RADIUS long; cross-vault links are short.
+            const srcId = typeof d.source === 'string' ? d.source : (d.source as VaultNode).id;
+            return srcId === INDEX_ID ? RADIUS : 38;
+          })
+          .strength((d) => {
+            // INDEX-spoke links are strong (anchors the radial layout);
+            // cross-vault links are gentle (don't fight the radial sector).
+            const srcId = typeof d.source === 'string' ? d.source : (d.source as VaultNode).id;
+            return srcId === INDEX_ID ? 0.9 : 0.2;
+          }),
       )
       .force(
         'charge',
-        forceManyBody<VaultNode>().strength(chargeStrength).distanceMax(220),
+        forceManyBody<VaultNode>().strength(chargeStrength).distanceMax(180),
       )
-      .force('center', forceCenter<VaultNode>(W / 2, H / 2))
+      .force(
+        'x',
+        forceX<VaultNode>().x((d) => {
+          if (d.id === INDEX_ID) return W / 2;
+          const angle = KIND_ANGLE[d.kind] ?? 0;
+          return W / 2 + Math.cos(angle) * RADIUS;
+        }).strength(0.18),
+      )
+      .force(
+        'y',
+        forceY<VaultNode>().y((d) => {
+          if (d.id === INDEX_ID) return H / 2;
+          const angle = KIND_ANGLE[d.kind] ?? 0;
+          return H / 2 + Math.sin(angle) * RADIUS;
+        }).strength(0.18),
+      )
       .on('tick', tick);
 
     // ------------------------------------------------------------------
@@ -345,7 +398,11 @@
       .selectAll<SVGLineElement, VaultLink>('line')
       .data(links)
       .join('line')
-      .attr('class', 'graph-edge');
+      .attr('class', (d) => {
+        // INDEX-spoke edges get a separate class for fainter styling.
+        const srcId = typeof d.source === 'string' ? d.source : (d.source as VaultNode).id;
+        return srcId === INDEX_ID ? 'graph-edge index-spoke' : 'graph-edge';
+      });
 
     // ------------------------------------------------------------------
     // D3 data joins — nodes
@@ -355,24 +412,33 @@
       return `node-${kind}`;
     }
 
+    function nodeClass(d: VaultNode): string {
+      if (d.id === INDEX_ID) return 'graph-node index-root';
+      return `graph-node ${kindClass(d.kind)}`;
+    }
+
     const nodeSel = nodeGroup
       .selectAll<SVGGElement, VaultNode>('g.graph-node')
       .data(nodes, (d) => d.id)
       .join('g')
-      .attr('class', (d) => `graph-node ${kindClass(d.kind)}`)
-      .attr('cursor', 'grab');
+      .attr('class', nodeClass)
+      .attr('cursor', (d) => (d.id === INDEX_ID ? 'default' : 'grab'));
 
     nodeSel
       .append('circle')
-      .attr('r', 8)
-      .attr('class', (d) => `node-circle ${kindClass(d.kind)}`);
+      .attr('r', (d) => (d.id === INDEX_ID ? 16 : 8))
+      .attr('class', (d) =>
+        d.id === INDEX_ID ? 'node-circle index-root' : `node-circle ${kindClass(d.kind)}`,
+      );
 
     nodeSel
       .append('text')
-      .attr('class', 'node-label')
-      .attr('dy', 20)
+      .attr('class', (d) =>
+        d.id === INDEX_ID ? 'node-label index-root' : 'node-label',
+      )
+      .attr('dy', (d) => (d.id === INDEX_ID ? 32 : 20))
       .attr('text-anchor', 'middle')
-      .text((d) => d.id);
+      .text((d) => (d.id === INDEX_ID ? 'INDEX' : d.id));
 
     nodeSel
       .on('mouseenter', function () {
@@ -400,6 +466,8 @@
     // Drag behavior
     // ------------------------------------------------------------------
     const dragBehavior: DragBehavior<SVGGElement, VaultNode, VaultNode | SubjectPosition> = drag<SVGGElement, VaultNode>()
+      // INDEX root is pinned — don't allow dragging it (would unpin the anchor).
+      .filter((_event, d) => d.id !== INDEX_ID)
       .on('start', function (this: SVGGElement, event: D3DragEvent<SVGGElement, VaultNode, VaultNode>, d: VaultNode) {
         if (!event.active) simulation.alpha(0.3).restart();
         d.fx = d.x;
@@ -580,6 +648,21 @@
   :global(.node-circle.node-agt)  { stroke: var(--term-purple); }
   :global(.node-circle.node-h)    { stroke: var(--term-cyan); }
 
+  /* INDEX root — solid amber-bright fill, larger radius set inline (r=16). */
+  :global(.node-circle.index-root) {
+    fill: var(--amber-bright);
+    stroke: var(--amber-bright);
+    stroke-width: 2;
+    filter: url(#amber-glow);
+  }
+
+  /* INDEX-spoke edges — fainter than cross-vault links so the radial
+     scaffolding doesn't dominate over genuine cross-references. */
+  :global(.graph-edge.index-spoke) {
+    stroke: var(--amber-faint);
+    opacity: 0.22;
+  }
+
   /* Hover state */
   :global(.graph-node.hovered .node-circle) {
     filter: url(#amber-glow);
@@ -602,6 +685,14 @@
   :global(.graph-node.hovered .node-label) {
     fill: var(--amber-bright);
     font-weight: 700;
+  }
+
+  /* INDEX root label — bigger, bolder, always full amber. */
+  :global(.node-label.index-root) {
+    fill: var(--amber-bright);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.15em;
   }
 
   /* -------------------------------------------------------------------------
