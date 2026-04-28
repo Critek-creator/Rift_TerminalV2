@@ -979,9 +979,20 @@ pub fn run() {
                             // onMount + deferredFit + pty_start round-trip time to
                             // win the layout race before envelope churn begins.
                             let bus_for_walker = bus.clone();
+                            // Capture project_root BEFORE the async move block;
+                            // mirrors the status_root capture pattern below (~line 1004).
+                            // ProjectRoot::get() returns PathBuf (not Option); wrap in Some
+                            // to satisfy spawn_vault_walker's Option<PathBuf> parameter.
+                            let project_root_for_walker =
+                                Some(app.state::<ProjectRoot>().inner().get());
                             tauri::async_runtime::spawn(async move {
                                 tokio::time::sleep(std::time::Duration::from_millis(250)).await;
-                                spawn_vault_walker(bus_for_walker, vault_root).await;
+                                spawn_vault_walker(
+                                    bus_for_walker,
+                                    vault_root,
+                                    project_root_for_walker,
+                                )
+                                .await;
                             });
                         } else {
                             tracing::warn!(
