@@ -1024,7 +1024,13 @@ pub fn run() {
             // { dir, git, repo, ts } derived from the current project root.
             // CTX / SESSION / WEEK / MODEL remain em-dash placeholders until the
             // Claude Code usage hook lands (still upstream-blocked, see DEFERRED.md D-012).
-            spawn_status_translator(status_bus, status_root);
+            // spawn_status_translator is async — Tauri 2 owns the runtime; wrap
+            // in tauri::async_runtime::spawn (matches vault_walker pattern). A
+            // bare tokio::spawn inside the translator would panic with
+            // "no reactor running" since rift-bus runs on the Tauri main thread.
+            tauri::async_runtime::spawn(async move {
+                spawn_status_translator(status_bus, status_root).await;
+            });
 
             Ok(())
         })

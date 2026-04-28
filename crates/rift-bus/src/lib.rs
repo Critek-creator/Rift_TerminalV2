@@ -107,11 +107,18 @@ pub use translators::index::VaultChangeKind;
 // Status translator re-exports (D-012 unblocked slice — DIR/GIT/REPO)
 // ---------------------------------------------------------------------------
 
-/// Spawn the status translator loop that publishes `Category::Status / kind="usage"`
+/// Run the status translator loop that publishes `Category::Status / kind="usage"`
 /// envelopes every 5 seconds with `{ dir, git, repo, ts }`.
 ///
-/// Convenience re-export so callers can write `rift_bus::spawn_status_translator(...)`.
-/// Full path: `rift_bus::translators::status::spawn_status_translator(...)`.
+/// This is an `async fn` — callers must wrap it in `tauri::async_runtime::spawn`
+/// (or equivalent) per the Phase 7.1 setup() pattern (mirrors `spawn_vault_walker`):
+/// ```ignore
+/// tauri::async_runtime::spawn(async move {
+///     rift_bus::spawn_status_translator(bus, project_root).await;
+/// });
+/// ```
+///
+/// Convenience re-export; full path: `rift_bus::translators::status::spawn_status_translator(...)`.
 pub use translators::status::spawn_status_translator;
 
 // ---------------------------------------------------------------------------

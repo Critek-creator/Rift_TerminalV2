@@ -42,7 +42,6 @@
 use std::path::{Path, PathBuf};
 
 use serde_json::json;
-use tokio::task::JoinHandle;
 use tokio::time::{interval, Duration};
 
 use crate::{Category, Envelope, RiftBus};
@@ -51,28 +50,31 @@ use crate::{Category, Envelope, RiftBus};
 // Public spawn entry point
 // ---------------------------------------------------------------------------
 
-/// Spawn the status translator loop.
+/// Run the status translator loop.
 ///
 /// Publishes a `Category::Status / kind="usage"` envelope to `bus` every 5
 /// seconds. The envelope payload carries `{ dir, git, repo, ts }` computed
 /// from `project_root` — see the module-level docs for the exact semantics.
 ///
-/// The returned [`JoinHandle`] runs until the Tauri process exits. Callers do
-/// not need to await or cancel it; it is fire-and-supervise.
+/// This is an `async fn` — callers MUST wrap it in `tauri::async_runtime::spawn`
+/// (or equivalent) per the Phase 7.1 setup() pattern. Tauri 2 owns its async
+/// runtime; calling `tokio::spawn` from inside this crate would panic
+/// (`there is no reactor running`) since rift-bus runs inside the Tauri main
+/// thread, which does not have a freestanding tokio reactor active.
+///
+/// The loop runs until the Tauri process exits or the spawned task is aborted.
 ///
 /// # §9 boundary
 ///
 /// All git subprocess invocations and home-dir lookups are confined to this
 /// function and its private helpers. No external-system calls escape to
 /// rift-bus core.
-pub fn spawn_status_translator(bus: RiftBus, project_root: PathBuf) -> JoinHandle<()> {
-    tokio::spawn(async move {
-        let mut tick = interval(Duration::from_secs(5));
-        loop {
-            tick.tick().await;
-            publish_status_snapshot(&bus, &project_root);
-        }
-    })
+pub async fn spawn_status_translator(bus: RiftBus, project_root: PathBuf) {
+    let mut tick = interval(Duration::from_secs(5));
+    loop {
+        tick.tick().await;
+        publish_status_snapshot(&bus, &project_root);
+    }
 }
 
 // ---------------------------------------------------------------------------
