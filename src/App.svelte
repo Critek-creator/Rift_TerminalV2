@@ -18,6 +18,7 @@
   import Tree from './lib/Tree.svelte';
   import IndexGraph from './lib/IndexGraph.svelte';
   import { subscribe, type Category } from './lib/bus';
+  import { enrichmentStore } from './lib/enrichmentStore.svelte';
 
   // Tab id → bus category. `undefined` = no integration registered yet,
   // so the pane stays in placeholder mode until a translator lights it up.
@@ -295,6 +296,55 @@
         }
       } catch (err) {
         console.warn('[App] skill_loaded subscribe failed:', err);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      void (async () => {
+        await unsub?.();
+      })();
+    };
+  });
+
+  // Phase 8.6.1 — Category::Index enrichment subscription.
+  // Populates enrichmentStore so Tree.svelte (8.6.2) can join enrichment data
+  // onto fs_path nodes. Same svelte5-async-cleanup-via-sync-shell-iife +
+  // cancelled-flag pattern as the status and skill_loaded subscriptions above.
+  $effect(() => {
+    let cancelled = false;
+    let unsub: (() => Promise<void>) | undefined;
+
+    void (async () => {
+      try {
+        const u = await subscribe({ category: 'index' }, (env) => {
+          if (env.kind === 'enrichment') {
+            const p = env.payload as {
+              fs_path: string;
+              vault_id: string;
+              vault_kind: string;
+              tags: string[];
+            };
+            enrichmentStore.ingest(p);
+          } else if (env.kind === 'vault.update') {
+            const p = env.payload as { change_kind: string; vault_id: string };
+            if (p.change_kind === 'deleted') {
+              enrichmentStore.removeByVaultId(p.vault_id);
+            }
+            // Other change_kinds (e.g. "updated") are no-ops in 8.6.1;
+            // consumed by other surfaces in later phases.
+          } else if (env.kind === 'walk.complete') {
+            enrichmentStore.loaded = true;
+          }
+          // All other Category::Index kinds fall through — no-op.
+        });
+        if (cancelled) {
+          void u().catch(() => {});
+        } else {
+          unsub = u;
+        }
+      } catch (err) {
+        console.warn('[App] index enrichment subscribe failed:', err);
       }
     })();
 
