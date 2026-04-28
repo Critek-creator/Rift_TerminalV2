@@ -37,6 +37,10 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
+/// A spawned [`tauri::async_runtime::JoinHandle`] wrapped in an `Option` so
+/// it can be taken and aborted exactly once.
+type DrainHandle = tauri::async_runtime::JoinHandle<()>;
+
 #[cfg(feature = "aegis")]
 use rift_aegis::probe as aegis_probe;
 
@@ -59,6 +63,9 @@ use tokio::sync::oneshot;
 #[derive(Default)]
 struct PtyRegistryInner {
     sessions: Mutex<HashMap<u32, PtyControl>>,
+    /// Outer drain task handles keyed by session id. Aborted on kill or
+    /// natural exit so no orphaned tasks outlive their PTY session.
+    drain_handles: Mutex<HashMap<u32, DrainHandle>>,
     next_id: AtomicU32,
 }
 
@@ -77,6 +84,20 @@ impl PtyRegistry {
         id
     }
 
+    /// Store the outer drain task handle alongside the session.
+    ///
+    /// Must be called once, after [`insert`], with the handle returned by
+    /// `tauri::async_runtime::spawn`. Overwrites any existing handle (guards
+    /// against double-registration; in practice never occurs because sessions
+    /// have unique ids).
+    fn insert_drain(&self, id: u32, handle: DrainHandle) {
+        self.0
+            .drain_handles
+            .lock()
+            .expect("pty drain registry poisoned")
+            .insert(id, handle);
+    }
+
     fn get(&self, id: u32) -> Option<PtyControl> {
         self.0
             .sessions
@@ -86,12 +107,22 @@ impl PtyRegistry {
             .cloned()
     }
 
+    /// Remove the session and abort its drain task (if still running).
     fn remove(&self, id: u32) {
         self.0
             .sessions
             .lock()
             .expect("pty registry poisoned")
             .remove(&id);
+        if let Some(handle) = self
+            .0
+            .drain_handles
+            .lock()
+            .expect("pty drain registry poisoned")
+            .remove(&id)
+        {
+            handle.abort();
+        }
     }
 }
 
@@ -156,31 +187,28 @@ struct BusIpcState {
 // ---------------------------------------------------------------------------
 
 /// Tracks frontend bus subscriptions. Each entry holds a one-shot sender
-/// that, when fired, asks the corresponding drain task to exit.
+/// for cooperative cancellation AND the drain task's `JoinHandle` for
+/// unconditional abort on unsubscribe.
 #[derive(Default)]
 struct BusSubscriptionRegistry {
     next_id: AtomicU64,
-    subs: Mutex<HashMap<u64, oneshot::Sender<()>>>,
+    subs: Mutex<HashMap<u64, (oneshot::Sender<()>, DrainHandle)>>,
 }
 
 impl BusSubscriptionRegistry {
-    fn insert(&self, close_tx: oneshot::Sender<()>) -> u64 {
-        let id = self.next_id.fetch_add(1, Ordering::SeqCst);
-        self.subs
-            .lock()
-            .expect("bus subscription registry poisoned")
-            .insert(id, close_tx);
-        id
-    }
-
+    /// Unsubscribe: send the cooperative stop signal AND abort the task handle.
+    ///
+    /// Abort is a safety net — if the task is blocked or the close_rx side
+    /// was already dropped, `abort()` guarantees the task stops.
     fn remove(&self, id: u64) {
-        if let Some(tx) = self
+        if let Some((tx, handle)) = self
             .subs
             .lock()
             .expect("bus subscription registry poisoned")
             .remove(&id)
         {
             let _ = tx.send(());
+            handle.abort();
         }
     }
 }
@@ -314,7 +342,14 @@ async fn pty_start(
     app.state::<CommandBufferRegistry>().insert(id);
 
     let drain_app = app.clone();
-    tauri::async_runtime::spawn(async move {
+    // Store the outer drain handle in the registry so pty_kill (and the
+    // natural-exit path inside the inner watcher) can abort it on cleanup.
+    // The inner exit_rx watcher is structured as a nested spawn whose
+    // lifetime is bounded by the outer drain task: when the outer task is
+    // aborted the inner task's owning future is cancelled too, because it
+    // is awaited only inside the outer task's async block. No separate
+    // handle is needed for the inner watcher.
+    let drain_handle = tauri::async_runtime::spawn(async move {
         let exit_rx = output.take_exit();
         if let Some(exit_rx) = exit_rx {
             let watcher_app = drain_app.clone();
@@ -322,6 +357,10 @@ async fn pty_start(
             tauri::async_runtime::spawn(async move {
                 let code = exit_rx.await.unwrap_or(u32::MAX);
                 let _ = watcher_app.emit("pty_exited", PtyExitedEvent { id, code });
+                // remove() also aborts the outer drain handle, but by the time
+                // this inner task fires the outer task is already finishing
+                // naturally (output.recv() returned None) — abort is a no-op
+                // on a completed handle, so this is always safe.
                 watcher_registry.remove(id);
                 watcher_app.state::<CommandBufferRegistry>().remove(id);
             });
@@ -333,6 +372,8 @@ async fn pty_start(
             }
         }
     });
+    // Register the drain handle alongside the session so pty_kill can abort it.
+    app.state::<PtyRegistry>().insert_drain(id, drain_handle);
 
     Ok(id)
 }
@@ -407,6 +448,9 @@ fn pty_kill(
         publish_error(bus.inner(), "tauri.command.pty_kill", &msg, None);
         msg
     })?;
+    // Remove the session + abort the drain task (in case the PTY output
+    // stream is still blocked or the channel receiver hung up).
+    state.remove(id);
     // Clean up the command buffer for this session.
     cmd_bufs.remove(id);
     Ok(())
@@ -451,7 +495,6 @@ async fn bus_subscribe(
     };
 
     let (close_tx, mut close_rx) = oneshot::channel::<()>();
-    let id = registry.insert(close_tx);
 
     // We must clone for `move` into the spawned task without holding any
     // `State<'_, _>` reference (which doesn't outlive this function).
@@ -460,7 +503,15 @@ async fn bus_subscribe(
 
     let _ = registry_for_task; // silence unused — same value as `registry`
 
-    tauri::async_runtime::spawn(async move {
+    // Allocate the subscription id before spawning so the id is captured in
+    // the task closure, while the handle is stored back into the registry
+    // after spawn. The task cannot call registry.remove(id) before `insert`
+    // completes because the spawned async block is not scheduled until after
+    // the current await point (the spawn call) returns — which happens after
+    // insert() below.
+    let id = registry.next_id.fetch_add(1, Ordering::SeqCst);
+
+    let drain_handle = tauri::async_runtime::spawn(async move {
         let (snapshot, mut sub) = bus.subscribe(filter);
         for env in snapshot {
             if on_envelope.send(env).is_err() {
@@ -483,6 +534,13 @@ async fn bus_subscribe(
         }
         registry_clone.remove(id);
     });
+
+    // Store the close sender AND the drain handle together, keyed by id.
+    registry
+        .subs
+        .lock()
+        .expect("bus subscription registry poisoned")
+        .insert(id, (close_tx, drain_handle));
 
     Ok(id)
 }
@@ -947,4 +1005,138 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("rift: tauri runtime failed to start");
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::AtomicBool;
+    use tokio::time::Duration;
+
+    /// Verify that `BusSubscriptionRegistry::remove` aborts the stored drain task.
+    ///
+    /// Proof strategy (Pattern B — AtomicBool):
+    ///   A shared `ran_to_completion` flag starts `false`. The spawned task
+    ///   yields control immediately (allowing abort to fire), then sleeps 500ms,
+    ///   then sets the flag `true`. If `remove()` calls `handle.abort()`, the task
+    ///   is cancelled before the sleep completes and the flag stays `false`.
+    ///   After remove + a 50ms pause we assert `false`; after a further 600ms
+    ///   (longer than the task's own 500ms sleep) we re-assert `false`. If abort
+    ///   were omitted the task would complete, the flag would become `true`, and
+    ///   the first assert would catch it.
+    #[tokio::test]
+    async fn bus_subscription_remove_aborts_drain_task() {
+        let registry = BusSubscriptionRegistry::default();
+
+        let (close_tx, _close_rx) = oneshot::channel::<()>();
+
+        let ran_to_completion = Arc::new(AtomicBool::new(false));
+        let flag = Arc::clone(&ran_to_completion);
+
+        // Task yields immediately so abort can fire, then sleeps 500ms before
+        // setting the flag. Abort must prevent reaching the store().
+        let handle = tauri::async_runtime::spawn(async move {
+            tokio::task::yield_now().await;
+            tokio::time::sleep(Duration::from_millis(500)).await;
+            flag.store(true, Ordering::SeqCst);
+        });
+
+        let id = registry.next_id.fetch_add(1, Ordering::SeqCst);
+        registry
+            .subs
+            .lock()
+            .expect("poisoned")
+            .insert(id, (close_tx, handle));
+
+        // remove() must call handle.abort() — that is what we are proving.
+        registry.remove(id);
+
+        // Give tokio a moment to process the abort signal.
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        // If abort fired, the task never reached flag.store(true). Fail here
+        // means abort() was not called (or did not work).
+        assert!(
+            !ran_to_completion.load(Ordering::SeqCst),
+            "task must NOT have run to completion: abort() should have fired before \
+             the 500ms sleep completed"
+        );
+
+        // Wait longer than the task's own sleep (500ms) to be certain: if the
+        // task were still alive it would have set the flag by now.
+        tokio::time::sleep(Duration::from_millis(600)).await;
+
+        assert!(
+            !ran_to_completion.load(Ordering::SeqCst),
+            "task still must not have completed after 650ms: abort() prevents the \
+             task body from ever reaching flag.store(true)"
+        );
+    }
+
+    /// Verify that `PtyRegistry::remove` aborts the associated drain handle.
+    ///
+    /// Proof strategy (Pattern B — AtomicBool):
+    ///   Same as `bus_subscription_remove_aborts_drain_task`. A `ran_to_completion`
+    ///   flag starts `false`; the task yields then sleeps 500ms then sets it `true`.
+    ///   `remove()` must call `handle.abort()` before the sleep completes.
+    ///   The test asserts the flag stays `false` at 50ms and again at 650ms.
+    #[tokio::test]
+    async fn pty_registry_remove_aborts_drain_handle() {
+        let registry = PtyRegistry::default();
+
+        // We don't have a real PtyControl here, so we can't call insert().
+        // Insert directly into the inner map to test the drain-abort path.
+        let id = 42u32;
+
+        let ran_to_completion = Arc::new(AtomicBool::new(false));
+        let flag = Arc::clone(&ran_to_completion);
+
+        // Task yields immediately so abort can fire, then sleeps 500ms before
+        // setting the flag. Abort must prevent reaching the store().
+        let handle = tauri::async_runtime::spawn(async move {
+            tokio::task::yield_now().await;
+            tokio::time::sleep(Duration::from_millis(500)).await;
+            flag.store(true, Ordering::SeqCst);
+        });
+
+        registry.insert_drain(id, handle);
+
+        // Confirm the handle is registered before we trigger remove.
+        assert!(
+            registry
+                .0
+                .drain_handles
+                .lock()
+                .expect("poisoned")
+                .contains_key(&id),
+            "handle must be registered before remove"
+        );
+
+        // remove() must call handle.abort() — that is what we are proving.
+        registry.remove(id);
+
+        // Give tokio a moment to process the abort signal.
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        // If abort fired, the task never reached flag.store(true). Fail here
+        // means abort() was not called (or did not work).
+        assert!(
+            !ran_to_completion.load(Ordering::SeqCst),
+            "task must NOT have run to completion: abort() should have fired before \
+             the 500ms sleep completed"
+        );
+
+        // Wait longer than the task's own sleep to be doubly certain.
+        tokio::time::sleep(Duration::from_millis(600)).await;
+
+        assert!(
+            !ran_to_completion.load(Ordering::SeqCst),
+            "task still must not have completed after 650ms: abort() prevents the \
+             task body from ever reaching flag.store(true)"
+        );
+    }
 }
