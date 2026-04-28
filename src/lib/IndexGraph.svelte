@@ -306,15 +306,35 @@
 
     // ------------------------------------------------------------------
     // Force simulation
+    //
+    // Parameters tuned for the live-data scale (~40 vault nodes from the
+    // Abyssal Index) — the original 8.3 values (charge=-300, link=90) were
+    // calibrated for the 10-node static fixture and produced an extreme
+    // spread when applied to 4× the node count (Phase 8.5 visual regression
+    // — graph nodes scattered well outside the viewport even at max zoom-out).
+    //
+    // Charge strength scales inversely with node count: stronger repulsion
+    // on small graphs (preserves 8.3 layout when fixture fallback fires),
+    // weaker on large graphs (keeps live-data graph viewport-fit).
+    //   N ≤ 12  → -300  (matches static fixture aesthetic)
+    //   N ≤ 25  → -150
+    //   N ≥ 26  → -80   (live data scale)
+    // distanceMax caps repulsion radius so isolated nodes don't fly to infinity.
     // ------------------------------------------------------------------
+    const chargeStrength = nodes.length <= 12 ? -300 : nodes.length <= 25 ? -150 : -80;
+    const linkDistance   = nodes.length <= 12 ? 90  : nodes.length <= 25 ? 60  : 45;
+
     simulation = forceSimulation<VaultNode, VaultLink>(nodes)
       .force(
         'link',
         forceLink<VaultNode, VaultLink>(links)
           .id((d) => d.id)
-          .distance(90),
+          .distance(linkDistance),
       )
-      .force('charge', forceManyBody<VaultNode>().strength(-300))
+      .force(
+        'charge',
+        forceManyBody<VaultNode>().strength(chargeStrength).distanceMax(220),
+      )
       .force('center', forceCenter<VaultNode>(W / 2, H / 2))
       .on('tick', tick);
 

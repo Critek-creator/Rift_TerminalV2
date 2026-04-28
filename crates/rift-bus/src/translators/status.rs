@@ -87,9 +87,16 @@ pub async fn spawn_status_translator(bus: RiftBus, project_root: PathBuf) {
 /// the published shape without a real timer.
 pub(crate) fn publish_status_snapshot(bus: &RiftBus, project_root: &Path) {
     let ts = now_unix_ms();
-    let dir = compute_dir(project_root);
-    let git = compute_git(project_root);
-    let repo = compute_repo(project_root);
+    // Resolve the repo root via `git rev-parse --show-toplevel` so DIR/REPO
+    // reflect the actual repository even when the binary's CWD is a
+    // subdirectory (e.g., `tauri dev` runs rift.exe with CWD=src-tauri/).
+    // Falls back to `project_root` when not in a git tree.
+    let canonical_root = resolve_repo_root(project_root);
+    let root_ref: &Path = canonical_root.as_deref().unwrap_or(project_root);
+
+    let dir = compute_dir(root_ref);
+    let git = compute_git(project_root); // git_cmd already takes any path inside the repo
+    let repo = compute_repo(root_ref);
 
     let mut env = Envelope::new(Category::Status, "usage");
     env.payload = json!({
@@ -190,6 +197,25 @@ fn compute_git(project_root: &Path) -> String {
     } else {
         branch_name
     }
+}
+
+/// Resolve the canonical git repository root via `git rev-parse --show-toplevel`.
+///
+/// Returns `Some(PathBuf)` when `project_root` lies inside a git tree, even
+/// when it is several directories deep (e.g., the binary's CWD is the
+/// `src-tauri/` workspace child but the repo root is one level up). Returns
+/// `None` outside a git tree — callers should fall back to `project_root`.
+///
+/// # §9 boundary
+///
+/// All `std::process::Command` invocations to `git` are confined to this
+/// translator. `git_cmd` does the actual subprocess work.
+fn resolve_repo_root(project_root: &Path) -> Option<PathBuf> {
+    let toplevel = git_cmd(project_root, &["rev-parse", "--show-toplevel"]).ok()?;
+    if toplevel.is_empty() {
+        return None;
+    }
+    Some(PathBuf::from(toplevel))
 }
 
 /// Run `git -C <root> <args...>` and return trimmed stdout on exit 0.
