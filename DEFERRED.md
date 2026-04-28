@@ -32,6 +32,16 @@
 - Scope split: DIR / GIT / REPO are unblocked and could ship as a separate tranche before the upstream hooks land. CTX / SESSION / WEEK / MODEL stay blocked on Claude Code surface evolution.
 - Next concrete action: write a tiny `crates/rift-bus/src/translators/status.rs` that publishes a `Category::Status` envelope with `dir + git + repo` fields every 5s, and wire StatusLine.svelte to subscribe. Defer CTX/SESSION/WEEK/MODEL until upstream hook lands.
 
+### D-013 — Updater plugin Rust integration (active 2026-04-27, opened by C4 release.yml ship)
+- `tauri.conf.json` `plugins.updater` block shipped with `active: false` + placeholder pubkey + GitHub Releases endpoint (`https://github.com/Critek-creator/Rift_TerminalV2/releases/latest/download/latest.json`). Updater is wired into config but not enabled until pubkey is real and the Rust-side plugin integration ships.
+- **Unblocking events** (all four required before flipping `active: true`):
+  1. User runs `tauri signer generate -w ~/.tauri/rift.key` → public key string replaces `PLACEHOLDER_PUBKEY_RUN_TAURI_SIGNER_GENERATE` in `tauri.conf.json`; private key stored as `TAURI_SIGNING_PRIVATE_KEY` GitHub Secret.
+  2. Add `tauri-plugin-updater = "2"` to `src-tauri/Cargo.toml` under `[dependencies]`.
+  3. Wire plugin in `src-tauri/src/lib.rs` setup: `.plugin(tauri_plugin_updater::Builder::new().build())`.
+  4. Add `@tauri-apps/plugin-updater` to `package.json` and wire frontend integration to check/apply updates on session start.
+- Flip `plugins.updater.active` from `false` to `true` once all four steps complete.
+- See `RELEASING.md` §1 for the one-time keypair setup procedure.
+
 ### D-010 — Sentinel implementation (active 2026-04-27, opened by Phase 7.0 architecture lock)
 - Spec §10.11 names Sentinel as the source-of-truth for agent misbehavior detection (stuck / runaway / unauthorized edits); Rift is the display layer.
 - Sentinel does NOT yet exist in the workspace — no crate, no source file, no Aegis-side spec defining the event surface. Greenfield post-v1 work.

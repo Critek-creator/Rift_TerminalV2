@@ -8,7 +8,12 @@ on:
 
 jobs:
   ci:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
 
     steps:
       - name: Checkout
@@ -28,6 +33,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Install Tauri system dependencies (Linux)
+        if: matrix.os == 'ubuntu-latest'
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -67,5 +73,13 @@ jobs:
       - name: svelte-check
         run: npm run check
 
+      - name: vitest (frontend unit tests)
+        run: npm test
+
+      # NOTICED (audit H12): this step uses `bash` explicitly. On windows-latest,
+      # GitHub-hosted runners ship Git for Windows which puts bash in PATH — this
+      # works today. If the runner image ever changes, this step will be the first
+      # to break. A dedicated Windows-native rewrite of the boundary check is a
+      # separate audit item (H12) out of scope for B3.
       - name: Translator boundary check (§9)
         run: bash tools/check-translator-boundary.sh

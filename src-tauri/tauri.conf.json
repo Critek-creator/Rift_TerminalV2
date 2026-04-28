@@ -36,6 +36,26 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "windows": {
+      "certificateThumbprint": null,
+      "digestAlgorithm": "sha256",
+      "timestampUrl": "http://timestamp.digicert.com",
+      "tsp": false,
+      "signCommand": null,
+      "webviewInstallMode": {
+        "type": "embedBootstrapper",
+        "silent": true
+      }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "active": false,
+      "pubkey": "PLACEHOLDER_PUBKEY_RUN_TAURI_SIGNER_GENERATE",
+      "endpoints": [
+        "https://github.com/Critek-creator/Rift_TerminalV2/releases/latest/download/latest.json"
+      ]
+    }
   }
 }
