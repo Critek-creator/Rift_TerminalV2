@@ -42,6 +42,8 @@
   import { subscribe, type Envelope } from './bus';
   import { treeActivity, type ActivityState } from './treeActivity.svelte';
   import { popouts } from './popouts.svelte';
+  import { enrichmentStore } from './enrichmentStore.svelte';
+  import { buildEnrichmentTitle, dotX } from './enrichmentUtils';
 
   // ---------------------------------------------------------------------------
   // Layout constants
@@ -95,6 +97,19 @@
    * assign-replace on mutation — see toggleCollapse.
    */
   let collapsedDirs = $state(new Set<string>());
+
+  // ---------------------------------------------------------------------------
+  // Enrichment indicator state (Phase 8.6.2)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Tree-level hover pointer for enrichment dot tooltips.
+   * Only one dot can show its tooltip at a time; each dot's onmouseenter
+   * sets this to item.node.path and onmouseleave clears it to null.
+   * Tree-level $state (not per-row) matches the existing pattern where all
+   * reactive state is declared at the component root (no per-{#each}-row $state).
+   */
+  let hoveredEnrichmentPath = $state<string | null>(null);
 
   // ---------------------------------------------------------------------------
   // Collapse helpers (design call A)
@@ -515,6 +530,7 @@
     // on a foreign target.
     e.dataTransfer.setData('text/plain', `rift-tree:${node.path}`);
   }
+
 </script>
 
 <!--
@@ -561,6 +577,7 @@
         {@const glow = isCollapsedDir
           ? (item.aggregateGlow ?? 0)
           : treeActivity.getEntry(item.node.path).glowIntensity}
+        {@const enrichments = enrichmentStore.get(item.node.path)}
         <!-- svelte-ignore a11y_click_events_have_key_events -->
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <!-- `draggable` lives on HTMLAttributes in Svelte's TS surface so direct
@@ -620,6 +637,61 @@
             x={item.x + (item.node.isDir ? DIR_W / 2 : FILE_R) + 6}
             y={item.y}
           >{item.node.name}</text>
+
+          <!-- Enrichment dot (Phase 8.6.2) — muted-amber §10.1 "meta/timestamps" lane.
+               Rendered only when EnrichmentStore has entries for this node's path.
+               `enrichments` declared at {#each} level (above) — {#if} validates it here.
+               Dot pointer-events:none so drag continues to bubble to the parent <g>.
+               Hover state: tree-level hoveredEnrichmentPath pointer (not per-row $state)
+               — matches Tree.svelte's existing pattern of no per-{#each}-row $state. -->
+          {#if enrichments && enrichments.length > 0}
+            {@const ex = dotX(item.x, item.node.isDir, item.node.name)}
+            {@const isHovered = hoveredEnrichmentPath === item.node.path}
+            <g
+              class="enrichment-dot-group"
+              aria-label="Enriched"
+              onmouseenter={() => { hoveredEnrichmentPath = item.node.path; }}
+              onmouseleave={() => { hoveredEnrichmentPath = null; }}
+            >
+              <!-- Screen-reader + native tooltip fallback -->
+              <title>{buildEnrichmentTitle(enrichments)}</title>
+
+              <!-- The dot itself — pointer-events:none on the circle, events on the <g> -->
+              <circle
+                cx={ex}
+                cy={item.y}
+                r={FILE_R / 2}
+                fill="#5a4410"
+                stroke="none"
+                style="pointer-events: none;"
+              />
+
+              <!-- Visual tooltip — foreignObject so it inherits SVG transforms and
+                   scrolls with the tree (avoids getBoundingClientRect scroll-detach
+                   in the overflow-y:auto .tree-container). Renders only while hovered. -->
+              {#if isHovered}
+                <foreignObject
+                  x={ex + 8}
+                  y={item.y - 12}
+                  width="200"
+                  height="1"
+                  style="overflow: visible;"
+                >
+                  <div class="enrichment-tooltip" xmlns="http://www.w3.org/1999/xhtml">
+                    {#each enrichments as entry (entry.vault_id)}
+                      <div class="enrichment-tooltip-row">
+                        <span class="et-vault-id">{entry.vault_id}</span>
+                        <span class="et-vault-kind"> ({entry.vault_kind})</span>
+                        {#if entry.tags.length > 0}
+                          <div class="et-tags">{entry.tags.join(', ')}</div>
+                        {/if}
+                      </div>
+                    {/each}
+                  </div>
+                </foreignObject>
+              {/if}
+            </g>
+          {/if}
         </g>
       {/each}
     </svg>
@@ -723,6 +795,40 @@
   :global(.edge.background) {
     stroke: var(--border-subtle);
     opacity: 0.3;
+  }
+
+  /* Enrichment dot tooltip (Phase 8.6.2) */
+  :global(.enrichment-dot-group) {
+    cursor: default;
+  }
+  :global(.enrichment-tooltip) {
+    background: #0a0908;
+    border: 1px solid #5a4410;
+    border-radius: 3px;
+    padding: 4px 7px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    color: #D4890A;
+    white-space: nowrap;
+    pointer-events: none;
+    width: max-content;
+    max-width: 200px;
+  }
+  :global(.enrichment-tooltip-row) {
+    line-height: 1.5;
+  }
+  :global(.et-vault-id) {
+    font-weight: 700;
+    color: #D4890A;
+  }
+  :global(.et-vault-kind) {
+    font-weight: 400;
+    color: #5a4410;
+  }
+  :global(.et-tags) {
+    font-size: 8px;
+    color: #5a4410;
+    padding-left: 4px;
   }
 
   /* Unavailable / loading state */
