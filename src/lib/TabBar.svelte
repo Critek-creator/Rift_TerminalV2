@@ -72,8 +72,20 @@
     onActivateNotif(tab.id);
   }
 
+  // Tracks whether the tab being dragged was ALREADY promoted at dragstart time.
+  // Used by onStripDrop to decide demote-vs-keep on drop-back-to-strip:
+  //   - dragged-from-promoted + dropped-on-strip = explicit demote (user dragging
+  //     the promoted tab back to the strip cancels promotion)
+  //   - dragged-from-strip + dropped-on-strip = keep promoted (user started a
+  //     drag-to-promote gesture but released within the strip; we still want
+  //     the promote to stick rather than silently undo within the same gesture)
+  // Without this state, the original code auto-demoted on any strip drop, which
+  // made drag-to-promote appear broken — promote+demote happened in one gesture.
+  let draggedFromPromoted = false;
+
   function onNotifDragStart(e: DragEvent, tab: NotifTab) {
     if (!tab.enabled) return;
+    draggedFromPromoted = isPromoted(tab.id);
     if (e.dataTransfer) {
       e.dataTransfer.effectAllowed = 'move';
       // Phase 6.6: marker MIME lets onStripDrop identify notif-tab drags and
@@ -81,7 +93,9 @@
       e.dataTransfer.setData(NOTIF_TAB_MIME, tab.id);
       e.dataTransfer.setData('text/plain', tab.id);
     }
-    onPromote(tab.id);
+    // Promote on dragstart only if the tab wasn't already promoted; dragging an
+    // already-promoted tab from the strip is a demote gesture (resolved on drop).
+    if (!draggedFromPromoted) onPromote(tab.id);
   }
 
   function onStripDragOver(e: DragEvent) {
@@ -100,11 +114,20 @@
   function onStripDrop(e: DragEvent) {
     e.preventDefault();
     dropActive = false;
-    // Phase 6.6: only demote when the drop carries a notif-tab payload.
+    // Phase 6.6: only act when the drop carries a notif-tab payload.
     // Drops from foreign sources (e.g. tree-node paths) are acknowledged
     // (preventDefault already ran for visual coherence) but otherwise ignored.
     if (!e.dataTransfer?.types.includes(NOTIF_TAB_MIME)) return;
-    onDemote();
+
+    // Only demote on strip-drop when the dragged tab was already promoted
+    // BEFORE this gesture started. Otherwise dragging an unpromoted tab and
+    // releasing within the strip's bounds would promote-then-demote in the
+    // same gesture, making drag-to-promote silently no-op (the original bug
+    // captured as pr003 `tabbar-drag-promote-demote-self-cancel-on-strip-drop`).
+    if (draggedFromPromoted) {
+      onDemote();
+    }
+    draggedFromPromoted = false;
   }
 </script>
 
