@@ -10,3 +10,4 @@ pub mod errors;
 pub mod fs;
 pub mod index;
 pub mod status;
+pub mod vault_walker;

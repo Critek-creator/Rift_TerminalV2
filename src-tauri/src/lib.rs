@@ -46,9 +46,9 @@ use rift_aegis::probe as aegis_probe;
 
 use rift_bus::{
     build_tree, load_config, publish_command, publish_error, read_text, save_config,
-    spawn_fs_watcher, spawn_status_translator, write_text, Category, CommandBuffer, Envelope,
-    FsWatcher, IpcServer, RiftBus, RiftConfig, SubscribeFilter, TreeNode, DEFAULT_IGNORE_GLOBS,
-    FS_TREE_DEFAULT_MAX_DEPTH,
+    spawn_fs_watcher, spawn_status_translator, spawn_vault_walker, write_text, Category,
+    CommandBuffer, Envelope, FsWatcher, IpcServer, RiftBus, RiftConfig, SubscribeFilter, TreeNode,
+    DEFAULT_IGNORE_GLOBS, FS_TREE_DEFAULT_MAX_DEPTH,
 };
 use rift_core::pty::{PtyControl, PtyDims, PtyOptions, PtySession};
 use serde::Serialize;
@@ -943,6 +943,40 @@ pub fn run() {
                 }
             }
             app.manage(watcher_reg);
+
+            // --- Phase 8.5: Vault-walker ---
+            //
+            // Resolve ~/.claude/abyssal-index/ via directories::BaseDirs.
+            // Skip the spawn with a tracing::warn if the directory does not
+            // exist (clean dev clones may not have the Abyssal Index).
+            {
+                let vault_root_opt =
+                    directories::BaseDirs::new().map(|b| b.home_dir().join(".claude/abyssal-index"));
+
+                match vault_root_opt {
+                    None => {
+                        tracing::warn!(
+                            "vault_walker: could not resolve home directory — walker skipped"
+                        );
+                    }
+                    Some(vault_root) => {
+                        if vault_root.exists() {
+                            // Phase 7.1 pattern: spawn on a separate tokio task.
+                            // spawn_vault_walker is an async fn — wrap in
+                            // tauri::async_runtime::spawn (mirrors the aegis probe).
+                            let bus_for_walker = bus.clone();
+                            tauri::async_runtime::spawn(async move {
+                                spawn_vault_walker(bus_for_walker, vault_root).await;
+                            });
+                        } else {
+                            tracing::warn!(
+                                "vault_walker: '{}' does not exist — walker skipped (normal on fresh clones)",
+                                vault_root.display()
+                            );
+                        }
+                    }
+                }
+            }
 
             let socket_name = format!("{IPC_SOCKET_PREFIX}-{}.sock", std::process::id());
             let bus_for_ipc = bus;
