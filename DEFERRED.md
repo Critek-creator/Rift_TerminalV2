@@ -19,18 +19,14 @@
 
 <!-- D-011 closed 2026-04-27, see C-014 below -->
 
-### D-012 — StatusLine live-value plumbing (active 2026-04-27, opened by `/aegis --full --audit`)
-- Spec §10.2 mandates two rows of live status segments: `DIR / MODEL / CTX% / SESSION% / SKILL` + `GIT / REPO / SESSION USE% / WEEK%`. Currently `src/lib/StatusLine.svelte` ships hardcoded literal placeholders for all segments except `SKILL` (Phase 7.4 wired through `aegisSkillName` subscription).
-- Code comment at `src/lib/StatusLine.svelte:6-7` notes "ctx / session / use → still pending — needs Claude Code hook with usage payload (Phase 7.4b candidate)" — but per §7 ("No silent stubbing or deferring") every defer must be loud-logged in this file. This entry retroactively closes that gap.
-- v1 scope: leaves placeholders rendering as em-dashes; the visual contract (color-block backgrounds, dark text, all-bold, percentage formatting) is already correct — only the data plumbing is missing.
-- **Unblocking event(s)** — these arrive piecemeal:
-  - `CTX%` / `SESSION%` / `SESSION USE%` / `WEEK%` → Claude Code emits a hook event with usage-payload schema (token counts + window size + week-rolling totals); rift-aegis or a future cc-translator subscribes and publishes a `Category::Status` envelope; StatusLine.svelte subscribes to it. Currently NO such hook exists in the upstream Claude Code surface. Tracking item: confirm via `/changelog-check` quarterly until the hook lands.
-  - `DIR` → `dirs::home_dir()` + project-root tilde-collapse, lightweight Rust helper exposed via `rift_status` IPC envelope. ~30 lines of code; not blocked.
-  - `GIT` → spawn `git status --porcelain --branch` + parse; subscribed via the same status helper. ~50 lines; not blocked.
-  - `REPO` → derived from project-swap state + `Cargo.toml`/`package.json` parse for project name. ~20 lines; not blocked.
-  - `MODEL` → emitted by Claude Code as part of session-init hook; same upstream-blocked path as CTX% / SESSION%.
-- Scope split: DIR / GIT / REPO are unblocked and could ship as a separate tranche before the upstream hooks land. CTX / SESSION / WEEK / MODEL stay blocked on Claude Code surface evolution.
-- Next concrete action: write a tiny `crates/rift-bus/src/translators/status.rs` that publishes a `Category::Status` envelope with `dir + git + repo` fields every 5s, and wire StatusLine.svelte to subscribe. Defer CTX/SESSION/WEEK/MODEL until upstream hook lands.
+### D-012 — StatusLine live-value plumbing — PARTIALLY CLOSED 2026-04-28 (DIR/GIT/REPO live; CTX/SESSION/WEEK/MODEL still blocked)
+
+**Closed sub-tranche (2026-04-28):** DIR / GIT / REPO segments are now live via `crates/rift-bus/src/translators/status.rs`. The translator polls every 5 s, publishes `Category::Status / kind="usage"` with `{ dir, git, repo, ts }`, and `App.svelte` subscribes + wires `StatusLine` props reactively.
+
+**Still open (upstream-blocked):**
+- `CTX%` / `SESSION%` / `SESSION USE%` / `WEEK%` → Claude Code must emit a hook event with usage-payload schema (token counts + window size + week-rolling totals). No such hook exists in the upstream Claude Code surface as of 2026-04-28. Tracking: confirm via `/changelog-check` quarterly until the hook lands.
+- `MODEL` → emitted by Claude Code as part of session-init hook; same upstream-blocked path as CTX% / SESSION%.
+- **Unblocking event:** Claude Code usage hook lands with token-count payload; then wire a cc-translator or extend `status.rs` to subscribe + republish as additional `Category::Status` fields. Update `StatusLine.svelte` subscription handler to read `ctx`, `sessionUse`, `week`, `model` from the envelope payload.
 
 ### D-010 — Sentinel implementation (active 2026-04-27, opened by Phase 7.0 architecture lock)
 - Spec §10.11 names Sentinel as the source-of-truth for agent misbehavior detection (stuck / runaway / unauthorized edits); Rift is the display layer.
