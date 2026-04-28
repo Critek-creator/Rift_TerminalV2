@@ -49,6 +49,7 @@ export async function deferredFit(
   tick: () => Promise<void>,
   hostRect?: () => { width: number; height: number },
   maxFrames = 10,
+  _diagId: number = 0,
 ): Promise<void> {
   await tick();
 
@@ -82,10 +83,12 @@ export async function deferredFit(
     if (!hostRect) {
       // Caller didn't provide a rect probe — preserve the original
       // single-rAF semantic (returns immediately on first frame).
+      console.log(`[TM #${_diagId}] deferredFit frame=${i} no-rect path → fit()`);
       fit();
       return;
     }
     const r = hostRect();
+    console.log(`[TM #${_diagId}] deferredFit frame=${i} w=${r.width} h=${r.height}`);
     if (r.width >= MIN_W && r.height >= MIN_H) {
       fit();
       return;
@@ -94,5 +97,6 @@ export async function deferredFit(
   // Retry budget exhausted with host still under the minimum — call fit()
   // anyway as a best-effort fallback. The component's ResizeObserver will
   // re-fit (and re-emit pty_resize) when the host eventually settles.
+  console.log(`[TM #${_diagId}] deferredFit budget exhausted → fit() fallback`);
   fit();
 }

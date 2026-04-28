@@ -312,6 +312,7 @@ async fn pty_start(
     cols: u16,
     on_chunk: Channel<Vec<u8>>,
 ) -> Result<u32, String> {
+    tracing::info!("[pty_start] entry rows={rows} cols={cols}");
     let dims = PtyDims {
         rows: rows.max(1),
         cols: cols.max(1),
@@ -329,6 +330,7 @@ async fn pty_start(
     }
     let (mut output, control) = PtySession::spawn_with_options(opts).map_err(|e| {
         let msg = e.to_string();
+        tracing::info!("[pty_start] spawn_with_options FAILED err={msg}");
         publish_error(
             app.state::<RiftBus>().inner(),
             "tauri.command.pty_start",
@@ -337,8 +339,10 @@ async fn pty_start(
         );
         msg
     })?;
+    tracing::info!("[pty_start] spawn_with_options OK");
     let registry = app.state::<PtyRegistry>().inner().clone();
     let id = registry.insert(control);
+    tracing::info!("[pty_start] session registered id={id}");
     // Register a fresh CommandBuffer for this session (commands translator).
     app.state::<CommandBufferRegistry>().insert(id);
 
@@ -367,8 +371,19 @@ async fn pty_start(
             });
         }
 
+        let mut _first_chunk = true;
         while let Some(chunk) = output.recv().await {
+            if _first_chunk {
+                _first_chunk = false;
+                let preview: Vec<u8> = chunk.iter().copied().take(32).collect();
+                tracing::info!(
+                    "[pty_start drain id={id}] first chunk bytes={} hex32={:02x?}",
+                    chunk.len(),
+                    preview
+                );
+            }
             if on_chunk.send(chunk).is_err() {
+                tracing::info!("[pty_start drain id={id}] on_chunk.send Err — channel closed");
                 break;
             }
         }
@@ -376,6 +391,7 @@ async fn pty_start(
     // Register the drain handle alongside the session so pty_kill can abort it.
     app.state::<PtyRegistry>().insert_drain(id, drain_handle);
 
+    tracing::info!("[pty_start] returning id={id}");
     Ok(id)
 }
 
@@ -964,8 +980,22 @@ pub fn run() {
                             // Phase 7.1 pattern: spawn on a separate tokio task.
                             // spawn_vault_walker is an async fn — wrap in
                             // tauri::async_runtime::spawn (mirrors the aegis probe).
+                            //
+                            // 250ms boot delay (2026-04-28 audit fix): vault.update
+                            // envelope flood from the boot walk competes with the
+                            // frontend cockpit's initial flex-layout pass, causing
+                            // Terminal.svelte's host to never reach a measurable
+                            // size before deferredFit's retry budget exhausts → PTY
+                            // launches with bogus rows/cols → blank initial terminal.
+                            // Audit-3 (git archeology) HIGH confidence pinpointed
+                            // this as the regression introduced by bv-a (commit
+                            // b35c915). Audit-1 (Rust PTY) recommended the boot
+                            // delay as the cleanest fix. 250ms gives Terminal's
+                            // onMount + deferredFit + pty_start round-trip time to
+                            // win the layout race before envelope churn begins.
                             let bus_for_walker = bus.clone();
                             tauri::async_runtime::spawn(async move {
+                                tokio::time::sleep(std::time::Duration::from_millis(250)).await;
                                 spawn_vault_walker(bus_for_walker, vault_root).await;
                             });
                         } else {
@@ -1029,6 +1059,11 @@ pub fn run() {
             // bare tokio::spawn inside the translator would panic with
             // "no reactor running" since rift-bus runs on the Tauri main thread.
             tauri::async_runtime::spawn(async move {
+                // 250ms boot delay — same rationale as the vault-walker spawn
+                // above (cockpit-layout race; audit-1 / audit-3 2026-04-28).
+                // First status envelope publish is then ~250ms after Terminal
+                // mount, well past the cockpit's initial flex settle.
+                tokio::time::sleep(std::time::Duration::from_millis(250)).await;
                 spawn_status_translator(status_bus, status_root).await;
             });
 
