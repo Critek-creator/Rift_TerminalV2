@@ -55,7 +55,23 @@
     active = { kind: 'session', id };
   }
   function activateNotif(id: string) {
-    active = { kind: 'notification', id };
+    // Per user spec correction (drift from earlier Phase 3.5a implementation):
+    // notif tabs NEVER replace the terminal/session surface in the main slot.
+    // Click toggles promotion alongside the main session surface — the notif's
+    // content lives in `aside.promoted-pane` next to the terminal, never in
+    // place of it.
+    //
+    // To detach a notif tab into a SEPARATE webview window (drag-out for
+    // multi-monitor observation, paralleling Phase 6.4 cockpit_detach), is
+    // a v1.x feature ask — not yet wired. For v1, click is the only path to
+    // attach/detach a notif side-pane; the side pane's drag-back handle (or
+    // another click on the same tab) is the path to demote.
+    //
+    // The `active` state machine intentionally never becomes `notification`
+    // anymore — the kind:notification branch in the surface render below
+    // becomes unreachable but is kept for future "notif fullscreen" gestures
+    // if operational signal demands them.
+    promoted = (promoted === id) ? null : id;
   }
   function addSession() {
     const id = nextSessionId++;

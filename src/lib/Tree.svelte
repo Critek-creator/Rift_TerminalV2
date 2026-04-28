@@ -442,35 +442,49 @@
   }
 
   /**
-   * Click routing:
-   *   dir  → toggleCollapse (design call E)
-   *   file → treeActivity.cycle (existing Phase 6.2 behaviour)
+   * Click routing (corrected per user spec — drift from earlier Phase 6.x
+   * implementation):
+   *   dir  → toggleCollapse (design call E — unchanged)
+   *   file → open Viewer popout + dismiss any active glow
    *
-   * Phase 6.x: shift-click on dir to pin (currently click = toggle only).
+   * Activity glow is reserved for AI/agent file-access events from the bus
+   * (Category::Fs envelopes from translators). The user is the OBSERVER of
+   * AI activity, not a participant — clicking a file acknowledges "I've
+   * seen what AI is doing" and the glow goes away (treeActivity.dismiss).
+   * Unclicked files decay naturally per the existing decay loop.
+   *
+   * The ORIGINAL Phase 6.2 implementation called treeActivity.cycle here,
+   * which pinned files on click — opposite of intended UX. Per session
+   * spec correction, single-click now opens the Viewer popout (the previous
+   * dblclick-to-open behavior) and dismisses the glow side-effect.
+   *
+   * Phase 6.x: shift-click could become a "pin to keep visible" gesture
+   * via treeActivity.cycle (still exported), but that's deferred until
+   * operational signal demands it.
    */
   function handleNodeClick(node: TreeNode): void {
     if (node.isDir) {
       toggleCollapse(node.path);
-    } else {
-      treeActivity.cycle(node.path);
+      return;
     }
-  }
-
-  /**
-   * Double-click routing (Phase 6.5):
-   *   dir  → no-op (single-click already toggles collapse; dblclick is harmless)
-   *   file → open Viewer popout at `node.path`
-   *
-   * Acknowledged minor side-effect: the browser fires onclick before ondblclick,
-   * so activity gets cycled once before the viewer opens (visual flicker only).
-   * // Phase 6.x: double-click cancels pending single-click via 250ms timer if UX feedback warrants.
-   */
-  function handleNodeDblClick(node: TreeNode): void {
-    if (node.isDir) return;
+    treeActivity.dismiss(node.path);
     popouts.summon({
       content: { kind: 'viewer', path: node.path },
       width: 'min(1024px, 90vw)',
     });
+  }
+
+  /**
+   * Double-click routing — currently a no-op for both dirs and files
+   * (single-click handles file opening per the spec correction above;
+   * single-click already toggles collapse for dirs).
+   *
+   * Reserved for future polish (e.g. "open in external editor", "open in
+   * a new viewer popout instead of replacing"). Dispatcher kept so the
+   * markup reference at line 559 doesn't have to change when polish lands.
+   */
+  function handleNodeDblClick(_node: TreeNode): void {
+    /* no-op — see comment above */
   }
 
   /** L-shaped edge: vertical drop then horizontal run to child node. */

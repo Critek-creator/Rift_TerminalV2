@@ -161,9 +161,39 @@ function clear(): void {
   entries = new Map();
 }
 
+/**
+ * Dismiss the glow for `path` — set state to 'background' regardless of
+ * current state. Used by user-click acknowledgement: "I've seen this
+ * AI/agent activity, stop drawing my attention to it." Activity glow is
+ * RESERVED for bus-driven AI/agent file-access events (Category::Fs from
+ * translators) — the user is the OBSERVER of that activity, not a
+ * participant. Clicking marks the file as seen and the glow goes away;
+ * unclicked entries decay naturally per the existing decay loop.
+ *
+ * Distinct from `cycle` (which advances through pin states — still
+ * exported for any future shift-click "pin to keep visible" gesture)
+ * and from `clear` (which wipes all entries on project swap).
+ *
+ * No-op if the path has no entry, or is already in a no-glow state
+ * (`ambient` or `background`) — idempotent. Activity envelopes from
+ * the bus can re-promote the file to 'recent' later if AI accesses
+ * it again; dismissal isn't permanent.
+ */
+function dismiss(path: string): void {
+  const existing = entries.get(path);
+  if (!existing) return;
+  if (existing.state === 'background' || existing.state === 'ambient') return;
+  entries = new Map(entries).set(path, {
+    state: 'background',
+    glowIntensity: 0,
+    lastTouchMs: Date.now(),
+  });
+}
+
 export const treeActivity = {
   mark,
   cycle,
+  dismiss,
   getEntry,
   clear,
   /** Reactive snapshot of all tracked entries. Consumers bind `$derived`
