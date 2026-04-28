@@ -312,7 +312,6 @@ async fn pty_start(
     cols: u16,
     on_chunk: Channel<Vec<u8>>,
 ) -> Result<u32, String> {
-    tracing::info!("[pty_start] entry rows={rows} cols={cols}");
     let dims = PtyDims {
         rows: rows.max(1),
         cols: cols.max(1),
@@ -330,7 +329,6 @@ async fn pty_start(
     }
     let (mut output, control) = PtySession::spawn_with_options(opts).map_err(|e| {
         let msg = e.to_string();
-        tracing::info!("[pty_start] spawn_with_options FAILED err={msg}");
         publish_error(
             app.state::<RiftBus>().inner(),
             "tauri.command.pty_start",
@@ -339,10 +337,8 @@ async fn pty_start(
         );
         msg
     })?;
-    tracing::info!("[pty_start] spawn_with_options OK");
     let registry = app.state::<PtyRegistry>().inner().clone();
     let id = registry.insert(control);
-    tracing::info!("[pty_start] session registered id={id}");
     // Register a fresh CommandBuffer for this session (commands translator).
     app.state::<CommandBufferRegistry>().insert(id);
 
@@ -371,19 +367,8 @@ async fn pty_start(
             });
         }
 
-        let mut _first_chunk = true;
         while let Some(chunk) = output.recv().await {
-            if _first_chunk {
-                _first_chunk = false;
-                let preview: Vec<u8> = chunk.iter().copied().take(32).collect();
-                tracing::info!(
-                    "[pty_start drain id={id}] first chunk bytes={} hex32={:02x?}",
-                    chunk.len(),
-                    preview
-                );
-            }
             if on_chunk.send(chunk).is_err() {
-                tracing::info!("[pty_start drain id={id}] on_chunk.send Err — channel closed");
                 break;
             }
         }
@@ -391,7 +376,6 @@ async fn pty_start(
     // Register the drain handle alongside the session so pty_kill can abort it.
     app.state::<PtyRegistry>().insert_drain(id, drain_handle);
 
-    tracing::info!("[pty_start] returning id={id}");
     Ok(id)
 }
 

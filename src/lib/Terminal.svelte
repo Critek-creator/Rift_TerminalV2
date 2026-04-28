@@ -83,7 +83,6 @@
   $effect(() => {
     // visible: false → true. Wait one tick so layout is real, then refit
     // and force a render so the buffer that accumulated while hidden draws.
-    console.log(`[TM effect] visible=${visible} cols=${term?.cols ?? '?'} rows=${term?.rows ?? '?'}`);
     if (visible && term && fit) {
       tick().then(() => {
         fit?.fit();
@@ -92,12 +91,7 @@
     }
   });
 
-  // Diagnostic counter — distinguishes first session from subsequent ones.
-  let _mountCount = 0;
-
   onMount(async () => {
-    const _mc = ++_mountCount;
-    console.log(`[TM #${_mc}] onMount entry ts=${Date.now()} visible=${visible}`);
     term = new XTerm({
       fontFamily: '"JetBrains Mono", monospace',
       fontSize: 13,
@@ -150,14 +144,12 @@
     if (typeof document !== 'undefined' && document.fonts && document.fonts.ready) {
       try {
         await document.fonts.ready;
-        console.log(`[TM #${_mc}] fonts.ready resolved before term.open`);
       } catch {
         // jsdom/old browsers — proceed regardless.
       }
     }
 
     term.open(host);
-    console.log(`[TM #${_mc}] after term.open cols=${term.cols} rows=${term.rows} rect=${JSON.stringify(host.getBoundingClientRect())}`);
 
     // Defer fit until layout has actually settled.
     //
@@ -184,37 +176,26 @@
       fit.fit.bind(fit),
       tick,
       () => host.getBoundingClientRect(),
-      10,
-      _mc,
     );
 
     // Force a buffer refresh after the deferred fit. The $effect at line 83
     // does this on visible→true transitions but not on first mount when
-    // visible was already true (audit-1 hypothesis #3, 2026-04-28). Without
-    // this, xterm's renderer can leave the canvas unpainted if fit()
-    // crossed an internal threshold. Cheap when redundant.
+    // visible was already true. Without this, xterm's renderer can leave
+    // the canvas unpainted if fit() crossed an internal threshold.
+    // Cheap when redundant.
     if (term) term.refresh(0, term.rows - 1);
-    console.log(`[TM #${_mc}] after deferredFit cols=${term.cols} rows=${term.rows} refresh-issued`);
 
     const onChunk = new Channel<number[]>();
-    let _firstChunk = true;
     onChunk.onmessage = (chunk) => {
-      if (_firstChunk) {
-        _firstChunk = false;
-        const hex = chunk.slice(0, 32).map((b) => b.toString(16).padStart(2, '0')).join(' ');
-        console.log(`[TM #${_mc}] first chunk bytes=${chunk.length} hex32=[${hex}]`);
-      }
       term?.write(new Uint8Array(chunk));
     };
 
-    console.log(`[TM #${_mc}] invoking pty_start rows=${term.rows} cols=${term.cols}`);
     try {
       sessionId = await invoke<number>('pty_start', {
         rows: term.rows,
         cols: term.cols,
         onChunk,
       });
-      console.log(`[TM #${_mc}] pty_start returned sessionId=${sessionId}`);
       alive = true;
     } catch (err) {
       term.writeln(`\r\n\x1b[31m[pty_start failed: ${err}]\x1b[0m`);
