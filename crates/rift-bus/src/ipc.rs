@@ -26,7 +26,8 @@ use std::time::Duration;
 use interprocess::local_socket::tokio::{prelude::*, Listener, RecvHalf, SendHalf, Stream};
 use interprocess::local_socket::{GenericNamespaced, ListenerOptions, ToNsName};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::sync::Notify;
+use tokio::sync::{Mutex, Notify};
+use tokio::task::JoinSet;
 
 use crate::bus::{BusError, RiftBus, SubscribeFilter};
 use crate::envelope::Envelope;
@@ -56,10 +57,17 @@ pub enum IpcError {
 
 /// Listening IPC server. Spawned tasks live until [`IpcServer::shutdown`]
 /// is invoked or the handle drops.
+///
+/// Per-connection tasks are tracked in a shared [`JoinSet`]. On shutdown,
+/// all pending per-connection tasks are aborted before returning, so no
+/// orphaned tasks outlive the server.
 pub struct IpcServer {
     socket_name: String,
     shutdown: Arc<Notify>,
     accept_task: tokio::task::JoinHandle<()>,
+    /// Shared with the accept loop so shutdown() can abort all per-connection
+    /// tasks that are still running when the server stops.
+    conn_tasks: Arc<Mutex<JoinSet<()>>>,
 }
 
 impl IpcServer {
@@ -78,6 +86,10 @@ impl IpcServer {
         let shutdown = Arc::new(Notify::new());
         let shutdown_acceptor = shutdown.clone();
 
+        // Shared JoinSet: accept loop spawns into it; shutdown() aborts all.
+        let conn_tasks: Arc<Mutex<JoinSet<()>>> = Arc::new(Mutex::new(JoinSet::new()));
+        let conn_tasks_acceptor = conn_tasks.clone();
+
         let accept_task = tokio::spawn(async move {
             loop {
                 tokio::select! {
@@ -89,7 +101,12 @@ impl IpcServer {
                         match accepted {
                             Ok(stream) => {
                                 let bus_for_conn = bus.clone();
-                                tokio::spawn(handle_connection(stream, bus_for_conn));
+                                // Reap any naturally-completed tasks before pushing the
+                                // new one, so the JoinSet doesn't grow unboundedly across
+                                // long-running sessions with detach/reattach churn.
+                                let mut set = conn_tasks_acceptor.lock().await;
+                                while set.try_join_next().is_some() {}
+                                set.spawn(handle_connection(stream, bus_for_conn));
                             }
                             Err(e) => {
                                 tracing::warn!("rift-bus ipc: accept error: {e}");
@@ -106,6 +123,7 @@ impl IpcServer {
             socket_name,
             shutdown,
             accept_task,
+            conn_tasks,
         })
     }
 
@@ -113,12 +131,21 @@ impl IpcServer {
         &self.socket_name
     }
 
-    /// Stop accepting new connections. Existing connections continue
-    /// until they error or end naturally.
+    /// Stop accepting new connections and abort all active per-connection tasks.
+    ///
+    /// Signals the accept loop via [`Notify`], waits up to 1 s for it to exit,
+    /// then aborts every per-connection task still tracked in the shared
+    /// [`JoinSet`] so no orphaned tasks outlive this call.
     pub async fn shutdown(self) {
         self.shutdown.notify_one();
         // Best-effort: wait briefly for the accept loop to exit.
         let _ = tokio::time::timeout(Duration::from_secs(1), self.accept_task).await;
+
+        // Abort all per-connection tasks that are still running.
+        let mut set = self.conn_tasks.lock().await;
+        set.abort_all();
+        // Drain the JoinSet so the tasks are fully cancelled before we return.
+        while set.join_next().await.is_some() {}
     }
 }
 
@@ -376,5 +403,39 @@ mod tests {
         write_frame(&mut wr, &env).await.unwrap();
         let back = read_frame(&mut rd).await.unwrap();
         assert_eq!(env, back);
+    }
+
+    /// Shutdown aborts per-connection tasks.
+    ///
+    /// Spawn a server, accept a connection (which keeps the per-conn task
+    /// alive), call shutdown(), then assert the conn task is no longer
+    /// running within a short timeout.  We verify this by checking that the
+    /// shared JoinSet is empty after shutdown drains it.
+    #[tokio::test]
+    async fn shutdown_aborts_per_connection_tasks() {
+        let bus = RiftBus::default();
+        let name = unique_name();
+
+        let server = IpcServer::start(bus.clone(), &name).await.expect("server");
+        sleep(Duration::from_millis(50)).await;
+
+        // Connect a client so the accept loop spawns a per-conn handle_connection
+        // task.  The client holds the socket open — the task stays alive.
+        let _client = IpcClient::connect(&name).await.expect("connect");
+        // Give the accept loop a moment to register the connection task.
+        sleep(Duration::from_millis(50)).await;
+
+        // Hold a reference to the JoinSet to inspect post-shutdown.
+        let conn_tasks = server.conn_tasks.clone();
+
+        // shutdown() must complete within 3s even with an active connection.
+        timeout(Duration::from_secs(3), server.shutdown())
+            .await
+            .expect("shutdown must complete within 3s");
+
+        // After shutdown() the JoinSet is fully drained (abort_all + join_next
+        // until empty), so it must be empty now.
+        let remaining = conn_tasks.lock().await.len();
+        assert_eq!(remaining, 0, "JoinSet must be empty after shutdown");
     }
 }
