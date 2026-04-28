@@ -1,10 +1,11 @@
 <script lang="ts">
   // §10.2 — two-row status line. Color-block segments with dark text on
-  // brand-amber backgrounds. All values bold. Phase 2 ships the visual
-  // chassis; live values plumb in later phases:
-  //   * dir / repo / git    → Phase 5 (lightweight Rust helper)
-  //   * ctx / session / use → still pending — needs Claude Code hook with usage payload (Phase 7.4b candidate)
-  //   * skill               → live via aegis.session.skill_loaded (Phase 7.4)
+  // brand-amber backgrounds. All values bold. Segment data sources:
+  //   * dir / git / repo    → live via translators/status.rs (Category::Status, 5s poll)
+  //   * skill               → live via aegis.session.skill_loaded (Phase 7.4 / Aegis)
+  //   * ctx / session / week / model → em-dash placeholder; upstream-blocked on Claude Code
+  //                                    usage hook (TODO: when D-012 CC usage hook lands,
+  //                                    replace placeholders with live subscription values)
 
   interface Props {
     dir?: string;

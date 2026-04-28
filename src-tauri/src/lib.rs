@@ -46,8 +46,9 @@ use rift_aegis::probe as aegis_probe;
 
 use rift_bus::{
     build_tree, load_config, publish_command, publish_error, read_text, save_config,
-    spawn_fs_watcher, write_text, Category, CommandBuffer, Envelope, FsWatcher, IpcServer, RiftBus,
-    RiftConfig, SubscribeFilter, TreeNode, DEFAULT_IGNORE_GLOBS, FS_TREE_DEFAULT_MAX_DEPTH,
+    spawn_fs_watcher, spawn_status_translator, write_text, Category, CommandBuffer, Envelope,
+    FsWatcher, IpcServer, RiftBus, RiftConfig, SubscribeFilter, TreeNode, DEFAULT_IGNORE_GLOBS,
+    FS_TREE_DEFAULT_MAX_DEPTH,
 };
 use rift_core::pty::{PtyControl, PtyDims, PtyOptions, PtySession};
 use serde::Serialize;
@@ -948,6 +949,11 @@ pub fn run() {
             let app_handle = app.handle().clone();
             let socket_name_for_task = socket_name.clone();
 
+            // D-012 unblocked slice — clone bus + capture root before bus_for_ipc
+            // is moved into the IPC spawn closure below.
+            let status_bus = bus_for_ipc.clone();
+            let status_root = app.state::<ProjectRoot>().inner().get();
+
             // Phase 7.1 — Aegis private translator load-detection probe.
             // Feature-gated: only compiled when `--features aegis` is set
             // AND the gitignored crates/rift-aegis/ exists locally. Public
@@ -978,6 +984,13 @@ pub fn run() {
             tauri::async_runtime::spawn(async move {
                 aegis_probe(aegis_bus).await;
             });
+
+            // D-012 unblocked slice — spawn status translator (DIR / GIT / REPO).
+            // Publishes Category::Status / kind="usage" every 5 s with
+            // { dir, git, repo, ts } derived from the current project root.
+            // CTX / SESSION / WEEK / MODEL remain em-dash placeholders until the
+            // Claude Code usage hook lands (still upstream-blocked, see DEFERRED.md D-012).
+            spawn_status_translator(status_bus, status_root);
 
             Ok(())
         })

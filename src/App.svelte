@@ -226,6 +226,46 @@
     };
   });
 
+  // D-012 unblocked slice — live DIR / GIT / REPO segments.
+  // Subscribes to Category::Status at App level so the StatusLine updates
+  // regardless of which tab is active. Same svelte5-async-cleanup-via-sync-
+  // shell-iife + cancelled-flag pattern as the SKILL subscription below.
+  let statusDir = $state('');
+  let statusGit = $state('');
+  let statusRepo = $state('');
+
+  $effect(() => {
+    let cancelled = false;
+    let unsub: (() => Promise<void>) | undefined;
+
+    void (async () => {
+      try {
+        const u = await subscribe({ category: 'status' }, (env) => {
+          if (env.kind === 'usage') {
+            const p = env.payload as { dir?: string; git?: string; repo?: string };
+            if (p.dir  !== undefined) statusDir  = p.dir;
+            if (p.git  !== undefined) statusGit  = p.git;
+            if (p.repo !== undefined) statusRepo = p.repo;
+          }
+        });
+        if (cancelled) {
+          void u().catch(() => {});
+        } else {
+          unsub = u;
+        }
+      } catch (err) {
+        console.warn('[App] status subscribe failed:', err);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      void (async () => {
+        await unsub?.();
+      })();
+    };
+  });
+
   // Phase 7.4 — live SKILL segment.
   // Subscribes at App level (not inside AegisTabContent) so the status-line
   // SKILL segment updates regardless of which tab is active.
@@ -441,11 +481,10 @@
   </main>
 
   <StatusLine
-    dir="~/AA/Rift_TerminalV2"
-    model="opus-4.7"
-    repo="rift-v2"
-    git="main · 0↑ · 0M"
-    skill={aegisSkillName || '--'}
+    dir={statusDir || '—'}
+    repo={statusRepo || '—'}
+    git={statusGit || '—'}
+    skill={aegisSkillName || '—'}
   />
 
   <!-- Phase 3.5b — pop-out stack (§10.5). Renders one overlay per entry

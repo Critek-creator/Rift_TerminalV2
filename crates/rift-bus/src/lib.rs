@@ -104,6 +104,17 @@ pub use translators::index::IndexEnrichmentPayload;
 pub use translators::index::VaultChangeKind;
 
 // ---------------------------------------------------------------------------
+// Status translator re-exports (D-012 unblocked slice — DIR/GIT/REPO)
+// ---------------------------------------------------------------------------
+
+/// Spawn the status translator loop that publishes `Category::Status / kind="usage"`
+/// envelopes every 5 seconds with `{ dir, git, repo, ts }`.
+///
+/// Convenience re-export so callers can write `rift_bus::spawn_status_translator(...)`.
+/// Full path: `rift_bus::translators::status::spawn_status_translator(...)`.
+pub use translators::status::spawn_status_translator;
+
+// ---------------------------------------------------------------------------
 // config re-exports (Phase 6.7)
 // ---------------------------------------------------------------------------
 
