@@ -51,7 +51,7 @@ use crate::{Category, Envelope, RiftBus};
 // Frontmatter parsing
 // ---------------------------------------------------------------------------
 
-/// Parsed fields extracted from a vault file's YAML frontmatter.
+/// Parsed fields extracted from a vault file's frontmatter.
 #[derive(Debug, Clone)]
 pub struct VaultMeta {
     /// Vault identifier, e.g. `"p006"` or `"pr001"`.
@@ -70,13 +70,37 @@ pub struct VaultMeta {
     pub cross_refs: Vec<String>,
 }
 
-/// Parse YAML frontmatter from a vault file's text content.
+/// Parse a vault file's frontmatter, dispatching by format.
+///
+/// Two formats are supported:
+///
+/// 1. **YAML-fenced** — frontmatter delimited by `---` lines at the very start
+///    of the file. Used by synthetic test fixtures. Parsed via
+///    [`parse_frontmatter_yaml`]. Required fields: `id`, `name`, `type`.
+///
+/// 2. **Telegraphic** — line-1 (or first `^VAULT:` line if a markdown heading
+///    prefixes it) header `VAULT: <id> | <name> | updated: <date> [| extras]`
+///    followed by bare `key: value` lines. This is the production Abyssal
+///    Index format used by every shipped vault. Parsed via
+///    [`parse_frontmatter_telegraphic`]. `vault_type` is derived from the id
+///    prefix when no explicit `type:` field is present.
+///
+/// Returns `None` when neither parser succeeds. Logs a `tracing::warn!` on
+/// YAML parse error; never panics.
+pub fn parse_frontmatter(content: &str) -> Option<VaultMeta> {
+    if content.starts_with("---") {
+        parse_frontmatter_yaml(content)
+    } else {
+        parse_frontmatter_telegraphic(content)
+    }
+}
+
+/// Parse `---`-fenced YAML frontmatter (synthetic / test-fixture format).
 ///
 /// Frontmatter must be delimited by `---` lines at the very start of the file.
-/// Returns `None` when the file is missing frontmatter delimiters or when
-/// required fields (`id`, `name`, `type`) are absent. Logs a `tracing::warn!`
-/// on any parse or field error; never panics.
-pub fn parse_frontmatter(content: &str) -> Option<VaultMeta> {
+/// Required fields: `id`, `name`, `type`. Logs a `tracing::warn!` on YAML
+/// parse error; never panics.
+fn parse_frontmatter_yaml(content: &str) -> Option<VaultMeta> {
     // Fast path — must start with `---`
     if !content.starts_with("---") {
         return None;
@@ -144,6 +168,202 @@ pub fn parse_frontmatter(content: &str) -> Option<VaultMeta> {
         source,
         cross_refs,
     })
+}
+
+/// Parse telegraphic-English frontmatter (production Abyssal Index format).
+///
+/// Header line — line 1, or the first line beginning with `VAULT:` if a
+/// markdown heading prefixes the file (e.g. `# AGT006_PLUGIN_REGISTRY`):
+///
+/// ```text
+/// VAULT: <id> | <name> | updated: <date> [| <key>: <val> ...]
+/// ```
+///
+/// Subsequent bare `key: value` lines supply optional fields. Recognized keys:
+/// `repo`, `source`, `cross_refs`, `type`, `updated` (when not on the header).
+/// Lines starting with `#`, `!`, `===`, or `---` are skipped or terminate the
+/// scan; non-key-value content following a blank line stops scanning.
+///
+/// `vault_type` is derived from the id prefix when no explicit `type:` field
+/// is present (`p`→`project`, `pr`→`practices`, `r`→`research`, `s`→`skill`,
+/// `lore`→`lore`, `agt`→`agent`, `h`→`hook`).
+///
+/// Returns `None` when no `VAULT:` header is found, when `id` or `name` are
+/// empty, or when `vault_type` cannot be derived.
+fn parse_frontmatter_telegraphic(content: &str) -> Option<VaultMeta> {
+    // Locate the header line. Allow blank lines and markdown heading prefixes
+    // (`# Foo`) before it; bail on any other content.
+    let mut header_line: Option<&str> = None;
+    let mut header_idx: usize = 0;
+
+    for (i, line) in content.lines().enumerate() {
+        let trimmed = line.trim_start();
+        if trimmed.starts_with("VAULT:") {
+            header_line = Some(trimmed);
+            header_idx = i;
+            break;
+        }
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        // Non-blank, non-heading content before any VAULT: line — not a
+        // telegraphic vault.
+        return None;
+    }
+
+    let header = header_line?;
+    let after = header.strip_prefix("VAULT:")?.trim();
+
+    // Pipe-split the header into parts: <id> | <name> | <key>: <val> | ...
+    let mut parts = after.split('|').map(|s| s.trim());
+    let id = parts.next()?.to_owned();
+    if id.is_empty() {
+        return None;
+    }
+    let name = parts.next()?.to_owned();
+    if name.is_empty() {
+        return None;
+    }
+
+    // Accumulate fields from header pipe-extras AND body lines.
+    let mut updated = String::new();
+    let mut repo: Option<String> = None;
+    let mut source: Option<String> = None;
+    let mut cross_refs: Vec<String> = Vec::new();
+    let mut explicit_type: Option<String> = None;
+
+    let mut absorb_kv = |key: &str, raw_value: &str| {
+        let val = raw_value.trim();
+        match key {
+            "updated" if updated.is_empty() => {
+                updated = sanitize_updated(val);
+            }
+            "repo" if repo.is_none() && !val.is_empty() => {
+                repo = Some(val.to_owned());
+            }
+            "source" if source.is_none() && !val.is_empty() => {
+                source = Some(val.to_owned());
+            }
+            "cross_refs" if cross_refs.is_empty() && !val.is_empty() => {
+                cross_refs = parse_cross_refs_inline(val);
+            }
+            "type" if explicit_type.is_none() && !val.is_empty() => {
+                explicit_type = Some(val.to_owned());
+            }
+            _ => {}
+        }
+    };
+
+    // Header pipe-extras (everything after `<id> | <name>`).
+    for part in parts {
+        if let Some((k, v)) = part.split_once(':') {
+            absorb_kv(k.trim(), v);
+        }
+    }
+
+    // Body lines after the header.
+    let mut prev_blank = false;
+    for line in content.lines().skip(header_idx + 1) {
+        let leading = line.trim_start();
+
+        // Hard stops: section dividers.
+        if leading.starts_with("===") || leading.starts_with("---") {
+            break;
+        }
+        // Skip markdown headings.
+        if leading.starts_with('#') {
+            continue;
+        }
+        // Telegraphic comment / RULE markers: skip but don't reset prev_blank.
+        if leading.starts_with('!') {
+            continue;
+        }
+        if leading.is_empty() {
+            prev_blank = true;
+            continue;
+        }
+        // Look for `key: value` shape with a simple-identifier key.
+        if let Some((k, v)) = leading.split_once(':') {
+            let key = k.trim();
+            if !key.is_empty()
+                && key
+                    .chars()
+                    .all(|c| c.is_alphanumeric() || c == '_' || c == '-')
+            {
+                absorb_kv(key, v);
+                prev_blank = false;
+                continue;
+            }
+        }
+        // Non-key-value content: if it followed a blank line, frontmatter is
+        // over. If it was adjacent to fields, treat as a multi-line `desc:`
+        // continuation and stop scanning either way (we have what we need).
+        if prev_blank {
+            break;
+        }
+        break;
+    }
+
+    let vault_type = explicit_type.unwrap_or_else(|| derive_vault_type(&id));
+    if vault_type.is_empty() {
+        return None;
+    }
+
+    Some(VaultMeta {
+        id,
+        name,
+        vault_type,
+        updated,
+        repo,
+        source,
+        cross_refs,
+    })
+}
+
+/// Sanitize a raw `updated:` value — take text up to the first whitespace or
+/// `(`, so production headers like `2026-04-27 (**REPO MIGRATION V1→V2** ...)`
+/// yield just the date.
+fn sanitize_updated(raw: &str) -> String {
+    let end = raw
+        .char_indices()
+        .find(|(_, c)| c.is_whitespace() || *c == '(')
+        .map(|(i, _)| i)
+        .unwrap_or(raw.len());
+    raw[..end].to_owned()
+}
+
+/// Parse a `cross_refs:` inline value. Accepts `[a, b, c]`, `a, b, c`, and
+/// `a b c` shapes.
+fn parse_cross_refs_inline(raw: &str) -> Vec<String> {
+    raw.trim_matches(|c: char| c == '[' || c == ']' || c.is_whitespace())
+        .split(|c: char| c == ',' || c.is_whitespace())
+        .map(|p| p.trim().to_owned())
+        .filter(|s| !s.is_empty())
+        .collect()
+}
+
+/// Derive `vault_type` from the id prefix when no explicit `type:` field is
+/// present. Longest-prefix-wins so `pr` beats `p` and `lore` / `agt` beat
+/// single-letter keys. Returns empty string for unrecognized prefixes
+/// (which causes the outer parser to reject the vault).
+fn derive_vault_type(id: &str) -> String {
+    let lower = id.to_lowercase();
+    // Longest prefix first.
+    const TABLE: &[(&str, &str)] = &[
+        ("lore", "lore"),
+        ("agt", "agent"),
+        ("pr", "practices"),
+        ("p", "project"),
+        ("r", "research"),
+        ("s", "skill"),
+        ("h", "hook"),
+    ];
+    for (prefix, vtype) in TABLE {
+        if lower.starts_with(prefix) {
+            return (*vtype).to_owned();
+        }
+    }
+    String::new()
 }
 
 // ---------------------------------------------------------------------------
@@ -818,5 +1038,163 @@ Body text here.
             updates[0].payload["change_kind"], "modified",
             "change_kind must be 'modified'"
         );
+    }
+
+    // -------------------------------------------------------------------------
+    // T5 — frontmatter_parse_telegraphic_basic
+    //
+    // Production-shape `VAULT: <id> | <name> | updated: <date>` header on
+    // line 1, no body fields. Derives vault_type from id prefix.
+    // -------------------------------------------------------------------------
+    #[test]
+    fn frontmatter_parse_telegraphic_basic() {
+        let content = "VAULT: pr003 | Lessons + Gotchas | updated: 2026-04-28\n\nbody text\n";
+        let meta = parse_frontmatter(content).expect("telegraphic header should parse");
+        assert_eq!(meta.id, "pr003");
+        assert_eq!(meta.name, "Lessons + Gotchas");
+        assert_eq!(meta.vault_type, "practices");
+        assert_eq!(meta.updated, "2026-04-28");
+        assert!(meta.repo.is_none());
+        assert!(meta.source.is_none());
+        assert!(meta.cross_refs.is_empty());
+    }
+
+    // -------------------------------------------------------------------------
+    // T6 — frontmatter_parse_telegraphic_with_repo
+    //
+    // Production p006-style: long line-1 header with parenthetical narrative
+    // inside `updated:`, then body lines including `repo:`. Updated value
+    // must be truncated at the parenthesis.
+    // -------------------------------------------------------------------------
+    #[test]
+    fn frontmatter_parse_telegraphic_with_repo() {
+        let content = "VAULT: p006 | Rift Terminal Core | updated: 2026-04-27 (**REPO MIGRATION V1→V2** — V2 repo is now canonical)\n\nproject: Rift Terminal\ndesc: Rust cross-platform terminal\nrepo: C:/Users/Critek/Documents/Abyssal_Arts_main/Projects/Rift_TerminalV2\nremote: https://github.com/Critek-creator/Rift_TerminalV2.git\nstack: Tauri 2 + Svelte 5\n\nsynced: 2026-04-27T20:00:00Z\n";
+        let meta = parse_frontmatter(content).expect("p006-style should parse");
+        assert_eq!(meta.id, "p006");
+        assert_eq!(meta.name, "Rift Terminal Core");
+        assert_eq!(meta.vault_type, "project");
+        assert_eq!(
+            meta.updated, "2026-04-27",
+            "updated must truncate at the opening paren"
+        );
+        assert_eq!(
+            meta.repo.as_deref(),
+            Some("C:/Users/Critek/Documents/Abyssal_Arts_main/Projects/Rift_TerminalV2")
+        );
+    }
+
+    // -------------------------------------------------------------------------
+    // T7 — frontmatter_parse_telegraphic_with_heading_prefix
+    //
+    // Production agt006-style: `# AGT006_PLUGIN_REGISTRY` markdown heading
+    // on line 1, blank line, then `VAULT:` header on line 3.
+    // -------------------------------------------------------------------------
+    #[test]
+    fn frontmatter_parse_telegraphic_with_heading_prefix() {
+        let content = "# AGT006_PLUGIN_REGISTRY\n\nVAULT: agt006 | Plugin + Built-in Agent Registry | updated: 2026-04-19\n\nbody\n";
+        let meta = parse_frontmatter(content).expect("heading-prefixed header should parse");
+        assert_eq!(meta.id, "agt006");
+        assert_eq!(meta.name, "Plugin + Built-in Agent Registry");
+        assert_eq!(meta.vault_type, "agent");
+        assert_eq!(meta.updated, "2026-04-19");
+    }
+
+    // -------------------------------------------------------------------------
+    // T8 — frontmatter_parse_telegraphic_returns_none_on_no_header
+    //
+    // Plain text with no `VAULT:` line returns None. Body content before any
+    // `VAULT:` line aborts the scan.
+    // -------------------------------------------------------------------------
+    #[test]
+    fn frontmatter_parse_telegraphic_returns_none_on_no_header() {
+        // Pure body — no VAULT: line.
+        assert!(parse_frontmatter("Just body text\nno header here\n").is_none());
+        // Substantive content before the VAULT: line aborts the scan.
+        assert!(
+            parse_frontmatter("project: foo\nVAULT: p006 | x | updated: 2026-04-27\n").is_none()
+        );
+    }
+
+    // -------------------------------------------------------------------------
+    // T9 — derive_vault_type_longest_prefix_wins
+    //
+    // `pr` must beat `p`, `lore` and `agt` must beat single-letter prefixes.
+    // -------------------------------------------------------------------------
+    #[test]
+    fn derive_vault_type_longest_prefix_wins() {
+        assert_eq!(derive_vault_type("pr003"), "practices");
+        assert_eq!(derive_vault_type("p006"), "project");
+        assert_eq!(derive_vault_type("r004"), "research");
+        assert_eq!(derive_vault_type("s001"), "skill");
+        assert_eq!(derive_vault_type("lore005"), "lore");
+        assert_eq!(derive_vault_type("agt006"), "agent");
+        assert_eq!(derive_vault_type("h001"), "hook");
+        assert_eq!(derive_vault_type("zzz999"), "");
+    }
+
+    // -------------------------------------------------------------------------
+    // T10 — boot_walk_emits_envelopes_telegraphic
+    //
+    // Walker emits 3 vault.update envelopes when given 3 telegraphic-format
+    // vault files (production-shape). Mirrors T3 but uses the production
+    // header format that all real vaults use.
+    // -------------------------------------------------------------------------
+    #[tokio::test]
+    async fn boot_walk_emits_envelopes_telegraphic() {
+        use tempfile::tempdir;
+
+        let dir = tempdir().expect("tempdir");
+        let vault_root = dir.path().to_path_buf();
+        let vaults_dir = vault_root.join("vaults");
+        std::fs::create_dir_all(&vaults_dir).unwrap();
+
+        let vault_template =
+            |id: &str, name: &str| format!("VAULT: {id} | {name} | updated: 2026-04-28\n\nbody\n");
+
+        std::fs::write(
+            vaults_dir.join("p001.md"),
+            vault_template("p001", "Project One"),
+        )
+        .unwrap();
+        std::fs::write(
+            vaults_dir.join("pr001.md"),
+            vault_template("pr001", "Global Practices"),
+        )
+        .unwrap();
+        std::fs::write(
+            vaults_dir.join("r004.md"),
+            vault_template("r004", "Tauri Research"),
+        )
+        .unwrap();
+
+        let bus = RiftBus::default();
+        let (snapshot_before, mut sub) = bus.subscribe(SubscribeFilter::Category(Category::Index));
+        assert!(snapshot_before.is_empty());
+
+        tokio::spawn(spawn_vault_walker(bus.clone(), vault_root));
+        tokio::time::sleep(Duration::from_millis(500)).await;
+
+        let mut envelopes = snapshot_before;
+        while let Ok(Ok(env)) = tokio::time::timeout(Duration::from_millis(50), sub.recv()).await {
+            envelopes.push(env);
+        }
+
+        let vault_updates: Vec<_> = envelopes
+            .iter()
+            .filter(|e| e.kind == "vault.update")
+            .collect();
+        assert_eq!(
+            vault_updates.len(),
+            3,
+            "expected 3 vault.update envelopes from telegraphic vaults; got {}",
+            vault_updates.len()
+        );
+
+        // Verify the rich payload shape — derived vault_type must be present.
+        let p001 = vault_updates
+            .iter()
+            .find(|e| e.payload["vault_id"] == "p001")
+            .expect("p001 envelope must exist");
+        assert_eq!(p001.payload["change_kind"], "created");
     }
 }
