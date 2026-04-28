@@ -27,7 +27,7 @@
   //   The $effect re-runs whenever `nodes` or `edges` reactive state changes.
 
   import { onMount } from 'svelte';
-  import { forceSimulation, forceLink, forceManyBody, forceX, forceY } from 'd3-force';
+  import { forceSimulation, forceLink, forceManyBody, forceX, forceY, forceCollide } from 'd3-force';
   import type { Simulation, SimulationNodeDatum, SimulationLinkDatum } from 'd3-force';
   import { select } from 'd3-selection';
   import { zoom, zoomIdentity } from 'd3-zoom';
@@ -319,7 +319,7 @@
     // kind-clustering the user requested ("logical system with INDEX node
     // at center with lines connecting outward to each vault in proper order").
     // ------------------------------------------------------------------
-    const RADIUS = Math.min(W, H) * 0.36;
+    const RADIUS = Math.min(W, H) * 0.42;
     const INDEX_ID = '__INDEX__';
 
     /** Angular sector per vault kind (radians; 0 = 3 o'clock, π/2 = 6 o'clock). */
@@ -373,6 +373,11 @@
         'charge',
         forceManyBody<VaultNode>().strength(chargeStrength).distanceMax(180),
       )
+      // Collision detection prevents node circles from overlapping each
+      // other. Without this, vaults in the same kind-sector pile on top
+      // of each other (visible as tightly packed clusters in pic 1 of
+      // 2026-04-28 eyeball). Radius 14 = node circle r=8 + 6px breathing room.
+      .force('collide', forceCollide<VaultNode>(14))
       .force(
         'x',
         forceX<VaultNode>().x((d) => {

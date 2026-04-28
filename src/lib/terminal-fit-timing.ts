@@ -51,6 +51,32 @@ export async function deferredFit(
   maxFrames = 10,
 ): Promise<void> {
   await tick();
+
+  // Wait for web fonts to load before fitting. xterm's FitAddon computes
+  // rows/cols from the CURRENT measured glyph size — if JetBrains Mono is
+  // still loading at fit() time, FitAddon falls back to whatever generic
+  // font is rendering, miscalculates per-cell metrics, and the resulting
+  // PTY rows/cols are bogus. The shell prompt then renders into a
+  // ~1×1 canvas (visible as a single 'T'-shaped artifact in pic 2 of
+  // 2026-04-28 eyeball). document.fonts is a CSSOM standard surface;
+  // .ready resolves once every @font-face declaration has loaded or
+  // failed (no-op if no fonts pending). Best-effort: skip if document
+  // is unavailable (jsdom test env or older browsers).
+  if (typeof document !== 'undefined' && document.fonts && document.fonts.ready) {
+    try {
+      await document.fonts.ready;
+    } catch {
+      // Some jsdom polyfills throw on .ready — proceed regardless.
+    }
+  }
+
+  // Threshold the host-rect probe so that a TRANSIENT tiny size during
+  // flex-layout settling doesn't trigger an early-fit at wrong dimensions.
+  // Real terminals are at least ~150 wide × 60 tall (plenty of slop below
+  // any usable cockpit-pane size). Below this we keep waiting.
+  const MIN_W = 150;
+  const MIN_H = 60;
+
   for (let i = 0; i < maxFrames; i++) {
     await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
     if (!hostRect) {
@@ -60,13 +86,13 @@ export async function deferredFit(
       return;
     }
     const r = hostRect();
-    if (r.width > 0 && r.height > 0) {
+    if (r.width >= MIN_W && r.height >= MIN_H) {
       fit();
       return;
     }
   }
-  // Retry budget exhausted with host still 0×0 — call fit() anyway as a
-  // best-effort fallback. The component's ResizeObserver will re-fit
-  // when the host eventually settles to non-zero dimensions.
+  // Retry budget exhausted with host still under the minimum — call fit()
+  // anyway as a best-effort fallback. The component's ResizeObserver will
+  // re-fit (and re-emit pty_resize) when the host eventually settles.
   fit();
 }
