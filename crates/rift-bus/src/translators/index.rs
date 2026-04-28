@@ -95,18 +95,23 @@ pub struct VaultUpdatePayload {
 
 /// Payload carried by a `Category::Index / kind="enrichment"` envelope.
 ///
-/// `vault_kind` is the Abyssal Index category prefix:
-/// `"p"` (project), `"pr"` (practices), `"r"` (research),
-/// `"s"` (skill), `"lore"`, `"agt"` (agent), `"h"` (hook).
-/// The `fs_path` is the project-relative path that Tree.svelte will
-/// join against node positions in Phase 8.6.
+/// `vault_kind` is the Abyssal Index category in long form, derived from the
+/// vault id prefix by the walker's `derive_vault_type`:
+/// `"project"`, `"practices"`, `"research"`, `"skill"`, `"lore"`, `"agent"`,
+/// `"hook"`.
+///
+/// `fs_path` is the canonical absolute filesystem path being enriched,
+/// forward-slash-normalized (no trailing slash). For project-root enrichment
+/// (Phase 8.6 v1), this equals the canonicalized project root path
+/// `Tree.svelte` holds for its root node — `EnrichmentStore.get(node.path)`
+/// joins on string equality.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct IndexEnrichmentPayload {
-    /// Project-relative filesystem path being enriched.
+    /// Canonical absolute filesystem path being enriched, forward-slash-normalized.
     pub fs_path: String,
     /// Vault identifier that provides the enrichment.
     pub vault_id: String,
-    /// Abyssal Index category prefix for this vault.
+    /// Abyssal Index category in long form (`"project"`, `"practices"`, etc.).
     pub vault_kind: String,
     /// Vault-sourced tags attached to the filesystem node.
     pub tags: Vec<String>,
