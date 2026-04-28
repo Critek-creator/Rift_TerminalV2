@@ -123,6 +123,29 @@
     fit = new FitAddon();
     term.loadAddon(fit);
     term.open(host);
+
+    // Defer fit until layout has actually settled.
+    //
+    // On INITIAL app render, this Terminal component is mounted by App.svelte's
+    // {#each sessions} block at the same time as siblings in cockpit-right
+    // (IndexGraph, Tree). Svelte's onMount fires after the component reaches
+    // the DOM but BEFORE the parent flex containers have laid out their final
+    // dimensions. Calling fit.fit() at this moment can measure terminal-host
+    // as 0×0 (or close to it) — xterm then sizes its canvas to 0×0 and PTY
+    // gets started with bogus rows/cols. The shell launches but its prompt
+    // bytes land in a 0-line ring buffer; later layout settles via the
+    // ResizeObserver but cmd.exe doesn't re-emit the prompt → terminal stays
+    // black for the initial session.
+    //
+    // Sessions opened later via the "+" button don't hit this because by then
+    // the cockpit layout is fully settled.
+    //
+    // Fix: tick() yields to Svelte's microtask queue (parent $effects + flex
+    // recalculation), then a single requestAnimationFrame guarantees the
+    // browser has actually computed final layout dimensions before we measure.
+    // This narrowly addresses pr003 lesson `terminal-fit-races-initial-flex-layout`.
+    await tick();
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
     fit.fit();
 
     const onChunk = new Channel<number[]>();
