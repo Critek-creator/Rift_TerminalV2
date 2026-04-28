@@ -52,7 +52,7 @@
   "plugins": {
     "updater": {
       "active": false,
-      "pubkey": "PLACEHOLDER_PUBKEY_RUN_TAURI_SIGNER_GENERATE",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDJBODAwNDE4RDJGQ0EyQkIKUldTN292elNHQVNBS3FrNnpEZjVBei9Ca0dSSHZIQTVIUGhlUjRMcE1DYysxSFlKUVNmME9nQVUK",
       "endpoints": [
         "https://github.com/Critek-creator/Rift_TerminalV2/releases/latest/download/latest.json"
       ]
