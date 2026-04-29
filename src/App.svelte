@@ -17,6 +17,7 @@
   import BusTailTabContent from './lib/BusTailTabContent.svelte';
   import TodoTabContent from './lib/TodoTabContent.svelte';
   import GitTabContent from './lib/GitTabContent.svelte';
+  import AgentsTabContent from './lib/AgentsTabContent.svelte';
   import StatusLine from './lib/StatusLine.svelte';
   import Popout from './lib/Popout.svelte';
   import { popouts } from './lib/popouts.svelte';
@@ -34,6 +35,7 @@
     commands: 'pty',      // v1: all Category::Pty envelopes; only kind emitted is "command.submitted"; kind-filter deferred
     aegis: 'aegis',       // Phase 7.2 — Aegis integration tab (private translator, feature-gated)
     index: 'index',       // Phase 8.2 — Index integration tab (vault-walker source wires in Phase 8.5)
+    agents: 'agent',      // Phase 8.7k — Agents tracker (§10.11 display layer; Sentinel detection deferred via D-010)
   };
 
   // ----- session tabs -----
@@ -65,6 +67,11 @@
     // Phase 8.7i — git status (branch, ahead/behind, working tree).
     // Shells out to `git`; renders not-a-repo empty state when applicable.
     { id: 'git',      title: 'git',      icon: '⎇', enabled: true, detected: true,  unreadCount: 0, lastActivityTs: null },
+    // Phase 8.7k — Agents tracker. Capability-gated: detected:false until
+    // any Category::Agent envelope arrives (master sub flips it). Cancel
+    // button in the tab publishes agent.cancel back to the bus per §9 — a
+    // translator (Aegis today, Sentinel post-D-010) is what fulfills it.
+    { id: 'agents',   title: 'agents',   icon: '◊', enabled: true, detected: false, unreadCount: 0, lastActivityTs: null },
   ]);
 
   // Reverse map for envelope routing — Category → notif tab id. Used by the
@@ -76,6 +83,7 @@
     pty: 'commands',
     aegis: 'aegis',
     index: 'index',
+    agent: 'agents',
   };
 
   // ----- which surface is in the main pane -----
@@ -672,6 +680,8 @@
                 <TodoTabContent />
               {:else if activeNotifTab.id === 'git'}
                 <GitTabContent />
+              {:else if activeNotifTab.id === 'agents'}
+                <AgentsTabContent />
               {:else}
                 <NotificationPane
                   title={activeNotifTab.title}
@@ -713,6 +723,8 @@
               <TodoTabContent onDragBack={demoteTab} />
             {:else if promotedTab.id === 'git'}
               <GitTabContent onDragBack={demoteTab} />
+            {:else if promotedTab.id === 'agents'}
+              <AgentsTabContent onDragBack={demoteTab} />
             {:else}
               <NotificationPane
                 title={promotedTab.title}
