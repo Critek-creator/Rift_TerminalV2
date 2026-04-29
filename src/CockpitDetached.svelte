@@ -22,6 +22,12 @@
   import type { Window as TauriWindow } from '@tauri-apps/api/window';
   import Tree from './lib/Tree.svelte';
   import IndexGraph from './lib/IndexGraph.svelte';
+  import Splitter from './lib/Splitter.svelte';
+
+  // Phase 8.7e — graph/tree split is resizable + persisted (separate
+  // localStorage key from main cockpit so the user can tune detached layout
+  // independently of the docked one).
+  let graphHeightPct = $state(55);
 
   // Lazy-init at onMount instead of module scope.
   //
@@ -178,9 +184,9 @@
   </header>
 
   <!-- Phase 8.7d — mirrors App.svelte's cockpit-right split:
-       IndexGraph (top 55%) + horizontal divider + File Tree (bottom 45%).
-       Without this the detached cockpit only carried half the surface. -->
-  <div class="graph-pane">
+       IndexGraph (top) + horizontal Splitter + File Tree (bottom).
+       Phase 8.7e — split ratio is resizable + persisted. -->
+  <div class="graph-pane" style="flex: 0 0 {graphHeightPct}%;">
     <div class="pane-header">
       <span>INDEX</span>
       <span class="meta">vault graph · fixture</span>
@@ -190,7 +196,15 @@
     </div>
   </div>
 
-  <div class="cockpit-h-divider"></div>
+  <Splitter
+    direction="horizontal"
+    storageKey="rift.cockpit.detached_graph_height_pct"
+    unit="percent"
+    bind:size={graphHeightPct}
+    min={20}
+    max={80}
+    onDblClick={() => (graphHeightPct = 55)}
+  />
 
   <div class="tree-pane">
     <div class="pane-header">
@@ -291,9 +305,9 @@
     border-color: var(--blue-claude);
   }
 
-  /* ---- graph + tree split — Phase 8.7d, mirrors App.svelte cockpit-right ---- */
+  /* ---- graph + tree split — Phase 8.7d (mirrors App.svelte cockpit-right);
+     Phase 8.7e: graph-pane flex-basis controlled by Splitter via inline style. ---- */
   .graph-pane {
-    flex: 0 0 55%;
     display: flex;
     flex-direction: column;
     min-height: 0;
@@ -306,11 +320,6 @@
     flex-direction: column;
     min-height: 0;
     overflow: hidden;
-  }
-  .cockpit-h-divider {
-    flex: 0 0 1px;
-    background: var(--border-subtle);
-    width: 100%;
   }
   .tree-pane {
     flex: 1 1 45%;

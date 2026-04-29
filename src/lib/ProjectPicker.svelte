@@ -15,6 +15,7 @@
   // fire Popout.svelte's window-level listener (which would double-dismiss).
 
   import { invoke } from '@tauri-apps/api/core';
+  import { open as openDialog } from '@tauri-apps/plugin-dialog';
   import { popouts } from './popouts.svelte';
 
   // ---------------------------------------------------------------------------
@@ -116,6 +117,29 @@
     void swapToPath(entry.path);
   }
 
+  /**
+   * Phase 8.7d — open the OS native folder picker via @tauri-apps/plugin-dialog.
+   * Selecting a directory writes its path to `newPath`; the user can then click
+   * Open (or hit Enter) to swap, or edit the path before confirming. Cancel in
+   * the picker is a silent no-op (open() returns null).
+   */
+  async function onBrowse(): Promise<void> {
+    if (busy) return;
+    try {
+      const selected = await openDialog({
+        directory: true,
+        multiple: false,
+        title: 'Select project folder',
+      });
+      if (typeof selected === 'string' && selected.length > 0) {
+        newPath = selected;
+        error = null;
+      }
+    } catch (e: unknown) {
+      error = `Folder picker failed: ${String(e)}`;
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // Keyboard — Esc must stopPropagation (pr003 popout-keydown-bubble-collision)
   // ---------------------------------------------------------------------------
@@ -183,21 +207,31 @@
     {/if}
   </div>
 
-  <!-- Manual path input -->
+  <!-- Manual path input + native folder picker -->
   <div class="picker-section picker-section-input">
     <div class="picker-section-label">Open a different path</div>
-    <input
-      class="picker-input"
-      type="text"
-      placeholder="e.g. C:\Users\me\my-project or /home/me/my-project"
-      bind:value={newPath}
-      disabled={busy}
-      aria-label="project path"
-      onkeydown={(e) => {
-        if (e.key === 'Enter') onConfirm();
-        // Let Esc bubble up to the outer onKeyDown handler (same element).
-      }}
-    />
+    <div class="picker-input-row">
+      <input
+        class="picker-input"
+        type="text"
+        placeholder="e.g. C:\Users\me\my-project or /home/me/my-project"
+        bind:value={newPath}
+        disabled={busy}
+        aria-label="project path"
+        onkeydown={(e) => {
+          if (e.key === 'Enter') onConfirm();
+          // Let Esc bubble up to the outer onKeyDown handler (same element).
+        }}
+      />
+      <button
+        type="button"
+        class="picker-browse"
+        onclick={onBrowse}
+        disabled={busy}
+        aria-label="browse for project folder"
+        title="Browse… (native folder picker)"
+      >▦ Browse…</button>
+    </div>
   </div>
 
   <!-- Error display -->
@@ -319,9 +353,18 @@
     padding: 4px 0;
   }
 
+  /* Input + native folder picker — flex row so the Browse button aligns
+     with the path input on the same baseline. */
+  .picker-input-row {
+    display: flex;
+    gap: 6px;
+    align-items: stretch;
+  }
+
   /* Input */
   .picker-input {
-    width: 100%;
+    flex: 1;
+    min-width: 0;
     background: var(--bg-base);
     border: 1px solid var(--amber-faint);
     color: var(--amber-warm);
@@ -331,6 +374,28 @@
     outline: none;
     box-sizing: border-box;
     caret-color: var(--amber-bright);
+  }
+  .picker-browse {
+    flex: 0 0 auto;
+    background: transparent;
+    border: 1px solid var(--amber-faint);
+    color: var(--amber-warm);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    padding: 0 12px;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: color 0.12s, border-color 0.12s;
+  }
+  .picker-browse:not(:disabled):hover {
+    color: var(--amber-primary);
+    border-color: var(--amber-primary);
+    text-shadow: var(--glow-amber);
+  }
+  .picker-browse:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
   }
   .picker-input:focus {
     border-color: var(--amber-primary);

@@ -17,6 +17,7 @@
   import { popouts } from './lib/popouts.svelte';
   import Tree from './lib/Tree.svelte';
   import IndexGraph from './lib/IndexGraph.svelte';
+  import Splitter from './lib/Splitter.svelte';
   import { subscribe, type Category } from './lib/bus';
   import { enrichmentStore } from './lib/enrichmentStore.svelte';
 
@@ -165,6 +166,12 @@
   // placeholder card. Polled once on mount for reload-recovery (design E),
   // then kept current via `cockpit_detached` / `cockpit_reattached` events.
   let cockpitDetached = $state(false);
+
+  // Phase 8.7e — resizable pane sizes. Splitter.svelte hydrates these from
+  // localStorage on mount and persists on drag-end. Defaults match the prior
+  // CSS flex-basis values so existing users see no immediate layout change.
+  let cockpitRightWidth = $state(420); // px — was flex: 0 0 38% (~420 of 1100)
+  let graphHeightPct = $state(55);     // percent — was flex: 0 0 55%
 
   // §10.9 live-border tick — drives TabBar.svelte's `isLive` derived. The
   // 1-second cadence is fast enough to feel responsive without burning CPU;
@@ -486,10 +493,23 @@
          X — both intercepted to .hide()). The TitleBar's chip swaps to a
          ↙ DOCK button while detached, so the user always has a path back. -->
     {#if !cockpitDetached}
-      <div class="cockpit-right">
+      <!-- Phase 8.7e — vertical splitter between terminal (cockpit-left) and
+           cockpit-right (graph + tree). Drag to resize terminal/cockpit
+           widths; double-click to reset to default 420px. Width persists. -->
+      <Splitter
+        direction="vertical"
+        storageKey="rift.cockpit.right_width_px"
+        unit="px"
+        bind:size={cockpitRightWidth}
+        min={280}
+        max={800}
+        onDblClick={() => (cockpitRightWidth = 420)}
+      />
+
+      <div class="cockpit-right" style="flex: 0 0 {cockpitRightWidth}px;">
         <!-- Phase 8.4 — Graph pane (top slot). IndexGraph.svelte renders width:100%/height:100%
              inside .graph-pane; border-bottom is the horizontal divider per mockup #3. -->
-        <div class="graph-pane">
+        <div class="graph-pane" style="flex: 0 0 {graphHeightPct}%;">
           <div class="pane-header">
             <span>INDEX</span>
             <span class="meta">vault graph · fixture</span>
@@ -499,8 +519,17 @@
           </div>
         </div>
 
-        <!-- Horizontal divider — 1px solid border-subtle, no resize affordance in v1 (deferred per p006) -->
-        <div class="cockpit-h-divider"></div>
+        <!-- Phase 8.7e — horizontal splitter between graph and tree.
+             Drag to resize their height ratio; double-click resets to 55/45. -->
+        <Splitter
+          direction="horizontal"
+          storageKey="rift.cockpit.graph_height_pct"
+          unit="percent"
+          bind:size={graphHeightPct}
+          min={20}
+          max={80}
+          onDblClick={() => (graphHeightPct = 55)}
+        />
 
         <!-- Tree pane (bottom slot) — all existing Tree props preserved unchanged -->
         <div class="tree-pane">
@@ -581,20 +610,19 @@
     background: var(--bg-base);
   }
 
-  /* Right half — graph + tree stacked column (Phase 8.4). */
+  /* Right half — graph + tree stacked column (Phase 8.4).
+     flex-basis is set inline by App.svelte via cockpitRightWidth state
+     (Phase 8.7e — Splitter-controlled, persisted to localStorage). */
   .cockpit-right {
-    flex: 0 0 38%;
-    min-width: 360px;
-    max-width: 520px;
     display: flex;
     flex-direction: column;
     background: var(--bg-panel);
+    min-width: 0;
   }
 
-  /* Phase 8.4 — Graph pane (top slot, 55% of cockpit-right height).
-     flex: 0 0 55% matches mockup #3 .gui-graph canonical sizing. */
+  /* Phase 8.4 — Graph pane (top slot). flex-basis set inline via
+     graphHeightPct state (Phase 8.7e Splitter-controlled). */
   .graph-pane {
-    flex: 0 0 55%;
     display: flex;
     flex-direction: column;
     min-height: 0;
@@ -610,14 +638,6 @@
     flex-direction: column;
     min-height: 0;
     overflow: hidden;
-  }
-
-  /* Phase 8.4 — Horizontal divider between graph and tree panes.
-     1px solid, no resize affordance in v1 (resize handle deferred per p006). */
-  .cockpit-h-divider {
-    flex: 0 0 1px;
-    background: var(--border-subtle);
-    width: 100%;
   }
 
   /* Tree pane (bottom slot, 45% of cockpit-right height).

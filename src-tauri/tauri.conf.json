@@ -18,9 +18,10 @@
         "height": 700,
         "minWidth": 720,
         "minHeight": 480,
-        "decorations": true,
+        "decorations": false,
         "transparent": false,
         "resizable": true,
+        "shadow": true,
         "dragDropEnabled": false
       }
     ],
