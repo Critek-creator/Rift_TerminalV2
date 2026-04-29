@@ -5,6 +5,12 @@ on:
     tags:
       - 'v*'
 
+# tauri-action calls the GitHub Releases API to create the draft release
+# and upload assets. The default GITHUB_TOKEN doesn't have write access to
+# Contents (and therefore can't create releases) unless we ask for it here.
+permissions:
+  contents: write
+
 jobs:
   release:
     runs-on: ${{ matrix.os }}

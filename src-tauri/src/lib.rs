@@ -1151,7 +1151,13 @@ pub fn run() {
             // Detach GUI. Position-restore from localStorage still works
             // because CockpitDetached.svelte's onMount runs the first time
             // the window is shown.
-            tauri::WebviewWindowBuilder::new(
+            // Build the window. `drag_and_drop(false)` is gated on Windows
+            // because the WebView2 dragover-swallow bug it works around is
+            // Windows-specific (and the builder method itself only exists in
+            // Tauri's Windows backend — calling it on linux/macOS is a
+            // compile error). On non-Windows wry doesn't swallow the events,
+            // so the runtime-default behaviour is what we want anyway.
+            let cockpit_builder = tauri::WebviewWindowBuilder::new(
                 app,
                 "cockpit-detached",
                 tauri::WebviewUrl::App("cockpit-detached.html".into()),
@@ -1166,9 +1172,12 @@ pub fn run() {
             .min_inner_size(420.0, 600.0)
             .decorations(false)
             .resizable(true)
-            .visible(false)
-            .drag_and_drop(false)
-            .build()?;
+            .visible(false);
+
+            #[cfg(windows)]
+            let cockpit_builder = cockpit_builder.drag_and_drop(false);
+
+            cockpit_builder.build()?;
 
             Ok(())
         })
