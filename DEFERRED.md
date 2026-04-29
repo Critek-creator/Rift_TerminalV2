@@ -28,15 +28,7 @@
 - `MODEL` → emitted by Claude Code as part of session-init hook; same upstream-blocked path as CTX% / SESSION%.
 - **Unblocking event:** Claude Code usage hook lands with token-count payload; then wire a cc-translator or extend `status.rs` to subscribe + republish as additional `Category::Status` fields. Update `StatusLine.svelte` subscription handler to read `ctx`, `sessionUse`, `week`, `model` from the envelope payload.
 
-### D-013 — Updater plugin Rust integration — PARTIALLY CLOSED 2026-04-28 (Rust plugin wired + dep added; frontend session-start check + GitHub Secret + active-flip still open)
-
-**Closed sub-tranche (2026-04-28):** Rust-side plugin integration shipped. Workspace + crate Cargo.toml declare `tauri-plugin-updater = "2"` (resolved to v2.10.1). `src-tauri/src/lib.rs` wires `.plugin(tauri_plugin_updater::Builder::new().build())` into the `tauri::Builder`. `src-tauri/capabilities/default.json` grants `updater:default`. `tauri.conf.json` pubkey field carries a real minisign public key (no longer the `PLACEHOLDER_PUBKEY_RUN_TAURI_SIGNER_GENERATE` sentinel). `package.json` declares `@tauri-apps/plugin-updater@^2.0.0` (dep only — no JS call sites yet). Full preflight green: fmt / clippy / build / test (84 workspace tests + 14 rift-aegis private-module tests) / `npm run check` (207 files, 0 errors) / §9 boundary check / `cargo build -p rift --features aegis --locked` / `cargo clippy -p rift --features aegis --locked`.
-
-**Still open (must land before flipping `plugins.updater.active` to `true`):**
-- **Frontend session-start check** — `src/` has zero call sites for `@tauri-apps/plugin-updater`. Need an `App.svelte` (or equivalent) `onMount` that calls `check()` from the plugin and surfaces an `update.available` UX (likely a notification-tab card per §10.7 capability-driven empty-state pattern).
-- **GitHub Secret `TAURI_SIGNING_PRIVATE_KEY`** — out-of-band user task. Per `RELEASING.md` §1c, the private half of the keypair (printed by `tauri signer generate -w ~/.tauri/rift.key` when the public half above was generated) must land as a repo secret before `release.yml` can sign release artifacts.
-- **Vitest 2 → 4 major-version bump** rode along in this batch (`devDependencies.vitest` `^2.1.0` → `^4.1.5`). No frontend test suite exists yet (C5 shipped infra only), so no regression surface to verify — but if Phase 8 lands frontend tests, validate the bump didn't change config-file syntax.
-- **Active-flip** — `plugins.updater.active` stays `false` until the frontend check + GitHub Secret are both in place.
+<!-- D-013 fully closed 2026-04-29 — see C-018 below. -->
 
 ### D-017 — Viewer edit-mode syntax highlighting (post-v1 ask, opened 2026-04-29)
 
@@ -96,6 +88,17 @@
 ---
 
 ## Closed deferrals
+
+### C-018 — D-013 updater plugin fully active (closed 2026-04-29)
+
+All four "still open" items from the 2026-04-28 partial close are now in place. Verified end-to-end:
+
+- **Frontend session-start check** — shipped commit `eff6f6a` (8.7f). `App.svelte` calls `check()` from `@tauri-apps/plugin-updater` on mount and surfaces an `update-banner` aside with Install / Later / Dismiss buttons + error state.
+- **GitHub Secrets** — `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` both set 2026-04-28 (verified via `gh secret list`). `release.yml:74-75` consumes both env vars during the bundle step.
+- **Active-flip** — `tauri.conf.json:56` `plugins.updater.active: true`. Pubkey at line 57 matches `~/.tauri/rift.key.pub` byte-for-byte.
+- **Vitest 2→4 major bump** — rode along in 8.7f. No regression surface (still no frontend test suite); will be re-verified when Phase 9 packaging-validation tests land.
+
+Unblocking event for v1 ship is now strictly Phase 9 packaging (cargo-wix MSI + signing CI + runbook). No remaining deps on Tauri / GitHub / minisign infrastructure.
 
 ### C-014 — D-011 public-CI fresh-clone build (closed 2026-04-27)
 
