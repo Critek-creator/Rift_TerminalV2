@@ -2,10 +2,7 @@
   "mcpServers": {
     "rift": {
       "command": "rift-mcp",
-      "args": [],
-      "env": {
-        "RIFT_MCP_TOKEN": "${RIFT_MCP_TOKEN}"
-      }
+      "args": []
     }
   }
 }

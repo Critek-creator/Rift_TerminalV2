@@ -57,7 +57,15 @@ async fn main() -> Result<()> {
         token,
     };
 
-    run_stdio(cfg).await
+    // Surface the failure on stderr before bubbling — Claude Code displays
+    // stderr in the MCP server status pane, so a mid-flight handshake
+    // failure or missing-host condition becomes a useful message instead
+    // of a silent "× failed".
+    if let Err(e) = run_stdio(cfg).await {
+        eprintln!("rift-mcp: {e:#}");
+        return Err(e);
+    }
+    Ok(())
 }
 
 fn tracing_subscriber_init() {

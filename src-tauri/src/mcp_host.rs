@@ -32,7 +32,10 @@ use crate::git_status;
 ///    envelopes BEFORE running.
 ///
 /// `project_root` is captured for tools that need it (e.g. `git_status`).
-pub fn spawn_mcp_host(bus: RiftBus, cfg: McpConfig, project_root: PathBuf) {
+/// `socket_name` is the live `rift-bus` IPC socket name — written to the
+/// MCP discovery file so the standalone `rift-mcp` binary can find this
+/// host without `--socket` or `$RIFT_SOCKET_NAME` plumbed through.
+pub fn spawn_mcp_host(bus: RiftBus, cfg: McpConfig, project_root: PathBuf, socket_name: String) {
     if !cfg.enabled {
         tracing::debug!("mcp_host: MCP disabled in config — subscriber not spawned");
         return;
@@ -49,6 +52,14 @@ pub fn spawn_mcp_host(bus: RiftBus, cfg: McpConfig, project_root: PathBuf) {
             false
         }
     };
+
+    // Publish the live socket name so the standalone `rift-mcp` binary —
+    // which Claude Code spawns with no env or args — can discover this
+    // host. Cleared in the `RunEvent::ExitRequested` handler in lib.rs.
+    if let Err(e) = rift_bus::save_mcp_socket(&socket_name) {
+        tracing::error!("mcp_host: failed to write discovery file: {e}");
+        publish_error(&bus, "mcp_host.discovery", e.to_string(), None);
+    }
 
     let bus_for_task = bus.clone();
     tauri::async_runtime::spawn(async move {

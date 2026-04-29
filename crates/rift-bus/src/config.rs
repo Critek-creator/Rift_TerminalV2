@@ -250,6 +250,61 @@ pub fn ensure_mcp_token() -> Result<String, ConfigError> {
     Ok(t)
 }
 
+/// Resolve the platform path for the MCP discovery file (D-014).
+///
+/// Sibling of `mcp_token`. Holds the IPC socket name of the currently-running
+/// Rift host so the standalone `rift-mcp` binary (spawned by Claude Code with
+/// no env or args) can reach it. Written on host startup, removed on exit.
+pub fn mcp_socket_path() -> Result<PathBuf, ConfigError> {
+    let dirs =
+        directories::ProjectDirs::from("com", "abyssal", "rift").ok_or(ConfigError::NoConfigDir)?;
+    Ok(dirs.config_dir().join("mcp_socket"))
+}
+
+/// Read the discovery file and return the recorded socket name, or `None`
+/// if the file is absent. A stale file from a crashed prior Rift is still
+/// returned — the bridge's `IpcClient::connect` is the source of truth for
+/// liveness.
+pub fn load_mcp_socket() -> Result<Option<String>, ConfigError> {
+    let path = mcp_socket_path()?;
+    match std::fs::read_to_string(&path) {
+        Ok(s) => {
+            let trimmed = s.trim().to_string();
+            if trimmed.is_empty() {
+                Ok(None)
+            } else {
+                Ok(Some(trimmed))
+            }
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(ConfigError::Io(e)),
+    }
+}
+
+/// Atomically write the current host's socket name to the discovery file.
+pub fn save_mcp_socket(socket_name: &str) -> Result<(), ConfigError> {
+    let path = mcp_socket_path()?;
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let tmp = path.with_extension("tmp");
+    std::fs::write(&tmp, socket_name)?;
+    std::fs::rename(&tmp, &path)?;
+    Ok(())
+}
+
+/// Remove the discovery file. No-op if absent. Called from the host's
+/// `ExitRequested` handler so the next Rift launch starts with a clean
+/// slate (and so a stopped host can't masquerade as live).
+pub fn clear_mcp_socket() -> Result<(), ConfigError> {
+    let path = mcp_socket_path()?;
+    match std::fs::remove_file(&path) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(ConfigError::Io(e)),
+    }
+}
+
 /// Sync strategy for the Abyssal Index vault graph.
 ///
 /// New variants in future Rift versions are caught by [`SyncMode::Unknown`]

@@ -22,23 +22,27 @@ mutation, and WebSocket-transport tools. See `decisions/D-014_rift_mcp_v1_plan.m
 
 ## Prerequisites
 
-1. **A built `rift-mcp` binary on PATH.** Build from this repo:
+1. **A built `rift-mcp` binary on PATH.** From this repo:
    ```sh
-   cargo build --release -p rift-mcp
+   cargo install --path crates/rift-mcp --force
    ```
-   Then put `target/release/rift-mcp` on your shell PATH.
+   This drops `rift-mcp` into `~/.cargo/bin`, which should already be on PATH
+   for any Rust toolchain install. Alternative: `cargo build --release -p rift-mcp`
+   then copy `target/release/rift-mcp` to a directory on PATH manually.
 
 2. **A running Rift host with MCP enabled.** Open Rift → Settings popout
-   → toggle "enable MCP server". A token is generated and persisted at:
-   - Windows: `%APPDATA%\com.abyssal.rift\config\mcp_token`
-   - macOS:   `~/Library/Application Support/com.abyssal.rift/mcp_token`
-   - Linux:   `$XDG_CONFIG_HOME/rift/mcp_token`
+   → toggle "enable MCP server" → restart Rift. On boot the host writes two
+   sibling files to the platform config directory:
+   - `mcp_token`   — auth token, owner-readable, never logged.
+   - `mcp_socket`  — current IPC socket name (changes per launch). Auto-cleared on Rift exit.
 
-3. **Token in the environment.** Either:
-   - Click "reveal token" + "copy" in Settings, then
-     `export RIFT_MCP_TOKEN=<paste>` before launching Claude Code, or
-   - Let `rift-mcp` discover the token file automatically (default — no env
-     var needed when running on the same machine as the host).
+   Paths:
+   - Windows: `%APPDATA%\com.abyssal.rift\config\`
+   - macOS:   `~/Library/Application Support/com.abyssal.rift/`
+   - Linux:   `$XDG_CONFIG_HOME/rift/`
+
+   No env vars needed — the binary reads both files at startup. Claude Code can
+   spawn `rift-mcp` with no args, no env, no plumbing.
 
 ## Installation
 
@@ -76,14 +80,22 @@ grows in later phases to include mutating tools.
 
 ## Troubleshooting
 
+- **`× failed` in `/mcp`** — most common cause is no Rift host running, or
+  MCP not enabled in Settings. Run `rift-mcp` directly to see the actual
+  error on stderr; it will name the exact discovery file path it looked for.
 - **`/mcp` shows the server but no tools** — the host bridge in
   `src-tauri/src/mcp_host.rs` only subscribes when `RiftConfig.mcp.enabled
-  = true`. Re-check the Settings toggle.
-- **"No MCP token available"** — the binary couldn't find a token. Pass
-  `--token` explicitly, set `RIFT_MCP_TOKEN`, or enable MCP in Rift's
-  Settings to generate one.
-- **Token mismatch / handshake denied** — regenerate the token in Settings,
-  update `RIFT_MCP_TOKEN`, and restart Claude Code.
+  = true`. Re-check the Settings toggle, then **restart Rift** (the host
+  spawn happens at app boot, so toggling at runtime won't take effect until
+  next launch).
+- **"No MCP token available"** — the binary couldn't find a token. Enable
+  MCP in Rift's Settings to generate one (or pass `--token` / set
+  `RIFT_MCP_TOKEN` for ad-hoc testing).
+- **"no Rift host found"** — Rift is not running, or the discovery file
+  (`mcp_socket`) was never written. Start Rift, confirm MCP is enabled in
+  Settings, and confirm the file exists in the platform config dir.
+- **Token mismatch / handshake denied** — regenerate the token in Settings
+  and restart Claude Code so the plugin re-reads it from disk.
 
 ## Audit trail
 

@@ -12,6 +12,16 @@ use serde::Serialize;
 use std::path::Path;
 use std::process::Command;
 
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+
+/// Windows `CREATE_NO_WINDOW`. Mirrors the constant in
+/// `crates/rift-bus/src/translators/status.rs` — every `Command::spawn` of
+/// `git.exe` from this crate must apply it, otherwise each `git_status_command`
+/// invocation flashes a visible console window on Windows.
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
 #[derive(Debug, Clone, Serialize, Default)]
 pub struct GitStatus {
     /// True when `git status` exits with status 128 ("not a git repository").
@@ -163,6 +173,10 @@ fn run_git(root: &Path, args: &[&str]) -> Result<GitOutput, String> {
     for a in args {
         cmd.arg(a);
     }
+    // Suppress the visible console window on Windows. See module-level
+    // CREATE_NO_WINDOW doc-comment for the user-visible symptom this prevents.
+    #[cfg(windows)]
+    cmd.creation_flags(CREATE_NO_WINDOW);
     let output = cmd.output().map_err(|e| {
         format!("git_status: failed to spawn `git`: {e} (is git installed and on PATH?)")
     })?;

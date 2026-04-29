@@ -111,10 +111,16 @@ pub use translators::index::VaultChangeKind;
 /// envelopes every 5 seconds with `{ dir, git, repo, ts }`.
 ///
 /// This is an `async fn` — callers must wrap it in `tauri::async_runtime::spawn`
-/// (or equivalent) per the Phase 7.1 setup() pattern (mirrors `spawn_vault_walker`):
+/// (or equivalent) per the Phase 7.1 setup() pattern (mirrors `spawn_vault_walker`).
+/// The `shutdown` parameter is a `tokio::sync::Notify` that the host (`src-tauri`)
+/// signals from its `RunEvent::ExitRequested` handler so the loop stops cleanly
+/// when the main window closes — without this, the status tick continues
+/// spawning `git.exe` children after window close (visible terminal flashes
+/// until the process is force-killed via Task Manager):
 /// ```ignore
+/// let shutdown = std::sync::Arc::new(tokio::sync::Notify::new());
 /// tauri::async_runtime::spawn(async move {
-///     rift_bus::spawn_status_translator(bus, project_root).await;
+///     rift_bus::spawn_status_translator(bus, project_root, shutdown).await;
 /// });
 /// ```
 ///
@@ -159,3 +165,8 @@ pub use config::mcp_token_path;
 
 /// MCP token helpers (D-014): generate, load, save, ensure.
 pub use config::{ensure_mcp_token, generate_mcp_token, load_mcp_token, save_mcp_token};
+
+/// MCP socket discovery helpers (D-014). Host writes its live IPC socket
+/// name to this file on startup so the standalone `rift-mcp` binary can
+/// connect without `--socket` or `$RIFT_SOCKET_NAME` plumbed through.
+pub use config::{clear_mcp_socket, load_mcp_socket, mcp_socket_path, save_mcp_socket};

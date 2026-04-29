@@ -1,0 +1,31 @@
+{
+  "name": "rift-mcp",
+  "owner": {
+    "name": "Abyssal Arts",
+    "url": "https://github.com/Critek-creator"
+  },
+  "metadata": {
+    "description": "Local marketplace for the Rift terminal MCP plugin.",
+    "version": "0.1.0"
+  },
+  "plugins": [
+    {
+      "name": "rift-mcp",
+      "source": "./",
+      "description": "Connect Claude Code to a running Rift terminal — observe the bus, inspect git/aegis state, drive the cockpit.",
+      "version": "0.1.0",
+      "author": {
+        "name": "Abyssal Arts"
+      },
+      "homepage": "https://github.com/Critek-creator/Rift_TerminalV2",
+      "license": "Proprietary",
+      "category": "development",
+      "keywords": [
+        "mcp",
+        "rift",
+        "terminal",
+        "abyssal-arts"
+      ]
+    }
+  ]
+}

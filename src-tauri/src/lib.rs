@@ -40,6 +40,16 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+
+/// Windows `CREATE_NO_WINDOW` — see the matching constant in
+/// `crates/rift-bus/src/translators/status.rs::CREATE_NO_WINDOW` and
+/// `crates/rift-bus/src/translators/status.rs::git_cmd` for the full rationale.
+/// Applied to every `Command::spawn` site reachable from this crate.
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
 /// A spawned [`tauri::async_runtime::JoinHandle`] wrapped in an `Option` so
 /// it can be taken and aborted exactly once.
 type DrainHandle = tauri::async_runtime::JoinHandle<()>;
@@ -57,8 +67,28 @@ use rift_core::pty::{PtyControl, PtyDims, PtyOptions, PtySession};
 use serde::Serialize;
 use serde_json::json;
 use tauri::ipc::Channel;
-use tauri::{AppHandle, Emitter, Manager, State};
-use tokio::sync::oneshot;
+use tauri::{AppHandle, Emitter, Manager, RunEvent, State};
+use tokio::sync::{oneshot, Notify};
+
+/// App-wide shutdown notifier. Spawned long-lived translator tasks
+/// (`spawn_status_translator` for now; future translators on the same pattern)
+/// `tokio::select!` against this notify so they exit promptly when the main
+/// window closes — without the signal, the 5-second status tick keeps spawning
+/// `git.exe` after window close, painting visible terminal flashes until the
+/// process is force-killed via Task Manager (the symptom this module-level
+/// constant exists to fix; see `CREATE_NO_WINDOW` above).
+#[derive(Clone, Default)]
+struct ShutdownNotify(Arc<Notify>);
+
+impl ShutdownNotify {
+    fn handle(&self) -> Arc<Notify> {
+        self.0.clone()
+    }
+
+    fn signal(&self) {
+        self.0.notify_waiters();
+    }
+}
 
 // ---------------------------------------------------------------------------
 // PTY registry (Phase 1)
@@ -827,9 +857,13 @@ fn open_in_os_editor(rel_to_home: &str) -> Result<(), String> {
 
     #[cfg(target_os = "windows")]
     let status = {
-        std::process::Command::new("cmd")
-            .args(["/C", "start", "", &path_str])
-            .status()
+        let mut cmd = std::process::Command::new("cmd");
+        cmd.args(["/C", "start", "", &path_str]);
+        // Suppress the cmd.exe console flash on the file-open path. Without
+        // this the `aegis_open_lessons` / `aegis_open_settings` commands
+        // briefly paint a console window each time the user clicks them.
+        cmd.creation_flags(CREATE_NO_WINDOW);
+        cmd.status()
     };
 
     #[cfg(target_os = "macos")]
@@ -1029,6 +1063,7 @@ pub fn run() {
         .manage(BusSubscriptionRegistry::default())
         .manage(CommandBufferRegistry::default())
         .manage(cockpit_window::CockpitWindowState::default())
+        .manage(ShutdownNotify::default())
         .setup(|app| {
             // Bus is always present; the IPC server is best-effort and may
             // fail to bind (e.g. if the socket name is taken). Frontend can
@@ -1175,13 +1210,19 @@ pub fn run() {
             // in tauri::async_runtime::spawn (matches vault_walker pattern). A
             // bare tokio::spawn inside the translator would panic with
             // "no reactor running" since rift-bus runs on the Tauri main thread.
+            // Shutdown handle for the status translator's `tokio::select!` —
+            // signalled in the `RunEvent::ExitRequested` handler at the very
+            // bottom of `run()` so the translator exits promptly when the
+            // main window closes (otherwise the 5-second tick keeps firing
+            // `git.exe`, painting visible flashes until Task Manager kill).
+            let status_shutdown = app.state::<ShutdownNotify>().handle();
             tauri::async_runtime::spawn(async move {
                 // 250ms boot delay — same rationale as the vault-walker spawn
                 // above (cockpit-layout race; audit-1 / audit-3 2026-04-28).
                 // First status envelope publish is then ~250ms after Terminal
                 // mount, well past the cockpit's initial flex settle.
                 tokio::time::sleep(std::time::Duration::from_millis(250)).await;
-                spawn_status_translator(status_bus, status_root).await;
+                spawn_status_translator(status_bus, status_root, status_shutdown).await;
             });
 
             // D-014 Phase A — MCP host subscriber (off by default).
@@ -1196,7 +1237,8 @@ pub fn run() {
                 let mcp_bus = app.state::<RiftBus>().inner().clone();
                 let mcp_cfg = cfg.mcp.clone();
                 let mcp_root = app.state::<ProjectRoot>().inner().get();
-                mcp_host::spawn_mcp_host(mcp_bus, mcp_cfg, mcp_root);
+                let mcp_socket = socket_name.clone();
+                mcp_host::spawn_mcp_host(mcp_bus, mcp_cfg, mcp_root, mcp_socket);
             }
 
             // Phase 8.7d — Pre-create the cockpit-detached window at setup
@@ -1274,8 +1316,34 @@ pub fn run() {
             mcp_token_get,
             mcp_token_regenerate,
         ])
-        .run(tauri::generate_context!())
-        .expect("rift: tauri runtime failed to start");
+        .build(tauri::generate_context!())
+        .expect("rift: tauri runtime failed to start")
+        .run(|app_handle, event| {
+            // Stop long-lived translator tasks the moment Tauri begins
+            // tearing the app down. Without this the `spawn_status_translator`
+            // 5-second loop continues spawning `git.exe` children after the
+            // last window closes, which (a) on Windows paints visible
+            // terminal flashes until the process fully exits and (b) can
+            // hold the process alive long enough that the user must kill
+            // it via Task Manager. `notify_waiters` wakes every task
+            // currently `.notified().await`-ing on the same `Notify` and
+            // they break out of their loops on the next poll.
+            //
+            // `ExitRequested` fires once, before the runtime begins
+            // dropping resources — exactly the right moment to signal.
+            // We do NOT call `api.prevent_exit()`; default exit is desired.
+            if let RunEvent::ExitRequested { .. } = event {
+                if let Some(notify) = app_handle.try_state::<ShutdownNotify>() {
+                    notify.signal();
+                }
+                // Clear the MCP discovery file so a stopped Rift can't
+                // masquerade as live to a freshly-spawned `rift-mcp` client
+                // started by Claude Code (see crates/rift-bus/src/config.rs).
+                if let Err(e) = rift_bus::clear_mcp_socket() {
+                    tracing::warn!("rift: failed to clear mcp_socket on exit: {e}");
+                }
+            }
+        });
 }
 
 // ---------------------------------------------------------------------------

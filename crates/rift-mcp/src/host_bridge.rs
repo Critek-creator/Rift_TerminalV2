@@ -29,15 +29,28 @@ use uuid::Uuid;
 /// `$RIFT_SOCKET_NAME` — same env var rift-cli reads.
 const SOCKET_ENV_VAR: &str = "RIFT_SOCKET_NAME";
 
+/// Display path for the discovery file, formatted for the
+/// [`BridgeError::NoSocketName`] message. Resolved lazily so the format
+/// string can stay `const`.
+fn discovery_path_display() -> String {
+    rift_bus::mcp_socket_path()
+        .map(|p| p.display().to_string())
+        .unwrap_or_else(|_| "<config dir unavailable>".to_string())
+}
+
 /// Default per-call timeout if none provided.
 const DEFAULT_CALL_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Errors raised by the host bridge.
 #[derive(Debug, Error)]
 pub enum BridgeError {
-    /// No socket name was provided and `$RIFT_SOCKET_NAME` was unset.
-    #[error("no socket name. Pass --socket <name> or set ${SOCKET_ENV_VAR}")]
-    NoSocketName,
+    /// No socket name was provided, `$RIFT_SOCKET_NAME` was unset, AND no
+    /// discovery file exists — so no Rift host appears to be running.
+    #[error(
+        "no Rift host found. Start Rift and enable MCP in Settings, or pass --socket <name>, \
+         or set ${SOCKET_ENV_VAR}, or write a socket name to {0}"
+    )]
+    NoSocketName(String),
     /// IPC transport error from the bus client.
     #[error("ipc: {0}")]
     Ipc(#[from] IpcError),
@@ -74,12 +87,19 @@ pub struct HostBridge {
 impl HostBridge {
     /// Connect to the Rift host and complete the MCP handshake.
     ///
-    /// `socket_name` falls back to `$RIFT_SOCKET_NAME`. Errors out if both
-    /// are unset.
+    /// Socket name resolution order:
+    /// 1. Explicit `socket_name` argument (from `--socket` CLI flag).
+    /// 2. `$RIFT_SOCKET_NAME` env var (same one rift-cli reads).
+    /// 3. The on-disk discovery file written by the running Rift host
+    ///    ([`rift_bus::load_mcp_socket`]) — the path Claude Code's MCP
+    ///    spawn uses when no env or args are plumbed through.
+    ///
+    /// Errors with [`BridgeError::NoSocketName`] when all three are absent.
     pub async fn connect(socket_name: Option<String>, token: &str) -> Result<Self, BridgeError> {
         let name = socket_name
             .or_else(|| env::var(SOCKET_ENV_VAR).ok())
-            .ok_or(BridgeError::NoSocketName)?;
+            .or_else(|| rift_bus::load_mcp_socket().ok().flatten())
+            .ok_or_else(|| BridgeError::NoSocketName(discovery_path_display()))?;
         let mut client = IpcClient::connect(&name).await?;
 
         // Handshake: send mcp.handshake with token, await ack/deny.

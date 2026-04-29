@@ -40,11 +40,23 @@
 //! displayable value.
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
 
 use serde_json::json;
+use tokio::sync::Notify;
 use tokio::time::{interval, Duration};
 
 use crate::{Category, Envelope, RiftBus};
+
+/// Windows `CREATE_NO_WINDOW` process-creation flag. Suppresses the console
+/// window that would otherwise flash on every `Command::spawn` of a console
+/// subsystem child (`git.exe`, `cmd.exe`). Without this flag, the 5-second
+/// status-translator tick paints a visible terminal flash on every poll.
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 // ---------------------------------------------------------------------------
 // Public spawn entry point
@@ -62,18 +74,30 @@ use crate::{Category, Envelope, RiftBus};
 /// (`there is no reactor running`) since rift-bus runs inside the Tauri main
 /// thread, which does not have a freestanding tokio reactor active.
 ///
-/// The loop runs until the Tauri process exits or the spawned task is aborted.
+/// The loop runs until the Tauri process exits, the spawned task is aborted,
+/// or `shutdown.notify_waiters()` is called by the host's `RunEvent::ExitRequested`
+/// handler — whichever comes first. The shutdown signal is what stops the loop
+/// from continuing to spawn `git.exe` children after the main window closes
+/// (which would otherwise paint visible terminal flashes until the process is
+/// force-killed; see the Windows-only comments around `CREATE_NO_WINDOW`).
 ///
 /// # §9 boundary
 ///
 /// All git subprocess invocations and home-dir lookups are confined to this
 /// function and its private helpers. No external-system calls escape to
 /// rift-bus core.
-pub async fn spawn_status_translator(bus: RiftBus, project_root: PathBuf) {
+pub async fn spawn_status_translator(bus: RiftBus, project_root: PathBuf, shutdown: Arc<Notify>) {
     let mut tick = interval(Duration::from_secs(5));
     loop {
-        tick.tick().await;
-        publish_status_snapshot(&bus, &project_root);
+        tokio::select! {
+            _ = tick.tick() => {
+                publish_status_snapshot(&bus, &project_root);
+            }
+            _ = shutdown.notified() => {
+                tracing::info!("status-translator: shutdown signal received, exiting loop");
+                break;
+            }
+        }
     }
 }
 
@@ -229,6 +253,14 @@ fn git_cmd(root: &Path, args: &[&str]) -> Result<String, ()> {
     }
     // Suppress stderr so git's "not a git repo" messages don't pollute output.
     cmd.stderr(std::process::Stdio::null());
+
+    // Windows: suppress the visible console window that flashes on every
+    // `Command::spawn` of a console-subsystem child. Without this flag,
+    // the 5-second polling tick paints a `git.exe` flash on screen each
+    // tick — the user-visible "spamming flashes of terminals" symptom.
+    // No-op on macOS/Linux (compiled out via cfg).
+    #[cfg(windows)]
+    cmd.creation_flags(CREATE_NO_WINDOW);
 
     match cmd.output() {
         Ok(out) if out.status.success() => {
