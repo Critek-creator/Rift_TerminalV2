@@ -20,7 +20,8 @@ export type Category =
   | 'index'
   | 'aegis'
   | 'status'
-  | 'system';
+  | 'system'
+  | 'mcp';
 
 export interface Envelope {
   version: number;

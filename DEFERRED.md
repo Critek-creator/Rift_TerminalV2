@@ -68,17 +68,14 @@
   3. Layout strategy (still radial-by-kind, or local-cluster around parent)
   4. Whether to ship behind a `rift.ui.show_sub_doors` config flag (preserves the simpler default for users with ~40 vaults; opt-in for power users with deep nesting)
 
-### D-014 — Rift MCP server (post-v1 ask, opened 2026-04-29)
+### ~~D-014 — Rift MCP server~~ (promoted into v1 2026-04-29, see C-021)
 
-- User-requested capability: a Rift-side MCP server that lets external Claude Code sessions (or any MCP-aware client) directly connect, control, screenshot, and test the running Rift instance. Originated during Phase 8.7 BV-regression diagnostic when the user observed the absence of a programmatic-control surface cost ~10% of weekly token budget on the IndexGraph node-drag guess loop — Playwright connecting to localhost:1420 worked for inspecting Vite-served frontend code but couldn't reach Tauri-only APIs (`invoke`, `listen`, native menus, secondary windows) and couldn't execute drag gestures inside WebView2.
-- v1.x scope sketch (not committed):
-  - **Capabilities**: snapshot DOM (or accessibility tree), screenshot main + cockpit windows, evaluate JS in either webview, simulate input (click, type, drag-drop incl. native), read/write the bus envelope stream, query Aegis log + skill state, drive PTY input/output, navigate the file tree.
-  - **Transport**: stdio MCP server inside `src-tauri/` exposing the above as MCP tools. Mirrors the §9 translator-boundary discipline — the MCP server is an *external interface* and must speak the existing protocol (Category, Envelope) where it observes Rift state, not reach into internals directly.
-  - **Security**: opt-in via a Rift settings flag; off by default; bound to localhost; per-session token. Critical because this surface gives full UI/PTY control of the dev's terminal.
-- **Why it's deferred from v1**: v1 scope locked at standalone terminal + GUI cockpit (§1, §11). Adding an MCP surface is a separate translator + multi-tool API design that wants its own decision doc and capability-discovery shape (parallels §9 Integration Decoupling). Not blocking v1 ship.
-- **Value beyond Rift**: outlives Rift v1 — same MCP would let other Claude sessions drive any future Abyssal app embedded in Rift, automate UX testing of the cockpit, and let Aegis run end-to-end checks on its own host without manual user steps. Generalizes to "Abyssal-app MCP" pattern.
-- **Unblocking event**: v1 ships → user spec for MCP surface (which capabilities to expose first, transport choice, auth model) → translator-style implementation in `crates/rift-bus/src/translators/mcp.rs` (or sibling crate). Track via `/changelog-check` if Tauri ships an official MCP plugin first.
-- **Scope guardrails (when picked up)**: do NOT bypass the bus protocol — the MCP server is a *consumer/producer of envelopes*, not a back-channel into PTY/state. This preserves the §9 translator-boundary that makes Rift testable in the first place.
+Originally opened 2026-04-29 as a post-v1 ask. User signed off on the
+locked plan (see `decisions/D-014_rift_mcp_v1_plan.md` v1.1) the same day,
+promoting it into v1.x active build. Phase A scaffold has landed — see
+C-021 in the closed-deferrals section. Phases B–F (Tier 1 completion,
+DOM/screenshot/`js_eval`, mutating tools, audit-log notif tab,
+WebSocket transport) remain in the locked plan as ongoing v1.x work.
 
 ### D-010 — Sentinel implementation (active 2026-04-27, opened by Phase 7.0 architecture lock)
 - Spec §10.11 names Sentinel as the source-of-truth for agent misbehavior detection (stuck / runaway / unauthorized edits); Rift is the display layer.
@@ -91,6 +88,65 @@
 ---
 
 ## Closed deferrals
+
+### C-021 — D-014 Rift MCP server promoted into v1 (closed 2026-04-29)
+
+D-014 closed not because the deferral expired but because the user
+signed off on the v1.1-locked plan (`decisions/D-014_rift_mcp_v1_plan.md`)
+and authorised Phase A as active v1.x work. The deferral is therefore
+no longer pending — it is being built.
+
+**Locked decisions** (D-014 §11):
+
+1. Standalone `rift-mcp` binary in `crates/rift-mcp/` (not in-process).
+2. Stdio JSON-RPC first; WebSocket transport in Phase F (still v1.x).
+3. `js_eval` ships in v1.0 (Phase C), gated behind a separate
+   `allow_js_eval` toggle.
+4. Audit-only — no per-call confirmation popouts. `mcp.invoke` envelopes
+   logged BEFORE every call so denied/panicking calls also log.
+5. Token at `<config_dir>/mcp_token` (sibling to `config.toml`),
+   chmod 600 on Unix.
+6. Binary `rift-mcp`; MCP `serverInfo.name = "Rift"`.
+7. Phase A tool catalog frozen at 4 read-only tools (`bus_history`,
+   `bus_tail`, `git_status`, `aegis_state`) to lock the protocol shape
+   before adding more.
+
+**Phase A artifacts shipped:**
+
+- `crates/rift-mcp/` workspace member (Cargo.toml + main.rs + lib.rs +
+  jsonrpc.rs + tools/ subtree). Hand-rolled JSON-RPC over
+  `tokio::io::{stdin,stdout}` for v1.0; `rmcp` SDK swap is a follow-up
+  if version-pin compatibility holds.
+- `Category::Mcp` envelope variant added to `rift-bus` (additive — no
+  schema-version bump). Mirrored in `src/lib/bus.ts`.
+- `src-tauri/src/mcp_host.rs` — in-process bus subscriber answering
+  `mcp.request.*` envelopes with `mcp.response.*`. Audit envelopes
+  (`mcp.invoke`) published BEFORE every call. Off by default.
+- `RiftConfig.mcp` config section + token helpers (`generate_mcp_token`,
+  `load_mcp_token`, `save_mcp_token`, `ensure_mcp_token`,
+  `mcp_token_path`).
+- Settings popout — new "MCP server" section: enable toggle, three
+  capability sub-toggles, token reveal/copy/regenerate, token-path
+  readout.
+- Tauri commands: `mcp_status`, `mcp_token_get`, `mcp_token_regenerate`.
+- Translator-boundary check exempts `crates/rift-mcp/**/*.rs`.
+- CI: explicit `cargo build/test -p rift-mcp` step (10th gate);
+  `RELEASING.md` pre-flight checklist updated.
+- Claude Code consumer plugin scaffold: `plugins/rift-mcp-plugin/`
+  (`.mcp.json` + README + `/rift-status` example command).
+- `getrandom = "0.2"` workspace dep for token generation.
+
+**Remaining v1.x work** (per locked D-014 plan §4):
+
+- Phase A.1 — wire `bus_tail` streaming through stdio notifications
+  (currently returns a "use bus_history for one-shot" hint).
+- Phase B — Tier 1 completion (`fs_read`, `fs_tree`, `notif_tabs`,
+  `pty_list`, `cockpit_state`, `todo_scan`).
+- Phase C — DOM snapshot + screenshot + `js_eval`.
+- Phase D — mutating tools (`bus_publish`, `pty_input`, `fs_write`,
+  `git_action`).
+- Phase E — simulated input + audit-log notif tab UX.
+- Phase F — WebSocket transport.
 
 ### C-020 — D-015 IndexGraph sub-door rendering (closed 2026-04-29)
 

@@ -1,0 +1,26 @@
+[package]
+name = "rift-mcp"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Rift MCP server — exposes a running Rift host via Model Context Protocol over stdio JSON-RPC"
+rust-version.workspace = true
+
+[[bin]]
+name = "rift-mcp"
+path = "src/main.rs"
+
+[dependencies]
+rift-bus = { path = "../rift-bus" }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+clap = { workspace = true }
+tracing = { workspace = true }
+thiserror = { workspace = true }
+uuid = { version = "1", features = ["v4"] }
+
+[dev-dependencies]
+tokio = { workspace = true }

@@ -70,6 +70,14 @@ jobs:
       - name: cargo test
         run: cargo test --workspace --locked
 
+      # D-014 — explicit gate so CI failure attribution is unambiguous when
+      # rift-mcp regresses. Redundant with the --workspace step above (which
+      # already covers it), but the named step is the audit-trail surface.
+      - name: rift-mcp build + test (D-014)
+        run: |
+          cargo build -p rift-mcp --locked
+          cargo test -p rift-mcp --locked
+
       - name: svelte-check
         run: npm run check
 

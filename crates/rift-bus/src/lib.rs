@@ -143,7 +143,7 @@ pub use translators::vault_walker::spawn_vault_walker;
 // ---------------------------------------------------------------------------
 
 /// Top-level Rift configuration struct.
-pub use config::{CockpitConfig, DetachedPos, FsConfig, ProjectEntry, RiftConfig};
+pub use config::{CockpitConfig, DetachedPos, FsConfig, McpConfig, ProjectEntry, RiftConfig};
 
 /// Load config from the platform config directory (default on missing file).
 pub use config::load_config;
@@ -153,3 +153,9 @@ pub use config::save_config;
 
 /// Canonical default filesystem ignore globs (single source of truth).
 pub use config::DEFAULT_IGNORE_GLOBS;
+
+/// Resolve the platform path for the MCP token file (D-014).
+pub use config::mcp_token_path;
+
+/// MCP token helpers (D-014): generate, load, save, ensure.
+pub use config::{ensure_mcp_token, generate_mcp_token, load_mcp_token, save_mcp_token};

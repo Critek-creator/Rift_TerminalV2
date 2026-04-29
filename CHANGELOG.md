@@ -10,6 +10,42 @@ loosely [Keep a Changelog](https://keepachangelog.com/), the project follows
 
 Pre-v1.0 work-in-progress. Items move into a numbered release section once tagged.
 
+### D-014 Phase A — Rift MCP server (scaffold)
+
+- New `crates/rift-mcp/` workspace member — standalone stdio JSON-RPC
+  binary that exposes a running Rift host to MCP-aware clients (Claude
+  Code, automation harnesses). Binary name: `rift-mcp`. Server name:
+  `Rift`. Hand-rolled JSON-RPC over `tokio::io::{stdin,stdout}`; can swap
+  to `rmcp` SDK in a follow-up if version-pin compatibility holds.
+  See `decisions/D-014_rift_mcp_v1_plan.md` for the locked design.
+- `Category::Mcp` envelope variant added to `rift-bus` (additive — no
+  schema-version bump per the additive-categories rule). Mirrored in
+  `src/lib/bus.ts`.
+- `src-tauri/src/mcp_host.rs` — in-process subscriber that listens for
+  `mcp.request.*` envelopes, runs the handler, publishes
+  `mcp.response.*`. Audit envelopes (`mcp.invoke`) published BEFORE
+  every call so denied/panicking calls also log. Off by default —
+  no subscription occurs unless `RiftConfig.mcp.enabled = true`.
+- `RiftConfig.mcp` config section: `enabled`, `allow_inspection`,
+  `allow_js_eval`, `allow_mutations` (all default `false`). Token at
+  `<config_dir>/mcp_token` (chmod 600 on Unix) — sibling to `config.toml`,
+  not a separate `~/.rift/` directory.
+- Settings popout — new "MCP server" section: enable toggle, three
+  capability sub-toggles, token reveal/copy/regenerate, token-path readout.
+- Tauri commands: `mcp_status`, `mcp_token_get`, `mcp_token_regenerate`.
+- Phase A tool catalog (4 tools): `bus_history`, `bus_tail` (streaming —
+  Phase A.1), `git_status`, `aegis_state`.
+- Translator-boundary check (`tools/check-translator-boundary.sh`)
+  exempts `crates/rift-mcp/**/*.rs` — the crate is a translator by §9
+  definition.
+- CI: explicit `cargo build/test -p rift-mcp` step (10th gate);
+  `RELEASING.md` pre-flight checklist updated to match.
+- Claude Code plugin scaffold under `plugins/rift-mcp-plugin/` with
+  `.mcp.json` registering `rift-mcp` as a stdio server, README +
+  `/rift-status` example command.
+- `getrandom = "0.2"` added as a workspace dep for token generation
+  (CSPRNG: `/dev/urandom` on Unix, `BCryptGenRandom` on Windows).
+
 ---
 
 ## [0.1.0] — first packaged drop (Phase 9)

@@ -110,7 +110,7 @@ grep -nE '^version' Cargo.toml          # workspace
 grep -E '"version"' package.json
 grep -E '"version"' src-tauri/tauri.conf.json
 
-# 3. The 9 canonical CI gates.
+# 3. The 10 canonical CI gates.
 cargo fmt --all --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo build --workspace --locked
@@ -120,6 +120,7 @@ bash tools/check-translator-boundary.sh
 cargo build -p rift --features aegis --locked
 cargo test -p rift-aegis --features private_modules --locked
 cargo clippy -p rift --features aegis --locked
+cargo build -p rift-mcp --locked && cargo test -p rift-mcp --locked  # D-014
 
 # 4. Local bundle smoke test — produces an MSI under target/release/bundle/.
 #    Slow (~10–20 min on first build), but proves the WiX side works.

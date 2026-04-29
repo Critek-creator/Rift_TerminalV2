@@ -74,6 +74,10 @@ pub struct RiftConfig {
     pub cockpit: CockpitConfig,
     /// Abyssal Index graph settings (Phase 8.7).
     pub index: IndexConfig,
+    /// MCP server settings (D-014, Phase A+).
+    /// Off by default. Token is auto-generated on first launch with
+    /// `enabled = true`; lives next to `config.toml` as `mcp_token`.
+    pub mcp: McpConfig,
 }
 
 /// A recently-used project entry stored in the config.
@@ -151,6 +155,99 @@ pub struct IndexConfig {
     /// Reserved: opaque per-node position snapshot blob.
     /// Not read or written in v1 — transient D3 positions are never persisted.
     pub node_positions: Option<serde_json::Value>,
+}
+
+/// MCP server configuration (D-014, locked 2026-04-29).
+///
+/// Off by default. Three tiered toggles gate progressively riskier tool
+/// surfaces. Token is generated on first enable and persisted as a sibling
+/// `mcp_token` file alongside `config.toml`.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct McpConfig {
+    /// Master switch. When `false`, the host does not subscribe to
+    /// `Category::Mcp` envelopes and the `rift-mcp` binary's handshake
+    /// fails closed.
+    pub enabled: bool,
+    /// Allow DOM snapshot + screenshot tools (Phase C). Default `false`.
+    pub allow_inspection: bool,
+    /// Allow `js_eval` tool (Phase C). Separate toggle from
+    /// `allow_inspection` so users can opt into read-only inspection
+    /// without enabling JS execution. Default `false`.
+    pub allow_js_eval: bool,
+    /// Allow mutating tools — `bus_publish`, `pty_input`, `fs_write`,
+    /// `git_action` (Phase D). Default `false`.
+    pub allow_mutations: bool,
+}
+
+/// Resolve the platform path for the MCP token file.
+///
+/// Sibling of `config.toml`, NOT a separate `~/.rift/` directory — see
+/// D-014 §11 question 5.
+///
+/// * Windows: `%APPDATA%\com.abyssal.rift\config\mcp_token`
+/// * macOS:   `~/Library/Application Support/com.abyssal.rift/mcp_token`
+/// * Linux:   `$XDG_CONFIG_HOME/rift/mcp_token`
+pub fn mcp_token_path() -> Result<PathBuf, ConfigError> {
+    let dirs =
+        directories::ProjectDirs::from("com", "abyssal", "rift").ok_or(ConfigError::NoConfigDir)?;
+    Ok(dirs.config_dir().join("mcp_token"))
+}
+
+/// Generate a 32-byte hex token (64 chars) suitable for MCP handshake.
+///
+/// Uses `getrandom` (CSPRNG: `/dev/urandom` on Unix, `BCryptGenRandom` on
+/// Windows). Caller is responsible for persisting it via [`save_mcp_token`].
+pub fn generate_mcp_token() -> Result<String, ConfigError> {
+    let mut bytes = [0u8; 32];
+    getrandom::getrandom(&mut bytes)
+        .map_err(|e| ConfigError::Io(std::io::Error::other(format!("getrandom: {e}"))))?;
+    let mut s = String::with_capacity(64);
+    for b in bytes.iter() {
+        s.push_str(&format!("{b:02x}"));
+    }
+    Ok(s)
+}
+
+/// Load the MCP token from the platform token path, or `None` if absent.
+pub fn load_mcp_token() -> Result<Option<String>, ConfigError> {
+    let path = mcp_token_path()?;
+    match std::fs::read_to_string(&path) {
+        Ok(s) => Ok(Some(s.trim().to_string())),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(ConfigError::Io(e)),
+    }
+}
+
+/// Atomically write `token` to the MCP token path. Creates parent dir.
+/// On Unix, applies `chmod 600` after rename so the token is owner-only.
+pub fn save_mcp_token(token: &str) -> Result<(), ConfigError> {
+    let path = mcp_token_path()?;
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let tmp = path.with_extension("tmp");
+    std::fs::write(&tmp, token)?;
+    std::fs::rename(&tmp, &path)?;
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let perms = std::fs::Permissions::from_mode(0o600);
+        std::fs::set_permissions(&path, perms)?;
+    }
+    Ok(())
+}
+
+/// Ensure a token exists on disk; generate + persist on first call.
+/// Returns the token (newly created or pre-existing).
+pub fn ensure_mcp_token() -> Result<String, ConfigError> {
+    if let Some(t) = load_mcp_token()? {
+        return Ok(t);
+    }
+    let t = generate_mcp_token()?;
+    save_mcp_token(&t)?;
+    Ok(t)
 }
 
 /// Sync strategy for the Abyssal Index vault graph.

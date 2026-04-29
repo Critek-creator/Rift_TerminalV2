@@ -1,0 +1,8 @@
+{
+  "name": "rift-mcp",
+  "version": "0.1.0",
+  "description": "Connect Claude Code to a running Rift terminal — observe the bus, inspect git/aegis state, drive the cockpit.",
+  "author": "Abyssal Arts",
+  "homepage": "https://github.com/Critek-creator/Rift_TerminalV2",
+  "license": "Proprietary"
+}

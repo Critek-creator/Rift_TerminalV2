@@ -1,0 +1,205 @@
+//! Integration test — `HostBridge` wire protocol.
+//!
+//! Spins up a real `RiftBus` + `IpcServer` and a mock host task that
+//! mirrors the handshake + dispatch surface of `src-tauri/src/mcp_host.rs`,
+//! then drives the bridge through every documented path:
+//!
+//! * `handshake_succeeds_with_correct_token`
+//! * `handshake_fails_with_wrong_token`
+//! * `tool_round_trip_returns_host_result`
+//! * `host_error_propagates_as_bridge_tool_error`
+//! * `unknown_tool_returns_bridge_tool_error`
+//! * `timeout_when_host_silent`
+//!
+//! End-to-end coverage against the *real* host (`spawn_mcp_host` +
+//! on-disk `mcp_token` round-trip) is tracked under C-021's remaining
+//! v1.x work — that test belongs in `src-tauri/tests/` because
+//! `mcp_host` is a private module of the Tauri shell.
+
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::Duration;
+
+use rift_bus::{BusError, Category, Envelope, IpcServer, RiftBus, SubscribeFilter};
+use rift_mcp::host_bridge::{BridgeError, HostBridge};
+use serde_json::{json, Value};
+use tokio::time::{sleep, timeout};
+
+const TEST_TOKEN: &str = "phase-a-wire-test-token";
+
+fn unique_name() -> String {
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    let id = COUNTER.fetch_add(1, Ordering::SeqCst);
+    let pid = std::process::id();
+    format!("rift-mcp-wire-{pid}-{id}.sock")
+}
+
+/// Spawn a mock host that answers `mcp.handshake` and `mcp.request.*`
+/// with the same envelope shape `mcp_host.rs` publishes. Returns once
+/// the bus closes.
+fn spawn_mock_host(bus: RiftBus, accept_token: &'static str) {
+    tokio::spawn(async move {
+        let (snapshot, mut sub) = bus.subscribe(SubscribeFilter::Category(Category::Mcp));
+        for env in snapshot {
+            handle_envelope(&bus, accept_token, &env);
+        }
+        loop {
+            match sub.recv().await {
+                Ok(env) => handle_envelope(&bus, accept_token, &env),
+                Err(BusError::Closed) => break,
+                Err(BusError::Lagged(_)) => continue,
+            }
+        }
+    });
+}
+
+fn handle_envelope(bus: &RiftBus, accept_token: &str, env: &Envelope) {
+    let kind = env.kind.as_str();
+    // Ignore our own outbound envelopes — same gate as mcp_host.rs.
+    if kind == "mcp.invoke"
+        || kind.starts_with("mcp.response.")
+        || kind == "mcp.handshake.ack"
+        || kind == "mcp.handshake.deny"
+    {
+        return;
+    }
+
+    let request_id = env
+        .payload
+        .get("request_id")
+        .cloned()
+        .unwrap_or(Value::Null);
+
+    if kind == "mcp.handshake" {
+        let provided = env
+            .payload
+            .get("token")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        let (reply_kind, payload) = if provided == accept_token {
+            ("mcp.handshake.ack", json!({ "request_id": request_id }))
+        } else {
+            (
+                "mcp.handshake.deny",
+                json!({ "request_id": request_id, "reason": "token mismatch" }),
+            )
+        };
+        publish(bus, reply_kind, &payload);
+        return;
+    }
+
+    if let Some(tool) = kind.strip_prefix("mcp.request.") {
+        let result: Result<Value, String> = match tool {
+            "bus_history" => Ok(json!({ "envelopes": [], "count": 0 })),
+            "git_status" => Ok(json!({ "branch": "main", "dirty": false })),
+            "aegis_state" => Ok(json!({ "skill": "aegis", "version": "test" })),
+            "fail_me" => Err("simulated host failure".into()),
+            "silent" => return, // never replies — used for timeout test
+            other => Err(format!("unknown MCP tool: {other}")),
+        };
+        let payload = match result {
+            Ok(v) => json!({ "request_id": request_id, "ok": true, "result": v }),
+            Err(e) => json!({ "request_id": request_id, "ok": false, "error": e }),
+        };
+        let reply_kind = format!("mcp.response.{tool}");
+        publish(bus, &reply_kind, &payload);
+    }
+}
+
+fn publish(bus: &RiftBus, kind: &str, payload: &Value) {
+    if let Ok(env) = Envelope::new(Category::Mcp, kind).with_payload(payload) {
+        bus.publish(env);
+    }
+}
+
+/// Stand up RiftBus + IpcServer + mock host. Returns the connected bridge.
+async fn setup(accept_token: &'static str, client_token: &str) -> Result<HostBridge, BridgeError> {
+    let bus = RiftBus::default();
+    let name = unique_name();
+    let _server = IpcServer::start(bus.clone(), &name)
+        .await
+        .expect("ipc server start");
+    // Match the 50ms warm-up delay used in rift-bus' own ipc tests.
+    sleep(Duration::from_millis(50)).await;
+    spawn_mock_host(bus.clone(), accept_token);
+
+    HostBridge::connect(Some(name), client_token).await
+}
+
+#[tokio::test]
+async fn handshake_succeeds_with_correct_token() {
+    let bridge = setup(TEST_TOKEN, TEST_TOKEN).await.expect("connect");
+    // If the handshake resolved, the bridge is usable — round-trip a
+    // simple call to prove it.
+    let result = bridge
+        .call("aegis_state", &Value::Null)
+        .await
+        .expect("aegis_state");
+    assert_eq!(result["skill"], "aegis");
+}
+
+#[tokio::test]
+async fn handshake_fails_with_wrong_token() {
+    match setup(TEST_TOKEN, "wrong-token").await {
+        Err(BridgeError::HandshakeDenied(reason)) => assert_eq!(reason, "token mismatch"),
+        Err(other) => panic!("expected HandshakeDenied, got {other:?}"),
+        Ok(_) => panic!("handshake should have denied"),
+    }
+}
+
+#[tokio::test]
+async fn tool_round_trip_returns_host_result() {
+    let bridge = setup(TEST_TOKEN, TEST_TOKEN).await.expect("connect");
+    let result = bridge
+        .call("bus_history", &json!({ "limit": 10 }))
+        .await
+        .expect("bus_history");
+    assert_eq!(result["count"], 0);
+    assert!(result["envelopes"].is_array());
+}
+
+#[tokio::test]
+async fn host_error_propagates_as_bridge_tool_error() {
+    let bridge = setup(TEST_TOKEN, TEST_TOKEN).await.expect("connect");
+    let err = bridge
+        .call("fail_me", &Value::Null)
+        .await
+        .expect_err("expected tool error");
+    match err {
+        BridgeError::Tool { tool, message } => {
+            assert_eq!(tool, "fail_me");
+            assert_eq!(message, "simulated host failure");
+        }
+        other => panic!("expected BridgeError::Tool, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn unknown_tool_returns_bridge_tool_error() {
+    let bridge = setup(TEST_TOKEN, TEST_TOKEN).await.expect("connect");
+    let err = bridge
+        .call("no_such_tool", &Value::Null)
+        .await
+        .expect_err("expected tool error");
+    match err {
+        BridgeError::Tool { tool, message } => {
+            assert_eq!(tool, "no_such_tool");
+            assert!(message.starts_with("unknown MCP tool"), "got: {message}");
+        }
+        other => panic!("expected BridgeError::Tool, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn timeout_when_host_silent() {
+    let bridge = setup(TEST_TOKEN, TEST_TOKEN).await.expect("connect");
+    // Mock host explicitly drops `silent` requests on the floor; bridge
+    // default timeout is 5s — wrap in a generous outer timeout so a
+    // misbehaving test never hangs CI.
+    let outcome = timeout(Duration::from_secs(10), bridge.call("silent", &Value::Null))
+        .await
+        .expect("outer timeout — bridge should have surfaced its own");
+    match outcome {
+        Err(BridgeError::Timeout { tool }) => assert_eq!(tool, "silent"),
+        other => panic!("expected BridgeError::Timeout, got {other:?}"),
+    }
+}

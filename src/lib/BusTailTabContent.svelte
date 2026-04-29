@@ -28,7 +28,7 @@
   const LIVE_ACTIVITY_WINDOW_MS = 4000;
 
   const ALL_CATEGORIES: Category[] = [
-    'pty', 'hook', 'agent', 'fs', 'index', 'aegis', 'status', 'system',
+    'pty', 'hook', 'agent', 'fs', 'index', 'aegis', 'status', 'system', 'mcp',
   ];
 
   // §10.1 lane palette → category accent colour
@@ -41,6 +41,9 @@
     aegis:  'var(--amber-primary)',
     status: 'var(--amber-bright)',
     system: 'var(--term-red)',
+    // D-014: MCP traffic — neutral lane to keep audit trail visible without
+    // colliding with hook (cyan) or aegis (amber).
+    mcp:    'var(--term-purple, #b078e8)',
   };
 
   let events = $state<Envelope[]>([]);

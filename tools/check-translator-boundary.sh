@@ -16,6 +16,9 @@
 #                                              (UDS/named-pipe between rift-cli
 #                                              and rift-tauri; NOT an external
 #                                              system)
+#   crates/rift-mcp/**/*.rs                  — D-014 MCP server: a translator
+#                                              by §9 definition (MCP outside,
+#                                              bus envelopes inside)
 #   **/tests/**/*.rs                         — out-of-line integration tests
 #                                              (mock servers, test harnesses)
 #
@@ -76,6 +79,7 @@ FORBIDDEN PATTERNS
 ALLOWLIST (patterns PERMITTED in these paths)
   crates/rift-bus/src/translators/**/*.rs  — the translator boundary itself
   crates/rift-bus/src/ipc.rs               — Rift internal IPC transport
+  crates/rift-mcp/**/*.rs                  — D-014 MCP server (translator)
   **/tests/**/*.rs                         — out-of-line integration tests
 
 OUTPUT ON VIOLATION
@@ -111,6 +115,10 @@ is_allowlisted() {
         crates/rift-bus/src/translators/*/*.rs) return 0 ;;
         # Rift internal IPC transport (not an external system).
         crates/rift-bus/src/ipc.rs) return 0 ;;
+        # D-014 MCP server — translator by §9 definition.
+        crates/rift-mcp/*.rs)     return 0 ;;
+        crates/rift-mcp/*/*.rs)   return 0 ;;
+        crates/rift-mcp/*/*/*.rs) return 0 ;;
     esac
     return 1
 }

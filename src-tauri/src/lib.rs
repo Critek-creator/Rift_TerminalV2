@@ -1,5 +1,6 @@
 mod cockpit_window;
 mod git_status;
+mod mcp_host;
 mod todo_scan;
 
 // Rift Terminal v2 — Tauri host crate.
@@ -718,6 +719,55 @@ fn todo_scan_command(
     Ok(todo_scan::scan_todos(&root, &ignore_globs))
 }
 
+// ---------------------------------------------------------------------------
+// MCP commands (D-014 Phase A)
+//
+// Settings UI reads/regenerates the auth token; backend exposes connection
+// status (enabled? token present?) for the SettingsPanel readout.
+// ---------------------------------------------------------------------------
+
+#[derive(Serialize)]
+struct McpStatus {
+    enabled: bool,
+    token_present: bool,
+    token_path: String,
+}
+
+/// Return current MCP enable state, whether a token is on disk, and the
+/// token-file path so Settings can show "Token stored at <path>".
+#[tauri::command]
+fn mcp_status() -> Result<McpStatus, String> {
+    let cfg = load_config().unwrap_or_default();
+    let token_path = rift_bus::mcp_token_path()
+        .map(|p| p.display().to_string())
+        .unwrap_or_else(|e| format!("(unavailable: {e})"));
+    let token_present = rift_bus::load_mcp_token()
+        .map(|opt| opt.is_some())
+        .unwrap_or(false);
+    Ok(McpStatus {
+        enabled: cfg.mcp.enabled,
+        token_present,
+        token_path,
+    })
+}
+
+/// Return the current MCP token (creating one on first call if MCP is
+/// enabled). Errors if the token cannot be persisted.
+#[tauri::command]
+fn mcp_token_get() -> Result<String, String> {
+    rift_bus::ensure_mcp_token().map_err(|e| e.to_string())
+}
+
+/// Generate a fresh MCP token, replacing any existing one. Returns the new
+/// token. Existing `rift-mcp` clients must be reconfigured with the new
+/// value — there is no rotation grace period in v1.0.
+#[tauri::command]
+fn mcp_token_regenerate() -> Result<String, String> {
+    let token = rift_bus::generate_mcp_token().map_err(|e| e.to_string())?;
+    rift_bus::save_mcp_token(&token).map_err(|e| e.to_string())?;
+    Ok(token)
+}
+
 /// Phase 8.7i — git status snapshot for the Git notif tab.
 ///
 /// One-shot snapshot of branch, ahead/behind, staged/modified/untracked
@@ -1134,6 +1184,21 @@ pub fn run() {
                 spawn_status_translator(status_bus, status_root).await;
             });
 
+            // D-014 Phase A — MCP host subscriber (off by default).
+            //
+            // Reads RiftConfig.mcp; if disabled, the spawn is a no-op and no
+            // Category::Mcp traffic flows. When enabled, the host subscribes
+            // to mcp.request.* envelopes published by the rift-mcp translator
+            // and answers with mcp.response.* on the same bus.
+            //
+            // Spec: decisions/D-014_rift_mcp_v1_plan.md (locked v1.1).
+            {
+                let mcp_bus = app.state::<RiftBus>().inner().clone();
+                let mcp_cfg = cfg.mcp.clone();
+                let mcp_root = app.state::<ProjectRoot>().inner().get();
+                mcp_host::spawn_mcp_host(mcp_bus, mcp_cfg, mcp_root);
+            }
+
             // Phase 8.7d — Pre-create the cockpit-detached window at setup
             // (hidden) instead of on-demand at command-time.
             //
@@ -1205,6 +1270,9 @@ pub fn run() {
             todo_scan_command,
             git_status_command,
             git_action_command,
+            mcp_status,
+            mcp_token_get,
+            mcp_token_regenerate,
         ])
         .run(tauri::generate_context!())
         .expect("rift: tauri runtime failed to start");

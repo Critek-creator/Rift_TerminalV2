@@ -1,8 +1,8 @@
-# D-014 — Rift MCP server (v1.x design plan)
+# D-014 — Rift MCP server (v1.x design plan) — **LOCKED 2026-04-29**
 
 *Plan opened 2026-04-29 in response to user `/aegis --full --plan` request.
-Companion to DEFERRED.md D-014. Not yet locked — see "Open questions" before
-greenlighting Phase A.*
+Companion to DEFERRED.md D-014. **Locked 2026-04-29** with the v1.1 answers
+captured in §11 below. Phase A is now the active build.*
 
 ---
 
@@ -397,6 +397,89 @@ audit trail for why the v1 surface looks the way it does.
 
 ## 10. Status
 
-**Not yet locked.** Awaiting user signoff on the 7 open questions in §6.
-After signoff, this doc is updated with the locked answers (struck-out
-"recommended" notes; bolded "decided" answers) and Phase A starts.
+**LOCKED 2026-04-29.** All 7 open questions in §6 answered in §11 below.
+Phase A is the active build (scaffold + auth + 4 read-only Tier 1 tools).
+
+---
+
+## 11. Locked decisions (v1.1 — 2026-04-29)
+
+User signoff on the 7 open questions from §6:
+
+1. **Process model: standalone `rift-mcp` binary.** New `crates/rift-mcp/`
+   crate added to the workspace. Connects to the running Rift host via the
+   existing `IpcServer` socket (named pipe on Windows, UDS on Unix), same
+   as `rift-cli`. §9 boundary preserved — `rift-mcp` is a translator, no
+   webview reach-in.
+
+2. **Transport: stdio first, WebSocket in v1.x (Phase F).** Phase A ships
+   stdio JSON-RPC only. WebSocket transport is Phase F (additive, same
+   auth, same tool surface). Browser-automation cases (`claude-in-chrome`)
+   are served by Phase F when it lands.
+
+3. **`js_eval` ships in v1.0 (Phase C).** Gated behind a separate settings
+   toggle (`RiftConfig.mcp.allow_js_eval`, default `false`) alongside
+   `allow_inspection` for DOM/screenshot. User accepts the risk profile
+   ("audit-only is fine"). Phase C now covers DOM + screenshot + js_eval
+   together.
+
+4. **Audit-only — no per-call confirmation popouts.** Every MCP tool
+   invocation publishes `Category::Mcp / kind="mcp.invoke"` BEFORE running
+   (so denied calls also log). The audit log is the safety surface.
+   Per-call confirms are NOT shipped in v1.x — friction kills automation.
+   (Phase E reduces to "js_eval + simulated input + audit-log notif tab".)
+
+5. **Token storage path: existing `RiftConfig` directory.** Token is a
+   sibling file alongside `config.toml`, NOT a new `~/.rift/` directory:
+
+   - Windows: `%APPDATA%\com.abyssal.rift\config\mcp_token`
+   - macOS:   `~/Library/Application Support/com.abyssal.rift/mcp_token`
+   - Linux:   `$XDG_CONFIG_HOME/rift/mcp_token` (or `~/.config/rift/mcp_token`)
+
+   Resolved via the same `directories::ProjectDirs::from("com", "abyssal",
+   "rift")` call that `rift-bus::config` already uses. One-place hygiene.
+   Permissions: `chmod 600` on Unix; default ACL inherits on Windows
+   (no extra restriction beyond the per-user `%APPDATA%` directory).
+
+6. **Branding.** Binary name: `rift-mcp`. MCP `serverInfo.name`: `Rift`.
+   Cosmetic but pins it.
+
+7. **Initial tool catalog frozen at 4 read-only tools.** Phase A ships
+   exactly these to lock the protocol shape before adding more:
+
+   - `bus_history` — paginated replay of recent envelopes
+   - `bus_tail` — live envelope stream as MCP notifications
+   - `git_status` — Git tab payload
+   - `aegis_state` — last `aegis.session.skill_loaded` snapshot
+
+   Phase B fills in the remaining Tier 1 tools (`fs_read`, `fs_tree`,
+   `notif_tabs`, `pty_list`, `cockpit_state`, `todo_scan`) once the
+   protocol shape has held under real usage.
+
+### Phase reshuffle from §4 (post-lock)
+
+Phase plan is unchanged structurally; the v1.1 lock just means:
+
+- **Phase A**: 4 tools (was: 4 — same).
+- **Phase C**: now bundles DOM + screenshot + `js_eval` (was: DOM +
+  screenshot only; `js_eval` was Phase E).
+- **Phase E**: now covers simulated input + audit-log notif tab UX (was:
+  `js_eval` + simulated input + per-call confirms — confirms dropped).
+- **Phase F**: WebSocket transport (unchanged).
+
+### Settings toggles (locked names)
+
+```toml
+[mcp]
+enabled = false           # master switch
+allow_inspection = false  # DOM + screenshot
+allow_js_eval = false     # JS eval (separate from inspection)
+allow_mutations = false   # bus_publish, pty_input, fs_write, git_action
+                          # (Phase D)
+# token_path is computed from the platform config dir; not user-editable
+```
+
+`allow_js_eval` is a NEW toggle relative to the original §3 schema —
+splits the v1 inspection surface into "read-only inspection" (DOM,
+screenshot) vs. "JS execution" (`js_eval`) so users can opt into the
+former without the latter.

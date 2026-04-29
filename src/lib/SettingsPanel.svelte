@@ -97,11 +97,23 @@
   interface CockpitConfig {
     detached_pos?: unknown;
   }
+  interface McpConfig {
+    enabled: boolean;
+    allow_inspection: boolean;
+    allow_js_eval: boolean;
+    allow_mutations: boolean;
+  }
   interface RiftConfig {
     projects: ProjectEntry[];
     fs: FsConfig;
     cockpit: CockpitConfig;
     index: IndexConfig;
+    mcp: McpConfig;
+  }
+  interface McpStatus {
+    enabled: boolean;
+    token_present: boolean;
+    token_path: string;
   }
 
   let config = $state<RiftConfig | null>(null);
@@ -114,7 +126,88 @@
 
   let savingFs = $state(false);
   let savingIndex = $state(false);
-  let saveBanner = $state<{ section: 'fs' | 'index'; ok: boolean; msg: string } | null>(null);
+  let savingMcp = $state(false);
+  let saveBanner = $state<{ section: 'fs' | 'index' | 'mcp'; ok: boolean; msg: string } | null>(
+    null,
+  );
+
+  // MCP — D-014 Phase A
+  let mcpToken = $state<string | null>(null);
+  let mcpTokenVisible = $state(false);
+  let mcpStatus = $state<McpStatus | null>(null);
+
+  async function refreshMcpStatus() {
+    try {
+      mcpStatus = await invoke<McpStatus>('mcp_status');
+    } catch (err) {
+      console.warn('[Settings] mcp_status failed', err);
+    }
+  }
+
+  async function onToggleMcp(value: boolean, key: keyof McpConfig) {
+    if (!config) return;
+    savingMcp = true;
+    saveBanner = null;
+    try {
+      const next: RiftConfig = {
+        ...config,
+        mcp: { ...config.mcp, [key]: value },
+      };
+      await invoke('config_save', { config: next });
+      config = next;
+      // Generating-on-enable so the token is ready when the user copies it.
+      if (key === 'enabled' && value && !mcpToken) {
+        try {
+          mcpToken = await invoke<string>('mcp_token_get');
+        } catch (err) {
+          console.warn('[Settings] mcp_token_get failed', err);
+        }
+      }
+      await refreshMcpStatus();
+      saveBanner = { section: 'mcp', ok: true, msg: 'mcp settings saved' };
+    } catch (err) {
+      saveBanner = { section: 'mcp', ok: false, msg: String(err) };
+    } finally {
+      savingMcp = false;
+    }
+  }
+
+  async function revealMcpToken() {
+    if (!mcpToken) {
+      try {
+        mcpToken = await invoke<string>('mcp_token_get');
+      } catch (err) {
+        saveBanner = { section: 'mcp', ok: false, msg: String(err) };
+        return;
+      }
+    }
+    mcpTokenVisible = !mcpTokenVisible;
+  }
+
+  async function copyMcpToken() {
+    if (!mcpToken) return;
+    try {
+      await navigator.clipboard.writeText(mcpToken);
+      saveBanner = { section: 'mcp', ok: true, msg: 'token copied to clipboard' };
+    } catch (err) {
+      saveBanner = { section: 'mcp', ok: false, msg: String(err) };
+    }
+  }
+
+  async function regenerateMcpToken() {
+    try {
+      mcpToken = await invoke<string>('mcp_token_regenerate');
+      mcpTokenVisible = true;
+      await refreshMcpStatus();
+      saveBanner = {
+        section: 'mcp',
+        ok: true,
+        msg: 'new token issued — update connected clients',
+      };
+    } catch (err) {
+      saveBanner = { section: 'mcp', ok: false, msg: String(err) };
+    }
+  }
 
   const currentProject = $derived(
     config && config.projects.length > 0 ? config.projects[0] : null
@@ -239,6 +332,7 @@
         // no-op — fall back to default
       }
       await reloadConfig();
+      await refreshMcpStatus();
     })();
   });
 </script>
@@ -425,6 +519,105 @@
       </section>
     {/if}
 
+    <!-- MCP — D-014 Phase A -->
+    {#if config}
+      <section class="section">
+        <div class="section-label">MCP server</div>
+        <div class="hint">
+          expose this Rift instance to MCP-aware clients (Claude Code, automation
+          harnesses) over stdio JSON-RPC. localhost-only · off by default ·
+          audit-logged via <code>Category::Mcp</code> on the bus.
+        </div>
+
+        <div class="row">
+          <label class="kv-toggle">
+            <input
+              type="checkbox"
+              checked={config.mcp.enabled}
+              onchange={(e) => onToggleMcp((e.target as HTMLInputElement).checked, 'enabled')}
+              disabled={savingMcp}
+            />
+            <span>enable MCP server</span>
+          </label>
+        </div>
+
+        {#if config.mcp.enabled}
+          <div class="row">
+            <label class="kv-toggle">
+              <input
+                type="checkbox"
+                checked={config.mcp.allow_inspection}
+                onchange={(e) => onToggleMcp((e.target as HTMLInputElement).checked, 'allow_inspection')}
+                disabled={savingMcp}
+              />
+              <span>allow DOM snapshot + screenshot (Phase C)</span>
+            </label>
+          </div>
+          <div class="row">
+            <label class="kv-toggle">
+              <input
+                type="checkbox"
+                checked={config.mcp.allow_js_eval}
+                onchange={(e) => onToggleMcp((e.target as HTMLInputElement).checked, 'allow_js_eval')}
+                disabled={savingMcp}
+              />
+              <span>allow <code>js_eval</code> (Phase C)</span>
+            </label>
+          </div>
+          <div class="row">
+            <label class="kv-toggle">
+              <input
+                type="checkbox"
+                checked={config.mcp.allow_mutations}
+                onchange={(e) => onToggleMcp((e.target as HTMLInputElement).checked, 'allow_mutations')}
+                disabled={savingMcp}
+              />
+              <span>allow mutating tools — pty_input, fs_write, git_action (Phase D)</span>
+            </label>
+          </div>
+
+          <div class="kv">
+            <div class="k">token</div>
+            <div class="v mono-wrap">
+              {#if mcpTokenVisible && mcpToken}
+                {mcpToken}
+              {:else}
+                ••••••••••••••••••••••••••••••••
+              {/if}
+            </div>
+          </div>
+          <div class="row">
+            <button type="button" class="btn" onclick={revealMcpToken}>
+              {mcpTokenVisible ? 'hide token' : 'reveal token'}
+            </button>
+            <button type="button" class="btn" onclick={copyMcpToken} disabled={!mcpToken}>
+              copy
+            </button>
+            <button type="button" class="btn" onclick={regenerateMcpToken}>
+              regenerate
+            </button>
+          </div>
+          {#if mcpStatus}
+            <div class="kv">
+              <div class="k">token path</div>
+              <div class="v mono-wrap">{mcpStatus.token_path}</div>
+            </div>
+          {/if}
+          <div class="hint">
+            client config: pass <code>--token &lt;value&gt;</code> or set
+            <code>RIFT_MCP_TOKEN</code> when launching <code>rift-mcp</code>.
+            Audit trail: filter <code>bus tail</code> to <code>Category::Mcp</code>.
+          </div>
+        {/if}
+
+        {#if saveBanner && saveBanner.section === 'mcp'}
+          <span class="banner-inline" class:fail={!saveBanner.ok}>
+            {saveBanner.msg}
+          </span>
+        {/if}
+      </section>
+    {/if}
+
     <!-- NOTIFICATIONS -->
     <section class="section">
       <div class="section-label">Notifications</div>
@@ -515,6 +708,22 @@
     gap: 10px;
     margin-top: 8px;
     flex-wrap: wrap;
+  }
+
+  .kv-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11px;
+    color: var(--amber-warm);
+    cursor: pointer;
+  }
+  .kv-toggle input { cursor: pointer; }
+
+  .mono-wrap {
+    font-family: 'JetBrains Mono', monospace;
+    word-break: break-all;
+    font-size: 10px;
   }
 
   .btn {

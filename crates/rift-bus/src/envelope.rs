@@ -36,6 +36,11 @@ pub enum Category {
     Status,
     /// System-level signals (errors, warnings, lifecycle).
     System,
+    /// MCP server traffic — `mcp.handshake`, `mcp.invoke` (audit), and
+    /// `mcp.request.*`/`mcp.response.*` (tool round-trip). Off the wire
+    /// entirely until `RiftConfig.mcp.enabled = true`.
+    /// Spec: `decisions/D-014_rift_mcp_v1_plan.md`.
+    Mcp,
 }
 
 /// The wire envelope. Every event on the bus and across the IPC boundary
@@ -131,6 +136,7 @@ mod tests {
             Category::Aegis,
             Category::Status,
             Category::System,
+            Category::Mcp,
         ] {
             let env = Envelope::new(c, "smoke");
             let json = serde_json::to_string(&env).expect("encode");
