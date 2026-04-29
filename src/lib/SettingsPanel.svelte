@@ -153,7 +153,7 @@
         ...config,
         mcp: { ...config.mcp, [key]: value },
       };
-      await invoke('config_save', { config: next });
+      await invoke('config_save', { cfg: next });
       config = next;
       // Generating-on-enable so the token is ready when the user copies it.
       if (key === 'enabled' && value && !mcpToken) {
@@ -257,7 +257,7 @@
           max_depth: Math.max(1, Math.min(64, Math.floor(fsMaxDepth || 1))),
         },
       };
-      await invoke('config_save', { config: next });
+      await invoke('config_save', { cfg: next });
       config = next;
       saveBanner = { section: 'fs', ok: true, msg: 'filesystem settings saved' };
     } catch (err) {
@@ -279,7 +279,7 @@
           sync_mode: indexSyncMode,
         },
       };
-      await invoke('config_save', { config: next });
+      await invoke('config_save', { cfg: next });
       config = next;
       saveBanner = { section: 'index', ok: true, msg: 'index settings saved' };
     } catch (err) {
