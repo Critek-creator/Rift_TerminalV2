@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
   import { listen } from '@tauri-apps/api/event';
+  import { check, type Update } from '@tauri-apps/plugin-updater';
   import TitleBar from './lib/TitleBar.svelte';
   import TabBar, {
     type SessionTab,
@@ -172,6 +173,16 @@
   // CSS flex-basis values so existing users see no immediate layout change.
   let cockpitRightWidth = $state(420); // px — was flex: 0 0 38% (~420 of 1100)
   let graphHeightPct = $state(55);     // percent — was flex: 0 0 55%
+
+  // D-013 — Updater plugin frontend wiring (session-start check).
+  // On launch we ask plugin-updater to fetch latest.json from the GitHub
+  // releases endpoint configured in tauri.conf.json. If a newer version
+  // is signed-and-published, we surface a thin banner with Install/Later.
+  // The check is silent on failure (offline, GitHub down, no release yet) —
+  // we don't bother the user with check-time errors, only with availability.
+  let availableUpdate = $state<Update | null>(null);
+  let updateInstalling = $state(false);
+  let updateError = $state<string | null>(null);
 
   // §10.9 live-border tick — drives TabBar.svelte's `isLive` derived. The
   // 1-second cadence is fast enough to feel responsive without burning CPU;
@@ -383,6 +394,17 @@
       unlistenReattached = await listen('cockpit_reattached', () => {
         cockpitDetached = false;
       });
+
+      // D-013 — session-start update check. Silent on failure; only surfaces
+      // when an update is genuinely available so users aren't pestered.
+      try {
+        const update = await check();
+        if (update) {
+          availableUpdate = update;
+        }
+      } catch (err) {
+        console.warn('[App] update check failed:', err);
+      }
     })();
 
     return () => {
@@ -391,10 +413,55 @@
     };
   });
 
+  async function installUpdate(): Promise<void> {
+    if (!availableUpdate || updateInstalling) return;
+    updateInstalling = true;
+    updateError = null;
+    try {
+      await availableUpdate.downloadAndInstall();
+      // The Windows installer typically restarts the app itself. If it
+      // doesn't, the user can manually relaunch — the new version takes
+      // effect on next start. We deliberately skip plugin-process here
+      // (one fewer dep, one fewer capability surface) for v1.
+    } catch (err) {
+      updateError = String(err);
+      updateInstalling = false;
+    }
+  }
+
+  function dismissUpdate(): void {
+    availableUpdate = null;
+    updateError = null;
+  }
+
 </script>
 
 <div class="app-shell">
   <TitleBar />
+
+  {#if availableUpdate}
+    <!-- D-013 — Update-available banner. Slim amber strip between TitleBar
+         and TabBar. Visible only when latest.json reports a newer signed
+         release than the running build. -->
+    <aside class="update-banner" class:installing={updateInstalling} class:error={updateError !== null}>
+      {#if updateError}
+        <span class="update-glyph">◇</span>
+        <span class="update-text">Update install failed: {updateError}</span>
+        <button type="button" class="update-btn" onclick={dismissUpdate}>Dismiss</button>
+      {:else}
+        <span class="update-glyph">↗</span>
+        <span class="update-text">
+          Update available — v{availableUpdate.version}
+          {#if availableUpdate.body}<span class="update-body">· {availableUpdate.body.slice(0, 80)}{availableUpdate.body.length > 80 ? '…' : ''}</span>{/if}
+        </span>
+        <button type="button" class="update-btn update-btn-primary" disabled={updateInstalling} onclick={installUpdate}>
+          {updateInstalling ? 'Installing…' : 'Install'}
+        </button>
+        <button type="button" class="update-btn" disabled={updateInstalling} onclick={dismissUpdate}>Later</button>
+      {/if}
+    </aside>
+  {/if}
+
   <TabBar
     {sessions}
     {notifs}
@@ -731,4 +798,70 @@
     font-size: 10px;
   }
 
+  /* D-013 — Update-available banner. Slim row, amber-bordered, sits
+     between TitleBar (32px) and TabBar (36px). 28px height keeps it
+     compact; only renders when availableUpdate is truthy. */
+  .update-banner {
+    height: 28px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 0 16px;
+    background: var(--bg-elevated);
+    border-bottom: 1px solid var(--amber-primary);
+    color: var(--amber-warm);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    user-select: none;
+  }
+  .update-banner.installing {
+    border-bottom-color: var(--amber-bright);
+  }
+  .update-banner.error {
+    border-bottom-color: var(--term-red);
+    color: var(--term-red);
+  }
+  .update-glyph {
+    color: var(--amber-bright);
+    text-shadow: var(--glow-amber);
+    font-size: 13px;
+  }
+  .update-text {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .update-body {
+    color: var(--amber-faint);
+  }
+  .update-btn {
+    background: transparent;
+    border: 1px solid var(--amber-dim);
+    color: var(--amber-dim);
+    font-family: inherit;
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    padding: 3px 10px;
+    cursor: pointer;
+    transition: color 0.12s, border-color 0.12s;
+  }
+  .update-btn:not(:disabled):hover {
+    color: var(--amber-primary);
+    border-color: var(--amber-primary);
+  }
+  .update-btn-primary {
+    color: var(--amber-warm);
+    border-color: var(--amber-primary);
+  }
+  .update-btn-primary:not(:disabled):hover {
+    color: var(--amber-bright);
+    border-color: var(--amber-bright);
+    text-shadow: var(--glow-amber);
+  }
+  .update-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
 </style>
