@@ -167,14 +167,18 @@
     color: var(--term-red);
     border-color: var(--term-red);
   }
-  /* PROJECT button — same shape as DETACH GUI, same border vocabulary */
-  .btn.project {
+  /* PROJECT / SETTINGS / DETACH share the same wide-button shape — they
+     all wrap a glyph + label rather than fitting a single icon. Without
+     the width:auto override, .btn's 14×14 box squishes the label. */
+  .btn.project,
+  .btn.settings {
     width: auto;
     padding: 0 6px;
     font-size: 9px;
     letter-spacing: 0.08em;
   }
-  .btn.project:hover {
+  .btn.project:hover,
+  .btn.settings:hover {
     color: var(--amber-bright);
     border-color: var(--amber-bright);
     text-shadow: var(--glow-amber);

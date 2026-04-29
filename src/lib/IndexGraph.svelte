@@ -530,8 +530,14 @@
     const simLinks: VaultLink[] = [...indexLinks, ...vaultLinks];
 
     // Charge scales with node count — weaker on large graphs to keep the
-    // radial constraint dominant.
-    const chargeStrength = vaultNodes.length <= 12 ? -240 : vaultNodes.length <= 25 ? -140 : -70;
+    // radial constraint dominant. Brackets bumped 2026-04-29 (Phase 8.7n)
+    // after sub-doors landed: more nodes per kind sector means we need
+    // more repulsion at every bracket to prevent dense overlap clusters.
+    const chargeStrength =
+      vaultNodes.length <= 12 ? -340
+      : vaultNodes.length <= 25 ? -240
+      : vaultNodes.length <= 50 ? -160
+      : -110;
 
     simulation = forceSimulation<VaultNode, VaultLink>(simNodes)
       .force(
@@ -552,12 +558,16 @@
       )
       .force(
         'charge',
-        forceManyBody<VaultNode>().strength(chargeStrength).distanceMax(180),
+        // distanceMax raised from 180 → 260 alongside the chargeStrength
+        // bump so the repulsion field actually reaches the neighbours
+        // sub-doors most need to be pushed away from.
+        forceManyBody<VaultNode>().strength(chargeStrength).distanceMax(260),
       )
-      // Collision detection prevents node circles from overlapping. Radius 22 =
-      // node circle r=8 + 14px breathing room (raised 2026-04-29 from r=14 for
-      // tighter no-overlap + larger label-clearance per user feedback).
-      .force('collide', forceCollide<VaultNode>(22))
+      // Collision detection prevents node circles from overlapping. Radius
+      // raised 22 → 30 in Phase 8.7n alongside chargeStrength bump — sub-doors
+      // ride on the same parent's spoke, so they need more no-overlap budget
+      // to spread along the perpendicular axis without colliding labels.
+      .force('collide', forceCollide<VaultNode>(30))
       .force(
         'x',
         forceX<VaultNode>().x((d) => {
