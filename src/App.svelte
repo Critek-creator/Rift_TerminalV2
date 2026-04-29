@@ -14,6 +14,9 @@
   import NotificationPane from './lib/NotificationPane.svelte';
   import AegisTabContent from './lib/AegisTabContent.svelte';
   import IndexTabContent from './lib/IndexTabContent.svelte';
+  import BusTailTabContent from './lib/BusTailTabContent.svelte';
+  import TodoTabContent from './lib/TodoTabContent.svelte';
+  import GitTabContent from './lib/GitTabContent.svelte';
   import StatusLine from './lib/StatusLine.svelte';
   import Popout from './lib/Popout.svelte';
   import { popouts } from './lib/popouts.svelte';
@@ -53,6 +56,15 @@
     { id: 'commands', title: 'commands', icon: '⌘', enabled: true, detected: true,  unreadCount: 0, lastActivityTs: null },
     { id: 'aegis',    title: 'aegis',    icon: '◉', enabled: true, detected: false, unreadCount: 0, lastActivityTs: null },
     { id: 'index',    title: 'index',    icon: '◈', enabled: true, detected: true,  unreadCount: 0, lastActivityTs: null },
+    // Phase 8.7i — bus tail (firehose dev visibility). detected:true since
+    // it's a Rift-internal surface, not capability-gated on any translator.
+    { id: 'bustail',  title: 'bus tail', icon: '⌁', enabled: true, detected: true,  unreadCount: 0, lastActivityTs: null },
+    // Phase 8.7i — TODO scraper across project source. detected:true since
+    // it's a pure frontend feature backed by a synchronous Tauri command.
+    { id: 'todo',     title: 'todo',     icon: '⊜', enabled: true, detected: true,  unreadCount: 0, lastActivityTs: null },
+    // Phase 8.7i — git status (branch, ahead/behind, working tree).
+    // Shells out to `git`; renders not-a-repo empty state when applicable.
+    { id: 'git',      title: 'git',      icon: '⎇', enabled: true, detected: true,  unreadCount: 0, lastActivityTs: null },
   ]);
 
   // Reverse map for envelope routing — Category → notif tab id. Used by the
@@ -597,6 +609,12 @@
                 <AegisTabContent />
               {:else if activeNotifTab.id === 'index'}
                 <IndexTabContent />
+              {:else if activeNotifTab.id === 'bustail'}
+                <BusTailTabContent />
+              {:else if activeNotifTab.id === 'todo'}
+                <TodoTabContent />
+              {:else if activeNotifTab.id === 'git'}
+                <GitTabContent />
               {:else}
                 <NotificationPane
                   title={activeNotifTab.title}
@@ -632,6 +650,12 @@
               <AegisTabContent onDragBack={demoteTab} />
             {:else if promotedTab.id === 'index'}
               <IndexTabContent onDragBack={demoteTab} />
+            {:else if promotedTab.id === 'bustail'}
+              <BusTailTabContent onDragBack={demoteTab} />
+            {:else if promotedTab.id === 'todo'}
+              <TodoTabContent onDragBack={demoteTab} />
+            {:else if promotedTab.id === 'git'}
+              <GitTabContent onDragBack={demoteTab} />
             {:else}
               <NotificationPane
                 title={promotedTab.title}

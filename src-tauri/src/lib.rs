@@ -1,4 +1,6 @@
 mod cockpit_window;
+mod git_status;
+mod todo_scan;
 
 // Rift Terminal v2 — Tauri host crate.
 //
@@ -682,6 +684,54 @@ async fn aegis_open_settings() -> Result<(), String> {
     open_in_os_editor(".claude/settings.json")
 }
 
+/// Phase 8.7i — TODO/FIXME/XXX/HACK scan over the active project root.
+///
+/// Synchronous best-effort scan with hard caps (1000 results, 1 MiB/file,
+/// depth 16) so the command always returns promptly. Honors the same
+/// ignore-globs as `fs_tree` so vendor / build dirs are skipped.
+#[tauri::command]
+fn todo_scan_command(
+    bus: State<'_, RiftBus>,
+    project_root: State<'_, ProjectRoot>,
+) -> Result<Vec<todo_scan::TodoEntry>, String> {
+    let root = project_root.get();
+
+    let ignore_patterns: Vec<String> = load_config()
+        .map(|cfg| cfg.fs.ignore_globs)
+        .unwrap_or_else(|_| DEFAULT_IGNORE_GLOBS.iter().map(|s| s.to_string()).collect());
+
+    let mut builder = globset::GlobSetBuilder::new();
+    for pattern in &ignore_patterns {
+        let glob = globset::Glob::new(pattern).map_err(|e| {
+            let msg = format!("todo_scan: invalid ignore glob '{pattern}': {e}");
+            publish_error(bus.inner(), "tauri.command.todo_scan", &msg, None);
+            msg
+        })?;
+        builder.add(glob);
+    }
+    let ignore_globs = builder.build().map_err(|e| {
+        let msg = format!("todo_scan: failed to build GlobSet: {e}");
+        publish_error(bus.inner(), "tauri.command.todo_scan", &msg, None);
+        msg
+    })?;
+
+    Ok(todo_scan::scan_todos(&root, &ignore_globs))
+}
+
+/// Phase 8.7i — git status snapshot for the Git notif tab.
+///
+/// One-shot snapshot of branch, ahead/behind, staged/modified/untracked
+/// lists, and the last commit. Returns `not_a_repo: true` when the project
+/// root is not inside a git working tree so the frontend can render an
+/// empty state instead of showing an error.
+#[tauri::command]
+fn git_status_command(
+    project_root: State<'_, ProjectRoot>,
+) -> Result<git_status::GitStatus, String> {
+    let root = project_root.get();
+    git_status::snapshot(&root)
+}
+
 /// Shared helper: resolve `~/<rel_path>` and open it in the OS default editor.
 ///
 /// Cross-platform dispatch:
@@ -1130,6 +1180,8 @@ pub fn run() {
             cockpit_window::cockpit_status,
             aegis_open_lessons,
             aegis_open_settings,
+            todo_scan_command,
+            git_status_command,
         ])
         .run(tauri::generate_context!())
         .expect("rift: tauri runtime failed to start");
