@@ -16,7 +16,7 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use rift_bus::publish_error;
-use tauri::{AppHandle, Emitter, EventTarget, Manager, State, WebviewUrl, WebviewWindowBuilder};
+use tauri::{AppHandle, Emitter, EventTarget, Manager, State};
 
 // ---------------------------------------------------------------------------
 // Managed state
@@ -30,12 +30,16 @@ use tauri::{AppHandle, Emitter, EventTarget, Manager, State, WebviewUrl, Webview
 /// resets the flag on every close path (button, X, OS close), preventing leaks.
 pub struct CockpitWindowState {
     pub is_detached: AtomicBool,
+    /// One-shot guard for cockpit_detach to register the close-requested
+    /// listener exactly once per app lifetime (Phase 8.7d show/hide model).
+    pub listeners_attached: AtomicBool,
 }
 
 impl Default for CockpitWindowState {
     fn default() -> Self {
         Self {
             is_detached: AtomicBool::new(false),
+            listeners_attached: AtomicBool::new(false),
         }
     }
 }
@@ -48,11 +52,9 @@ const WINDOW_LABEL: &str = "cockpit-detached";
 const EVENT_DETACHED: &str = "cockpit_detached";
 const EVENT_REATTACHED: &str = "cockpit_reattached";
 
-// Default window size per §11: "graph on a second display while terminal lives
-// on the primary" — compact enough for a portrait side-monitor, wide enough for
-// the tree layout.
-const DEFAULT_WIDTH: f64 = 480.0;
-const DEFAULT_HEIGHT: f64 = 800.0;
+// Default window size lives in lib.rs setup() now (Phase 8.7d show/hide
+// architecture). The cockpit is pre-built once at app start; this module
+// only handles show/hide commands.
 
 // ---------------------------------------------------------------------------
 // Helper: emit an event to the main window only
@@ -73,19 +75,17 @@ fn emit_to_main(app: &AppHandle, event: &str) {
 // Tauri commands
 // ---------------------------------------------------------------------------
 
-/// Open the detached cockpit window.
+/// Show the (pre-built) detached cockpit window.
 ///
-/// Guards against double-detach atomically: uses `compare_exchange` to set
-/// `is_detached = true` only if it was `false`. Returns `Err` immediately if
-/// already detached, without touching the window registry.
+/// Phase 8.7d architecture: the cockpit-detached window is created at app
+/// setup() in `lib.rs` with `visible(false)` to avoid the wry#1418 race
+/// where __TAURI_INTERNALS__ is not injected into webviews built after
+/// startup. This command no longer builds — it just shows the existing window.
 ///
-/// On success:
-/// 1. Builds a new WebviewWindow at `cockpit-detached.html`.
-/// 2. Registers a `WindowEvent::Destroyed` listener — the single source of
-///    truth for cleanup on ALL close paths (DOCK button, X, programmatic
-///    destroy). This satisfies the pr003 "registry leak on natural close"
-///    gotcha.
-/// 3. Emits `cockpit_detached` to main so `App.svelte` hides the in-pane tree.
+/// Guards against double-detach atomically. On first detach in this session,
+/// also registers the close-requested listener that intercepts the X button
+/// and hides the window instead of destroying it (so re-detach reuses the
+/// same fully-initialized webview).
 #[tauri::command]
 pub fn cockpit_detach(app: AppHandle, state: State<'_, CockpitWindowState>) -> Result<(), String> {
     // Atomic double-detach guard: only proceed if we flip false → true.
@@ -96,42 +96,49 @@ pub fn cockpit_detach(app: AppHandle, state: State<'_, CockpitWindowState>) -> R
 
     let bus = app.state::<rift_bus::RiftBus>().inner().clone();
 
-    let win = WebviewWindowBuilder::new(
-        &app,
-        WINDOW_LABEL,
-        WebviewUrl::App("cockpit-detached.html".into()),
-    )
-    .title("Rift — Cockpit")
-    .inner_size(DEFAULT_WIDTH, DEFAULT_HEIGHT)
-    .decorations(false) // We draw our own titlebar (CockpitDetached.svelte).
-    .resizable(true)
-    .build()
-    .map_err(|e| {
-        // Build failed — roll back the flag so a subsequent call can retry.
+    let win = app.get_webview_window(WINDOW_LABEL).ok_or_else(|| {
+        // Window should exist — pre-built at setup(). If it's missing, the
+        // setup builder failed silently; clear the flag so a retry is possible.
         state.is_detached.store(false, Ordering::SeqCst);
-        let msg = format!("cockpit_detach: failed to open window: {e}");
+        let msg = format!(
+            "cockpit_detach: cockpit window '{WINDOW_LABEL}' not found in registry — \
+             setup-time build may have failed"
+        );
         publish_error(&bus, "tauri.command.cockpit_detach", &msg, None);
         msg
     })?;
 
-    // Register the destroyed handler — fires whether the user hits X,
-    // the OS closes the window, or `cockpit_reattach` calls `.destroy()`.
-    // This is the SINGLE source of truth for all reattach paths (design D).
-    //
-    // We move `app_for_close` into the closure. `AppHandle` is `'static` and
-    // `Clone`, so the closure satisfies `'static`. We get the managed state
-    // from the cloned handle inside the closure rather than borrowing `app`
-    // (which is local and would not live long enough for `'static`).
-    let app_for_close = app.clone();
-    win.on_window_event(move |event| {
-        if matches!(event, tauri::WindowEvent::Destroyed) {
-            // Resolve state from the cloned handle — it is `'static`.
-            if let Some(s) = app_for_close.try_state::<CockpitWindowState>() {
-                s.is_detached.store(false, Ordering::SeqCst);
+    // First-detach-only setup: register the close-requested interceptor.
+    // We use a one-shot AtomicBool to avoid stacking duplicate listeners on
+    // repeated detach/reattach cycles within a single session.
+    if !state.listeners_attached.swap(true, Ordering::SeqCst) {
+        let app_for_close = app.clone();
+        win.on_window_event(move |event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                // Intercept the X-button close — hide instead of destroy so
+                // the webview (with its already-injected runtime) survives
+                // for the next detach. The cockpit-detached window only
+                // truly destroys when the app exits.
+                api.prevent_close();
+                if let Some(w) = app_for_close.get_webview_window(WINDOW_LABEL) {
+                    let _ = w.hide();
+                }
+                if let Some(s) = app_for_close.try_state::<CockpitWindowState>() {
+                    s.is_detached.store(false, Ordering::SeqCst);
+                }
+                emit_to_main(&app_for_close, EVENT_REATTACHED);
             }
-            emit_to_main(&app_for_close, EVENT_REATTACHED);
-        }
-    });
+        });
+    }
+
+    // Show + focus the pre-built window. show() is idempotent if already shown.
+    win.show().map_err(|e| {
+        state.is_detached.store(false, Ordering::SeqCst);
+        let msg = format!("cockpit_detach: failed to show window: {e}");
+        publish_error(&bus, "tauri.command.cockpit_detach", &msg, None);
+        msg
+    })?;
+    let _ = win.set_focus();
 
     // Notify main that the cockpit is now detached.
     emit_to_main(&app, EVENT_DETACHED);
@@ -139,13 +146,12 @@ pub fn cockpit_detach(app: AppHandle, state: State<'_, CockpitWindowState>) -> R
     Ok(())
 }
 
-/// Close the detached cockpit window and reattach the tree to the main window.
+/// Hide the cockpit window and reattach the tree to the main window.
 ///
-/// Calls `.destroy()` on the window if it exists, which triggers
-/// `WindowEvent::Destroyed` → the handler above clears `is_detached` and
-/// emits `cockpit_reattached`. If the window no longer exists (edge case:
-/// user X'd it in the same millisecond), we fall back to clearing state
-/// manually so the main window doesn't get stuck in "detached" UI mode.
+/// Phase 8.7d: hide instead of destroy. The cockpit window persists for the
+/// app lifetime so its already-injected Tauri runtime survives across detach
+/// cycles. The close-requested listener registered in cockpit_detach handles
+/// the X-button path the same way (prevent_close + hide).
 #[tauri::command]
 pub fn cockpit_reattach(
     app: AppHandle,
@@ -155,17 +161,17 @@ pub fn cockpit_reattach(
 
     match app.get_webview_window(WINDOW_LABEL) {
         Some(win) => {
-            // Destroy triggers WindowEvent::Destroyed, which clears state +
-            // emits cockpit_reattached. Don't emit here to avoid a duplicate.
-            win.destroy().map_err(|e| {
-                let msg = format!("cockpit_reattach: failed to destroy window: {e}");
+            win.hide().map_err(|e| {
+                let msg = format!("cockpit_reattach: failed to hide window: {e}");
                 publish_error(&bus, "tauri.command.cockpit_reattach", &msg, None);
                 msg
             })?;
+            state.is_detached.store(false, Ordering::SeqCst);
+            emit_to_main(&app, EVENT_REATTACHED);
         }
         None => {
-            // Window already gone (race: user X'd before button fired).
-            // Ensure state + main-window event are consistent.
+            // Window missing entirely (setup-time build failed). Recover state
+            // so the UI doesn't get stuck in "detached" mode.
             state.is_detached.store(false, Ordering::SeqCst);
             emit_to_main(&app, EVENT_REATTACHED);
         }

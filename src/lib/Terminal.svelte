@@ -6,6 +6,7 @@
   import { FitAddon } from '@xterm/addon-fit';
   import '@xterm/xterm/css/xterm.css';
   import { deferredFit } from './terminal-fit-timing';
+  import { TREE_PATH_MIME, RIFT_VAULT_DROP_EVENT, type RiftVaultDropDetail } from './dragMime';
 
   type PtyExited = { id: number; code: number };
 
@@ -29,9 +30,6 @@
   // ---------------------------------------------------------------------------
   // Drag-node-into-terminal (Phase 6.6 — design calls A, C, D)
   // ---------------------------------------------------------------------------
-
-  /** Custom MIME type that Tree.svelte sets on tree-path drags. */
-  const TREE_PATH_MIME = 'application/x-rift-tree-path';
 
   /** True while a valid tree-path drag hovers the terminal host. */
   let dragHover = $state(false);
@@ -76,6 +74,21 @@
     if (!path) return;
     e.preventDefault();
     pasteIntoTerminal(path);
+  }
+
+  /**
+   * Phase 8.7 — manual-gesture vault drop from IndexGraph (SVG `<g>`).
+   *
+   * IndexGraph dispatches a {@link RIFT_VAULT_DROP_EVENT} CustomEvent on this
+   * host element when the user releases a manual mousedown/move/up gesture
+   * over the terminal. We can't use HTML5 drag here because SVGElement does
+   * not expose the `draggable` IDL property — see dragMime.ts for the full
+   * note. The xterm.js paste path is the same as the HTML5 drop path above.
+   */
+  function onTermVaultDrop(e: Event): void {
+    const detail = (e as CustomEvent<RiftVaultDropDetail>).detail;
+    if (!detail?.path) return;
+    pasteIntoTerminal(detail.path);
   }
 
   const encoder = new TextEncoder();
@@ -229,6 +242,9 @@
         `\r\n\x1b[2;33m[session ${event.payload.id} exited code=${event.payload.code}]\x1b[0m`
       );
     });
+
+    // Phase 8.7 — vault-drop event listener (manual gesture from IndexGraph).
+    host.addEventListener(RIFT_VAULT_DROP_EVENT, onTermVaultDrop);
   });
 
   onDestroy(() => {
@@ -237,6 +253,7 @@
     }
     unlistenExited?.();
     resizeObs?.disconnect();
+    host?.removeEventListener(RIFT_VAULT_DROP_EVENT, onTermVaultDrop);
     term?.dispose();
   });
 </script>

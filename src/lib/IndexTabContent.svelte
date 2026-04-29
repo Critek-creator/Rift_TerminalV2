@@ -16,6 +16,7 @@
 
   import { subscribe, type Envelope } from './bus';
   import IndexTabRenderer from './IndexTabRenderer.svelte';
+  import { NOTIF_TAB_MIME } from './dragMime';
 
   interface Props {
     /** Drag-back handle for promoted-pane mode (Phase 3.5a). */
@@ -137,6 +138,9 @@
   function onHandleDragStart(e: DragEvent) {
     if (e.dataTransfer) {
       e.dataTransfer.effectAllowed = 'move';
+      // Marker MIME — TabBar.onStripDrop filters by NOTIF_TAB_MIME presence
+      // and rejects drags missing it (silent demote failure if omitted).
+      e.dataTransfer.setData(NOTIF_TAB_MIME, '__promoted_pane__');
       e.dataTransfer.setData('text/plain', '__promoted_pane__');
     }
   }

@@ -19,9 +19,24 @@
   import { onMount } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
   import { getCurrentWindow, PhysicalPosition, PhysicalSize } from '@tauri-apps/api/window';
+  import type { Window as TauriWindow } from '@tauri-apps/api/window';
   import Tree from './lib/Tree.svelte';
+  import IndexGraph from './lib/IndexGraph.svelte';
 
-  const appWindow = getCurrentWindow();
+  // Lazy-init at onMount instead of module scope.
+  //
+  // Phase 8.7c finding (2026-04-29): in a freshly-spawned secondary window,
+  // Tauri's `__TAURI_INTERNALS__.metadata` is not yet populated at module
+  // evaluation time, and `getCurrentWindow()` accesses `metadata.currentWindow`
+  // unconditionally — throwing `Cannot read properties of undefined (reading
+  // 'metadata')` and aborting the whole component tree. Result: white window.
+  //
+  // Main window's TitleBar.svelte uses the same pattern at module scope
+  // without crashing because the main webview is created with the runtime
+  // already initialized; the cockpit webview is spawned later and the runtime
+  // setup races the module load. onMount fires after Svelte's hydration,
+  // by which time __TAURI_INTERNALS__ is fully populated.
+  let appWindow: TauriWindow;
 
   const POS_KEY = 'rift.cockpit.detached_pos';
 
@@ -112,11 +127,21 @@
   }
 
   onMount(() => {
+    // Phase 8.7d: cockpit window is pre-built at setup() in lib.rs, so the
+    // Tauri runtime is injected before this component mounts. No race; no
+    // poll needed. getCurrentWindow() works at module load OR onMount.
+    try {
+      appWindow = getCurrentWindow();
+    } catch (err) {
+      console.error('[CockpitDetached] getCurrentWindow() failed:', err);
+      return;
+    }
+
     // Restore saved position FIRST so it happens before the user sees the window settle.
     restoreSavedPosition().then(() => {
       startPositionTracking();
     }).catch(() => {
-      // restoreSavedPosition already catches internally; this outer catch is belt-and-suspenders.
+      // restoreSavedPosition catches internally; this outer catch is belt-and-suspenders.
       startPositionTracking();
     });
   });
@@ -152,15 +177,29 @@
     </div>
   </header>
 
-  <!-- Pane header — mirrors cockpit-right in App.svelte -->
-  <div class="pane-header">
-    <span>FILE TREE</span>
-    <span class="meta">{nodeCount} files · {watchedPathLabel}</span>
+  <!-- Phase 8.7d — mirrors App.svelte's cockpit-right split:
+       IndexGraph (top 55%) + horizontal divider + File Tree (bottom 45%).
+       Without this the detached cockpit only carried half the surface. -->
+  <div class="graph-pane">
+    <div class="pane-header">
+      <span>INDEX</span>
+      <span class="meta">vault graph · fixture</span>
+    </div>
+    <div class="graph-body">
+      <IndexGraph />
+    </div>
   </div>
 
-  <!-- Tree body -->
-  <div class="tree-body">
-    <Tree bind:nodeCount bind:watchedPathLabel />
+  <div class="cockpit-h-divider"></div>
+
+  <div class="tree-pane">
+    <div class="pane-header">
+      <span>FILE TREE</span>
+      <span class="meta">{nodeCount} files · {watchedPathLabel}</span>
+    </div>
+    <div class="tree-body">
+      <Tree bind:nodeCount bind:watchedPathLabel />
+    </div>
   </div>
 </div>
 
@@ -250,6 +289,35 @@
   .btn.dock:hover {
     color: var(--blue-claude);
     border-color: var(--blue-claude);
+  }
+
+  /* ---- graph + tree split — Phase 8.7d, mirrors App.svelte cockpit-right ---- */
+  .graph-pane {
+    flex: 0 0 55%;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
+    background: var(--bg-base);
+  }
+  .graph-body {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
+  }
+  .cockpit-h-divider {
+    flex: 0 0 1px;
+    background: var(--border-subtle);
+    width: 100%;
+  }
+  .tree-pane {
+    flex: 1 1 45%;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
   }
 
   /* ---- pane header — matches App.svelte .pane-header exactly ---- */

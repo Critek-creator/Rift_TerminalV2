@@ -21,10 +21,22 @@
   //                 (<g class="links"> and <g class="nodes">)
   //   NO Svelte {#each} blocks inside zoom-target.
   //
-  // Lifecycle:
+  // Lifecycle (Phase 8.7b — d3-zoom removed 2026-04-29):
   //   $effect guard → container present → build sim on current nodes/edges
-  //   → bind zoom → bind drag → cleanup: simulation.stop() + .on('tick', null)
+  //   → tick writes positions to reactive renderedNodes/renderedLinks state
+  //   → Svelte template renders <line> + <g class="graph-node"> from that state
+  //   → manual mousedown/move/up gesture (top of script) handles node drag
+  //     (live fx/fy pin while dragging) + drag-into-terminal on terminal-host
+  //     mouseup hit-test
+  //   → cleanup: simulation.stop() + .on('tick', null)
   //   The $effect re-runs whenever `nodes` or `edges` reactive state changes.
+  //
+  // Why Svelte owns the DOM inside zoom-target (changed from 8.5 D3-imperative):
+  //   WebView2 / Chromium does not initiate HTML5 drag on SVG <g> elements
+  //   created imperatively via D3 `.append('g')` + `.setAttribute('draggable',
+  //   'true')`, even when the attribute is verifiably present in the DOM.
+  //   Tree.svelte's working pattern is template-rendered <g draggable="true">
+  //   — Phase 8.7 mirrors that pattern. D3 owns the simulation only.
 
   import { onMount } from 'svelte';
   import { forceSimulation, forceLink, forceManyBody, forceX, forceY, forceCollide } from 'd3-force';
@@ -32,9 +44,8 @@
   import { select } from 'd3-selection';
   import { zoom, zoomIdentity } from 'd3-zoom';
   import type { ZoomBehavior, ZoomTransform } from 'd3-zoom';
-  import { drag } from 'd3-drag';
-  import type { DragBehavior, D3DragEvent, SubjectPosition } from 'd3-drag';
   import { subscribe } from './bus';
+  import { RIFT_VAULT_DROP_EVENT, type RiftVaultDropDetail } from './dragMime';
 
   // ---------------------------------------------------------------------------
   // Types
@@ -57,6 +68,8 @@
     vy?: number;
     fx?: number | null;
     fy?: number | null;
+    /** Absolute vault file path — populated from VaultUpdatePayload; used as HTML5 drag payload (Phase 8.7). */
+    path?: string;
   }
 
   /**
@@ -215,6 +228,7 @@
                 kind: inferKind(p.vault_id),
                 label: raw.name ? `${p.vault_id} — ${raw.name}` : p.vault_id,
                 crossRefs: raw.cross_refs ?? [],
+                path: p.path,
                 // Preserve existing D3 x/y so the node doesn't snap to origin.
                 x: existing?.x,
                 y: existing?.y,
@@ -266,6 +280,162 @@
    */
   let simulation: Simulation<VaultNode, VaultLink>;
 
+  /**
+   * Live simulation-node array. Hoisted to module scope so the manual-gesture
+   * drag handlers (onDocMouseMove / onDocMouseUp) can mutate fx/fy on the live
+   * VaultNode the simulation is iterating — that's the standard d3-force drag
+   * pattern (pin while dragging, release on drop).
+   *
+   * Reassigned by the $effect on every nodes/edges change. Drag handlers must
+   * tolerate the array being replaced mid-gesture (rare; only on data update).
+   */
+  let simNodes: VaultNode[] = [];
+
+  // ---------------------------------------------------------------------------
+  // Per-tick render state (Phase 8.7)
+  //
+  // D3 mutates simNodes/simLinks in place; the tick handler reads positions
+  // and writes them to these arrays. Svelte renders <line> + <g> from these
+  // arrays via {#each}. $state.raw avoids deep-proxy overhead at 60 Hz.
+  // ---------------------------------------------------------------------------
+
+  interface RenderedNode {
+    id: string;
+    kind: VaultKind;
+    label: string;
+    path?: string;
+    isIndex: boolean;
+    draggable: boolean;
+    cursor: 'default' | 'grab';
+    x: number;
+    y: number;
+  }
+
+  interface RenderedLink {
+    key: string;
+    cls: string;
+    x1: number;
+    y1: number;
+    x2: number;
+    y2: number;
+  }
+
+  let renderedNodes = $state.raw<RenderedNode[]>([]);
+  let renderedLinks = $state.raw<RenderedLink[]>([]);
+
+  /** Currently hovered node id — drives `.hovered` class on the <g>. */
+  let hoveredId = $state<string | null>(null);
+
+  /**
+   * Drag ghost — a fixed-position element that follows the cursor while a
+   * vault node is being dragged. Lets the gesture visually escape the
+   * IndexGraph pane (which is clipped by overflow:hidden in App.svelte's
+   * .graph-pane / .graph-body) so the user can drop onto the terminal on
+   * the left half of the cockpit. `pointer-events: none` keeps elementFromPoint
+   * hit-testing correct on mouseup (so .terminal-host is reachable).
+   */
+  let ghostVisible = $state(false);
+  let ghostX = $state(0);
+  let ghostY = $state(0);
+  let ghostLabel = $state('');
+  let ghostKind = $state<VaultKind>('p');
+
+  /** Node id currently being dragged — drives `.dragging` class on the source <g>. */
+  let draggingId = $state<string | null>(null);
+
+  // ---------------------------------------------------------------------------
+  // Manual-gesture drag-into-terminal (Phase 8.7 — replaces HTML5 drag)
+  //
+  // WHY MANUAL: WebView2 does NOT initiate HTML5 drag on SVG `<g>` elements
+  // even when `draggable="true"` is set as an HTML attribute. The runtime
+  // diagnostic 2026-04-29 confirmed: `g.getAttribute('draggable') === "true"`
+  // but `g.draggable === undefined` (the IDL property is HTMLElement-only).
+  // No `dragstart` event ever fires — captured at window level via
+  // `addEventListener('dragstart', ..., true)`. So we sidestep HTML5 drag
+  // and run our own gesture: mousedown → mousemove (threshold) → mouseup
+  // hit-test against `.terminal-host` → dispatch RIFT_VAULT_DROP_EVENT.
+  //
+  // The d3-zoom filter still yields on vault-node mousedowns (so the canvas
+  // does not pan when a gesture starts), but no longer relies on the
+  // `[draggable="true"]` attribute — it uses the `index-root` class check.
+  // ---------------------------------------------------------------------------
+
+  /** Pixel threshold the cursor must move before mousedown promotes to drag. */
+  const DRAG_THRESHOLD_PX = 5;
+
+  let dragNode: RenderedNode | null = null;
+  let dragStartX = 0;
+  let dragStartY = 0;
+  let dragActive = false;
+
+  function onNodeMouseDown(e: MouseEvent, node: RenderedNode): void {
+    if (e.button !== 0) return;       // left-click only
+    if (node.isIndex) return;         // INDEX is not a drag source
+    dragNode = node;
+    dragStartX = e.clientX;
+    dragStartY = e.clientY;
+    dragActive = false;
+    document.addEventListener('mousemove', onDocMouseMove);
+    document.addEventListener('mouseup', onDocMouseUp);
+    // Prevent text selection during the gesture.
+    e.preventDefault();
+  }
+
+  function onDocMouseMove(e: MouseEvent): void {
+    if (!dragNode) return;
+    if (!dragActive) {
+      const dx = Math.abs(e.clientX - dragStartX);
+      const dy = Math.abs(e.clientY - dragStartY);
+      if (dx > DRAG_THRESHOLD_PX || dy > DRAG_THRESHOLD_PX) {
+        dragActive = true;
+        document.body.style.cursor = 'grabbing';
+        // Activate the drag ghost — the visual representation of the
+        // gesture in viewport coordinates. The source node in the graph
+        // stays put; the ghost is what the user sees crossing the
+        // .graph-pane overflow:hidden boundary onto the terminal.
+        ghostLabel = dragNode.id;
+        ghostKind = dragNode.kind;
+        ghostVisible = true;
+        draggingId = dragNode.id;
+      }
+    }
+    if (!dragActive) return;
+    // Ghost tracks cursor in viewport coords (escapes clipping ancestors).
+    // No fx/fy mutation on the simulation node — keeps zero shake on the
+    // graph. Standard "drag a copy onto a drop target" UX, not "rearrange
+    // the graph layout." The radial layout is auto-positioned and would
+    // fight any user-imposed positioning anyway.
+    ghostX = e.clientX;
+    ghostY = e.clientY;
+  }
+
+  function onDocMouseUp(e: MouseEvent): void {
+    document.removeEventListener('mousemove', onDocMouseMove);
+    document.removeEventListener('mouseup', onDocMouseUp);
+    document.body.style.cursor = '';
+
+    const node = dragNode;
+    const wasActive = dragActive;
+    dragNode = null;
+    dragActive = false;
+    ghostVisible = false;
+    draggingId = null;
+
+    if (!wasActive || !node) return;  // mouseup without crossing threshold = a click, not a drag
+
+    // No fx/fy to clear (we don't pin during drag — see onDocMouseMove for
+    // rationale). Hit-test the cursor for a terminal drop target.
+    const target = document.elementFromPoint(e.clientX, e.clientY);
+    const terminalHost = target?.closest('.terminal-host');
+    if (!terminalHost) return;
+
+    const payload = node.path ?? node.id;
+    const detail: RiftVaultDropDetail = { path: payload };
+    terminalHost.dispatchEvent(
+      new CustomEvent(RIFT_VAULT_DROP_EVENT, { detail, bubbles: true }),
+    );
+  }
+
   // ---------------------------------------------------------------------------
   // D3 simulation $effect — re-runs when activeNodes or activeEdges change
   //
@@ -295,31 +465,19 @@
     const H = rect.height || 480;
 
     // ------------------------------------------------------------------
-    // D3 selection
-    // ------------------------------------------------------------------
-    const svg = select<SVGSVGElement, unknown>(container);
-    const g   = svg.select<SVGGElement>('g.zoom-target');
-
-    g.selectAll('*').remove();
-
-    const linkGroup = g.append('g').attr('class', 'links');
-    const nodeGroup = g.append('g').attr('class', 'nodes');
-
-    // ------------------------------------------------------------------
-    // Radial layout (2026-04-28)
+    // Radial layout (2026-04-28; rendering pivoted to Svelte template 8.7)
     //
     // Synthetic INDEX root pinned at viewport center; every vault is linked
     // to INDEX with a long spoke (RADIUS) plus its real cross-ref edges.
     // forceX/forceY pull each vault toward its kind's angular sector, so
-    // nodes group by category (projects at 12 o'clock, research at 3, etc.)
-    // rather than scattering across the canvas.
+    // nodes group by category (projects at 12 o'clock, research at 3, etc.).
     //
-    // The INDEX-spoke link gives every vault a single "tether" that keeps
-    // the whole graph viewport-bounded; the radial forceX/Y produces the
-    // kind-clustering the user requested ("logical system with INDEX node
-    // at center with lines connecting outward to each vault in proper order").
+    // 8.7 change: Svelte owns DOM inside zoom-target ({#each renderedNodes,
+    // renderedLinks}). The tick handler writes positions to those reactive
+    // arrays; D3 is the simulation engine only. Required because WebView2 does
+    // not initiate HTML5 drag on D3-imperative SVG <g> even with draggable="true".
     // ------------------------------------------------------------------
-    const RADIUS = Math.min(W, H) * 0.42;
+    const RADIUS = Math.min(W, H) * 0.48;
     const INDEX_ID = '__INDEX__';
 
     /** Angular sector per vault kind (radians; 0 = 3 o'clock, π/2 = 6 o'clock). */
@@ -336,7 +494,7 @@
     // Synthetic INDEX node, pinned at viewport center.
     const indexNode: VaultNode = {
       id: INDEX_ID,
-      kind: 'p',                      // sentinel — special-cased in render below
+      kind: 'p',                      // sentinel — special-cased in render
       label: 'INDEX',
       fx: W / 2,
       fy: H / 2,
@@ -345,17 +503,17 @@
     // Spoke links from INDEX → every vault.
     const indexLinks: VaultLink[] = vaultNodes.map((n) => ({ source: INDEX_ID, target: n.id }));
 
-    const nodes: VaultNode[] = [indexNode, ...vaultNodes];
-    const links: VaultLink[] = [...indexLinks, ...vaultLinks];
+    simNodes = [indexNode, ...vaultNodes];
+    const simLinks: VaultLink[] = [...indexLinks, ...vaultLinks];
 
     // Charge scales with node count — weaker on large graphs to keep the
     // radial constraint dominant.
     const chargeStrength = vaultNodes.length <= 12 ? -240 : vaultNodes.length <= 25 ? -140 : -70;
 
-    simulation = forceSimulation<VaultNode, VaultLink>(nodes)
+    simulation = forceSimulation<VaultNode, VaultLink>(simNodes)
       .force(
         'link',
-        forceLink<VaultNode, VaultLink>(links)
+        forceLink<VaultNode, VaultLink>(simLinks)
           .id((d) => d.id)
           .distance((d) => {
             // INDEX-spoke links are RADIUS long; cross-vault links are short.
@@ -373,11 +531,10 @@
         'charge',
         forceManyBody<VaultNode>().strength(chargeStrength).distanceMax(180),
       )
-      // Collision detection prevents node circles from overlapping each
-      // other. Without this, vaults in the same kind-sector pile on top
-      // of each other (visible as tightly packed clusters in pic 1 of
-      // 2026-04-28 eyeball). Radius 14 = node circle r=8 + 6px breathing room.
-      .force('collide', forceCollide<VaultNode>(14))
+      // Collision detection prevents node circles from overlapping. Radius 22 =
+      // node circle r=8 + 14px breathing room (raised 2026-04-29 from r=14 for
+      // tighter no-overlap + larger label-clearance per user feedback).
+      .force('collide', forceCollide<VaultNode>(22))
       .force(
         'x',
         forceX<VaultNode>().x((d) => {
@@ -397,106 +554,67 @@
       .on('tick', tick);
 
     // ------------------------------------------------------------------
-    // D3 data joins — links
-    // ------------------------------------------------------------------
-    let linkSel = linkGroup
-      .selectAll<SVGLineElement, VaultLink>('line')
-      .data(links)
-      .join('line')
-      .attr('class', (d) => {
-        // INDEX-spoke edges get a separate class for fainter styling.
-        const srcId = typeof d.source === 'string' ? d.source : (d.source as VaultNode).id;
-        return srcId === INDEX_ID ? 'graph-edge index-spoke' : 'graph-edge';
-      });
-
-    // ------------------------------------------------------------------
-    // D3 data joins — nodes
-    // ------------------------------------------------------------------
-
-    function kindClass(kind: VaultKind): string {
-      return `node-${kind}`;
-    }
-
-    function nodeClass(d: VaultNode): string {
-      if (d.id === INDEX_ID) return 'graph-node index-root';
-      return `graph-node ${kindClass(d.kind)}`;
-    }
-
-    const nodeSel = nodeGroup
-      .selectAll<SVGGElement, VaultNode>('g.graph-node')
-      .data(nodes, (d) => d.id)
-      .join('g')
-      .attr('class', nodeClass)
-      .attr('cursor', (d) => (d.id === INDEX_ID ? 'default' : 'grab'));
-
-    nodeSel
-      .append('circle')
-      .attr('r', (d) => (d.id === INDEX_ID ? 16 : 8))
-      .attr('class', (d) =>
-        d.id === INDEX_ID ? 'node-circle index-root' : `node-circle ${kindClass(d.kind)}`,
-      );
-
-    nodeSel
-      .append('text')
-      .attr('class', (d) =>
-        d.id === INDEX_ID ? 'node-label index-root' : 'node-label',
-      )
-      .attr('dy', (d) => (d.id === INDEX_ID ? 32 : 20))
-      .attr('text-anchor', 'middle')
-      .text((d) => (d.id === INDEX_ID ? 'INDEX' : d.id));
-
-    nodeSel
-      .on('mouseenter', function () {
-        select(this).classed('hovered', true);
-      })
-      .on('mouseleave', function () {
-        select(this).classed('hovered', false);
-      });
-
-    // ------------------------------------------------------------------
-    // Tick handler
+    // Tick handler — writes simulation positions to reactive render state
     // ------------------------------------------------------------------
     function tick(): void {
-      linkSel
-        .attr('x1', (d) => (d.source as VaultNode).x ?? 0)
-        .attr('y1', (d) => (d.source as VaultNode).y ?? 0)
-        .attr('x2', (d) => (d.target as VaultNode).x ?? 0)
-        .attr('y2', (d) => (d.target as VaultNode).y ?? 0);
+      renderedLinks = simLinks.map((l) => {
+        const s = l.source as VaultNode;
+        const t = l.target as VaultNode;
+        const srcId = typeof l.source === 'string' ? l.source : s.id;
+        const tgtId = typeof l.target === 'string' ? l.target : t.id;
+        return {
+          key: `${srcId}->${tgtId}`,
+          cls: srcId === INDEX_ID ? 'graph-edge index-spoke' : 'graph-edge',
+          x1: s.x ?? 0,
+          y1: s.y ?? 0,
+          x2: t.x ?? 0,
+          y2: t.y ?? 0,
+        };
+      });
 
-      nodeSel
-        .attr('transform', (d) => `translate(${d.x ?? 0},${d.y ?? 0})`);
+      renderedNodes = simNodes.map((n) => ({
+        id: n.id,
+        kind: n.kind,
+        label: n.label,
+        path: n.path,
+        isIndex: n.id === INDEX_ID,
+        draggable: n.id !== INDEX_ID,
+        cursor: n.id === INDEX_ID ? 'default' : 'grab',
+        x: n.x ?? 0,
+        y: n.y ?? 0,
+      }));
     }
 
     // ------------------------------------------------------------------
-    // Drag behavior
+    // Pan + zoom (Phase 8.7c — restored 2026-04-29 with safer filter).
+    //
+    // The Phase 8.7 race: d3-zoom's filter allowed pan on INDEX clicks
+    // (because INDEX has class index-root and the filter only excluded
+    // non-INDEX vault nodes). Clicking INDEX → d3-zoom panned the entire
+    // <g class="zoom-target"> group → "tree drags."
+    //
+    // Safer filter (8.7c): wheel events allowed anywhere (zoom); mousedown
+    // events only allowed when the target has NO ancestor g.graph-node
+    // (drag-pan only on empty SVG background). Vault-node drag and
+    // INDEX-click are both excluded from the zoom behavior, so the manual
+    // mousedown/move/up gesture (above) owns those gestures uncontested.
     // ------------------------------------------------------------------
-    const dragBehavior: DragBehavior<SVGGElement, VaultNode, VaultNode | SubjectPosition> = drag<SVGGElement, VaultNode>()
-      // INDEX root is pinned — don't allow dragging it (would unpin the anchor).
-      .filter((_event, d) => d.id !== INDEX_ID)
-      .on('start', function (this: SVGGElement, event: D3DragEvent<SVGGElement, VaultNode, VaultNode>, d: VaultNode) {
-        if (!event.active) simulation.alpha(0.3).restart();
-        d.fx = d.x;
-        d.fy = d.y;
-        select(this).attr('cursor', 'grabbing');
-      })
-      .on('drag', (event: D3DragEvent<SVGGElement, VaultNode, VaultNode>, d: VaultNode) => {
-        d.fx = event.x;
-        d.fy = event.y;
-      })
-      .on('end', function (this: SVGGElement, event: D3DragEvent<SVGGElement, VaultNode, VaultNode>, d: VaultNode) {
-        if (!event.active) simulation.alphaTarget(0);
-        d.fx = null;
-        d.fy = null;
-        select(this).attr('cursor', 'grab');
-      });
+    const svg = select<SVGSVGElement, unknown>(container);
+    const g   = svg.select<SVGGElement>('g.zoom-target');
 
-    nodeSel.call(dragBehavior as unknown as (sel: typeof nodeSel) => void);
-
-    // ------------------------------------------------------------------
-    // Pan + zoom
-    // ------------------------------------------------------------------
     const zoomBehavior: ZoomBehavior<SVGSVGElement, unknown> = zoom<SVGSVGElement, unknown>()
-      .scaleExtent([0.2, 5])
+      .scaleExtent([0.4, 3])
+      .filter((event: Event) => {
+        // Always allow wheel events — zoom anywhere on the canvas.
+        if (event.type === 'wheel') return true;
+        // For mousedown (pan), only allow when NOT on any node.
+        // closest('g.graph-node') matches both INDEX and vault nodes,
+        // so the manual gesture handler keeps full ownership of node clicks.
+        const target = event.target as Element | null;
+        if (target?.closest('g.graph-node')) return false;
+        const e = event as MouseEvent & { ctrlKey: boolean; button: number };
+        return !e.ctrlKey && !e.button;
+      })
       .on('zoom', (event: { transform: ZoomTransform }) => {
         g.attr('transform', event.transform.toString());
       });
@@ -566,12 +684,72 @@
     </defs>
 
     <!--
-      zoom-target: the group D3 transforms for pan/zoom.
-      D3 appends <g class="links"> and <g class="nodes"> here at mount time.
-      Do NOT add Svelte children inside this element.
+      zoom-target: d3-zoom transforms this <g> for pan/zoom (Phase 8.3).
+      Phase 8.7: Svelte owns the rendering inside via {#each}; D3 runs the
+      simulation only. The mirror of Tree.svelte's working SVG-drag pattern.
     -->
-    <g class="zoom-target"></g>
+    <g class="zoom-target">
+      <g class="links">
+        {#each renderedLinks as link (link.key)}
+          <line
+            class={link.cls}
+            x1={link.x1}
+            y1={link.y1}
+            x2={link.x2}
+            y2={link.y2}
+          />
+        {/each}
+      </g>
+      <g class="nodes">
+        {#each renderedNodes as node (node.id)}
+          <!-- svelte-ignore a11y_no_static_element_interactions -->
+          <g
+            class={(node.isIndex ? 'graph-node index-root' : `graph-node node-${node.kind}`) +
+                   (hoveredId === node.id ? ' hovered' : '') +
+                   (draggingId === node.id ? ' dragging-source' : '')}
+            cursor={node.cursor}
+            transform="translate({node.x},{node.y})"
+            onmouseenter={() => (hoveredId = node.id)}
+            onmouseleave={() => {
+              if (hoveredId === node.id) hoveredId = null;
+            }}
+            onmousedown={(e) => onNodeMouseDown(e, node)}
+          >
+            <circle
+              r={node.isIndex ? 16 : 8}
+              class={node.isIndex ? 'node-circle index-root' : `node-circle node-${node.kind}`}
+            />
+            <text
+              class={node.isIndex ? 'node-label index-root' : 'node-label'}
+              dy={node.isIndex ? 32 : 20}
+              text-anchor="middle"
+            >
+              {node.isIndex ? 'INDEX' : node.id}
+            </text>
+          </g>
+        {/each}
+      </g>
+    </g>
   </svg>
+
+  <!--
+    Drag ghost — fixed-positioned visual that follows the cursor while a
+    vault node is being dragged so the gesture isn't clipped by the
+    .graph-pane overflow:hidden constraint. Lets the user visually carry
+    the node over the terminal pane and drop it there.
+    pointer-events:none → elementFromPoint hit-tests the underlying
+    .terminal-host on mouseup, not the ghost.
+  -->
+  {#if ghostVisible}
+    <div
+      class="drag-ghost drag-ghost-kind-{ghostKind}"
+      style="left: {ghostX}px; top: {ghostY}px;"
+      aria-hidden="true"
+    >
+      <span class="drag-ghost-dot"></span>
+      <span class="drag-ghost-label">{ghostLabel}</span>
+    </div>
+  {/if}
 </div>
 
 <style>
@@ -705,5 +883,51 @@
      ------------------------------------------------------------------------- */
   :global(.zoom-target) {
     will-change: transform;
+  }
+
+  /* Source-node visual while a drag is in progress — dimmed to signal the
+     ghost is the carried representation. */
+  :global(.graph-node.dragging-source .node-circle) {
+    opacity: 0.35;
+  }
+  :global(.graph-node.dragging-source .node-label) {
+    opacity: 0.5;
+  }
+
+  /* -------------------------------------------------------------------------
+     Drag ghost — fixed-positioned during vault-node drag (Phase 8.7b).
+     Escapes .graph-pane overflow:hidden so the user can drop on terminal.
+     pointer-events:none preserves underlying elementFromPoint hit-test.
+     ------------------------------------------------------------------------- */
+  .drag-ghost {
+    position: fixed;
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+    z-index: 9999;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 10px 4px 6px;
+    background: rgba(15, 12, 6, 0.92);
+    border: 1px solid var(--amber-bright);
+    border-radius: 12px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--amber-bright);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5),
+                0 0 12px rgba(245, 158, 11, 0.4);
+    white-space: nowrap;
+  }
+  .drag-ghost-dot {
+    display: block;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--amber-bright);
+    box-shadow: 0 0 6px rgba(245, 158, 11, 0.8);
+  }
+  .drag-ghost-label {
+    color: var(--amber-warm, #d8d4c8);
+    letter-spacing: 0.08em;
   }
 </style>

@@ -1063,6 +1063,42 @@ pub fn run() {
                 spawn_status_translator(status_bus, status_root).await;
             });
 
+            // Phase 8.7d — Pre-create the cockpit-detached window at setup
+            // (hidden) instead of on-demand at command-time.
+            //
+            // Why: Tauri 2.10 has a documented WebView2 race (wry#1418) where
+            // __TAURI_INTERNALS__ injection fails for windows created at
+            // runtime via WebviewWindowBuilder — the cockpit page rendered
+            // empty because getCurrentWindow() threw `metadata is undefined`.
+            // Pre-creating during setup() makes the runtime injection happen
+            // when Tauri's IPC layer is fully wired, so the runtime is ready
+            // before any user JS runs in the cockpit. cockpit_detach then
+            // just calls .show() / cockpit_reattach calls .hide() — no
+            // build/destroy, no race.
+            //
+            // visible(false) keeps it off-screen until the user clicks
+            // Detach GUI. Position-restore from localStorage still works
+            // because CockpitDetached.svelte's onMount runs the first time
+            // the window is shown.
+            tauri::WebviewWindowBuilder::new(
+                app,
+                "cockpit-detached",
+                tauri::WebviewUrl::App("cockpit-detached.html".into()),
+            )
+            .title("Rift — Cockpit")
+            // Phase 8.7d: bumped from 480×800 to 720×900 so the graph + tree
+            // split (mirroring main cockpit) has room without the user having
+            // to resize on first detach. Still portrait-leaning for second-
+            // monitor side-stack use case (§11). User can resize freely —
+            // saved size persists via CockpitDetached.svelte localStorage.
+            .inner_size(720.0, 900.0)
+            .min_inner_size(420.0, 600.0)
+            .decorations(false)
+            .resizable(true)
+            .visible(false)
+            .drag_and_drop(false)
+            .build()?;
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

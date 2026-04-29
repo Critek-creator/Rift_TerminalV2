@@ -44,6 +44,7 @@
   import { popouts } from './popouts.svelte';
   import { enrichmentStore } from './enrichmentStore.svelte';
   import { buildEnrichmentTitle, dotX } from './enrichmentUtils';
+  import { TREE_PATH_MIME } from './dragMime';
 
   // ---------------------------------------------------------------------------
   // Layout constants
@@ -511,9 +512,6 @@
   // ---------------------------------------------------------------------------
   // Drag-node-into-terminal (Phase 6.6 — design calls A, B)
   // ---------------------------------------------------------------------------
-
-  /** Custom MIME type isolates tree-path drags from all other drag sources. */
-  const TREE_PATH_MIME = 'application/x-rift-tree-path';
 
   /**
    * Dragstart handler for tree nodes (files AND dirs).

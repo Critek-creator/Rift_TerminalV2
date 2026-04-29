@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { NOTIF_TAB_MIME } from './dragMime';
+
   // §10.5 — tab strip; left group = session tabs, right group = notification
   // tabs. Phase 3 ships click-to-switch + +/× for sessions + per-tab toggle
   // for notifications (§10.6). Phase 3.5a adds drag-promote: drag a notif
@@ -75,9 +77,9 @@
   let dropActive = $state(false);
 
   // Phase 6.6 regression-preventer (design call E):
-  // Marker MIME type written by onNotifDragStart so onStripDrop can distinguish
-  // a notif-tab drag from a tree-node drag (or any other foreign drop source).
-  const NOTIF_TAB_MIME = 'application/x-rift-notif-tab';
+  // Marker MIME type — defined in dragMime.ts so NotificationPane drag-back
+  // dragstart can write the same constant (silent MIME mismatch on the
+  // pane→tab demote path was the Phase 8.7 BV regression).
 
   function isActiveSession(id: number) {
     return active.kind === 'session' && active.id === id;
@@ -143,12 +145,20 @@
     // (preventDefault already ran for visual coherence) but otherwise ignored.
     if (!e.dataTransfer?.types.includes(NOTIF_TAB_MIME)) return;
 
-    // Only demote on strip-drop when the dragged tab was already promoted
-    // BEFORE this gesture started. Otherwise dragging an unpromoted tab and
-    // releasing within the strip's bounds would promote-then-demote in the
-    // same gesture, making drag-to-promote silently no-op (the original bug
-    // captured as pr003 `tabbar-drag-promote-demote-self-cancel-on-strip-drop`).
-    if (draggedFromPromoted) {
+    // Two valid demote paths:
+    //   1. Tab-source drag from an already-promoted strip tab dropped back
+    //      on the strip (draggedFromPromoted, set in onNotifDragStart).
+    //   2. Pane-source drag from a NotificationPane / AegisTabContent /
+    //      IndexTabContent drag-handle dropped on the strip — these write
+    //      the sentinel value '__promoted_pane__' as their NOTIF_TAB_MIME
+    //      payload (vs tab.id for tab-source drags). draggedFromPromoted is
+    //      not set for pane-source drags because onNotifDragStart never ran.
+    // The promote-then-demote self-cancel guard (pr003 `tabbar-drag-promote-
+    // demote-self-cancel-on-strip-drop`) only applies to case 1 — pane-source
+    // drags by definition come from an already-promoted tab.
+    const payload = e.dataTransfer.getData(NOTIF_TAB_MIME);
+    const isPaneSourceDrag = payload === '__promoted_pane__';
+    if (isPaneSourceDrag || draggedFromPromoted) {
       onDemote();
     }
     draggedFromPromoted = false;

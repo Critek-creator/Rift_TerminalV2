@@ -72,6 +72,8 @@ pub struct RiftConfig {
     pub fs: FsConfig,
     /// Cockpit GUI settings (window position etc.).
     pub cockpit: CockpitConfig,
+    /// Abyssal Index graph settings (Phase 8.7).
+    pub index: IndexConfig,
 }
 
 /// A recently-used project entry stored in the config.
@@ -128,6 +130,56 @@ pub struct DetachedPos {
     pub width: u32,
     /// Window height in logical pixels.
     pub height: u32,
+}
+
+/// Abyssal Index graph configuration (Phase 8.7).
+///
+/// `#[serde(default)]` ensures that configs written before this field existed
+/// (i.e. without an `[index]` section) parse without error, falling back to
+/// the `Default` impl which gives `SyncMode::Live` and empty collections.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct IndexConfig {
+    /// Glob patterns for vault entries the graph should ignore.
+    /// Empty by default (no entries ignored).
+    pub ignore_globs: Vec<String>,
+    /// Sync strategy for the vault graph. Defaults to [`SyncMode::Live`].
+    pub sync_mode: SyncMode,
+    /// Reserved: opaque camera/zoom/pan transform blob.
+    /// Not read or written in v1 — present for forward-compat config parsing.
+    pub camera_transform: Option<serde_json::Value>,
+    /// Reserved: opaque per-node position snapshot blob.
+    /// Not read or written in v1 — transient D3 positions are never persisted.
+    pub node_positions: Option<serde_json::Value>,
+}
+
+/// Sync strategy for the Abyssal Index vault graph.
+///
+/// New variants in future Rift versions are caught by [`SyncMode::Unknown`]
+/// via `#[serde(other)]`, so an older Rift reading a newer config does not
+/// panic or error. `#[non_exhaustive]` prevents exhaustive `match` arms
+/// outside this crate, ensuring callers handle future variants.
+///
+/// Note: `SyncMode::Unknown` is a deserialize-only catch-all. It cannot be
+/// serialized back as a known TOML value — round-trip of `Unknown` would
+/// fail. Callers must never construct `Unknown` directly; it is reachable
+/// only via deserialization of an unrecognized string.
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+#[non_exhaustive]
+pub enum SyncMode {
+    /// Live sync: vault-walker notify-watcher 100ms debounce (current v1 behavior).
+    #[default]
+    Live,
+    /// Manual sync: placeholder variant for v1.x forward-compat.
+    /// Read from config but has no effect in v1 — no manual-refresh behavior
+    /// is implemented. Variant exists so configs specifying `sync_mode = "manual"`
+    /// do not error or fall through to `Unknown`.
+    Manual,
+    /// Catch-all for any `sync_mode` string not recognized by this Rift version.
+    /// Allows newer-version configs to be read by older Rift without crashing.
+    #[serde(other)]
+    Unknown,
 }
 
 // ---------------------------------------------------------------------------
@@ -246,7 +298,7 @@ pub fn save_config_at(cfg: &RiftConfig, path: &Path) -> Result<(), ConfigError> 
 }
 
 // ---------------------------------------------------------------------------
-// Tests (T16–T20)
+// Tests (T16–T24)
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
@@ -268,6 +320,8 @@ mod tests {
         assert_eq!(back.fs.max_depth, original.fs.max_depth);
         assert!(back.projects.is_empty());
         assert!(back.cockpit.detached_pos.is_none());
+        // Phase 8.7 — IndexConfig default round-trips with sync_mode = Live.
+        assert_eq!(back.index.sync_mode, SyncMode::Live);
     }
 
     // T17 — load_config_returns_default_on_missing_file
@@ -395,5 +449,111 @@ mod tests {
                 "'{pattern}' must be in DEFAULT_IGNORE_GLOBS"
             );
         }
+    }
+
+    // T21 — parse_config_without_index_section_uses_defaults
+    //
+    // A config TOML with no [index] section must parse successfully and
+    // produce IndexConfig::default() for the index field. Validates the
+    // R3 additivity invariant: existing configs without [index] do not break.
+    #[test]
+    fn parse_config_without_index_section_uses_defaults() {
+        let toml_str = r#"
+[fs]
+max_depth = 4
+"#;
+        let cfg: RiftConfig = toml::from_str(toml_str).expect("parse should succeed");
+        assert!(
+            cfg.index.ignore_globs.is_empty(),
+            "ignore_globs should default to empty"
+        );
+        assert_eq!(
+            cfg.index.sync_mode,
+            SyncMode::Live,
+            "sync_mode should default to Live"
+        );
+        assert!(
+            cfg.index.camera_transform.is_none(),
+            "camera_transform should default to None"
+        );
+        assert!(
+            cfg.index.node_positions.is_none(),
+            "node_positions should default to None"
+        );
+    }
+
+    // T22 — parse_config_with_partial_index_section
+    //
+    // A config TOML with [index] containing only ignore_globs must parse
+    // without error; the absent sync_mode must default to Live.
+    #[test]
+    fn parse_config_with_partial_index_section() {
+        let toml_str = r#"
+[index]
+ignore_globs = ["*.bak"]
+"#;
+        let cfg: RiftConfig = toml::from_str(toml_str).expect("parse should succeed");
+        assert_eq!(
+            cfg.index.ignore_globs,
+            vec!["*.bak".to_string()],
+            "ignore_globs should contain the specified pattern"
+        );
+        assert_eq!(
+            cfg.index.sync_mode,
+            SyncMode::Live,
+            "absent sync_mode should default to Live"
+        );
+    }
+
+    // T23 — parse_config_with_unknown_sync_mode_variant
+    //
+    // A sync_mode string that no current variant matches must parse without
+    // error and produce SyncMode::Unknown (the #[serde(other)] catch-all).
+    // Validates forward-compat: a newer Rift's config read by older Rift
+    // does not panic or error on unrecognized variants.
+    #[test]
+    fn parse_config_with_unknown_sync_mode_variant() {
+        let toml_str = r#"
+[index]
+sync_mode = "future_variant_xyz"
+"#;
+        let cfg: RiftConfig =
+            toml::from_str(toml_str).expect("parse must not error on unknown variant");
+        assert_eq!(
+            cfg.index.sync_mode,
+            SyncMode::Unknown,
+            "unrecognized sync_mode string must map to SyncMode::Unknown"
+        );
+    }
+
+    // T24 — index_config_default_round_trips
+    //
+    // IndexConfig::default() must survive a TOML serialise → deserialise round
+    // trip with all fields structurally equal. Validates that the new [index]
+    // section's serde annotations are correct and SyncMode::Live serializes
+    // as expected (lowercase string).
+    #[test]
+    fn index_config_default_round_trips() {
+        let original = IndexConfig::default();
+        let toml_str = toml::to_string_pretty(&original).expect("serialize");
+        let back: IndexConfig = toml::from_str(&toml_str).expect("deserialize");
+
+        assert_eq!(
+            back.sync_mode,
+            SyncMode::Live,
+            "sync_mode must round-trip as Live"
+        );
+        assert!(
+            back.ignore_globs.is_empty(),
+            "ignore_globs must round-trip as empty"
+        );
+        assert!(
+            back.camera_transform.is_none(),
+            "camera_transform must round-trip as None"
+        );
+        assert!(
+            back.node_positions.is_none(),
+            "node_positions must round-trip as None"
+        );
     }
 }

@@ -38,6 +38,32 @@
 - **Vitest 2 → 4 major-version bump** rode along in this batch (`devDependencies.vitest` `^2.1.0` → `^4.1.5`). No frontend test suite exists yet (C5 shipped infra only), so no regression surface to verify — but if Phase 8 lands frontend tests, validate the bump didn't change config-file syntax.
 - **Active-flip** — `plugins.updater.active` stays `false` until the frontend check + GitHub Secret are both in place.
 
+### D-015 — IndexGraph sub-door rendering (post-v1 ask, opened 2026-04-29)
+
+- User-requested: render nested sub-doors (e.g., `pr003/agentic-workflow.md`, `pr003/agentic-workflow/base.md`) as nodes linked to their parent vault. Currently the IndexGraph only renders top-level vaults; sub-doors exist on disk and are visible to `integrity-check.ps1` (SUB-OK / SUB-SUB-OK lines) but are invisible to both the vault-walker translator and the frontend.
+- **Cost**: BOTH translator-change AND frontend-change. Surfaced 2026-04-29 by a dedicated scout pass.
+  - **Translator** — `crates/rift-bus/src/translators/vault_walker.rs:684-735` boot walk uses `std::fs::read_dir(&vaults_dir)` non-recursively. Sub-directories are not traversed. Either (a) switch to the `walkdir` crate for cross-platform recursive traversal or (b) implement manual recursion with explicit depth limit. Either way: emit one `Category::Index / kind="vault.update"` envelope per `.md` file at every depth.
+  - **Schema** — `index.rs:83-94` `VaultUpdatePayload` has `vault_id`, `path`, `change_kind` (and rich variant adds `name`, `cross_refs`). No parent linkage. Add `parent_vault_id: Option<String>` (None for top-level) so the frontend can wire edges without parsing slashes.
+  - **Frontend** — `src/lib/IndexGraph.svelte` subscription block (lines ~239) currently treats `vault_id` as a flat identifier. Generalize to: every distinct `vault_id` becomes a node; if `parent_vault_id` is present, add an edge from child → parent. Hierarchical IDs (e.g., `pr003.agentic-workflow.base`) need to be syntactically valid `vault_id` strings — coordinate with how integrity-check + manifest builder already produce them.
+- **Why deferred**: spec change (add a new field to a load-bearing payload) + crate dep change (potentially adding `walkdir`) + visual-density implications (the radial layout will need re-tuning when node count multiplies). Wants its own decision pass + plan, not an inline fix during BV-regression cleanup.
+- **Unblocking event**: post-v1 plan beat that decides:
+  1. Recursion strategy (walkdir vs hand-rolled) + max-depth policy
+  2. Whether sub-doors are first-class nodes (full visual treatment) or rendered differently (smaller, dimmer, or expand-on-click)
+  3. Layout strategy (still radial-by-kind, or local-cluster around parent)
+  4. Whether to ship behind a `rift.ui.show_sub_doors` config flag (preserves the simpler default for users with ~40 vaults; opt-in for power users with deep nesting)
+
+### D-014 — Rift MCP server (post-v1 ask, opened 2026-04-29)
+
+- User-requested capability: a Rift-side MCP server that lets external Claude Code sessions (or any MCP-aware client) directly connect, control, screenshot, and test the running Rift instance. Originated during Phase 8.7 BV-regression diagnostic when the user observed the absence of a programmatic-control surface cost ~10% of weekly token budget on the IndexGraph node-drag guess loop — Playwright connecting to localhost:1420 worked for inspecting Vite-served frontend code but couldn't reach Tauri-only APIs (`invoke`, `listen`, native menus, secondary windows) and couldn't execute drag gestures inside WebView2.
+- v1.x scope sketch (not committed):
+  - **Capabilities**: snapshot DOM (or accessibility tree), screenshot main + cockpit windows, evaluate JS in either webview, simulate input (click, type, drag-drop incl. native), read/write the bus envelope stream, query Aegis log + skill state, drive PTY input/output, navigate the file tree.
+  - **Transport**: stdio MCP server inside `src-tauri/` exposing the above as MCP tools. Mirrors the §9 translator-boundary discipline — the MCP server is an *external interface* and must speak the existing protocol (Category, Envelope) where it observes Rift state, not reach into internals directly.
+  - **Security**: opt-in via a Rift settings flag; off by default; bound to localhost; per-session token. Critical because this surface gives full UI/PTY control of the dev's terminal.
+- **Why it's deferred from v1**: v1 scope locked at standalone terminal + GUI cockpit (§1, §11). Adding an MCP surface is a separate translator + multi-tool API design that wants its own decision doc and capability-discovery shape (parallels §9 Integration Decoupling). Not blocking v1 ship.
+- **Value beyond Rift**: outlives Rift v1 — same MCP would let other Claude sessions drive any future Abyssal app embedded in Rift, automate UX testing of the cockpit, and let Aegis run end-to-end checks on its own host without manual user steps. Generalizes to "Abyssal-app MCP" pattern.
+- **Unblocking event**: v1 ships → user spec for MCP surface (which capabilities to expose first, transport choice, auth model) → translator-style implementation in `crates/rift-bus/src/translators/mcp.rs` (or sibling crate). Track via `/changelog-check` if Tauri ships an official MCP plugin first.
+- **Scope guardrails (when picked up)**: do NOT bypass the bus protocol — the MCP server is a *consumer/producer of envelopes*, not a back-channel into PTY/state. This preserves the §9 translator-boundary that makes Rift testable in the first place.
+
 ### D-010 — Sentinel implementation (active 2026-04-27, opened by Phase 7.0 architecture lock)
 - Spec §10.11 names Sentinel as the source-of-truth for agent misbehavior detection (stuck / runaway / unauthorized edits); Rift is the display layer.
 - Sentinel does NOT yet exist in the workspace — no crate, no source file, no Aegis-side spec defining the event surface. Greenfield post-v1 work.

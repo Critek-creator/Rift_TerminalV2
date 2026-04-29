@@ -52,6 +52,14 @@
     }
   }
 
+  async function reattachGui(): Promise<void> {
+    try {
+      await invoke('cockpit_reattach');
+    } catch (err) {
+      console.error('[TitleBar] cockpit_reattach failed:', err);
+    }
+  }
+
   function openProjectPicker(): void {
     popouts.summon({
       content: { kind: 'project-picker' },
@@ -74,13 +82,18 @@
     >
       ▦ PROJECT
     </button>
-    <!-- DETACH GUI chip (mockup line 656). Hidden while detached; replaced by inert state label. -->
+    <!-- DETACH/DOCK GUI chip (mockup line 656). Phase 8.7d: while detached
+         the cockpit-right panel is hidden entirely, so the only main-window
+         path back is this button. Swap label + handler instead of locking
+         the user out. -->
     {#if !detached}
       <button type="button" class="btn detach" aria-label="detach cockpit to second window" onclick={detachGui}>
         ↗ DETACH GUI
       </button>
     {:else}
-      <span class="detach-chip detach-chip--active" aria-label="cockpit detached">↗ COCKPIT DETACHED</span>
+      <button type="button" class="btn detach detach--active" aria-label="dock cockpit back to main window" onclick={reattachGui}>
+        ↙ DOCK GUI
+      </button>
     {/if}
     <button type="button" class="btn" aria-label="minimize" onclick={minimize}>−</button>
     <button type="button" class="btn" aria-label="maximize" onclick={maximize}>▢</button>
@@ -157,19 +170,13 @@
     border-color: var(--amber-bright);
     text-shadow: var(--glow-amber);
   }
-  /* Inert chip shown while detached — not a button, just state indication */
-  .detach-chip {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 9px;
-    letter-spacing: 0.08em;
-    padding: 1px 6px;
-    border: 1px solid var(--amber-dim);
-    color: var(--amber-dim);
-    font-style: italic;
-    user-select: none;
+  /* DOCK GUI variant — same as DETACH but uses blue accent like the cockpit's
+     local DOCK button so the visual matches across windows (Phase 8.7d). */
+  .detach.detach--active {
+    color: var(--blue-claude, var(--amber-warm));
+    border-color: var(--blue-claude, var(--amber-primary));
   }
-  .detach-chip--active {
-    color: var(--amber-warm);
-    border-color: var(--amber-primary);
+  .detach.detach--active:hover {
+    text-shadow: 0 0 6px var(--blue-claude, var(--amber-primary));
   }
 </style>

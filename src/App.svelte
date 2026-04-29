@@ -384,13 +384,6 @@
     };
   });
 
-  async function reattachCockpit(): Promise<void> {
-    try {
-      await invoke('cockpit_reattach');
-    } catch (err) {
-      console.error('[App] cockpit_reattach failed:', err);
-    }
-  }
 </script>
 
 <div class="app-shell">
@@ -486,9 +479,14 @@
       {/if}
     </div>
 
-    <!-- Right half: IndexGraph (top 55%) + File Tree (bottom 45%) (Phase 8.4 — hidden when cockpit is detached) -->
-    <div class="cockpit-right">
-      {#if !cockpitDetached}
+    <!-- Right half: IndexGraph (top 55%) + File Tree (bottom 45%).
+         Phase 8.7d: when cockpit is detached, the entire right pane is
+         removed from the layout so the terminal expands to full width.
+         Reattach is handled by the cockpit window's own DOCK button (or its
+         X — both intercepted to .hide()). The TitleBar's chip swaps to a
+         ↙ DOCK button while detached, so the user always has a path back. -->
+    {#if !cockpitDetached}
+      <div class="cockpit-right">
         <!-- Phase 8.4 — Graph pane (top slot). IndexGraph.svelte renders width:100%/height:100%
              inside .graph-pane; border-bottom is the horizontal divider per mockup #3. -->
         <div class="graph-pane">
@@ -497,7 +495,6 @@
             <span class="meta">vault graph · fixture</span>
           </div>
           <div class="graph-body">
-            <!-- TODO(8.5): wire IndexGraph to subscribe(Category::Index) for live vault-walker data -->
             <IndexGraph />
           </div>
         </div>
@@ -515,19 +512,8 @@
             <Tree bind:nodeCount bind:watchedPathLabel />
           </div>
         </div>
-      {:else}
-        <div class="detached-placeholder">
-          <div class="detached-card">
-            <div class="detached-glyph">↗</div>
-            <div class="detached-title">cockpit detached</div>
-            <div class="detached-hint">flying on a second display</div>
-            <button type="button" class="reattach-btn" onclick={reattachCockpit}>
-              ↙ reattach
-            </button>
-          </div>
-        </div>
-      {/if}
-    </div>
+      </div>
+    {/if}
   </main>
 
   <StatusLine
@@ -725,57 +711,4 @@
     font-size: 10px;
   }
 
-  /* Phase 6.4 — cockpit detached placeholder */
-  .detached-placeholder {
-    flex: 1;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: var(--amber-faint);
-  }
-
-  .detached-card {
-    text-align: center;
-    user-select: none;
-    padding: 32px;
-  }
-
-  .detached-glyph {
-    font-size: 48px;
-    color: var(--amber-bright);
-    text-shadow: var(--glow-amber-strong);
-    margin-bottom: 16px;
-  }
-
-  .detached-title {
-    color: var(--amber-warm);
-    font-size: 14px;
-    letter-spacing: 0.18em;
-    text-transform: uppercase;
-    margin-bottom: 8px;
-  }
-
-  .detached-hint {
-    color: var(--amber-dim);
-    font-size: 11px;
-    margin-bottom: 20px;
-    font-style: italic;
-  }
-
-  .reattach-btn {
-    background: transparent;
-    border: 1px solid var(--amber-dim);
-    color: var(--amber-dim);
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 10px;
-    letter-spacing: 0.1em;
-    padding: 4px 12px;
-    cursor: pointer;
-  }
-
-  .reattach-btn:hover {
-    color: var(--amber-primary);
-    border-color: var(--amber-primary);
-    text-shadow: var(--glow-amber);
-  }
 </style>

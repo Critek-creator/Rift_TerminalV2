@@ -17,6 +17,7 @@
 
   import { onMount, onDestroy } from 'svelte';
   import { subscribe, publish, type Category, type Envelope } from './bus';
+  import { NOTIF_TAB_MIME } from './dragMime';
 
   interface Props {
     title: string;
@@ -134,9 +135,9 @@
   function onHandleDragStart(e: DragEvent) {
     if (e.dataTransfer) {
       e.dataTransfer.effectAllowed = 'move';
-      // Sentinel payload — the tab strip's drop handler doesn't read it,
-      // it just calls onDemote(), but we still need data set for the
-      // drag to be considered valid by the platform.
+      // Marker MIME — TabBar.onStripDrop filters by NOTIF_TAB_MIME presence
+      // and rejects drags missing it. text/plain alone is silently dropped.
+      e.dataTransfer.setData(NOTIF_TAB_MIME, '__promoted_pane__');
       e.dataTransfer.setData('text/plain', '__promoted_pane__');
     }
   }
