@@ -16,6 +16,20 @@
   import { invoke } from '@tauri-apps/api/core';
   import { codeToHtml } from 'shiki';
   import { popouts } from './popouts.svelte';
+  // Phase 8.7m / D-017 — CodeMirror 6 in edit mode (replaces plain textarea).
+  // Imports stay top-level (vite tree-shakes lang packs we don't use per file).
+  import { EditorView, keymap, lineNumbers, highlightActiveLine } from '@codemirror/view';
+  import { EditorState, Compartment, type Extension } from '@codemirror/state';
+  import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
+  import { rust } from '@codemirror/lang-rust';
+  import { javascript } from '@codemirror/lang-javascript';
+  import { json } from '@codemirror/lang-json';
+  import { yaml } from '@codemirror/lang-yaml';
+  import { markdown } from '@codemirror/lang-markdown';
+  import { html } from '@codemirror/lang-html';
+  import { css } from '@codemirror/lang-css';
+  import { python } from '@codemirror/lang-python';
+  import { cpp } from '@codemirror/lang-cpp';
 
   // ---------------------------------------------------------------------------
   // Props
@@ -42,8 +56,14 @@
   let savedFlash = $state(false);
   let highlightedHtml = $state<string>('');
 
-  /** Reference to the textarea for focus-on-enter-edit. */
-  let textareaEl = $state<HTMLTextAreaElement | null>(null);
+  /** Container for the CodeMirror EditorView (mounted in edit mode). */
+  let editorEl = $state<HTMLDivElement | null>(null);
+  /** Active CM EditorView — created on first edit, swapped on path change,
+   *  destroyed on unmount. */
+  let editorView: EditorView | null = null;
+  /** Compartment for the language extension so we can hot-swap when the
+   *  file extension changes without rebuilding the whole state. */
+  const langCompartment = new Compartment();
 
   // ---------------------------------------------------------------------------
   // Derived
@@ -156,13 +176,156 @@
   });
 
   // ---------------------------------------------------------------------------
-  // Focus textarea when entering edit mode
+  // CodeMirror 6 — language resolution (re-uses Shiki ext map indirectly via
+  // a sister function so the lang sets stay in lockstep)
+  // ---------------------------------------------------------------------------
+
+  function cmLangForExt(filePath: string): Extension[] {
+    const ext = filePath.split('.').at(-1)?.toLowerCase();
+    switch (ext) {
+      case 'rs':   return [rust()];
+      case 'ts':
+      case 'tsx':  return [javascript({ typescript: true, jsx: ext === 'tsx' })];
+      case 'js':
+      case 'jsx':
+      case 'mjs':
+      case 'cjs':  return [javascript({ jsx: ext === 'jsx' })];
+      case 'json': return [json()];
+      case 'yaml':
+      case 'yml':  return [yaml()];
+      case 'md':
+      case 'mdx':  return [markdown()];
+      case 'html':
+      case 'svelte':
+      case 'vue':  return [html()];
+      case 'css':
+      case 'scss':
+      case 'sass':
+      case 'less': return [css()];
+      case 'py':   return [python()];
+      case 'c':
+      case 'cpp':
+      case 'cc':
+      case 'cxx':
+      case 'h':
+      case 'hpp':
+      case 'hxx':  return [cpp()];
+      default:     return []; // plain text — no language extension
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // CodeMirror 6 — amber theme matching the rift aesthetic.
+  // EditorView.theme returns an Extension; selectors prefix all rules so we
+  // don't bleed onto the rest of the app.
+  // ---------------------------------------------------------------------------
+
+  const riftEditorTheme = EditorView.theme(
+    {
+      '&': {
+        color: 'var(--amber-warm)',
+        backgroundColor: 'var(--bg-base)',
+        height: '100%',
+        fontFamily: "'JetBrains Mono', monospace",
+        fontSize: '12px',
+      },
+      '.cm-content': {
+        caretColor: 'var(--amber-bright)',
+        padding: '12px 0',
+      },
+      '.cm-cursor, .cm-dropCursor': { borderLeftColor: 'var(--amber-bright)' },
+      '&.cm-focused .cm-cursor': { borderLeftColor: 'var(--amber-bright)' },
+      '&.cm-focused': { outline: 'none' },
+      '.cm-line': { padding: '0 12px' },
+      '&.cm-focused .cm-selectionBackground, ::selection, .cm-selectionBackground': {
+        backgroundColor: 'rgba(245, 158, 11, 0.22)',
+      },
+      '.cm-activeLine': { backgroundColor: 'rgba(212, 137, 10, 0.05)' },
+      '.cm-activeLineGutter': {
+        backgroundColor: 'rgba(212, 137, 10, 0.08)',
+        color: 'var(--amber-bright)',
+      },
+      '.cm-gutters': {
+        backgroundColor: 'var(--bg-elevated)',
+        color: 'var(--amber-faint)',
+        border: 'none',
+        borderRight: '1px solid var(--border-subtle)',
+      },
+      '.cm-lineNumbers .cm-gutterElement': {
+        padding: '0 8px 0 12px',
+        minWidth: '28px',
+        textAlign: 'right',
+      },
+      // Syntax highlight tokens — basic mapping to amber/red/green/cyan/purple
+      // per §10.1 lane semantics. CM6 uses the @lezer/highlight tag system;
+      // these classes are how the default highlightStyle injects them.
+      '.tok-keyword':       { color: 'var(--term-purple)', fontWeight: '600' },
+      '.tok-string':        { color: 'var(--term-green, #33CC33)' },
+      '.tok-number':        { color: 'var(--amber-bright)' },
+      '.tok-comment':       { color: 'var(--amber-faint)', fontStyle: 'italic' },
+      '.tok-typeName':      { color: 'var(--term-cyan)' },
+      '.tok-className':     { color: 'var(--term-cyan)' },
+      '.tok-function':      { color: 'var(--amber-bright)' },
+      '.tok-propertyName':  { color: 'var(--amber-warm)' },
+      '.tok-operator':      { color: 'var(--amber-dim)' },
+      '.tok-punctuation':   { color: 'var(--amber-dim)' },
+      '.cm-scroller': {
+        fontFamily: "'JetBrains Mono', monospace",
+        lineHeight: '1.55',
+        overflow: 'auto',
+      },
+    },
+    { dark: true },
+  );
+
+  // ---------------------------------------------------------------------------
+  // CodeMirror 6 lifecycle — mount when entering edit mode, destroy on exit.
+  // The editor's doc state is the source of truth while in edit mode; we
+  // mirror it back into `content` via an updateListener so the dirty
+  // indicator + Save flow keep working unchanged.
   // ---------------------------------------------------------------------------
 
   $effect(() => {
-    if (mode === 'edit' && textareaEl) {
-      textareaEl.focus();
+    if (mode !== 'edit' || !editorEl) {
+      // Tear down when leaving edit mode so memory + listeners free.
+      if (editorView) {
+        editorView.destroy();
+        editorView = null;
+      }
+      return;
     }
+
+    const updateListener = EditorView.updateListener.of((u) => {
+      if (u.docChanged) {
+        content = u.state.doc.toString();
+      }
+    });
+
+    const state = EditorState.create({
+      doc: content,
+      extensions: [
+        lineNumbers(),
+        highlightActiveLine(),
+        history(),
+        keymap.of([...defaultKeymap, ...historyKeymap, indentWithTab]),
+        langCompartment.of(cmLangForExt(path)),
+        riftEditorTheme,
+        EditorView.lineWrapping,
+        updateListener,
+      ],
+    });
+
+    editorView = new EditorView({
+      state,
+      parent: editorEl,
+    });
+
+    editorView.focus();
+
+    return () => {
+      editorView?.destroy();
+      editorView = null;
+    };
   });
 
   // ---------------------------------------------------------------------------
@@ -310,13 +473,15 @@
         <button type="button" class="viewer-btn-retry" onclick={retry}>Retry</button>
       </div>
     {:else if mode === 'edit'}
-      <textarea
-        class="viewer-textarea"
-        bind:value={content}
-        bind:this={textareaEl}
-        spellcheck={false}
+      <!-- D-017 / Phase 8.7m: CodeMirror 6 EditorView mounts here. The
+           lifecycle effect above creates/destroys the EditorView based on
+           `mode`. The `viewer-cm` class only handles container layout —
+           CM owns its own internal styling via `riftEditorTheme`. -->
+      <div
+        class="viewer-cm"
+        bind:this={editorEl}
         aria-label="file editor"
-      ></textarea>
+      ></div>
     {:else if content === '' && highlightedHtml === ''}
       <!-- Loading state -->
       <div class="viewer-loading">
@@ -500,25 +665,20 @@
     word-break: break-all;
   }
 
-  /* Edit textarea */
-  .viewer-textarea {
+  /* CodeMirror 6 mount container — fills the body, lets CM own internals. */
+  .viewer-cm {
     width: 100%;
     height: 100%;
     min-height: 300px;
-    background: var(--bg-base);
-    color: var(--amber-warm);
-    border: none;
-    outline: none;
-    resize: none;
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 12px;
-    line-height: 1.55;
-    padding: 12px;
     box-sizing: border-box;
-    caret-color: var(--amber-bright);
+    overflow: hidden;
   }
-  .viewer-textarea::selection {
-    background: rgba(245, 158, 11, 0.25);
+  .viewer-cm :global(.cm-editor) {
+    height: 100%;
+  }
+  .viewer-cm :global(.cm-scroller::-webkit-scrollbar) { width: 5px; }
+  .viewer-cm :global(.cm-scroller::-webkit-scrollbar-thumb) {
+    background: var(--amber-faint);
   }
 
   /* Loading state */
