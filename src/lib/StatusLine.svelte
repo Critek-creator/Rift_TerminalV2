@@ -1,11 +1,18 @@
 <script lang="ts">
-  // §10.2 — two-row status line. Color-block segments with dark text on
-  // brand-amber backgrounds. All values bold. Segment data sources:
+  // §10.2 — two-row status line. Color-block segments, dark text on
+  // category-tinted backgrounds. All values bold. Segment data sources:
   //   * dir / git / repo    → live via translators/status.rs (Category::Status, 5s poll)
   //   * skill               → live via aegis.session.skill_loaded (Phase 7.4 / Aegis)
-  //   * ctx / session / week / model → em-dash placeholder; upstream-blocked on Claude Code
-  //                                    usage hook (TODO: when D-012 CC usage hook lands,
-  //                                    replace placeholders with live subscription values)
+  //   * effort              → em-dash placeholder; D-016 deferred (aegis.session.effort
+  //                            envelope not yet published — mirrors the SKILL pattern)
+  //   * ctx / session / week / model → em-dash placeholder; D-012 upstream-blocked on
+  //                            Claude Code usage hook
+  //
+  // Phase 8.7g.2 — colors split by category instead of all-amber:
+  //   GREEN  — env locale (DIR, GIT, REPO)
+  //   AMBER  — model+aegis state (MODEL, CTX, SKILL, EFFORT)
+  //   PURPLE — session/clock (SESSION)
+  //   BLUE   — usage budget (SESSION USE, WEEK)
 
   interface Props {
     dir?: string;
@@ -13,6 +20,7 @@
     ctx?: string;
     session?: string;
     skill?: string;
+    effort?: string;
     git?: string;
     repo?: string;
     sessionUse?: string;
@@ -25,6 +33,7 @@
     ctx = '—',
     session = '—',
     skill = '—',
+    effort = '—',
     git = '—',
     repo = '—',
     sessionUse = '—',
@@ -43,11 +52,14 @@
     <div class="seg ctx">
       <span class="label">CTX</span><span class="value">{ctx}</span>
     </div>
-    <div class="seg time">
+    <div class="seg session">
       <span class="label">SESSION</span><span class="value">{session}</span>
     </div>
     <div class="seg skill">
       <span class="label">SKILL</span><span class="value">{skill}</span>
+    </div>
+    <div class="seg effort">
+      <span class="label">EFFORT</span><span class="value">{effort}</span>
     </div>
     <div class="seg spacer"></div>
   </div>
@@ -55,7 +67,7 @@
     <div class="seg git">
       <span class="label">GIT</span><span class="value">{git}</span>
     </div>
-    <div class="seg gitdir">
+    <div class="seg repo">
       <span class="label">REPO</span><span class="value">{repo}</span>
     </div>
     <div class="seg usage">
@@ -110,14 +122,25 @@
     background: transparent !important;
   }
 
-  /* Segment color blocks — brand palette */
-  .dir    { background: var(--amber-primary); }
+  /* Phase 8.7g.2 — segment colors split by metric category instead of
+     all-amber. Within each family the bright/mid/dim shades stay
+     distinguishable from one another while reading as the same group. */
+
+  /* GREEN family — env locale */
+  .dir    { background: var(--status-green-bright); }
+  .git    { background: var(--status-green-mid); }
+  .repo   { background: var(--status-green-dim); }
+
+  /* AMBER family — model + Aegis state */
   .model  { background: var(--amber-warm); }
   .ctx    { background: var(--amber-bright); }
-  .time   { background: var(--amber-dim); }
-  .skill  { background: var(--amber-warm); }
-  .git    { background: var(--term-green); }
-  .gitdir { background: var(--amber-warm); }
-  .usage  { background: var(--amber-primary); }
-  .week   { background: var(--amber-bright); }
+  .skill  { background: var(--amber-primary); }
+  .effort { background: var(--amber-dim); }
+
+  /* PURPLE — session clock */
+  .session { background: var(--status-time); }
+
+  /* BLUE family — usage budget */
+  .usage  { background: var(--status-blue-bright); }
+  .week   { background: var(--status-blue-dim); }
 </style>

@@ -327,6 +327,13 @@ async fn pty_start(
     if let Some(ipc) = app.try_state::<BusIpcState>() {
         opts = opts.with_env("RIFT_SOCKET_NAME", ipc.socket_name.clone());
     }
+    // Phase 8.7g.4 — pin PTY cwd to the canonical project root so
+    // `cargo run --` (which starts the binary from src-tauri/) doesn't
+    // leak the wrong cwd into the user's shell prompt. ProjectRoot is
+    // managed at setup() and updated on project_swap.
+    if let Some(root) = app.try_state::<ProjectRoot>() {
+        opts = opts.with_cwd(root.inner().get());
+    }
     let (mut output, control) = PtySession::spawn_with_options(opts).map_err(|e| {
         let msg = e.to_string();
         publish_error(

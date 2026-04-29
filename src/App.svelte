@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
   import { listen } from '@tauri-apps/api/event';
+  import { getCurrentWindow, PhysicalPosition, PhysicalSize } from '@tauri-apps/api/window';
   import { check, type Update } from '@tauri-apps/plugin-updater';
   import TitleBar from './lib/TitleBar.svelte';
   import TabBar, {
@@ -173,6 +174,15 @@
   // CSS flex-basis values so existing users see no immediate layout change.
   let cockpitRightWidth = $state(420); // px — was flex: 0 0 38% (~420 of 1100)
   let graphHeightPct = $state(55);     // percent — was flex: 0 0 55%
+
+  // Phase 8.7g — main window position + size persistence.
+  // tauri.conf.json hardcodes width:1100/height:700 at every launch, so
+  // resizing the window during a session is forgotten on restart. Saving
+  // the outer rect to localStorage on move/resize and restoring on mount
+  // mirrors the pattern CockpitDetached.svelte already uses for the
+  // detached cockpit window.
+  const MAIN_POS_KEY = 'rift.main.window_pos';
+  interface SavedMainPos { x: number; y: number; width: number; height: number; }
 
   // D-013 — Updater plugin frontend wiring (session-start check).
   // On launch we ask plugin-updater to fetch latest.json from the GitHub
@@ -404,6 +414,61 @@
         }
       } catch (err) {
         console.warn('[App] update check failed:', err);
+      }
+
+      // Phase 8.7g — main window position+size restore + tracking.
+      // Run AFTER the cockpit_status / update check so a slow remote update
+      // probe doesn't delay the visual settle. Failures are non-fatal —
+      // the window just stays at the tauri.conf.json defaults.
+      try {
+        const appWindow = getCurrentWindow();
+        const raw = localStorage.getItem(MAIN_POS_KEY);
+        if (raw) {
+          try {
+            const pos = JSON.parse(raw) as SavedMainPos;
+            if (
+              typeof pos.x === 'number' && typeof pos.y === 'number' &&
+              typeof pos.width === 'number' && typeof pos.height === 'number'
+            ) {
+              await appWindow.setPosition(new PhysicalPosition(pos.x, pos.y));
+              await appWindow.setSize(new PhysicalSize(pos.width, pos.height));
+            }
+          } catch {
+            try { localStorage.removeItem(MAIN_POS_KEY); } catch { /* ignore */ }
+          }
+        }
+        // Save current rect immediately so a crash before any move/resize
+        // still records a reasonable last-known position.
+        const [pos0, size0] = await Promise.all([
+          appWindow.outerPosition(),
+          appWindow.outerSize(),
+        ]);
+        try {
+          localStorage.setItem(MAIN_POS_KEY, JSON.stringify({
+            x: pos0.x, y: pos0.y, width: size0.width, height: size0.height,
+          }));
+        } catch { /* quota / private */ }
+        // Subscribe to move + resize so subsequent changes persist live.
+        appWindow.onMoved(({ payload: pos }) => {
+          appWindow.outerSize().then((size) => {
+            try {
+              localStorage.setItem(MAIN_POS_KEY, JSON.stringify({
+                x: pos.x, y: pos.y, width: size.width, height: size.height,
+              }));
+            } catch { /* ignore */ }
+          }).catch(() => { /* ignore */ });
+        });
+        appWindow.onResized(({ payload: size }) => {
+          appWindow.outerPosition().then((pos) => {
+            try {
+              localStorage.setItem(MAIN_POS_KEY, JSON.stringify({
+                x: pos.x, y: pos.y, width: size.width, height: size.height,
+              }));
+            } catch { /* ignore */ }
+          }).catch(() => { /* ignore */ });
+        });
+      } catch (err) {
+        console.warn('[App] window position persistence failed:', err);
       }
     })();
 
@@ -708,13 +773,17 @@
   }
 
   /* Tree pane (bottom slot, 45% of cockpit-right height).
-     flex: 1 1 45% matches mockup #3 .gui-tree canonical sizing. */
+     flex: 1 1 45% matches mockup #3 .gui-tree canonical sizing.
+     Phase 8.7g.5 — bg-base matches graph-pane + terminal so the cockpit
+     reads as a single visual surface instead of having a panel-tinted
+     tree zone (user feedback: "different background than terminal/nodes"). */
   .tree-pane {
     flex: 1 1 45%;
     display: flex;
     flex-direction: column;
     min-height: 0;
     overflow: hidden;
+    background: var(--bg-base);
     background: var(--bg-panel);
   }
 

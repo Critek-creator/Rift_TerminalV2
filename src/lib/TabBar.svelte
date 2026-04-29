@@ -255,6 +255,9 @@
     border-left: 1px solid var(--border-subtle);
   }
 
+  /* Phase 8.7g.3 — tab text lifted: inactive amber-dim → amber-warm,
+     active amber-primary → amber-bright with stronger glow so the
+     active tab reads clearly above the inactive row. */
   .tab {
     display: flex;
     align-items: center;
@@ -264,7 +267,7 @@
     border: none;
     border-right: 1px solid var(--border-subtle);
     background: transparent;
-    color: var(--amber-dim);
+    color: var(--amber-warm);
     font-family: inherit;
     font-size: 12px;
     cursor: pointer;
@@ -273,13 +276,13 @@
     user-select: none;
   }
   .tab:hover {
-    color: var(--amber-warm);
+    color: var(--amber-bright);
     background: var(--bg-hover);
   }
   .tab.active {
-    color: var(--amber-primary);
+    color: var(--amber-bright);
     background: var(--bg-base);
-    text-shadow: var(--glow-amber);
+    text-shadow: var(--glow-amber-strong);
   }
   .tab.active::before {
     content: '';
@@ -332,12 +335,12 @@
     background: transparent;
     border: none;
     border-right: 1px solid var(--border-subtle);
-    color: var(--amber-dim);
+    color: var(--amber-warm);
     cursor: pointer;
     font-size: 14px;
     font-family: inherit;
   }
-  .add:hover { color: var(--amber-primary); background: var(--bg-hover); }
+  .add:hover { color: var(--amber-bright); background: var(--bg-hover); }
 
   .badge {
     background: var(--amber-bright);

@@ -110,28 +110,30 @@
       fontSize: 13,
       lineHeight: 1.55,
       cursorBlink: true,
-      theme: {
+      // Phase 8.7g.2 — palette synced with styles.css :root (xterm config
+       // doesn't read CSS vars, so values are kept in lockstep manually).
+       theme: {
         background: '#080806',
-        foreground: '#D4890A',
-        cursor: '#f59e0b',
+        foreground: '#FFA826',                 /* amber-primary */
+        cursor: '#FFC840',                     /* amber-bright */
         cursorAccent: '#080806',
-        selectionBackground: 'rgba(212, 137, 10, 0.25)',
+        selectionBackground: 'rgba(255, 168, 38, 0.30)',
         black: '#080806',
-        red: '#CC3333',
-        green: '#33CC33',
-        yellow: '#f59e0b',
-        blue: '#4a9eff',
-        magenta: '#b078e8',
-        cyan: '#4ad4d4',
-        white: '#d8d4c8',
-        brightBlack: '#5a4410',
-        brightRed: '#CC3333',
-        brightGreen: '#33CC33',
-        brightYellow: '#f59e0b',
-        brightBlue: '#4a9eff',
-        brightMagenta: '#b078e8',
-        brightCyan: '#4ad4d4',
-        brightWhite: '#d8d4c8',
+        red: '#FF4848',
+        green: '#4FE855',
+        yellow: '#FFC840',                     /* amber-bright */
+        blue: '#6CB6FF',
+        magenta: '#C58FFF',
+        cyan: '#6FE0E0',
+        white: '#E8E4D8',
+        brightBlack: '#A87830',                /* amber-faint */
+        brightRed: '#FF6868',
+        brightGreen: '#7FFA85',
+        brightYellow: '#FFD968',                /* lifted amber-bright */
+        brightBlue: '#9CCEFF',
+        brightMagenta: '#DAB1FF',
+        brightCyan: '#9FF0F0',
+        brightWhite: '#FFFAEC',
       },
     });
     fit = new FitAddon();
@@ -163,6 +165,64 @@
     }
 
     term.open(host);
+
+    // Phase 8.7g — Ctrl+C / Ctrl+V clipboard shortcuts.
+    //
+    // Default xterm behavior on Windows: Ctrl+C sends SIGINT to the PTY
+    // (interrupts whatever's running), Ctrl+V is a no-op. That's how
+    // shells expect to receive those keys — but it leaves no way to
+    // copy/paste. Standard fix: when Ctrl+C is pressed AND the user has
+    // a text selection, copy instead of interrupting. Ctrl+V always
+    // pastes (Shift+Insert is still available for those who want raw
+    // PTY paste). Ctrl+Shift+C / Ctrl+Shift+V are alternates that always
+    // copy/paste regardless of selection.
+    // Capture term in a non-nullable local so the closure below doesn't
+    // hit `'term' is possibly undefined` — TypeScript narrowing doesn't
+    // carry across the closure boundary.
+    const t = term;
+    t.attachCustomKeyEventHandler((e) => {
+      if (e.type !== 'keydown') return true;
+
+      // Always-copy / always-paste with Shift modifier (standard convention).
+      if (e.ctrlKey && e.shiftKey && (e.key === 'C' || e.key === 'c')) {
+        const sel = t.getSelection();
+        if (sel) {
+          void navigator.clipboard.writeText(sel).catch(() => { /* ignore */ });
+        }
+        return false;
+      }
+      if (e.ctrlKey && e.shiftKey && (e.key === 'V' || e.key === 'v')) {
+        navigator.clipboard
+          .readText()
+          .then((text) => { if (text) t.paste(text); })
+          .catch(() => { /* ignore */ });
+        return false;
+      }
+
+      // Plain Ctrl+C: copy IF selection exists, else fall through to SIGINT.
+      if (e.ctrlKey && !e.shiftKey && !e.altKey && (e.key === 'c' || e.key === 'C')) {
+        if (t.hasSelection()) {
+          const sel = t.getSelection();
+          if (sel) {
+            void navigator.clipboard.writeText(sel).catch(() => { /* ignore */ });
+          }
+          t.clearSelection();
+          return false;
+        }
+        return true; // no selection → let xterm send SIGINT
+      }
+
+      // Plain Ctrl+V: paste from clipboard. Plays nice with Cmd shells too.
+      if (e.ctrlKey && !e.shiftKey && !e.altKey && (e.key === 'v' || e.key === 'V')) {
+        navigator.clipboard
+          .readText()
+          .then((text) => { if (text) t.paste(text); })
+          .catch(() => { /* ignore */ });
+        return false;
+      }
+
+      return true;
+    });
 
     // Defer fit until layout has actually settled.
     //

@@ -38,6 +38,16 @@
 - **Vitest 2 → 4 major-version bump** rode along in this batch (`devDependencies.vitest` `^2.1.0` → `^4.1.5`). No frontend test suite exists yet (C5 shipped infra only), so no regression surface to verify — but if Phase 8 lands frontend tests, validate the bump didn't change config-file syntax.
 - **Active-flip** — `plugins.updater.active` stays `false` until the frontend check + GitHub Secret are both in place.
 
+### D-016 — StatusLine EFFORT segment data source (opened 2026-04-29)
+
+- The EFFORT segment was added to StatusLine row 1 as part of Phase 8.7g.2 alongside the SKILL segment, both in the AMBER family per the new category palette. SKILL is live via `aegis.session.skill_loaded`; EFFORT is currently rendered as `'—'` because no envelope publishes the current Aegis effort level.
+- The data exists conceptually — Aegis's pr001 EFFORT LEVELS section maps tasks to low / medium / high / xhigh / max, and `/aegis` mode dispatches calculate it per-invocation. It just isn't surfaced over the bus yet.
+- **Cost**: small, frontend-only on the consumer side.
+  - Producer (Aegis-side, gitignored crates/rift-aegis): publish `Category::Aegis / kind="aegis.session.effort"` whenever `/aegis` resolves a tier (or as a derived state from the current dispatch). Same envelope shape as `aegis.session.skill_loaded`. Out of scope of public CI; lives behind the `aegis` feature gate.
+  - Consumer (frontend, public): subscribe alongside the existing `aegis.session.skill_loaded` listener in App.svelte; bind the value to `<StatusLine effort={…} />`. ~10 lines.
+- **Why deferred**: the producer is in the private rift-aegis crate, which lives outside the public-CI build (D-011 close). The frontend consumer can land independently but has nothing to show until the producer publishes. Skip until either (a) the public Aegis stub gets a deterministic mock effort value for development OR (b) the user wants to wire it in their private build.
+- **Unblocking event**: rift-aegis publishes an `aegis.session.effort` envelope on dispatch. Then App.svelte adds one subscribe + one bind.
+
 ### D-015 — IndexGraph sub-door rendering (post-v1 ask, opened 2026-04-29)
 
 - User-requested: render nested sub-doors (e.g., `pr003/agentic-workflow.md`, `pr003/agentic-workflow/base.md`) as nodes linked to their parent vault. Currently the IndexGraph only renders top-level vaults; sub-doors exist on disk and are visible to `integrity-check.ps1` (SUB-OK / SUB-SUB-OK lines) but are invisible to both the vault-walker translator and the frontend.

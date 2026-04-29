@@ -12,22 +12,37 @@
   --border-subtle: #2a2418;
   --border-active: #4a3818;
 
-  --amber-primary: #D4890A;
-  --amber-warm:    #B07A12;
-  --amber-bright:  #f59e0b;
-  --amber-dim:     #8B6914;
-  --amber-faint:   #5a4410;
+  /* Phase 8.7g — amber palette lifted in two passes. Pass 1 (8.7g.1) was
+     "+15-25%"; user reported terminal/tabs/topbar still too dim. Pass 2
+     (8.7g.2) takes amber-warm/dim/faint another notch up to read solidly
+     on matte-black, and brightens amber-primary closer to a true gold. */
+  --amber-primary: #FFA826;   /* was #F0A018 → #FFA826 (gold) */
+  --amber-warm:    #F0A030;   /* was #D89020 → #F0A030 — body text */
+  --amber-bright:  #FFC840;   /* was #FFB020 → #FFC840 — prompt / cursor */
+  --amber-dim:     #D8A028;   /* was #B0851C → #D8A028 — subtitles / borders */
+  --amber-faint:   #A87830;   /* was #806020 → #A87830 — meta / timestamps */
 
-  --term-red:      #CC3333;
-  --term-green:    #33CC33;
-  --term-blue:     #4a9eff;   /* claude lane */
-  --term-purple:   #b078e8;   /* agent lane */
-  --term-cyan:     #4ad4d4;   /* hook lane */
-  --term-white:    #d8d4c8;
+  --term-red:      #FF4848;   /* was #CC3333 — also bumped for legibility */
+  --term-green:    #4FE855;   /* was #33CC33 — env locale + status segments */
+  --term-blue:     #6CB6FF;   /* was #4a9eff — claude lane + usage segments */
+  --term-purple:   #C58FFF;   /* was #b078e8 — agent lane */
+  --term-cyan:     #6FE0E0;   /* was #4ad4d4 — hook lane */
+  --term-white:    #E8E4D8;   /* was #d8d4c8 — user input */
 
-  --glow-amber:        0 0 8px rgba(212, 137, 10, 0.35);
-  --glow-amber-strong: 0 0 14px rgba(245, 158, 11, 0.65);
-  --glow-amber-faint:  0 0 4px rgba(212, 137, 10, 0.2);
+  /* Phase 8.7g.2 — StatusLine category palette (§10.2 row 1 + row 2).
+     Each metric category gets its own color family with bright/mid/dim
+     shades so within-category segments stay distinguishable. */
+  --status-green-bright: #5BFF5B;   /* DIR */
+  --status-green-mid:    #33CC33;   /* GIT */
+  --status-green-dim:    #1E9E22;   /* REPO */
+  --status-blue-bright:  #7CC2FF;   /* SESSION USE */
+  --status-blue-dim:     #3A7DCC;   /* WEEK */
+  --status-time:         #C58FFF;   /* SESSION TIME (purple — clock) */
+
+  /* Brightened glows to match the lifted amber palette. */
+  --glow-amber:        0 0 8px rgba(255, 168, 38, 0.55);
+  --glow-amber-strong: 0 0 14px rgba(255, 200, 64, 0.85);
+  --glow-amber-faint:  0 0 4px rgba(255, 168, 38, 0.35);
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -44,6 +59,45 @@ html, body, #app {
 }
 
 body { overflow: hidden; }
+
+/* =========================================================
+   SCROLLBAR PALETTE — Phase 8.7g.4
+   WebView2 / Chromium defaults to bright white scrollbars on dark
+   backgrounds which read as jarring "glowing white" stripes against
+   the matte amber aesthetic. Style globally in the amber-faint tier
+   so it disappears against panels until hovered. Per-component rules
+   (e.g. CockpitDetached's .tree-body::-webkit-scrollbar) keep
+   precedence due to higher specificity.
+   ========================================================= */
+* {
+  scrollbar-color: var(--amber-faint) transparent;  /* Firefox-style */
+  scrollbar-width: thin;
+}
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+  background: transparent;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--amber-faint);
+  border-radius: 4px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--amber-dim);
+  background-clip: padding-box;
+}
+*::-webkit-scrollbar-thumb:active {
+  background: var(--amber-warm);
+  background-clip: padding-box;
+}
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
 
 /* =========================================================
    SCANLINES + CRT VIGNETTE — brand fingerprint (§10.3)

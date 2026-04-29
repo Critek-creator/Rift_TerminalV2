@@ -44,7 +44,7 @@
   import { popouts } from './popouts.svelte';
   import { enrichmentStore } from './enrichmentStore.svelte';
   import { buildEnrichmentTitle, dotX } from './enrichmentUtils';
-  import { TREE_PATH_MIME } from './dragMime';
+  import { RIFT_VAULT_DROP_EVENT, type RiftVaultDropDetail } from './dragMime';
 
   // ---------------------------------------------------------------------------
   // Layout constants
@@ -513,20 +513,83 @@
   // Drag-node-into-terminal (Phase 6.6 — design calls A, B)
   // ---------------------------------------------------------------------------
 
-  /**
-   * Dragstart handler for tree nodes (files AND dirs).
-   * Sets effectAllowed to 'copy' and writes the project-relative path as the
-   * primary payload.  A secondary text/plain entry (prefixed 'rift-tree:') aids
-   * browser-level drag-image tooltips on platforms that surface it.
-   */
-  function onNodeDragStart(e: DragEvent, node: TreeNode): void {
-    if (!e.dataTransfer) return;
-    e.dataTransfer.effectAllowed = 'copy';
-    e.dataTransfer.setData(TREE_PATH_MIME, node.path);
-    // Secondary — some platforms show text/plain in the drag ghost; prefix
-    // discriminates our payload from any generic text drop that might land
-    // on a foreign target.
-    e.dataTransfer.setData('text/plain', `rift-tree:${node.path}`);
+  // ---------------------------------------------------------------------------
+  // Manual-gesture drag-into-terminal (Phase 8.7g.4 — replaces HTML5 drag)
+  //
+  // WHY MANUAL: WebView2 does NOT initiate HTML5 drag on SVG <g> elements
+  // even when `draggable="true"` is set as an HTML attribute. The Phase 6.6
+  // pattern (ondragstart on SVG <g>) silently never fired — the feature
+  // was assumed-working but actually broken since ship. Same gotcha that
+  // bit IndexGraph in Phase 8.7; the manual mousedown/move/up gesture
+  // there is now mirrored here for Tree.
+  //
+  // Gesture: mousedown on a node → register document mousemove + mouseup.
+  // Once movement crosses the threshold, set drag-active state. On mouseup,
+  // hit-test elementFromPoint for `.terminal-host` and dispatch
+  // RIFT_VAULT_DROP_EVENT (reused — Terminal.svelte's existing listener
+  // simply pastes the path into the active session).
+  // ---------------------------------------------------------------------------
+
+  const TREE_DRAG_THRESHOLD_PX = 5;
+
+  let treeDragNode: TreeNode | null = null;
+  let treeDragStartX = 0;
+  let treeDragStartY = 0;
+  let treeDragActive = $state(false);
+  let treeGhostX = $state(0);
+  let treeGhostY = $state(0);
+  let treeGhostLabel = $state('');
+
+  function onTreeNodeMouseDown(e: MouseEvent, node: TreeNode): void {
+    if (e.button !== 0) return;       // left-click only
+    treeDragNode = node;
+    treeDragStartX = e.clientX;
+    treeDragStartY = e.clientY;
+    treeDragActive = false;
+    document.addEventListener('mousemove', onTreeDocMouseMove);
+    document.addEventListener('mouseup', onTreeDocMouseUp);
+    // Don't preventDefault here — we want click + dblclick to still fire
+    // if the user mouseup's without crossing the threshold.
+  }
+
+  function onTreeDocMouseMove(e: MouseEvent): void {
+    if (!treeDragNode) return;
+    if (!treeDragActive) {
+      const dx = Math.abs(e.clientX - treeDragStartX);
+      const dy = Math.abs(e.clientY - treeDragStartY);
+      if (dx > TREE_DRAG_THRESHOLD_PX || dy > TREE_DRAG_THRESHOLD_PX) {
+        treeDragActive = true;
+        treeGhostLabel = treeDragNode.path;
+        document.body.style.cursor = 'grabbing';
+      }
+    }
+    if (treeDragActive) {
+      treeGhostX = e.clientX;
+      treeGhostY = e.clientY;
+    }
+  }
+
+  function onTreeDocMouseUp(e: MouseEvent): void {
+    document.removeEventListener('mousemove', onTreeDocMouseMove);
+    document.removeEventListener('mouseup', onTreeDocMouseUp);
+    document.body.style.cursor = '';
+
+    const node = treeDragNode;
+    const wasActive = treeDragActive;
+    treeDragNode = null;
+    treeDragActive = false;
+    treeGhostLabel = '';
+
+    if (!wasActive || !node) return;  // mouseup without threshold = a click
+
+    const target = document.elementFromPoint(e.clientX, e.clientY);
+    const terminalHost = target?.closest('.terminal-host');
+    if (!terminalHost) return;
+
+    const detail: RiftVaultDropDetail = { path: node.path };
+    terminalHost.dispatchEvent(
+      new CustomEvent(RIFT_VAULT_DROP_EVENT, { detail, bubbles: true }),
+    );
   }
 
 </script>
@@ -578,16 +641,18 @@
         {@const enrichments = enrichmentStore.get(item.node.path)}
         <!-- svelte-ignore a11y_click_events_have_key_events -->
         <!-- svelte-ignore a11y_no_static_element_interactions -->
-        <!-- `draggable` lives on HTMLAttributes in Svelte's TS surface so direct
-             usage on an SVG <g> fails type-check; spread bypasses the check
-             while preserving runtime behavior (Chromium webview2 supports
-             draggable on SVG since ~2018). -->
+        <!--
+          Phase 8.7g.4 — replaced HTML5 `draggable="true"` (silently broken
+          on SVG <g> in WebView2 — the same gotcha that bit IndexGraph in
+          Phase 8.7) with manual mousedown→mousemove→mouseup gesture.
+          Click and dblclick still fire when the user releases without
+          crossing the drag threshold.
+        -->
         <g
           class="tree-node"
-          {...({ draggable: 'true' } as Record<string, string>)}
+          onmousedown={(e) => onTreeNodeMouseDown(e, item.node)}
           onclick={() => handleNodeClick(item.node)}
           ondblclick={() => handleNodeDblClick(item.node)}
-          ondragstart={(e) => onNodeDragStart(e, item.node)}
           style="cursor: pointer;"
         >
           {#if item.node.isDir}
@@ -693,6 +758,24 @@
         </g>
       {/each}
     </svg>
+  {/if}
+
+  <!--
+    Phase 8.7g.4 — drag ghost. Fixed-position so it escapes the
+    .tree-container overflow:auto + the cockpit-right pane's overflow:
+    hidden boundary, letting the user visually carry a node over the
+    terminal pane. pointer-events:none preserves elementFromPoint so
+    the .terminal-host hit-test on mouseup works.
+  -->
+  {#if treeDragActive}
+    <div
+      class="tree-drag-ghost"
+      style="left: {treeGhostX}px; top: {treeGhostY}px;"
+      aria-hidden="true"
+    >
+      <span class="tree-drag-ghost-glyph">↗</span>
+      <span class="tree-drag-ghost-label">{treeGhostLabel}</span>
+    </div>
   {/if}
 </div>
 
@@ -857,5 +940,40 @@
     text-align: center;
     max-width: 240px;
     word-break: break-all;
+  }
+
+  /* Phase 8.7g.4 — manual-gesture drag ghost. Fixed-positioned so it
+     escapes the tree-container overflow + cockpit-right clipping; lets
+     the user carry a tree path visually over the terminal pane. */
+  .tree-drag-ghost {
+    position: fixed;
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+    z-index: 9999;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 10px;
+    background: rgba(15, 12, 6, 0.94);
+    border: 1px solid var(--amber-bright);
+    border-radius: 12px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--amber-warm);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5),
+                0 0 12px rgba(255, 168, 38, 0.45);
+    white-space: nowrap;
+    max-width: 60vw;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .tree-drag-ghost-glyph {
+    color: var(--amber-bright);
+    text-shadow: var(--glow-amber-strong);
+  }
+  .tree-drag-ghost-label {
+    color: var(--amber-warm);
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 </style>

@@ -112,16 +112,19 @@
     user-select: none;
     flex-shrink: 0;
   }
+  /* Phase 8.7g.3 — brand + buttons lifted one foreground tier so they
+     read as primary surfaces, not subtitles. user feedback this batch. */
   .brand {
-    color: var(--amber-primary);
+    color: var(--amber-bright);              /* was amber-primary */
     font-weight: 700;
     font-size: 12px;
     letter-spacing: 0.15em;
-    text-shadow: var(--glow-amber);
+    text-shadow: var(--glow-amber-strong);   /* stronger glow */
   }
   .glyph {
     color: var(--amber-bright);
     margin-right: 6px;
+    text-shadow: var(--glow-amber-strong);
   }
   .spacer { flex: 1; height: 100%; }
   .controls { display: flex; gap: 8px; align-items: center; }
@@ -129,8 +132,8 @@
     width: 14px;
     height: 14px;
     background: transparent;
-    border: 1px solid var(--amber-dim);
-    color: var(--amber-dim);
+    border: 1px solid var(--amber-warm);     /* was amber-dim */
+    color: var(--amber-warm);                /* was amber-dim */
     font-size: 10px;
     line-height: 12px;
     text-align: center;

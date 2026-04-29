@@ -94,10 +94,17 @@ impl From<PtyDims> for PtySize {
 /// inject environment variables — useful for passing the running Rift
 /// instance's IPC socket name into spawned shells so `rift hook ...`
 /// works without manual setup.
+///
+/// Phase 8.7g.4: `cwd` lets the caller pin the spawned shell's working
+/// directory. When `None`, falls back to `std::env::current_dir()` (the
+/// previous unconditional behavior). Tauri callers should always pass
+/// the canonical ProjectRoot — `cargo run` starts the binary from
+/// `src-tauri/`, which would otherwise leak into the user's shell prompt.
 #[derive(Clone, Debug, Default)]
 pub struct PtyOptions {
     pub dims: PtyDims,
     pub env: Vec<(String, String)>,
+    pub cwd: Option<std::path::PathBuf>,
 }
 
 impl PtyOptions {
@@ -105,11 +112,17 @@ impl PtyOptions {
         Self {
             dims,
             env: Vec::new(),
+            cwd: None,
         }
     }
 
     pub fn with_env(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
         self.env.push((key.into(), value.into()));
+        self
+    }
+
+    pub fn with_cwd(mut self, cwd: impl Into<std::path::PathBuf>) -> Self {
+        self.cwd = Some(cwd.into());
         self
     }
 }
@@ -221,7 +234,13 @@ impl PtySession {
         for arg in args {
             cmd.arg(arg);
         }
-        if let Ok(cwd) = std::env::current_dir() {
+        // Phase 8.7g.4 — explicit cwd from PtyOptions takes precedence so
+        // `cargo run` (which starts the binary from src-tauri/) doesn't
+        // leak the wrong cwd into the spawned shell. Fallback to
+        // env::current_dir() preserves prior behavior for callers (CLI,
+        // tests) that don't pin the cwd themselves.
+        let chosen_cwd = opts.cwd.clone().or_else(|| std::env::current_dir().ok());
+        if let Some(cwd) = chosen_cwd {
             cmd.cwd(cwd);
         }
         for (k, v) in &opts.env {

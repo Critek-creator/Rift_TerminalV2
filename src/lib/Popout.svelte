@@ -96,7 +96,8 @@
 >
   <div
     class="card"
-    style="width: {cardWidth};"
+    class:is-viewer={entry.content.kind === 'viewer'}
+    style={entry.content.kind === 'viewer' ? '' : `width: ${cardWidth};`}
     onclick={onCardClick}
     onkeydown={onCardKey}
     role="dialog"
@@ -164,10 +165,26 @@
     color: var(--amber-warm);
     font-family: inherit;
     max-width: 90vw;
-    max-height: 80vh;
+    max-height: 90vh;
+    min-width: 320px;
+    min-height: 200px;
     display: flex;
     flex-direction: column;
+    /* Phase 8.7g.5 — resize handle (BR corner). Works with display:flex
+       because the browser's native resize widget operates on the box
+       layout, not the inner flex layout. overflow:hidden is required for
+       the resize widget to render. */
+    resize: both;
+    overflow: hidden;
     animation: popout-card-in 160ms cubic-bezier(0.2, 0.7, 0.3, 1);
+  }
+  /* Viewer popout — comfortable default so file content is readable
+     without immediate resize. User can still drag the BR corner up/down. */
+  .card.is-viewer {
+    width: min(1024px, 90vw);
+    height: min(720px, 85vh);
+    min-width: 480px;
+    min-height: 320px;
   }
 
   .card-header {
