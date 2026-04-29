@@ -138,6 +138,57 @@
   // detected:false flags stay as-is; reset only flips enabled.
   function resetNotifs() {
     notifs = notifs.map((n) => ({ ...n, enabled: true }));
+    persistNotifOrder();
+  }
+
+  // Phase 8.7j — drag-to-reorder + localStorage-persisted order. The strip
+  // sends `(srcId, dstId)`; we splice src to dst's index. Order survives
+  // reloads via `rift.notifs.order` (an array of tab ids). New tabs added
+  // in future builds append at the end so order updates are forward-safe.
+  const NOTIF_ORDER_KEY = 'rift.notifs.order';
+  function reorderNotif(srcId: string, dstId: string) {
+    if (srcId === dstId) return;
+    const srcIdx = notifs.findIndex((n) => n.id === srcId);
+    const dstIdx = notifs.findIndex((n) => n.id === dstId);
+    if (srcIdx < 0 || dstIdx < 0) return;
+    const next = notifs.slice();
+    const [moved] = next.splice(srcIdx, 1);
+    next.splice(dstIdx, 0, moved);
+    notifs = next;
+    persistNotifOrder();
+  }
+  function persistNotifOrder() {
+    try {
+      const order = notifs.map((n) => n.id);
+      localStorage.setItem(NOTIF_ORDER_KEY, JSON.stringify(order));
+    } catch {
+      // localStorage unavailable (private mode etc.) — silent best-effort.
+    }
+  }
+  function applyPersistedNotifOrder() {
+    try {
+      const raw = localStorage.getItem(NOTIF_ORDER_KEY);
+      if (!raw) return;
+      const order = JSON.parse(raw) as unknown;
+      if (!Array.isArray(order)) return;
+      const idToTab = new Map(notifs.map((n) => [n.id, n]));
+      const reordered: typeof notifs = [];
+      for (const id of order) {
+        if (typeof id !== 'string') continue;
+        const tab = idToTab.get(id);
+        if (tab) {
+          reordered.push(tab);
+          idToTab.delete(id);
+        }
+      }
+      // Append any tabs not present in the saved order (new builds).
+      for (const tab of idToTab.values()) reordered.push(tab);
+      if (reordered.length === notifs.length) {
+        notifs = reordered;
+      }
+    } catch {
+      // Corrupt JSON — ignore and use defaults.
+    }
   }
 
   // Phase 8.7h — open the notif manager popout. Passes a getTabs getter
@@ -424,6 +475,11 @@
   });
 
   onMount(() => {
+    // Phase 8.7j — restore persisted notif tab order before any subscription
+    // fires. Pure synchronous read of localStorage; ordering must settle
+    // before TabBar renders to avoid a flicker.
+    applyPersistedNotifOrder();
+
     // Svelte 5's onMount requires a sync callback that optionally returns a
     // cleanup. Async init runs in an IIFE; cleanup captures unlisten handles
     // via mutable refs the IIFE populates.
@@ -580,6 +636,7 @@
     onPromote={promoteTab}
     onDemote={demoteTab}
     onManageNotifs={openNotifManager}
+    onReorderNotif={reorderNotif}
   />
 
   <!-- Phase 6.2 — always-on cockpit: left = terminal surface, right = file tree -->

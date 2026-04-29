@@ -44,22 +44,74 @@
   let scanError = $state<string | null>(null);
   let activeMarker = $state<Marker | 'ALL'>('ALL');
 
+  // Phase 8.7j — dismissed-entry persistence. Key shape: `path:line:marker`.
+  // Survives reloads via localStorage so checked-off TODOs stay out of the
+  // way until the source line changes (different line number → new key).
+  const DISMISSED_KEY = 'rift.todo.dismissed';
+  let dismissed = $state<Set<string>>(loadDismissed());
+  let showDismissed = $state(false);
+
+  function entryKey(e: TodoEntry): string {
+    return `${e.path}:${e.line}:${e.marker}`;
+  }
+  function loadDismissed(): Set<string> {
+    try {
+      const raw = localStorage.getItem(DISMISSED_KEY);
+      if (!raw) return new Set();
+      const arr = JSON.parse(raw) as unknown;
+      if (!Array.isArray(arr)) return new Set();
+      return new Set(arr.filter((s): s is string => typeof s === 'string'));
+    } catch {
+      return new Set();
+    }
+  }
+  function persistDismissed(s: Set<string>) {
+    try {
+      localStorage.setItem(DISMISSED_KEY, JSON.stringify([...s]));
+    } catch {
+      // best-effort
+    }
+  }
+  function dismissEntry(e: TodoEntry) {
+    const next = new Set(dismissed);
+    next.add(entryKey(e));
+    dismissed = next;
+    persistDismissed(next);
+  }
+  function restoreEntry(e: TodoEntry) {
+    const next = new Set(dismissed);
+    next.delete(entryKey(e));
+    dismissed = next;
+    persistDismissed(next);
+  }
+  function clearDismissed() {
+    dismissed = new Set();
+    persistDismissed(dismissed);
+  }
+
+  const visibleEntries = $derived(
+    showDismissed ? entries : entries.filter((e) => !dismissed.has(entryKey(e)))
+  );
   const filtered = $derived(
     activeMarker === 'ALL'
-      ? entries
-      : entries.filter((e) => e.marker === activeMarker)
+      ? visibleEntries
+      : visibleEntries.filter((e) => e.marker === activeMarker)
   );
-  const totalCount = $derived(entries.length);
+  const totalCount = $derived(visibleEntries.length);
+  const rawTotalCount = $derived(entries.length);
+  const dismissedCount = $derived(
+    entries.reduce((n, e) => (dismissed.has(entryKey(e)) ? n + 1 : n), 0)
+  );
   const filteredCount = $derived(filtered.length);
 
   const markerCounts = $derived.by(() => {
     const h: Record<Marker, number> = { TODO: 0, FIXME: 0, XXX: 0, HACK: 0 };
-    for (const e of entries) h[e.marker] += 1;
+    for (const e of visibleEntries) h[e.marker] += 1;
     return h;
   });
   const fileCount = $derived.by(() => {
     const seen = new Set<string>();
-    for (const e of entries) seen.add(e.path);
+    for (const e of visibleEntries) seen.add(e.path);
     return seen.size;
   });
 
@@ -129,6 +181,16 @@
       {filteredCount}/{totalCount} marker{totalCount === 1 ? '' : 's'} · {fileCount} file{fileCount === 1 ? '' : 's'} · {formatScanLabel()}
     </span>
     <span class="spacer"></span>
+    <button
+      type="button"
+      class="ctl-btn"
+      class:active={showDismissed}
+      onclick={() => (showDismissed = !showDismissed)}
+      title="toggle visibility of dismissed entries"
+      disabled={dismissedCount === 0 && !showDismissed}
+    >
+      {showDismissed ? `hide done (${dismissedCount})` : `show done (${dismissedCount})`}
+    </button>
     <button type="button" class="ctl-btn" onclick={runScan} disabled={scanning}>
       {scanning ? '…' : 'rescan'}
     </button>
@@ -173,17 +235,37 @@
             : `no ${activeMarker} markers — switch filter to see other kinds`}
         </div>
       {:else}
-        {#each filtered as e, i (e.path + ':' + e.line + ':' + i)}
-          <button
-            type="button"
-            class="row"
-            onclick={() => openEntry(e)}
-            title="open {e.path}"
-          >
-            <span class="marker" style="color: {MARKER_COLOR[e.marker]};">{e.marker}</span>
-            <span class="path">{e.path}<span class="line-sep">:</span><span class="lineno">{e.line}</span></span>
-            <span class="message">{e.message || '(no message)'}</span>
-          </button>
+        {#each filtered as e, i (entryKey(e) + ':' + i)}
+          {@const isDismissed = dismissed.has(entryKey(e))}
+          <div class="row" class:row-dismissed={isDismissed}>
+            <button
+              type="button"
+              class="row-main"
+              onclick={() => openEntry(e)}
+              title="open {e.path}"
+            >
+              <span class="marker" style="color: {MARKER_COLOR[e.marker]};">{e.marker}</span>
+              <span class="path">{e.path}<span class="line-sep">:</span><span class="lineno">{e.line}</span></span>
+              <span class="message">{e.message || '(no message)'}</span>
+            </button>
+            {#if isDismissed}
+              <button
+                type="button"
+                class="row-action restore"
+                onclick={() => restoreEntry(e)}
+                title="restore (un-dismiss)"
+                aria-label="restore"
+              >↺</button>
+            {:else}
+              <button
+                type="button"
+                class="row-action dismiss"
+                onclick={() => dismissEntry(e)}
+                title="dismiss (mark done)"
+                aria-label="dismiss"
+              >×</button>
+            {/if}
+          </div>
         {/each}
       {/if}
     </div>
@@ -206,7 +288,21 @@
         <span class="k">files affected</span>
         <span class="v">{fileCount}</span>
       </div>
-      {#if totalCount >= 1000}
+      {#if dismissedCount > 0}
+        <div class="k-row total">
+          <span class="k">dismissed</span>
+          <span class="v">
+            {dismissedCount}
+            <button
+              type="button"
+              class="inline-clear"
+              onclick={clearDismissed}
+              title="clear all dismissed entries (they'll reappear)"
+            >clear</button>
+          </span>
+        </div>
+      {/if}
+      {#if rawTotalCount >= 1000}
         <div class="cap-note">
           (capped at 1000 results — refine ignore globs in settings to surface deeper hits)
         </div>
@@ -294,6 +390,11 @@
     color: var(--amber-bright);
   }
   .ctl-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .ctl-btn.active {
+    background: var(--amber-bright);
+    border-color: var(--amber-bright);
+    color: var(--bg-base);
+  }
 
   .strip {
     min-height: 32px;
@@ -375,6 +476,24 @@
   .empty.error { color: var(--term-red); font-style: normal; }
 
   .row {
+    display: flex;
+    align-items: stretch;
+    border-left: 2px solid transparent;
+    width: 100%;
+  }
+  .row:hover {
+    background: rgba(212, 137, 10, 0.06);
+    border-left-color: var(--amber-bright);
+  }
+  .row.row-dismissed {
+    opacity: 0.45;
+  }
+  .row.row-dismissed .marker,
+  .row.row-dismissed .path,
+  .row.row-dismissed .message {
+    text-decoration: line-through;
+  }
+  .row-main {
     display: grid;
     grid-template-columns: 60px 1fr 1.4fr;
     gap: 12px;
@@ -382,17 +501,40 @@
     padding: 3px 4px;
     background: transparent;
     border: none;
-    border-left: 2px solid transparent;
     color: inherit;
     font-family: inherit;
     text-align: left;
     cursor: pointer;
-    width: 100%;
+    flex: 1;
+    min-width: 0;
   }
-  .row:hover {
-    background: rgba(212, 137, 10, 0.06);
-    border-left-color: var(--amber-bright);
+  .row-action {
+    background: transparent;
+    border: none;
+    color: var(--amber-faint);
+    font-family: inherit;
+    font-size: 14px;
+    line-height: 1;
+    padding: 0 8px;
+    cursor: pointer;
+    flex-shrink: 0;
+    align-self: center;
   }
+  .row-action.dismiss:hover { color: var(--term-red); }
+  .row-action.restore:hover { color: var(--amber-bright); }
+  .inline-clear {
+    background: transparent;
+    border: none;
+    color: var(--amber-faint);
+    font-family: inherit;
+    font-size: 9px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    cursor: pointer;
+    margin-left: 8px;
+    padding: 0;
+  }
+  .inline-clear:hover { color: var(--term-red); }
   .marker {
     font-weight: 700;
     font-size: 10px;

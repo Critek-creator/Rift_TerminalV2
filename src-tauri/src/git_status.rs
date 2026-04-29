@@ -54,6 +54,55 @@ pub struct GitCommit {
 /// files doesn't bloat the IPC payload. Frontend can surface the cap hint.
 const MAX_LIST: usize = 200;
 
+#[derive(Debug, Clone, Serialize)]
+pub struct GitActionResult {
+    pub success: bool,
+    pub stdout: String,
+    pub stderr: String,
+    pub exit_code: i32,
+}
+
+/// Run a git mutating action: fetch / pull / push / commit-all.
+///
+/// `commit-all` requires `message` (caller-supplied) and runs the
+/// equivalent of `git add -A && git commit -m <msg>`. The other actions
+/// take no message. Output (stdout + stderr + exit code) is returned to
+/// the frontend so it can show what happened.
+pub fn run_action(
+    root: &Path,
+    action: &str,
+    message: Option<&str>,
+) -> Result<GitActionResult, String> {
+    match action {
+        "fetch" => one_shot(root, &["fetch", "--prune"]),
+        "pull" => one_shot(root, &["pull", "--ff-only"]),
+        "push" => one_shot(root, &["push"]),
+        "commit-all" => {
+            let msg = message
+                .filter(|m| !m.trim().is_empty())
+                .ok_or_else(|| "commit-all: message is required".to_string())?;
+            // Stage everything, then commit. Two invocations so a clean
+            // failure on commit is reported without obscuring the add step.
+            let added = one_shot(root, &["add", "-A"])?;
+            if !added.success {
+                return Ok(added);
+            }
+            one_shot(root, &["commit", "-m", msg])
+        }
+        other => Err(format!("git_action: unknown action `{other}`")),
+    }
+}
+
+fn one_shot(root: &Path, args: &[&str]) -> Result<GitActionResult, String> {
+    let out = run_git(root, args)?;
+    Ok(GitActionResult {
+        success: out.success,
+        stdout: out.stdout,
+        stderr: out.stderr,
+        exit_code: out.exit_code,
+    })
+}
+
 /// Run a one-shot status snapshot. Errors that aren't "not a repo" are
 /// returned as `Err(String)` so the frontend can show the failure mode.
 pub fn snapshot(root: &Path) -> Result<GitStatus, String> {

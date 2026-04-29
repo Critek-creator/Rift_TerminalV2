@@ -52,6 +52,61 @@
   let pollTimer: ReturnType<typeof setInterval> | undefined;
   let mounted = true;
 
+  // Phase 8.7j — git mutating actions (fetch / pull / push / commit).
+  type GitActionKind = 'fetch' | 'pull' | 'push' | 'commit-all';
+  interface GitActionResult {
+    success: boolean;
+    stdout: string;
+    stderr: string;
+    exit_code: number;
+  }
+  let actionRunning = $state<GitActionKind | null>(null);
+  let lastActionLabel = $state<string | null>(null);
+  let lastActionResult = $state<GitActionResult | null>(null);
+  let lastActionFailed = $state(false);
+  let commitOpen = $state(false);
+  let commitMessage = $state('');
+
+  async function runAction(kind: GitActionKind, message?: string) {
+    actionRunning = kind;
+    lastActionResult = null;
+    lastActionFailed = false;
+    try {
+      const result = await invoke<GitActionResult>('git_action_command', {
+        action: kind,
+        message: message ?? null,
+      });
+      lastActionResult = result;
+      lastActionFailed = !result.success;
+      lastActionLabel = kind;
+      if (result.success) {
+        // Refresh the snapshot to reflect the new state.
+        await poll();
+      }
+    } catch (err) {
+      lastActionFailed = true;
+      lastActionResult = {
+        success: false,
+        stdout: '',
+        stderr: String(err),
+        exit_code: -1,
+      };
+      lastActionLabel = kind;
+    } finally {
+      actionRunning = null;
+    }
+  }
+
+  async function doCommit() {
+    if (!commitMessage.trim()) return;
+    const msg = commitMessage.trim();
+    await runAction('commit-all', msg);
+    if (lastActionResult?.success) {
+      commitMessage = '';
+      commitOpen = false;
+    }
+  }
+
   const cleanWorkingTree = $derived.by(() => {
     if (!snapshot || snapshot.not_a_repo) return false;
     return (
@@ -198,6 +253,82 @@
       {loading ? '…' : 'refresh'}
     </button>
   </header>
+
+  {#if snapshot && !snapshot.not_a_repo}
+    <div class="actions">
+      <button
+        type="button"
+        class="ctl-btn"
+        onclick={() => runAction('fetch')}
+        disabled={actionRunning !== null}
+        title="git fetch --prune"
+      >{actionRunning === 'fetch' ? 'fetching…' : 'fetch'}</button>
+      <button
+        type="button"
+        class="ctl-btn"
+        onclick={() => runAction('pull')}
+        disabled={actionRunning !== null}
+        title="git pull --ff-only"
+      >{actionRunning === 'pull' ? 'pulling…' : 'pull'}</button>
+      <button
+        type="button"
+        class="ctl-btn"
+        onclick={() => runAction('push')}
+        disabled={actionRunning !== null}
+        title="git push"
+      >{actionRunning === 'push' ? 'pushing…' : 'push'}</button>
+      <button
+        type="button"
+        class="ctl-btn"
+        class:active={commitOpen}
+        onclick={() => (commitOpen = !commitOpen)}
+        disabled={actionRunning !== null}
+        title="stage all + commit"
+      >{commitOpen ? 'cancel' : 'commit'}</button>
+      {#if lastActionResult}
+        <span class="action-banner" class:fail={lastActionFailed}>
+          {lastActionLabel}: {lastActionFailed ? 'failed' : 'ok'}
+          {#if lastActionResult.stderr.trim() || lastActionResult.stdout.trim()}
+            <span class="action-detail">
+              {(lastActionResult.stderr.trim() || lastActionResult.stdout.trim()).slice(0, 160)}
+            </span>
+          {/if}
+          <button
+            type="button"
+            class="banner-close"
+            onclick={() => { lastActionResult = null; lastActionFailed = false; }}
+            aria-label="dismiss"
+          >×</button>
+        </span>
+      {/if}
+    </div>
+
+    {#if commitOpen}
+      <div class="commit-form">
+        <textarea
+          class="commit-input"
+          bind:value={commitMessage}
+          placeholder="commit message — `git add -A && git commit -m …`"
+          rows="2"
+          disabled={actionRunning !== null}
+        ></textarea>
+        <div class="commit-buttons">
+          <button
+            type="button"
+            class="ctl-btn"
+            onclick={() => { commitOpen = false; commitMessage = ''; }}
+            disabled={actionRunning !== null}
+          >cancel</button>
+          <button
+            type="button"
+            class="ctl-btn primary"
+            onclick={doCommit}
+            disabled={actionRunning !== null || !commitMessage.trim()}
+          >{actionRunning === 'commit-all' ? 'committing…' : 'commit'}</button>
+        </div>
+      </div>
+    {/if}
+  {/if}
 
   <div class="strip">
     <span class="strip-label">CHANGES</span>
@@ -397,6 +528,95 @@
     color: var(--amber-bright);
   }
   .ctl-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .ctl-btn.active {
+    background: var(--amber-bright);
+    border-color: var(--amber-bright);
+    color: var(--bg-base);
+  }
+  .ctl-btn.primary {
+    background: var(--amber-bright);
+    border-color: var(--amber-bright);
+    color: var(--bg-base);
+  }
+  .ctl-btn.primary:hover:not(:disabled) {
+    box-shadow: var(--glow-amber-faint);
+  }
+
+  .actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 14px;
+    border-bottom: 1px solid var(--border-subtle);
+    background: var(--bg-elevated);
+    flex-wrap: wrap;
+  }
+  .action-banner {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 2px 8px;
+    border: 1px solid var(--term-green, #33CC33);
+    color: var(--term-green, #33CC33);
+    font-size: 9px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    font-weight: 700;
+    margin-left: auto;
+    max-width: 60%;
+  }
+  .action-banner.fail {
+    border-color: var(--term-red);
+    color: var(--term-red);
+  }
+  .action-detail {
+    font-weight: 400;
+    text-transform: none;
+    letter-spacing: 0.02em;
+    color: var(--amber-faint);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 320px;
+  }
+  .banner-close {
+    background: transparent;
+    border: none;
+    color: inherit;
+    font-size: 12px;
+    line-height: 1;
+    cursor: pointer;
+    padding: 0 2px;
+  }
+
+  .commit-form {
+    padding: 8px 14px 10px;
+    border-bottom: 1px solid var(--border-subtle);
+    background: var(--bg-panel);
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .commit-input {
+    background: var(--bg-base);
+    border: 1px solid var(--amber-faint);
+    color: var(--amber-warm);
+    font-family: inherit;
+    font-size: 11px;
+    padding: 6px 8px;
+    resize: vertical;
+    min-height: 32px;
+  }
+  .commit-input:focus {
+    outline: none;
+    border-color: var(--amber-bright);
+    box-shadow: var(--glow-amber-faint);
+  }
+  .commit-buttons {
+    display: flex;
+    gap: 6px;
+    justify-content: flex-end;
+  }
 
   .chip {
     display: inline-flex;

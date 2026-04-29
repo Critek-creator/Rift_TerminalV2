@@ -732,6 +732,19 @@ fn git_status_command(
     git_status::snapshot(&root)
 }
 
+/// Phase 8.7j — git mutating action: fetch / pull / push / commit-all.
+/// Returns stdout/stderr/exit_code to the frontend so the UI can show
+/// what happened. `commit-all` requires `message`.
+#[tauri::command]
+fn git_action_command(
+    project_root: State<'_, ProjectRoot>,
+    action: String,
+    message: Option<String>,
+) -> Result<git_status::GitActionResult, String> {
+    let root = project_root.get();
+    git_status::run_action(&root, &action, message.as_deref())
+}
+
 /// Shared helper: resolve `~/<rel_path>` and open it in the OS default editor.
 ///
 /// Cross-platform dispatch:
@@ -1182,6 +1195,7 @@ pub fn run() {
             aegis_open_settings,
             todo_scan_command,
             git_status_command,
+            git_action_command,
         ])
         .run(tauri::generate_context!())
         .expect("rift: tauri runtime failed to start");

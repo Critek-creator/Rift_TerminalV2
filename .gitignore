@@ -28,6 +28,8 @@ src-tauri/gen/
 
 # Claude Code project-local state
 .claude/
+# Playwright MCP browser scratch dir (created by claude-in-chrome / playwright MCPs)
+.playwright-mcp/
 
 # Aegis Verifier session state (ephemeral — verify.toml + lessons/ ARE committed)
 .aegis/session/

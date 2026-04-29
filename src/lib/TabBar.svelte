@@ -47,6 +47,9 @@
     onDemote: () => void;
     /** Phase 8.7h — open the notif tab manager popout. */
     onManageNotifs: () => void;
+    /** Phase 8.7j — reorder via drag-onto-other-tab. App splices `srcId`
+     *  into `dstId`'s slot and persists the new order to localStorage. */
+    onReorderNotif: (srcId: string, dstId: string) => void;
   }
 
   let {
@@ -63,6 +66,7 @@
     onPromote,
     onDemote,
     onManageNotifs,
+    onReorderNotif,
   }: Props = $props();
 
   // §10.9 — "Amber border animates around a tab when something is live/active
@@ -71,10 +75,13 @@
   function isLive(tab: NotifTab): boolean {
     return tab.lastActivityTs !== null && (tickNow - tab.lastActivityTs) < LIVE_WINDOW_MS;
   }
-  // Visible notifs are detected ones — capability-gate filter (§10.7).
-  // Disabled tabs still render (struck-through) so the user can re-enable
-  // them via right-click; only undetected tabs are completely hidden.
-  const visibleNotifs = $derived(notifs.filter((n) => n.detected));
+  // Visible notifs are detected AND enabled.
+  //   - undetected: capability-gate hide (§10.7) — integration hasn't loaded.
+  //   - disabled:   user-hidden via right-click or NotifManager popout.
+  // Re-enable through the `⋯` manager button at the right edge of the strip
+  // (Phase 8.7j: prior behaviour was struck-through-but-still-rendered, which
+  // didn't actually clear the strip when the user wanted to declutter).
+  const visibleNotifs = $derived(notifs.filter((n) => n.detected && n.enabled));
 
   // Drop-target highlight state — true while a drag is hovering the strip.
   let dropActive = $state(false);
@@ -99,6 +106,43 @@
     // Promoted tab in strip = no-op; user interacts with the side pane instead.
     if (isPromoted(tab.id)) return;
     onActivateNotif(tab.id);
+  }
+
+  // Phase 8.7j — drag-to-reorder. When the drop lands on another notif
+  // tab (not the strip background), we treat the gesture as "reorder, not
+  // promote" and undo the promote-on-dragstart. `reorderHoverId` drives
+  // the per-tab insertion-line indicator.
+  let reorderHoverId = $state<string | null>(null);
+  let didReorder = false;
+
+  function onTabDragOver(e: DragEvent, tab: NotifTab) {
+    if (!e.dataTransfer?.types.includes(NOTIF_TAB_MIME)) return;
+    const payload = e.dataTransfer.getData(NOTIF_TAB_MIME);
+    // Pane-source drags carry the sentinel — they're for demote, not reorder.
+    if (payload === '__promoted_pane__') return;
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = 'move';
+    reorderHoverId = tab.id;
+  }
+  function onTabDragLeave(tab: NotifTab) {
+    if (reorderHoverId === tab.id) reorderHoverId = null;
+  }
+  function onTabDrop(e: DragEvent, tab: NotifTab) {
+    if (!e.dataTransfer?.types.includes(NOTIF_TAB_MIME)) return;
+    const srcId = e.dataTransfer.getData(NOTIF_TAB_MIME);
+    if (!srcId || srcId === '__promoted_pane__' || srcId === tab.id) {
+      reorderHoverId = null;
+      return;
+    }
+    e.preventDefault();
+    e.stopPropagation();
+    onReorderNotif(srcId, tab.id);
+    // Reorder gesture supersedes the promote that fired on dragstart —
+    // immediately demote so the tab settles back into the strip.
+    if (isPromoted(srcId)) onDemote();
+    didReorder = true;
+    reorderHoverId = null;
   }
 
   // Tracks whether the tab being dragged was ALREADY promoted at dragstart time.
@@ -143,6 +187,14 @@
   function onStripDrop(e: DragEvent) {
     e.preventDefault();
     dropActive = false;
+    // Phase 8.7j — if a per-tab drop already handled this gesture as a
+    // reorder, the strip-level drop must not also fire its demote/keep
+    // logic (would otherwise clobber the reorder by demoting).
+    if (didReorder) {
+      didReorder = false;
+      draggedFromPromoted = false;
+      return;
+    }
     // Phase 6.6: only act when the drop carries a notif-tab payload.
     // Drops from foreign sources (e.g. tree-node paths) are acknowledged
     // (preventDefault already ran for visual coherence) but otherwise ignored.
@@ -217,15 +269,19 @@
         class:promoted-cyan={isPromoted(tab.id) && tab.id === 'hooks'}
         class:promoted-red={isPromoted(tab.id) && tab.id === 'errors'}
         class:live={isLive(tab) && tab.enabled}
+        class:reorder-target={reorderHoverId === tab.id}
         aria-current={isActiveNotif(tab.id) ? 'page' : 'false'}
         draggable={tab.enabled}
         onclick={() => onNotifClick(tab)}
         ondragstart={(e) => onNotifDragStart(e, tab)}
+        ondragover={(e) => onTabDragOver(e, tab)}
+        ondragleave={() => onTabDragLeave(tab)}
+        ondrop={(e) => onTabDrop(e, tab)}
         oncontextmenu={(e) => { e.preventDefault(); onToggleNotif(tab.id); }}
         title={tab.enabled
           ? (isPromoted(tab.id)
               ? 'promoted to side pane · drag pane handle back to dock'
-              : 'click to open · drag to promote · right-click to disable')
+              : 'click to open · drag onto another tab to reorder · drag off strip to promote · right-click to hide')
           : 'right-click to enable'}
       >
         <span class="icon">{isPromoted(tab.id) ? '↗' : tab.icon}</span>
@@ -307,6 +363,12 @@
   }
   .tab.notif { cursor: grab; }
   .tab.notif:active { cursor: grabbing; }
+  /* Phase 8.7j — drop-target indicator: bright vertical bar on the leading
+     edge of the tab being hovered while another tab is dragged onto it. */
+  .tab.notif.reorder-target {
+    box-shadow: inset 3px 0 0 var(--amber-bright);
+    background: var(--bg-hover);
+  }
   .tab.notif.disabled {
     color: var(--amber-faint);
     text-decoration: line-through;

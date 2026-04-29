@@ -16,7 +16,7 @@
   // it back onto the tab strip triggers demote in the parent.
 
   import { onMount, onDestroy } from 'svelte';
-  import { subscribe, publish, type Category, type Envelope } from './bus';
+  import { subscribe, type Category, type Envelope } from './bus';
   import { NOTIF_TAB_MIME } from './dragMime';
 
   interface Props {
@@ -106,18 +106,6 @@
     unsubscribe?.().catch(() => {});
   });
 
-  async function publishDemo() {
-    if (!categoryFilter) return;
-    try {
-      await publish(categoryFilter, 'demo.click', {
-        source: 'notification-pane-demo',
-        clientTime: new Date().toISOString(),
-      });
-    } catch (err) {
-      console.error('[NotificationPane] bus_publish failed', err);
-    }
-  }
-
   function formatTs(ts: number): string {
     return new Date(ts).toLocaleTimeString(undefined, { hour12: false });
   }
@@ -169,12 +157,7 @@
       {/if}
     </span>
     <span class="spacer"></span>
-    {#if categoryFilter}
-      <button type="button" class="demo-btn" onclick={publishDemo}>
-        publish demo {categoryFilter}
-      </button>
-      <span class="meta">subscribed: <span class="cat">{categoryFilter}</span></span>
-    {:else}
+    {#if !categoryFilter}
       <span class="meta">no integration registered — populates Phase 5+</span>
     {/if}
   </header>
@@ -322,27 +305,6 @@
     letter-spacing: 0.04em;
     font-style: italic;
   }
-  .status .meta .cat {
-    color: var(--accent, var(--amber-primary));
-    font-style: normal;
-    font-weight: 600;
-  }
-  .demo-btn {
-    background: transparent;
-    border: 1px solid var(--accent, var(--amber-primary));
-    color: var(--accent, var(--amber-primary));
-    font-family: inherit;
-    font-size: 9px;
-    letter-spacing: 0.1em;
-    font-weight: 700;
-    padding: 2px 8px;
-    cursor: pointer;
-  }
-  .demo-btn:hover {
-    background: rgba(212, 137, 10, 0.08);
-    text-shadow: var(--glow-amber-faint);
-  }
-
   .strip {
     height: 26px;
     padding: 0 14px;
