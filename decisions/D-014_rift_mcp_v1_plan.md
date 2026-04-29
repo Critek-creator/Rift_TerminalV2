@@ -66,14 +66,37 @@ stdio path already covers Claude Code's automation case.
 
 ### 2c. MCP protocol implementation
 
-**Use [`rmcp`](https://github.com/modelcontextprotocol/rust-sdk)** — the
-official Rust MCP SDK from Anthropic. Hand-rolling JSON-RPC + the MCP
-schema is technically simple but the SDK's `tool!` macro + capability
-negotiation logic is what we'd reinvent.
+**Decision (locked 2026-04-29 after marketplace survey):** use
+[`rmcp`](https://github.com/modelcontextprotocol/rust-sdk) — Anthropic's
+official Rust SDK — directly. Optionally crib boilerplate from
+[`mcp-rs-template`](https://github.com/linux-china/mcp-rs-template), a
+community Rust scaffold (not a Claude Code plugin — just a git template
+with a pre-wired `Cargo.toml` + `main.rs` + `tool!` macro setup).
 
-Fallback: if `rmcp` has compatibility issues with our `tokio` /`serde_json`
-versions, hand-roll over `tokio::io::stdin/stdout` + `serde_json` lines.
-Roughly 200 LOC.
+**Why not the `mcp-server-dev` plugin path?** Anthropic's official
+`mcp-server-dev` Claude Code plugin (installed locally, invocable via
+`/mcp-server-dev:build-mcp-server`) is **TypeScript-biased**. Its
+five-phase interrogation skill is excellent for deciding the
+*deployment model* and *tool-design pattern*, but if you pick Rust as
+the implementation language it hands you off to the raw `rmcp` docs
+without code generation. Worth running the skill once for the design
+checklist (it surfaces auth/elicitation/widget choices we'd otherwise
+miss), then implementing in Rust by hand.
+
+**What the survey found:**
+
+| Tool                      | Use for                                     | Verdict |
+|---------------------------|---------------------------------------------|---------|
+| `mcp-server-dev` plugin   | Pre-build interrogation: deployment model, tool pattern, auth flow, UI choice | Run it once for the design checklist; ignore its code-output path |
+| `rmcp` SDK                | Cargo dep; `#[tool]` proc-macros; stdio + HTTP transport | **Primary** |
+| `mcp-rs-template` (community) | Boilerplate `Cargo.toml`, `main.rs`, tool macro skeleton | Reference / cherry-pick — not a dependency |
+| `mcp-builder`, `mcp-anything` (community plugins) | Various design/generation utilities | Unverified relevance to Rust+stdio path; skip for v1 |
+
+**Fallback:** if `rmcp` has compatibility issues with our `tokio` /
+`serde_json` versions (the workspace pins `tokio = "1"`, `serde_json = "1"`),
+hand-roll over `tokio::io::{stdin, stdout}` + `serde_json` line-delimited
+messages. Roughly 200 LOC. The MCP wire format is plain JSON-RPC 2.0;
+the schema is documented at [modelcontextprotocol.io/spec](https://modelcontextprotocol.io/specification).
 
 ### 2d. Host-side: how Rift fulfills MCP tool calls
 
@@ -274,6 +297,15 @@ audit surface. ~half day plus settings work.
 ## 6. Open questions
 
 These need user signoff before Phase A starts.
+
+**Recommended pre-signoff step:** run `/mcp-server-dev:build-mcp-server`
+once with Rift's case (local Tauri app, ~10-15 tools tier 1, token auth,
+maybe widget confirms in v1.x). The skill's deployment-model
+recommendation + tool-design pattern call is worth comparing against
+this doc's recommendations before locking. Treat its output as a second
+opinion, not a replacement — it doesn't know about §9 boundary
+discipline or our existing IpcServer.
+
 
 1. **Standalone `rift-mcp` binary or in-process Tauri module?** Recommended
    standalone for §9 cleanliness, but it adds a binary to the workspace
