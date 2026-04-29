@@ -7,8 +7,20 @@
 // File extension `.svelte.ts` is REQUIRED so the Svelte 5 rune compiler
 // processes `$state`. Plain `.ts` will not work.
 
+/** Read-only summary of a notif tab passed to the NotifManager popout.
+ *  Mirrors the load-bearing fields of TabBar's NotifTab without coupling the
+ *  popouts module to TabBar. */
+export interface NotifTabSummary {
+  id: string;
+  title: string;
+  icon: string;
+  enabled: boolean;
+  detected: boolean;
+}
+
 /** Discriminated union of overlay content kinds. v1 ships `text` +
- *  `confirm` + `viewer`; future kinds (component / snippet) gated to Phase 5+. */
+ *  `confirm` + `viewer` + `project-picker` + `notif-manager`; future kinds
+ *  (component / snippet) gated to Phase 5+. */
 export type PopoutContent =
   | {
       kind: 'text';
@@ -33,6 +45,20 @@ export type PopoutContent =
   | {
       /** Phase 6.7 — project picker (switch active project). */
       kind: 'project-picker';
+    }
+  | {
+      /** Phase 8.7h — notif tab manager (§10.7 capability-driven UI made
+       *  user-discoverable). Right-click already toggles per-tab enabled,
+       *  but the gesture isn't discoverable; this popout makes it explicit. */
+      kind: 'notif-manager';
+      /** Getter so the popout sees fresh state on every render — App.svelte
+       *  reassigns `notifs` immutably on each toggle. */
+      getTabs: () => NotifTabSummary[];
+      /** Toggle the `enabled` field on the tab with this id. */
+      onToggle: (id: string) => void;
+      /** Reset all tabs to their defaults (enabled: true, except a
+       *  capability-driven detected:false should still hide). */
+      onReset: () => void;
     };
 
 export interface PopoutEntry {

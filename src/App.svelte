@@ -122,6 +122,33 @@
     }
   }
 
+  // Phase 8.7h — reset all notif tabs to enabled. Capability-driven
+  // detected:false flags stay as-is; reset only flips enabled.
+  function resetNotifs() {
+    notifs = notifs.map((n) => ({ ...n, enabled: true }));
+  }
+
+  // Phase 8.7h — open the notif manager popout. Passes a getTabs getter
+  // so the popout sees fresh state on every render (notifs reassigns
+  // immutably on each toggle).
+  function openNotifManager() {
+    popouts.summon({
+      content: {
+        kind: 'notif-manager',
+        getTabs: () => notifs.map((n) => ({
+          id: n.id,
+          title: n.title,
+          icon: n.icon,
+          enabled: n.enabled,
+          detected: n.detected,
+        })),
+        onToggle: toggleNotif,
+        onReset: resetNotifs,
+      },
+      width: 'min(560px, 80vw)',
+    });
+  }
+
   // §10.9 — viewing or promoting a notif tab acknowledges its badge.
   // Called from activateNotif (above) and promoteTab (below).
   function ackUnread(id: string) {
@@ -540,6 +567,7 @@
     onToggleNotif={toggleNotif}
     onPromote={promoteTab}
     onDemote={demoteTab}
+    onManageNotifs={openNotifManager}
   />
 
   <!-- Phase 6.2 — always-on cockpit: left = terminal surface, right = file tree -->

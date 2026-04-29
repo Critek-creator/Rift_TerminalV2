@@ -456,7 +456,11 @@
   .viewer-body::-webkit-scrollbar { width: 5px; }
   .viewer-body::-webkit-scrollbar-thumb { background: var(--amber-faint); }
 
-  /* Shiki output — override Shiki's injected <pre> background so it blends */
+  /* Shiki output — override Shiki's injected <pre> background so it blends.
+     Phase 8.7g.6 — soft-wrap long lines so syntax-highlighted code doesn't
+     run off the right edge of the popout. Indentation is preserved
+     (pre-wrap, not normal). overflow-wrap: anywhere lets very long
+     unbroken tokens (URLs, base64) break too. */
   .viewer-pre {
     margin: 0;
     padding: 12px;
@@ -466,6 +470,8 @@
     /* Let Shiki's theme colors show through; only override font/spacing. */
     background: transparent !important;
     min-height: 100%;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
   }
 
   /* Shiki wraps output in a <pre><code> — make code inherit our font. */
@@ -473,13 +479,19 @@
     font-family: 'JetBrains Mono', monospace;
     font-size: 12px;
     line-height: 1.55;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
   }
 
-  /* Shiki injects an outer <pre> with its own bg — make it transparent */
+  /* Shiki injects an outer <pre> with its own bg — make it transparent.
+     Force soft-wrap here too because Shiki's nested <pre> has its own
+     inline styles. */
   .viewer-pre :global(pre) {
     background: transparent !important;
     margin: 0;
     padding: 0;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
   }
 
   .viewer-pre-raw {

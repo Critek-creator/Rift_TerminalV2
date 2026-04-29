@@ -11,6 +11,7 @@
   import { popouts, type PopoutEntry } from './popouts.svelte';
   import ProjectPicker from './ProjectPicker.svelte';
   import Viewer from './Viewer.svelte';
+  import NotifManager from './NotifManager.svelte';
 
   interface Props {
     entry: PopoutEntry;
@@ -84,7 +85,9 @@
       ? (entry.content.path.split('/').at(-1) ?? entry.content.path)
       : entry.content.kind === 'project-picker'
         ? 'Switch Project'
-        : entry.content.title,
+        : entry.content.kind === 'notif-manager'
+          ? 'Manage Notification Tabs'
+          : entry.content.title,
   );
 </script>
 
@@ -121,6 +124,7 @@
       class="card-body"
       class:card-body-viewer={entry.content.kind === 'viewer'}
       class:card-body-picker={entry.content.kind === 'project-picker'}
+      class:card-body-manager={entry.content.kind === 'notif-manager'}
     >
       {#if entry.content.kind === 'text'}
         <p class="text-body">{entry.content.body}</p>
@@ -143,6 +147,15 @@
         <!-- Phase 6.7: ProjectPicker owns its own keyboard handling (Esc
              stopPropagation per pr003 popout-keydown-bubble-collision). -->
         <ProjectPicker popoutId={entry.id} />
+      {:else if entry.content.kind === 'notif-manager'}
+        <!-- Phase 8.7h: notif tab manager — App.svelte passes a getTabs
+             getter + onToggle/onReset callbacks; NotifManager is stateless. -->
+        <NotifManager
+          popoutId={entry.id}
+          getTabs={entry.content.getTabs}
+          onToggle={entry.content.onToggle}
+          onReset={entry.content.onReset}
+        />
       {/if}
     </div>
   </div>
@@ -234,6 +247,15 @@
   }
   /* ProjectPicker manages its own padding — strip the card padding. */
   .card-body-picker {
+    padding: 0;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    flex: 1;
+  }
+  /* Phase 8.7h NotifManager — same pattern: own padding, fills card body. */
+  .card-body-manager {
     padding: 0;
     overflow: hidden;
     display: flex;

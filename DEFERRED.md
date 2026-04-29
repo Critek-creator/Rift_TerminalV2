@@ -38,6 +38,17 @@
 - **Vitest 2 → 4 major-version bump** rode along in this batch (`devDependencies.vitest` `^2.1.0` → `^4.1.5`). No frontend test suite exists yet (C5 shipped infra only), so no regression surface to verify — but if Phase 8 lands frontend tests, validate the bump didn't change config-file syntax.
 - **Active-flip** — `plugins.updater.active` stays `false` until the frontend check + GitHub Secret are both in place.
 
+### D-017 — Viewer edit-mode syntax highlighting (post-v1 ask, opened 2026-04-29)
+
+- Read mode uses Shiki for full syntax highlighting (`Viewer.svelte:330`). Edit mode is a plain `<textarea>` (`Viewer.svelte:313-319`) — no highlighting while typing.
+- Plain `<textarea>` cannot have inline syntax highlighting; it requires a real code editor (CodeMirror 6, Monaco, or a Shiki-overlay-on-contenteditable hack).
+- **Cost**: medium-large.
+  - **CodeMirror 6** (~150 KB gzipped): import `@codemirror/view`, `@codemirror/state`, `@codemirror/language`, `@codemirror/legacy-modes`. Wire the CM6 EditorView into the viewer body when `mode === 'edit'`. Map fs_read_text/write_text to the editor doc. ~1-2 hr including theme integration with the amber palette.
+  - **Monaco**: heavier (~3 MB), gives full IDE feel (Intellisense, multi-cursor) but overkill for the §11 "friction-reduction-only" editor scope.
+  - **DIY contenteditable + Shiki re-render on input**: lightest dep but laggy on large files.
+- **Why deferred**: §11 explicitly bounds the in-cockpit editor to "spot something in the graph, fix it, return to flow" — multi-file refactoring + IDE features are out of scope. Plain textarea is consistent with that scope but loses the syntax cue. Worth scoping a v1.x decision: do users want syntax-highlighted editing badly enough to take a 150KB dep + a code-editor abstraction surface? If yes, CodeMirror 6 is the right size. Currently undecided.
+- **Unblocking event**: user signals "I want syntax in edit mode badly enough to take CodeMirror 6 as a dep" → wire CM6 + theme.
+
 ### D-016 — StatusLine EFFORT segment data source (opened 2026-04-29)
 
 - The EFFORT segment was added to StatusLine row 1 as part of Phase 8.7g.2 alongside the SKILL segment, both in the AMBER family per the new category palette. SKILL is live via `aegis.session.skill_loaded`; EFFORT is currently rendered as `'—'` because no envelope publishes the current Aegis effort level.

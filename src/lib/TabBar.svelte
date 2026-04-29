@@ -45,6 +45,8 @@
     onToggleNotif: (id: string) => void;
     onPromote: (id: string) => void;
     onDemote: () => void;
+    /** Phase 8.7h — open the notif tab manager popout. */
+    onManageNotifs: () => void;
   }
 
   let {
@@ -60,6 +62,7 @@
     onToggleNotif,
     onPromote,
     onDemote,
+    onManageNotifs,
   }: Props = $props();
 
   // §10.9 — "Amber border animates around a tab when something is live/active
@@ -234,6 +237,16 @@
         {/if}
       </button>
     {/each}
+    <!-- Phase 8.7h — notif manager trigger. Right-click on a tab still
+         toggles enabled directly; this gear opens the discoverable
+         management popout. -->
+    <button
+      type="button"
+      class="manage"
+      aria-label="manage notification tabs"
+      onclick={onManageNotifs}
+      title="manage notification tabs"
+    >⋯</button>
   </div>
 </nav>
 
@@ -341,6 +354,24 @@
     font-family: inherit;
   }
   .add:hover { color: var(--amber-bright); background: var(--bg-hover); }
+
+  /* Phase 8.7h — manage button (notif strip tail). Same vocabulary as
+     .add but on the right group; subtle by default, lights up on hover. */
+  .manage {
+    width: 28px;
+    background: transparent;
+    border: none;
+    border-left: 1px solid var(--border-subtle);
+    color: var(--amber-faint);
+    cursor: pointer;
+    font-size: 14px;
+    font-family: inherit;
+    transition: color 0.12s, background 0.12s;
+  }
+  .manage:hover {
+    color: var(--amber-bright);
+    background: var(--bg-hover);
+  }
 
   .badge {
     background: var(--amber-bright);
