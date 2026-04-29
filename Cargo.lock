@@ -3163,7 +3163,7 @@ dependencies = [
 
 [[package]]
 name = "rift"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "directories",
  "dunce",
@@ -3196,7 +3196,7 @@ dependencies = [
 
 [[package]]
 name = "rift-bus"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "directories",
  "dunce",
@@ -3216,7 +3216,7 @@ dependencies = [
 
 [[package]]
 name = "rift-cli"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "clap",
@@ -3227,7 +3227,7 @@ dependencies = [
 
 [[package]]
 name = "rift-core"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "portable-pty",
  "serde",
@@ -3238,7 +3238,7 @@ dependencies = [
 
 [[package]]
 name = "rift-mcp"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "clap",

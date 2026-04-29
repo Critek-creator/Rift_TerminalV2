@@ -10,6 +10,41 @@ loosely [Keep a Changelog](https://keepachangelog.com/), the project follows
 
 Pre-v1.0 work-in-progress. Items move into a numbered release section once tagged.
 
+---
+
+## [0.1.1] — D-014 Phase A end-to-end + Windows polish
+
+Patch release. Makes the Phase A MCP plugin actually work end-to-end and
+suppresses Windows-only annoyances that survived v0.1.0.
+
+### D-014 Phase A — finalization
+
+- **Socket discovery file** — host writes the live IPC socket name to
+  `<config_dir>/mcp_socket` (sibling of `mcp_token`) on spawn. Cleared
+  in `RunEvent::ExitRequested` so a stopped Rift can't masquerade as
+  live. The standalone `rift-mcp` binary reads it as the third fallback
+  after `--socket` and `$RIFT_SOCKET_NAME`. Net effect: Claude Code can
+  spawn `rift-mcp` with no env or args and the connection just works.
+- `BridgeError::NoSocketName` now names the discovery path; `main.rs`
+  mirrors errors to stderr so Claude Code's MCP status pane shows the
+  actual cause instead of a silent `× failed`.
+- Plugin `.mcp.json` simplified — drops the broken
+  `RIFT_MCP_TOKEN: ${RIFT_MCP_TOKEN}` env line (Claude Code doesn't
+  auto-expand `${VAR}`; the binary already loads token from disk).
+- Plugin README rewritten to match the no-env discovery flow and
+  recommend `cargo install --path crates/rift-mcp --force`.
+
+### Windows polish
+
+- `ShutdownNotify` + `RunEvent::ExitRequested` handler so the 5-second
+  status translator stops spawning `git.exe` after the last window
+  closes. Pre-fix the process held alive on Windows long enough that
+  users had to kill it via Task Manager.
+- `CREATE_NO_WINDOW` (`0x0800_0000`) applied to every `Command::spawn`
+  of `git.exe` / `cmd.exe` reachable from the `rift` crate — suppresses
+  the visible console flashes that painted on every status tick and on
+  every `aegis_open_lessons` / `aegis_open_settings` click.
+
 ### D-014 Phase A — Rift MCP server (scaffold)
 
 - New `crates/rift-mcp/` workspace member — standalone stdio JSON-RPC
@@ -191,4 +226,5 @@ See `DEFERRED.md` for the full deferral log including unblocking events.
 
 ---
 
+[0.1.1]: https://github.com/Critek-creator/Rift_TerminalV2/releases/tag/v0.1.1
 [0.1.0]: https://github.com/Critek-creator/Rift_TerminalV2/releases/tag/v0.1.0
