@@ -409,15 +409,18 @@ fn publish_vault_update_rich(
     meta: &VaultMeta,
     path: &std::path::Path,
     change_kind: VaultChangeKind,
+    final_vault_id: &str,
+    parent_vault_id: Option<&str>,
 ) {
     let path_str = path.to_string_lossy().replace('\\', "/");
     let mut env = Envelope::new(Category::Index, "vault.update");
     env.payload = json!({
-        "vault_id":    meta.id,
-        "path":        path_str,
-        "change_kind": change_kind,
-        "name":        meta.name,
-        "cross_refs":  meta.cross_refs,
+        "vault_id":         final_vault_id,
+        "parent_vault_id":  parent_vault_id,
+        "path":             path_str,
+        "change_kind":      change_kind,
+        "name":             meta.name,
+        "cross_refs":       meta.cross_refs,
     });
     bus.publish(env);
 }
@@ -429,15 +432,165 @@ fn publish_vault_update_minimal(
     vault_id: &str,
     path: &std::path::Path,
     change_kind: VaultChangeKind,
+    parent_vault_id: Option<&str>,
 ) {
     let path_str = path.to_string_lossy().replace('\\', "/");
     let mut env = Envelope::new(Category::Index, "vault.update");
     env.payload = json!({
-        "vault_id":    vault_id,
-        "path":        path_str,
-        "change_kind": change_kind,
+        "vault_id":        vault_id,
+        "parent_vault_id": parent_vault_id,
+        "path":            path_str,
+        "change_kind":     change_kind,
     });
     bus.publish(env);
+}
+
+/// D-015 / Phase 8.7n — derive a vault id and its parent id from a path
+/// relative to `vaults/`. Sub-doors get dotted ids so the id space stays
+/// flat in the bus payloads while still encoding hierarchy.
+///
+/// Examples:
+///   `pr003.md`                  → ("pr003",                     None)
+///   `pr003/agentic-workflow.md` → ("pr003.agentic-workflow",    Some("pr003"))
+///   `pr003/x/y.md`              → ("pr003.x.y",                 Some("pr003.x"))
+///
+/// Returns `None` when the path has no normal components (e.g. starts with
+/// `..` or is the bare vaults/ root).
+fn derive_vault_ids_from_vaults_relpath(rel: &Path) -> Option<(String, Option<String>)> {
+    let stem = rel.with_extension("");
+    let parts: Vec<String> = stem
+        .components()
+        .filter_map(|c| match c {
+            std::path::Component::Normal(s) => Some(s.to_string_lossy().into_owned()),
+            _ => None,
+        })
+        .collect();
+    if parts.is_empty() {
+        return None;
+    }
+    let vault_id = parts.join(".");
+    let parent_id = if parts.len() > 1 {
+        Some(parts[..parts.len() - 1].join("."))
+    } else {
+        None
+    };
+    Some((vault_id, parent_id))
+}
+
+/// D-015 — recursion cap on the boot walk. Vault hierarchies deeper than
+/// this are silently skipped to prevent runaway walks on accidental
+/// symlink loops or pathologically nested layouts.
+const VAULT_WALK_MAX_DEPTH: u32 = 4;
+
+/// D-015 / Phase 8.7n — recursive boot walk. Replaces the prior flat
+/// `read_dir(vaults/)` so sub-doors at every depth become first-class
+/// graph nodes via `vault.update` envelopes carrying `parent_vault_id`.
+///
+/// Symlinks are skipped to avoid loops. Recursion depth is capped at
+/// [`VAULT_WALK_MAX_DEPTH`].
+fn walk_vaults_recursive(
+    bus: &RiftBus,
+    vaults_root: &Path,
+    project_root_canon: &Option<String>,
+    path_to_id_cache: &PathToIdCache,
+) {
+    fn inner(
+        bus: &RiftBus,
+        vaults_root: &Path,
+        cur_dir: &Path,
+        depth: u32,
+        project_root_canon: &Option<String>,
+        path_to_id_cache: &PathToIdCache,
+    ) {
+        if depth > VAULT_WALK_MAX_DEPTH {
+            return;
+        }
+        let entries = match std::fs::read_dir(cur_dir) {
+            Ok(it) => it,
+            Err(e) => {
+                tracing::warn!("vault_walker: read_dir '{}' failed: {e}", cur_dir.display(),);
+                return;
+            }
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let file_type = match entry.file_type() {
+                Ok(t) => t,
+                Err(_) => continue,
+            };
+            // Skip symlinks defensively — vault directories shouldn't ever
+            // contain them and following them is the most common source of
+            // recursive walk runaways.
+            if file_type.is_symlink() {
+                continue;
+            }
+            if file_type.is_dir() {
+                inner(
+                    bus,
+                    vaults_root,
+                    &path,
+                    depth + 1,
+                    project_root_canon,
+                    path_to_id_cache,
+                );
+                continue;
+            }
+            if !is_md_file(&path) {
+                continue;
+            }
+            let rel = match path.strip_prefix(vaults_root) {
+                Ok(r) => r.to_path_buf(),
+                Err(_) => continue,
+            };
+            let (vault_id, parent_id) = match derive_vault_ids_from_vaults_relpath(&rel) {
+                Some(v) => v,
+                None => continue,
+            };
+            match read_vault_meta(&path) {
+                Some(meta) => {
+                    publish_vault_update_rich(
+                        bus,
+                        &meta,
+                        &path,
+                        VaultChangeKind::Created,
+                        &vault_id,
+                        parent_id.as_deref(),
+                    );
+                    // Enrichment publish keeps using the meta — its `repo:`
+                    // match logic operates on frontmatter, not on vault id.
+                    maybe_publish_enrichment(
+                        bus,
+                        &meta,
+                        &path,
+                        project_root_canon,
+                        path_to_id_cache,
+                    );
+                }
+                None => {
+                    tracing::warn!(
+                        "vault_walker: malformed frontmatter in '{}'; using path-derived id '{}'",
+                        path.display(),
+                        vault_id,
+                    );
+                    publish_vault_update_minimal(
+                        bus,
+                        &vault_id,
+                        &path,
+                        VaultChangeKind::Created,
+                        parent_id.as_deref(),
+                    );
+                }
+            }
+        }
+    }
+    inner(
+        bus,
+        vaults_root,
+        vaults_root,
+        0,
+        project_root_canon,
+        path_to_id_cache,
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -680,52 +833,10 @@ async fn run_vault_walker(bus: RiftBus, vault_root: PathBuf, project_root_canon:
     // Path→id cache shared between boot walk, flush task, and live watcher.
     let path_to_id_cache: PathToIdCache = Arc::new(Mutex::new(HashMap::new()));
 
-    // --- Boot walk ---
+    // --- Boot walk (D-015 / Phase 8.7n: recursive) ---
     let vaults_dir = vault_root.join("vaults");
     if vaults_dir.is_dir() {
-        match std::fs::read_dir(&vaults_dir) {
-            Ok(entries) => {
-                for entry in entries.flatten() {
-                    let path = entry.path();
-                    if !is_md_file(&path) {
-                        continue;
-                    }
-                    // Re-use the same read_vault_meta + publish pattern as the
-                    // live watcher flush.
-                    if let Some(meta) = read_vault_meta(&path) {
-                        publish_vault_update_rich(&bus, &meta, &path, VaultChangeKind::Created);
-                        maybe_publish_enrichment(
-                            &bus,
-                            &meta,
-                            &path,
-                            &project_root_canon,
-                            &path_to_id_cache,
-                        );
-                    } else {
-                        // Malformed frontmatter — still emit with path-derived id
-                        // so the graph can show the node at minimum.
-                        let fallback_id = path
-                            .file_stem()
-                            .map(|s| s.to_string_lossy().into_owned())
-                            .unwrap_or_else(|| "unknown".to_owned());
-                        tracing::warn!(
-                            "vault_walker: malformed frontmatter in '{}'; using fallback id '{}'",
-                            path.display(),
-                            fallback_id,
-                        );
-                        publish_vault_update_minimal(
-                            &bus,
-                            &fallback_id,
-                            &path,
-                            VaultChangeKind::Created,
-                        );
-                    }
-                }
-            }
-            Err(e) => {
-                tracing::warn!("vault_walker: failed to read vaults/ dir: {e}");
-            }
-        }
+        walk_vaults_recursive(&bus, &vaults_dir, &project_root_canon, &path_to_id_cache);
     } else {
         tracing::warn!(
             "vault_walker: vaults/ subdir not found under '{}'",
@@ -794,6 +905,7 @@ async fn run_vault_walker(bus: RiftBus, vault_root: PathBuf, project_root_canon:
     let bus_for_flush = bus.clone();
     let path_to_id_cache_for_flush = Arc::clone(&path_to_id_cache);
     let project_root_canon_for_flush = project_root_canon.clone();
+    let vaults_dir_for_flush = vaults_dir.clone();
     let flush_handle = tokio::spawn(async move {
         let mut ticker = interval(Duration::from_millis(50));
         loop {
@@ -803,6 +915,7 @@ async fn run_vault_walker(bus: RiftBus, vault_root: PathBuf, project_root_canon:
                 &bus_for_flush,
                 &path_to_id_cache_for_flush,
                 &project_root_canon_for_flush,
+                &vaults_dir_for_flush,
             );
         }
     });
@@ -922,6 +1035,7 @@ fn flush_debounce(
     bus: &RiftBus,
     path_to_id_cache: &PathToIdCache,
     project_root_canon: &Option<String>,
+    vaults_root: &Path,
 ) {
     let now = Instant::now();
     let debounce_window = Duration::from_millis(100);
@@ -940,6 +1054,17 @@ fn flush_debounce(
 
         let change_kind: VaultChangeKind = entry.kind.into();
 
+        // D-015: derive sub-door (vault_id, parent_id) from path-relative-to-vaults
+        // for live events too — same convention as the boot walk.
+        let (path_vault_id, path_parent_id): (Option<String>, Option<String>) =
+            match path.strip_prefix(vaults_root) {
+                Ok(rel) => match derive_vault_ids_from_vaults_relpath(rel) {
+                    Some((vid, par)) => (Some(vid), par),
+                    None => (None, None),
+                },
+                Err(_) => (None, None),
+            };
+
         // For Deleted envelopes we don't try to re-read the file — it's gone.
         // Prefer the cached vault_id (real id from frontmatter) over file_stem
         // (Critic v2 M5: filename ≠ vault id would silently miss the store join).
@@ -947,20 +1072,41 @@ fn flush_debounce(
         // On read failure fall back to file-stem id with minimal payload.
         match change_kind {
             VaultChangeKind::Deleted => {
-                // Look up the real vault_id from the cache, fall back to file_stem.
+                // Look up the real vault_id from the cache, fall back to the
+                // path-derived dotted id (D-015) so sub-door deletes still
+                // identify the right node, fall back to file_stem last resort.
                 let vault_id = {
                     let mut cache = path_to_id_cache.lock().expect("path_to_id_cache poisoned");
                     cache.remove(&path).unwrap_or_else(|| {
-                        path.file_stem()
-                            .map(|s| s.to_string_lossy().into_owned())
-                            .unwrap_or_else(|| normalize_path_str(&path.to_string_lossy()))
+                        path_vault_id.clone().unwrap_or_else(|| {
+                            path.file_stem()
+                                .map(|s| s.to_string_lossy().into_owned())
+                                .unwrap_or_else(|| normalize_path_str(&path.to_string_lossy()))
+                        })
                     })
                 };
-                publish_vault_update_minimal(bus, &vault_id, &path, VaultChangeKind::Deleted);
+                publish_vault_update_minimal(
+                    bus,
+                    &vault_id,
+                    &path,
+                    VaultChangeKind::Deleted,
+                    path_parent_id.as_deref(),
+                );
             }
             _ => match read_vault_meta(&path) {
                 Some(meta) => {
-                    publish_vault_update_rich(bus, &meta, &path, change_kind);
+                    // For top-level vaults the path-derived id matches the
+                    // file stem (and meta.id). For sub-doors the path-derived
+                    // dotted id is what the graph expects.
+                    let final_id = path_vault_id.clone().unwrap_or_else(|| meta.id.clone());
+                    publish_vault_update_rich(
+                        bus,
+                        &meta,
+                        &path,
+                        change_kind,
+                        &final_id,
+                        path_parent_id.as_deref(),
+                    );
                     maybe_publish_enrichment(
                         bus,
                         &meta,
@@ -970,11 +1116,18 @@ fn flush_debounce(
                     );
                 }
                 None => {
-                    let fallback_id = path
-                        .file_stem()
-                        .map(|s| s.to_string_lossy().into_owned())
-                        .unwrap_or_else(|| "unknown".to_owned());
-                    publish_vault_update_minimal(bus, &fallback_id, &path, change_kind);
+                    let fallback_id = path_vault_id.clone().unwrap_or_else(|| {
+                        path.file_stem()
+                            .map(|s| s.to_string_lossy().into_owned())
+                            .unwrap_or_else(|| "unknown".to_owned())
+                    });
+                    publish_vault_update_minimal(
+                        bus,
+                        &fallback_id,
+                        &path,
+                        change_kind,
+                        path_parent_id.as_deref(),
+                    );
                 }
             },
         }
@@ -1192,8 +1345,10 @@ Body text here.
         let (snapshot, _sub) = bus.subscribe(SubscribeFilter::Category(Category::Index));
         assert!(snapshot.is_empty(), "nothing published yet before flush");
 
-        // Manual flush — simulates what the 50ms ticker does.
-        flush_debounce(&debounce_map, &bus, &path_to_id_cache, &None);
+        // Manual flush — simulates what the 50ms ticker does. The vaults_root
+        // arg is the tempdir itself for this test (the file lives at the root,
+        // so the path-relative-to-vaults-root is just `p006.md`).
+        flush_debounce(&debounce_map, &bus, &path_to_id_cache, &None, dir.path());
 
         // Map should be empty after flush.
         {

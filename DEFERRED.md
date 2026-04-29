@@ -30,7 +30,10 @@
 
 <!-- D-013 fully closed 2026-04-29 — see C-018 below. -->
 
-### D-017 — Viewer edit-mode syntax highlighting (post-v1 ask, opened 2026-04-29)
+<!-- D-017 closed 2026-04-29 — see C-019 below. -->
+<!-- D-015 closed 2026-04-29 — see C-020 below. -->
+
+### D-017 — Viewer edit-mode syntax highlighting (post-v1 ask, opened 2026-04-29) — CLOSED 2026-04-29
 
 - Read mode uses Shiki for full syntax highlighting (`Viewer.svelte:330`). Edit mode is a plain `<textarea>` (`Viewer.svelte:313-319`) — no highlighting while typing.
 - Plain `<textarea>` cannot have inline syntax highlighting; it requires a real code editor (CodeMirror 6, Monaco, or a Shiki-overlay-on-contenteditable hack).
@@ -51,7 +54,7 @@
 - **Why deferred**: the producer is in the private rift-aegis crate, which lives outside the public-CI build (D-011 close). The frontend consumer can land independently but has nothing to show until the producer publishes. Skip until either (a) the public Aegis stub gets a deterministic mock effort value for development OR (b) the user wants to wire it in their private build.
 - **Unblocking event**: rift-aegis publishes an `aegis.session.effort` envelope on dispatch. Then App.svelte adds one subscribe + one bind.
 
-### D-015 — IndexGraph sub-door rendering (post-v1 ask, opened 2026-04-29)
+### D-015 — IndexGraph sub-door rendering (post-v1 ask, opened 2026-04-29) — CLOSED 2026-04-29
 
 - User-requested: render nested sub-doors (e.g., `pr003/agentic-workflow.md`, `pr003/agentic-workflow/base.md`) as nodes linked to their parent vault. Currently the IndexGraph only renders top-level vaults; sub-doors exist on disk and are visible to `integrity-check.ps1` (SUB-OK / SUB-SUB-OK lines) but are invisible to both the vault-walker translator and the frontend.
 - **Cost**: BOTH translator-change AND frontend-change. Surfaced 2026-04-29 by a dedicated scout pass.
@@ -88,6 +91,72 @@
 ---
 
 ## Closed deferrals
+
+### C-020 — D-015 IndexGraph sub-door rendering (closed 2026-04-29)
+
+Sub-doors at every depth (up to 4 levels) now emit `vault.update`
+envelopes carrying a `parent_vault_id` field, and the graph wires them
+as edges to their parent vault.
+
+**Walker (`crates/rift-bus/src/translators/vault_walker.rs`):**
+- New `walk_vaults_recursive` replaces the prior flat `read_dir(vaults/)`
+  boot walk. Symlinks skipped; depth capped at `VAULT_WALK_MAX_DEPTH = 4`.
+- New `derive_vault_ids_from_vaults_relpath(rel) -> (vault_id, parent_id)`
+  derives dotted ids from path. Examples:
+  - `pr003.md`                  → (`pr003`,                  None)
+  - `pr003/agentic-workflow.md` → (`pr003.agentic-workflow`, Some(`pr003`))
+  - `pr003/x/y.md`              → (`pr003.x.y`,              Some(`pr003.x`))
+- `publish_vault_update_rich` + `publish_vault_update_minimal` gain
+  `parent_vault_id: Option<&str>` parameter; payload now carries it as
+  a JSON null/string field.
+- `flush_debounce` derives sub-door ids from path too so live events
+  (Modify / Delete) stay consistent with the boot walk's vault id space.
+  Required threading `vaults_root: &Path` through the flush spawn site.
+
+**Schema (`crates/rift-bus/src/translators/index.rs`):**
+- `VaultUpdatePayload` documented with the new optional `parent_vault_id`
+  field. Additive — older subscribers ignore it.
+
+**Frontend (`src/lib/IndexGraph.svelte`):**
+- `VaultUpdatePayload` interface gains `parent_vault_id?: string | null`.
+- `VaultLink` gains optional `parent: boolean` flag for renderers that
+  want to style parent edges differently (v1 uses the same style).
+- `activeEdges` derivation now adds child→parent edges when the parent
+  exists in the live node map (avoids orphan edges on partial loads).
+- `inferKind` works unchanged on dotted ids (prefix match — `pr003.x`
+  starts with `pr` so it lands in the practices kind family).
+
+**Verification:** `cargo test -p rift-bus` 84/0; workspace clippy clean
+under `-D warnings`; `npm run check` 242/0/0.
+
+**Out of scope (left for future passes):** smaller node radius for
+sub-doors, layout tuning to cluster sub-doors near their parent, opt-in
+config flag to hide sub-doors for users who prefer the simpler graph.
+The 4-depth cap can be lifted to a config knob if anyone needs it.
+
+### C-019 — D-017 Viewer edit-mode syntax via CodeMirror 6 (closed 2026-04-29)
+
+CodeMirror 6 EditorView replaces the prior plain `<textarea>` in the
+Viewer popout's edit mode. Read mode still uses Shiki for the static
+view; edit mode now has live syntax highlighting + line numbers + undo
+history + active-line highlighting + Tab indentation.
+
+**Deps added:** `codemirror` + `@codemirror/{view,state,commands}` + lang
+packs for `rust`, `javascript` (covers ts/tsx/jsx), `json`, `yaml`,
+`markdown`, `html` (covers svelte/vue), `css`, `python`, `cpp`. Anything
+outside that allowlist falls through to plain-text editing (still gets
+the chrome).
+
+**Architecture:** $effect lifecycle creates an EditorView when mode flips
+to 'edit' and tears it down on exit/unmount. updateListener mirrors the
+editor's doc into `content` so the existing dirty/save/originalContent
+flow keeps working unchanged. Custom amber theme via `EditorView.theme`
+keeps styling scoped inside `.cm-editor`.
+
+**Keyboard:** Ctrl+E / Ctrl+S / Esc still owned by `Viewer.onKeyDown`
+via bubble (CM's defaultKeymap doesn't claim those). Tab → indent.
+
+**Verification:** `npm run check` 242/0/0.
 
 ### C-018 — D-013 updater plugin fully active (closed 2026-04-29)
 

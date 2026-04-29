@@ -80,6 +80,9 @@
   interface VaultLink extends SimulationLinkDatum<VaultNode> {
     source: string | VaultNode;
     target: string | VaultNode;
+    /** D-015 — true when this edge represents a sub-door → parent
+     *  vault relationship (rather than a frontmatter cross-ref). */
+    parent?: boolean;
   }
 
   // ---------------------------------------------------------------------------
@@ -88,6 +91,9 @@
 
   interface VaultUpdatePayload {
     vault_id: string;
+    /** D-015 / Phase 8.7n — present on sub-doors. Top-level vaults emit
+     *  null (which JSON.parse delivers as null, not undefined). */
+    parent_vault_id?: string | null;
     path: string;
     change_kind: 'created' | 'modified' | 'deleted';
   }
@@ -167,15 +173,25 @@
     if (liveNodeMap.size === 0 && walkComplete) {
       return STATIC_LINKS.map((l) => ({ ...l }));
     }
-    // Build edges from the cross_refs stored in each node's `crossRefs` extra
-    // field. We attach crossRefs to nodes when processing vault.update envelopes.
+    // Build edges from:
+    //   1. cross_refs stored on each node's `crossRefs` field (frontmatter)
+    //   2. parent_vault_id stored on each node (D-015 sub-doors → parent)
+    // Both kinds of edge use the same VaultLink shape; the parent kind is
+    // marked with `parent: true` so the renderer can style them differently
+    // if it wants to. v1 uses the same style for both.
     const edges: VaultLink[] = [];
     for (const [id, node] of liveNodeMap) {
-      const refs = (node as VaultNode & { crossRefs?: string[] }).crossRefs ?? [];
-      for (const ref of refs) {
+      const extra = node as VaultNode & {
+        crossRefs?: string[];
+        parentId?: string | null;
+      };
+      for (const ref of extra.crossRefs ?? []) {
         if (liveNodeMap.has(ref)) {
           edges.push({ source: id, target: ref });
         }
+      }
+      if (extra.parentId && liveNodeMap.has(extra.parentId)) {
+        edges.push({ source: id, target: extra.parentId, parent: true });
       }
     }
     return edges;
@@ -223,11 +239,18 @@
                 cross_refs?: string[];
                 name?: string;
               };
-              const newNode: VaultNode & { crossRefs?: string[] } = {
+              const newNode: VaultNode & {
+                crossRefs?: string[];
+                parentId?: string | null;
+              } = {
                 id: p.vault_id,
                 kind: inferKind(p.vault_id),
                 label: raw.name ? `${p.vault_id} — ${raw.name}` : p.vault_id,
                 crossRefs: raw.cross_refs ?? [],
+                // D-015 — sub-doors carry parent_vault_id; top-level vaults
+                // emit null. Normalize to undefined for "no parent" so the
+                // edges-derivation can use a single truthy check.
+                parentId: p.parent_vault_id ?? undefined,
                 path: p.path,
                 // Preserve existing D3 x/y so the node doesn't snap to origin.
                 x: existing?.x,
