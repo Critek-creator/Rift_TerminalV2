@@ -12,6 +12,7 @@
   import ProjectPicker from './ProjectPicker.svelte';
   import Viewer from './Viewer.svelte';
   import NotifManager from './NotifManager.svelte';
+  import SettingsPanel from './SettingsPanel.svelte';
 
   interface Props {
     entry: PopoutEntry;
@@ -87,7 +88,9 @@
         ? 'Switch Project'
         : entry.content.kind === 'notif-manager'
           ? 'Manage Notification Tabs'
-          : entry.content.title,
+          : entry.content.kind === 'settings'
+            ? 'Settings'
+            : entry.content.title,
   );
 </script>
 
@@ -125,6 +128,7 @@
       class:card-body-viewer={entry.content.kind === 'viewer'}
       class:card-body-picker={entry.content.kind === 'project-picker'}
       class:card-body-manager={entry.content.kind === 'notif-manager'}
+      class:card-body-settings={entry.content.kind === 'settings'}
     >
       {#if entry.content.kind === 'text'}
         <p class="text-body">{entry.content.body}</p>
@@ -156,6 +160,10 @@
           onToggle={entry.content.onToggle}
           onReset={entry.content.onReset}
         />
+      {:else if entry.content.kind === 'settings'}
+        <!-- Phase 8.7l: Settings panel — self-contained; reads RiftConfig
+             via config_get and saves via config_save per-section. -->
+        <SettingsPanel popoutId={entry.id} />
       {/if}
     </div>
   </div>
@@ -256,6 +264,15 @@
   }
   /* Phase 8.7h NotifManager — same pattern: own padding, fills card body. */
   .card-body-manager {
+    padding: 0;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    flex: 1;
+  }
+  /* Phase 8.7l Settings — same pattern: own padding, fills card body. */
+  .card-body-settings {
     padding: 0;
     overflow: hidden;
     display: flex;

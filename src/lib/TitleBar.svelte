@@ -66,6 +66,13 @@
       width: 'min(640px, 80vw)',
     });
   }
+
+  function openSettings(): void {
+    popouts.summon({
+      content: { kind: 'settings' },
+      width: 'min(680px, 86vw)',
+    });
+  }
 </script>
 
 <header class="titlebar" data-tauri-drag-region>
@@ -81,6 +88,17 @@
       title="switch project (Ctrl+P later — Phase 6.x)"
     >
       ▦ PROJECT
+    </button>
+    <!-- SETTINGS button — Phase 8.7l. About / Updates (manual check) /
+         Project / Filesystem / Index / Notifications. -->
+    <button
+      type="button"
+      class="btn settings"
+      aria-label="settings"
+      onclick={openSettings}
+      title="settings"
+    >
+      ⚙ SETTINGS
     </button>
     <!-- DETACH/DOCK GUI chip (mockup line 656). Phase 8.7d: while detached
          the cockpit-right panel is hidden entirely, so the only main-window

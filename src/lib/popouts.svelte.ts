@@ -59,6 +59,15 @@ export type PopoutContent =
       /** Reset all tabs to their defaults (enabled: true, except a
        *  capability-driven detected:false should still hide). */
       onReset: () => void;
+    }
+  | {
+      /** Phase 8.7l — Settings menu. About / Updates / Project / Filesystem
+       *  / Notifications sections in one panel. Self-contained; reads
+       *  config via `config_get`, writes via `config_save`. The manual
+       *  update-check button lives here alongside the auto-startup check
+       *  status so users have a discoverable path to "is there a new
+       *  version available right now?". */
+      kind: 'settings';
     };
 
 export interface PopoutEntry {
