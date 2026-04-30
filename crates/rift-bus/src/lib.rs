@@ -149,7 +149,11 @@ pub use translators::vault_walker::spawn_vault_walker;
 // ---------------------------------------------------------------------------
 
 /// Top-level Rift configuration struct.
-pub use config::{CockpitConfig, DetachedPos, FsConfig, McpConfig, ProjectEntry, RiftConfig};
+pub use config::{
+    CockpitConfig, DetachedPos, FsConfig, McpConfig, ProjectEntry, RiftConfig, ShellPref,
+    TerminalConfig, TERMINAL_DEFAULT_FONT_SIZE, TERMINAL_DEFAULT_LINE_HEIGHT,
+    TERMINAL_DEFAULT_SCROLLBACK, TERMINAL_MAX_FONT_SIZE, TERMINAL_MIN_FONT_SIZE,
+};
 
 /// Load config from the platform config directory (default on missing file).
 pub use config::load_config;

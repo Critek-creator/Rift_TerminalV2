@@ -7,6 +7,7 @@
   import '@xterm/xterm/css/xterm.css';
   import { deferredFit } from './terminal-fit-timing';
   import { TREE_PATH_MIME, RIFT_VAULT_DROP_EVENT, type RiftVaultDropDetail } from './dragMime';
+  import { laneFormatGated } from './laneFormat';
 
   type PtyExited = { id: number; code: number };
 
@@ -26,6 +27,23 @@
   let unlistenExited: UnlistenFn | undefined;
   let sessionId: number | null = null;
   let alive = false;
+
+  // Terminal config defaults (mirror crates/rift-bus/src/config.rs constants).
+  const TERM_DEFAULT_FONT_SIZE = 13;
+  const TERM_MIN_FONT_SIZE = 8;
+  const TERM_MAX_FONT_SIZE = 48;
+  const TERM_DEFAULT_LINE_HEIGHT = 1.55;
+  const TERM_DEFAULT_SCROLLBACK = 1000;
+
+  /** Per-tab runtime font size — adjusted via Ctrl+= / Ctrl+- / Ctrl+0.
+   *  Not persisted across tabs; Settings panel is the persistence point. */
+  let runtimeFontSize = $state(TERM_DEFAULT_FONT_SIZE);
+  /** Saved-config font size — Ctrl+0 resets to this value. */
+  let configFontSize = TERM_DEFAULT_FONT_SIZE;
+  /** §10.1 lane tag prefixes for Rift-emitted lines. Snapshot at mount;
+   *  the user's Settings change applies on next session (no cross-tab
+   *  reactivity in v1 — matches existing project-swap precedent). */
+  let lanesEnabled = true;
 
   // ---------------------------------------------------------------------------
   // Drag-node-into-terminal (Phase 6.6 — design calls A, C, D)
@@ -104,11 +122,55 @@
     }
   });
 
+  // Read terminal settings from RiftConfig before constructing xterm.
+  // Defaults survive a missing/old config (serde #[serde(default)]).
+  // Failures fall through to the hardcoded defaults so a broken config
+  // never prevents a terminal from launching.
+  async function loadTerminalSettings(): Promise<{
+    fontSize: number;
+    lineHeight: number;
+    scrollback: number;
+    lanesEnabled: boolean;
+  }> {
+    const fallback = {
+      fontSize: TERM_DEFAULT_FONT_SIZE,
+      lineHeight: TERM_DEFAULT_LINE_HEIGHT,
+      scrollback: TERM_DEFAULT_SCROLLBACK,
+      lanesEnabled: true,
+    };
+    try {
+      const cfg = await invoke<{
+        terminal: {
+          font_size: number;
+          line_height: number;
+          scrollback: number;
+          lanes_enabled: boolean;
+        };
+      }>('config_get');
+      const t = cfg?.terminal ?? null;
+      if (!t) return fallback;
+      return {
+        fontSize: Math.max(TERM_MIN_FONT_SIZE, Math.min(TERM_MAX_FONT_SIZE, t.font_size)),
+        lineHeight: Math.max(1.0, Math.min(2.5, t.line_height)),
+        scrollback: Math.max(100, Math.min(100000, t.scrollback)),
+        lanesEnabled: t.lanes_enabled,
+      };
+    } catch {
+      return fallback;
+    }
+  }
+
   onMount(async () => {
+    const settings = await loadTerminalSettings();
+    configFontSize = settings.fontSize;
+    runtimeFontSize = settings.fontSize;
+    lanesEnabled = settings.lanesEnabled;
+
     term = new XTerm({
       fontFamily: '"JetBrains Mono", monospace',
-      fontSize: 13,
-      lineHeight: 1.55,
+      fontSize: settings.fontSize,
+      lineHeight: settings.lineHeight,
+      scrollback: settings.scrollback,
       cursorBlink: true,
       // Phase 8.7g.2 — palette synced with styles.css :root (xterm config
        // doesn't read CSS vars, so values are kept in lockstep manually).
@@ -180,8 +242,52 @@
     // hit `'term' is possibly undefined` — TypeScript narrowing doesn't
     // carry across the closure boundary.
     const t = term;
+
+    /** Apply a runtime font-size change: clamp, retune xterm, refit, and
+     *  push a `pty_resize` so the spawned shell sees the new geometry.
+     *  Caller passes the desired absolute size; clamping + dirty-check
+     *  happens here. Returns true if the size actually changed. */
+    function applyFontSize(next: number): boolean {
+      const clamped = Math.max(TERM_MIN_FONT_SIZE, Math.min(TERM_MAX_FONT_SIZE, Math.round(next)));
+      if (clamped === runtimeFontSize) return false;
+      runtimeFontSize = clamped;
+      t.options.fontSize = clamped;
+      // Refit so cell-grid recomputes against the new metrics, then push
+      // dimensions to the PTY. This is the same shape ResizeObserver below
+      // uses on container changes.
+      try {
+        fit?.fit();
+      } catch {
+        /* fit can throw before layout settles — best-effort */
+      }
+      if (sessionId !== null && alive) {
+        invoke('pty_resize', { id: sessionId, rows: t.rows, cols: t.cols }).catch(() => {});
+      }
+      return true;
+    }
+
     t.attachCustomKeyEventHandler((e) => {
       if (e.type !== 'keydown') return true;
+
+      // Zoom keybinds (Phase 8.7m — restoring V1 commit aff0f50 behavior).
+      // Plain Ctrl+= / Ctrl++ / Ctrl+- / Ctrl+0 only — Shift/Alt combos
+      // pass through so the shell can still bind them.
+      if (e.ctrlKey && !e.shiftKey && !e.altKey) {
+        // Ctrl+= and Ctrl++ both increase (US keyboard '+' = Shift+'='; some
+        // layouts emit '+' directly without Shift, e.g. dead-key + numpad).
+        if (e.key === '=' || e.key === '+' || e.code === 'NumpadAdd') {
+          applyFontSize(runtimeFontSize + 1);
+          return false;
+        }
+        if (e.key === '-' || e.code === 'NumpadSubtract') {
+          applyFontSize(runtimeFontSize - 1);
+          return false;
+        }
+        if (e.key === '0' || e.code === 'Numpad0') {
+          applyFontSize(configFontSize);
+          return false;
+        }
+      }
 
       // Always-copy / always-paste with Shift modifier (standard convention).
       if (e.ctrlKey && e.shiftKey && (e.key === 'C' || e.key === 'c')) {
@@ -271,7 +377,7 @@
       });
       alive = true;
     } catch (err) {
-      term.writeln(`\r\n\x1b[31m[pty_start failed: ${err}]\x1b[0m`);
+      term.writeln(`\r\n${laneFormatGated('ERR', `pty_start failed: ${err}`, lanesEnabled)}`);
       return;
     }
 
@@ -279,7 +385,7 @@
       if (sessionId === null || !alive) return;
       const bytes = Array.from(encoder.encode(data));
       invoke('pty_write', { id: sessionId, bytes }).catch((err) => {
-        term?.writeln(`\r\n\x1b[31m[pty_write failed: ${err}]\x1b[0m`);
+        term?.writeln(`\r\n${laneFormatGated('ERR', `pty_write failed: ${err}`, lanesEnabled)}`);
       });
     });
 
@@ -299,7 +405,11 @@
       if (event.payload.id !== sessionId) return;
       alive = false;
       term?.writeln(
-        `\r\n\x1b[2;33m[session ${event.payload.id} exited code=${event.payload.code}]\x1b[0m`
+        `\r\n${laneFormatGated(
+          'SYS',
+          `session ${event.payload.id} exited code=${event.payload.code}`,
+          lanesEnabled,
+        )}`,
       );
     });
 

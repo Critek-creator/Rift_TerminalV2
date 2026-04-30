@@ -60,10 +60,11 @@ use rift_aegis::probe as aegis_probe;
 use rift_bus::{
     build_tree, load_config, publish_command, publish_error, read_text, save_config,
     spawn_fs_watcher, spawn_status_translator, spawn_vault_walker, write_text, Category,
-    CommandBuffer, Envelope, FsWatcher, IpcServer, RiftBus, RiftConfig, SubscribeFilter, TreeNode,
-    DEFAULT_IGNORE_GLOBS, FS_TREE_DEFAULT_MAX_DEPTH,
+    CommandBuffer, Envelope, FsWatcher, IpcServer, RiftBus, RiftConfig, ShellPref, SubscribeFilter,
+    TreeNode, DEFAULT_IGNORE_GLOBS, FS_TREE_DEFAULT_MAX_DEPTH,
 };
 use rift_core::pty::{PtyControl, PtyDims, PtyOptions, PtySession};
+use rift_core::shell::{resolve_auto_shell, resolve_custom_shell, resolve_named_shell};
 use serde::Serialize;
 use serde_json::json;
 use tauri::ipc::Channel;
@@ -338,6 +339,33 @@ fn phase0_check() -> &'static str {
     "rift phase 4.3 · backend reachable"
 }
 
+/// Resolve the user's [`ShellPref`] from `RiftConfig.terminal` to a concrete
+/// `(PathBuf, Vec<String>)`. Falls back to [`resolve_auto_shell`] when:
+///   * pref is `Auto` (the default)
+///   * pref is `Unknown` (forward-compat catch-all from a newer config)
+///   * a named shell (`pwsh`, `bash`, ...) isn't found on `PATH`
+///   * a `Custom` path doesn't point at an existing file
+///
+/// The fallback is silent — the user can verify which shell launched by
+/// inspecting the spawned process. A future enhancement (D-018-adjacent)
+/// can publish a `terminal.shell_resolved` envelope so the UI surfaces it.
+fn resolve_shell_from_pref(pref: &ShellPref) -> (std::path::PathBuf, Vec<String>) {
+    let named = |n: &str| -> Option<(std::path::PathBuf, Vec<String>)> { resolve_named_shell(n) };
+    match pref {
+        ShellPref::Auto | ShellPref::Unknown => resolve_auto_shell(),
+        ShellPref::Pwsh => named("pwsh").unwrap_or_else(resolve_auto_shell),
+        ShellPref::Powershell => named("powershell").unwrap_or_else(resolve_auto_shell),
+        ShellPref::Cmd => named("cmd").unwrap_or_else(resolve_auto_shell),
+        ShellPref::Bash => named("bash").unwrap_or_else(resolve_auto_shell),
+        ShellPref::Zsh => named("zsh").unwrap_or_else(resolve_auto_shell),
+        ShellPref::Sh => named("sh").unwrap_or_else(resolve_auto_shell),
+        ShellPref::Custom(path) => resolve_custom_shell(path).unwrap_or_else(resolve_auto_shell),
+        // ShellPref is #[non_exhaustive]; future variants degrade to Auto
+        // until the resolver learns them.
+        _ => resolve_auto_shell(),
+    }
+}
+
 #[tauri::command]
 async fn pty_start(
     app: AppHandle,
@@ -357,6 +385,13 @@ async fn pty_start(
     // the IPC server isn't up yet — the CLI surfaces a helpful error
     // pointing at --socket / $RIFT_SOCKET_NAME in that case.
     let mut opts = PtyOptions::new(dims);
+    // Resolve the configured shell preference. Defaults (Auto) walk
+    // pwsh > powershell > %COMSPEC% > cmd on Windows / $SHELL > zsh > bash > sh
+    // on Unix — fixing the cmd.exe-only history-key UX surfaced in the
+    // 2026-04-29 audit.
+    let cfg_for_shell = load_config().unwrap_or_default();
+    let (shell_path, shell_args) = resolve_shell_from_pref(&cfg_for_shell.terminal.shell);
+    opts = opts.with_shell(shell_path, shell_args);
     if let Some(ipc) = app.try_state::<BusIpcState>() {
         opts = opts.with_env("RIFT_SOCKET_NAME", ipc.socket_name.clone());
     }

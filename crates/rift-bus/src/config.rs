@@ -78,6 +78,11 @@ pub struct RiftConfig {
     /// Off by default. Token is auto-generated on first launch with
     /// `enabled = true`; lives next to `config.toml` as `mcp_token`.
     pub mcp: McpConfig,
+    /// Terminal surface settings (shell preference, font, scrollback, lanes).
+    /// Defaults to `Auto` shell discovery (pwsh > powershell > %COMSPEC% > cmd
+    /// on Windows, $SHELL > /bin/zsh > /bin/bash > /bin/sh on Unix), 13px
+    /// JetBrains Mono, 1.55 line-height, 1000-line scrollback, lanes enabled.
+    pub terminal: TerminalConfig,
 }
 
 /// A recently-used project entry stored in the config.
@@ -305,6 +310,96 @@ pub fn clear_mcp_socket() -> Result<(), ConfigError> {
     }
 }
 
+// ---------------------------------------------------------------------------
+// TerminalConfig (D-018 groundwork — shell preference + font + lanes)
+// ---------------------------------------------------------------------------
+
+/// Default xterm font size in CSS pixels.
+pub const TERMINAL_DEFAULT_FONT_SIZE: u16 = 13;
+/// Minimum font size honored by the zoom keybinds.
+pub const TERMINAL_MIN_FONT_SIZE: u16 = 8;
+/// Maximum font size honored by the zoom keybinds.
+pub const TERMINAL_MAX_FONT_SIZE: u16 = 48;
+/// Default xterm CSS line-height multiplier.
+pub const TERMINAL_DEFAULT_LINE_HEIGHT: f32 = 1.55;
+/// Default xterm scrollback ring buffer line count.
+pub const TERMINAL_DEFAULT_SCROLLBACK: u32 = 1000;
+
+/// Terminal surface configuration.
+///
+/// All fields are `#[serde(default)]` per the additive-versioning convention —
+/// configs written before this section existed parse without error and fall
+/// back to the defaults below.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(default)]
+pub struct TerminalConfig {
+    /// Which shell `pty_start` should spawn. `Auto` (the default) walks a
+    /// per-platform discovery list; `Custom` overrides with an explicit path.
+    pub shell: ShellPref,
+    /// xterm font size in CSS pixels. Clamped at runtime to
+    /// [`TERMINAL_MIN_FONT_SIZE`]..=[`TERMINAL_MAX_FONT_SIZE`].
+    pub font_size: u16,
+    /// xterm line-height multiplier (1.0 = no extra leading).
+    pub line_height: f32,
+    /// xterm scrollback ring buffer line count.
+    pub scrollback: u32,
+    /// Whether Rift-emitted lines (session-exited, pty-failed, etc.) carry
+    /// §10.1 lane tag prefixes + ANSI lane colors. When `false`, those lines
+    /// fall through as plain text. Live-PTY-stream lane classification is
+    /// tracked separately under DEFERRED.md D-018.
+    pub lanes_enabled: bool,
+}
+
+impl Default for TerminalConfig {
+    fn default() -> Self {
+        Self {
+            shell: ShellPref::default(),
+            font_size: TERMINAL_DEFAULT_FONT_SIZE,
+            line_height: TERMINAL_DEFAULT_LINE_HEIGHT,
+            scrollback: TERMINAL_DEFAULT_SCROLLBACK,
+            lanes_enabled: true,
+        }
+    }
+}
+
+/// Shell preference for the terminal PTY.
+///
+/// `#[non_exhaustive]` + `#[serde(other)] Unknown` mirrors [`SyncMode`] —
+/// older Rift versions reading newer configs fall through to `Unknown`
+/// instead of erroring. `Custom` carries an explicit executable path; it
+/// is the user's responsibility to ensure the binary exists.
+///
+/// `Auto` (the default) defers to platform discovery in
+/// `rift_core::shell::resolve_shell` — see that function for the order.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case", tag = "kind", content = "path")]
+#[non_exhaustive]
+pub enum ShellPref {
+    /// Per-platform discovery walk.
+    #[default]
+    Auto,
+    /// PowerShell 7 (`pwsh.exe` / `pwsh`).
+    Pwsh,
+    /// Windows PowerShell 5.1 (`powershell.exe`).
+    Powershell,
+    /// `cmd.exe`.
+    Cmd,
+    /// `/bin/bash`.
+    Bash,
+    /// `/bin/zsh`.
+    Zsh,
+    /// `/bin/sh`.
+    Sh,
+    /// Explicit executable path. Caller is responsible for existence + exec
+    /// permissions; failure surfaces through `pty_start`'s error envelope.
+    Custom(PathBuf),
+    /// Catch-all for any `kind` string not recognized by this Rift version.
+    /// Allows newer-version configs to be read by older Rift without crashing.
+    /// Treat as `Auto` at resolve time.
+    #[serde(other)]
+    Unknown,
+}
+
 /// Sync strategy for the Abyssal Index vault graph.
 ///
 /// New variants in future Rift versions are caught by [`SyncMode::Unknown`]
@@ -474,6 +569,42 @@ mod tests {
         assert!(back.cockpit.detached_pos.is_none());
         // Phase 8.7 — IndexConfig default round-trips with sync_mode = Live.
         assert_eq!(back.index.sync_mode, SyncMode::Live);
+        // D-018 groundwork — TerminalConfig defaults round-trip.
+        assert_eq!(back.terminal.shell, ShellPref::Auto);
+        assert_eq!(back.terminal.font_size, TERMINAL_DEFAULT_FONT_SIZE);
+        assert!((back.terminal.line_height - TERMINAL_DEFAULT_LINE_HEIGHT).abs() < f32::EPSILON);
+        assert_eq!(back.terminal.scrollback, TERMINAL_DEFAULT_SCROLLBACK);
+        assert!(back.terminal.lanes_enabled);
+    }
+
+    // D-018 groundwork — ShellPref Custom variant round-trips through both
+    // TOML (config file) and serde_json (Tauri command boundary).
+    #[test]
+    fn shell_pref_custom_round_trips_json() {
+        let original = ShellPref::Custom(PathBuf::from("/usr/local/bin/fish"));
+        let json = serde_json::to_string(&original).expect("serialize");
+        // Adjacently-tagged shape: {"kind":"custom","path":"/usr/local/bin/fish"}
+        assert!(json.contains("\"kind\":\"custom\""));
+        assert!(json.contains("\"path\":\"/usr/local/bin/fish\""));
+        let back: ShellPref = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(back, original);
+    }
+
+    #[test]
+    fn shell_pref_named_variants_round_trip_json() {
+        for variant in [
+            ShellPref::Auto,
+            ShellPref::Pwsh,
+            ShellPref::Powershell,
+            ShellPref::Cmd,
+            ShellPref::Bash,
+            ShellPref::Zsh,
+            ShellPref::Sh,
+        ] {
+            let json = serde_json::to_string(&variant).expect("serialize");
+            let back: ShellPref = serde_json::from_str(&json).expect("deserialize");
+            assert_eq!(back, variant);
+        }
     }
 
     // T17 — load_config_returns_default_on_missing_file

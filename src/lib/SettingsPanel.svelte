@@ -103,12 +103,33 @@
     allow_js_eval: boolean;
     allow_mutations: boolean;
   }
+  // ShellPref mirrors the Rust enum's adjacently-tagged JSON shape:
+  // unit variants → {kind: "auto"}; Custom → {kind: "custom", path: "..."}.
+  type ShellPref =
+    | { kind: 'auto' }
+    | { kind: 'pwsh' }
+    | { kind: 'powershell' }
+    | { kind: 'cmd' }
+    | { kind: 'bash' }
+    | { kind: 'zsh' }
+    | { kind: 'sh' }
+    | { kind: 'custom'; path: string }
+    | { kind: 'unknown' };
+  type ShellKind = ShellPref['kind'];
+  interface TerminalConfig {
+    shell: ShellPref;
+    font_size: number;
+    line_height: number;
+    scrollback: number;
+    lanes_enabled: boolean;
+  }
   interface RiftConfig {
     projects: ProjectEntry[];
     fs: FsConfig;
     cockpit: CockpitConfig;
     index: IndexConfig;
     mcp: McpConfig;
+    terminal: TerminalConfig;
   }
   interface McpStatus {
     enabled: boolean;
@@ -127,9 +148,20 @@
   let savingFs = $state(false);
   let savingIndex = $state(false);
   let savingMcp = $state(false);
-  let saveBanner = $state<{ section: 'fs' | 'index' | 'mcp'; ok: boolean; msg: string } | null>(
-    null,
-  );
+  let savingTerminal = $state(false);
+  let saveBanner = $state<{
+    section: 'fs' | 'index' | 'mcp' | 'terminal';
+    ok: boolean;
+    msg: string;
+  } | null>(null);
+
+  // Terminal — D-018 groundwork (audit close 2026-04-29).
+  let termShellKind = $state<ShellKind>('auto');
+  let termCustomPath = $state('');
+  let termFontSize = $state(13);
+  let termLineHeight = $state(1.55);
+  let termScrollback = $state(1000);
+  let termLanesEnabled = $state(true);
 
   // MCP — D-014 Phase A
   let mcpToken = $state<string | null>(null);
@@ -223,10 +255,42 @@
     config !== null && indexSyncMode !== config.index.sync_mode
   );
 
+  function buildTerminalShellPref(): ShellPref {
+    if (termShellKind === 'custom') {
+      return { kind: 'custom', path: termCustomPath.trim() };
+    }
+    return { kind: termShellKind } as ShellPref;
+  }
+
+  function shellPrefEquals(a: ShellPref, b: ShellPref): boolean {
+    if (a.kind !== b.kind) return false;
+    if (a.kind === 'custom' && b.kind === 'custom') return a.path === b.path;
+    return true;
+  }
+
+  const terminalDirty = $derived(
+    config !== null
+    && (
+      !shellPrefEquals(buildTerminalShellPref(), config.terminal.shell)
+      || termFontSize !== config.terminal.font_size
+      || Math.abs(termLineHeight - config.terminal.line_height) > 1e-4
+      || termScrollback !== config.terminal.scrollback
+      || termLanesEnabled !== config.terminal.lanes_enabled
+    )
+  );
+
   function snapshotIntoEditState(c: RiftConfig) {
     fsIgnoreText = c.fs.ignore_globs.join('\n');
     fsMaxDepth = c.fs.max_depth;
     indexSyncMode = c.index.sync_mode === 'manual' ? 'manual' : 'live';
+    // Terminal snapshot — defaults for old configs are filled by serde-side
+    // #[serde(default)], so c.terminal is always present at runtime.
+    termShellKind = c.terminal.shell.kind;
+    termCustomPath = c.terminal.shell.kind === 'custom' ? c.terminal.shell.path : '';
+    termFontSize = c.terminal.font_size;
+    termLineHeight = c.terminal.line_height;
+    termScrollback = c.terminal.scrollback;
+    termLanesEnabled = c.terminal.lanes_enabled;
   }
 
   async function reloadConfig() {
@@ -264,6 +328,35 @@
       saveBanner = { section: 'fs', ok: false, msg: String(err) };
     } finally {
       savingFs = false;
+    }
+  }
+
+  async function saveTerminalConfig() {
+    if (!config) return;
+    savingTerminal = true;
+    saveBanner = null;
+    try {
+      const next: RiftConfig = {
+        ...config,
+        terminal: {
+          shell: buildTerminalShellPref(),
+          font_size: Math.max(8, Math.min(48, Math.floor(termFontSize || 13))),
+          line_height: Math.max(1.0, Math.min(2.5, termLineHeight || 1.55)),
+          scrollback: Math.max(100, Math.min(100000, Math.floor(termScrollback || 1000))),
+          lanes_enabled: termLanesEnabled,
+        },
+      };
+      await invoke('config_save', { cfg: next });
+      config = next;
+      saveBanner = {
+        section: 'terminal',
+        ok: true,
+        msg: 'terminal saved · shell change applies to new sessions',
+      };
+    } catch (err) {
+      saveBanner = { section: 'terminal', ok: false, msg: String(err) };
+    } finally {
+      savingTerminal = false;
     }
   }
 
@@ -426,6 +519,112 @@
         </button>
       </div>
     </section>
+
+    <!-- TERMINAL — D-018 groundwork (audit close 2026-04-29) -->
+    {#if config}
+      <section class="section">
+        <div class="section-label">Terminal</div>
+        <div class="hint">
+          shell, font, scrollback, and §10.1 lane prefixes for Rift-emitted
+          lines. shell change applies to NEW sessions (close + reopen the
+          tab). live PTY-stream lane classification is tracked under D-018
+          and is not yet wired.
+        </div>
+
+        <label class="field">
+          <span class="field-label">shell</span>
+          <div class="radio-row radio-wrap">
+            {#each ['auto', 'pwsh', 'powershell', 'cmd', 'bash', 'zsh', 'sh', 'custom'] as kind (kind)}
+              <label class="radio">
+                <input
+                  type="radio"
+                  name="term-shell"
+                  value={kind}
+                  checked={termShellKind === kind}
+                  onchange={() => (termShellKind = kind as ShellKind)}
+                />
+                <span>{kind}</span>
+              </label>
+            {/each}
+          </div>
+        </label>
+
+        {#if termShellKind === 'custom'}
+          <label class="field">
+            <span class="field-label">custom executable path</span>
+            <input
+              type="text"
+              class="field-input"
+              bind:value={termCustomPath}
+              placeholder="C:\Path\To\shell.exe or /usr/local/bin/fish"
+              spellcheck="false"
+            />
+          </label>
+        {/if}
+
+        <label class="field">
+          <span class="field-label">font size · 8–48 px</span>
+          <input
+            type="number"
+            class="field-input field-narrow"
+            bind:value={termFontSize}
+            min="8"
+            max="48"
+          />
+        </label>
+
+        <label class="field">
+          <span class="field-label">line height · 1.00–2.50</span>
+          <input
+            type="number"
+            class="field-input field-narrow"
+            bind:value={termLineHeight}
+            min="1.0"
+            max="2.5"
+            step="0.05"
+          />
+        </label>
+
+        <label class="field">
+          <span class="field-label">scrollback · 100–100000 lines</span>
+          <input
+            type="number"
+            class="field-input field-narrow"
+            bind:value={termScrollback}
+            min="100"
+            max="100000"
+            step="100"
+          />
+        </label>
+
+        <div class="row">
+          <label class="kv-toggle">
+            <input
+              type="checkbox"
+              bind:checked={termLanesEnabled}
+              disabled={savingTerminal}
+            />
+            <span>tag-prefix Rift-emitted lines (§10.1)</span>
+          </label>
+        </div>
+
+        <div class="row">
+          <button
+            type="button"
+            class="btn primary"
+            disabled={!terminalDirty || savingTerminal}
+            onclick={saveTerminalConfig}
+          >
+            {savingTerminal ? 'saving…' : 'save terminal'}
+          </button>
+          {#if saveBanner && saveBanner.section === 'terminal'}
+            <span class="banner-inline" class:fail={!saveBanner.ok}>
+              {saveBanner.msg}
+            </span>
+          {/if}
+        </div>
+      </section>
+    {/if}
 
     <!-- FILESYSTEM -->
     <section class="section">
@@ -833,6 +1032,11 @@
     display: flex;
     gap: 14px;
     margin-bottom: 4px;
+  }
+  /* Terminal section has 8 radios — wrap onto multiple rows on narrow popouts. */
+  .radio-row.radio-wrap {
+    flex-wrap: wrap;
+    row-gap: 6px;
   }
   .radio {
     display: inline-flex;

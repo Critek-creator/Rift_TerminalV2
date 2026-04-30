@@ -105,6 +105,12 @@ pub struct PtyOptions {
     pub dims: PtyDims,
     pub env: Vec<(String, String)>,
     pub cwd: Option<std::path::PathBuf>,
+    /// Pre-resolved shell binary + args. When `Some`, overrides the
+    /// `default_shell()` resolution that `spawn_with_options` would
+    /// otherwise apply. Callers feeding a config-driven `ShellPref` resolve
+    /// it via `crate::shell::{resolve_auto_shell, resolve_named_shell,
+    /// resolve_custom_shell}` and pass the result here.
+    pub shell: Option<(std::path::PathBuf, Vec<String>)>,
 }
 
 impl PtyOptions {
@@ -113,6 +119,7 @@ impl PtyOptions {
             dims,
             env: Vec::new(),
             cwd: None,
+            shell: None,
         }
     }
 
@@ -123,6 +130,14 @@ impl PtyOptions {
 
     pub fn with_cwd(mut self, cwd: impl Into<std::path::PathBuf>) -> Self {
         self.cwd = Some(cwd.into());
+        self
+    }
+
+    /// Override the shell that would otherwise be resolved via
+    /// `default_shell()`. Pass an absolute path + args list (args is
+    /// usually empty for interactive shells).
+    pub fn with_shell(mut self, path: impl Into<std::path::PathBuf>, args: Vec<String>) -> Self {
+        self.shell = Some((path.into(), args));
         self
     }
 }
@@ -229,7 +244,9 @@ impl PtySession {
             .openpty(opts.dims.into())
             .map_err(|e| PtyError::OpenFailed(e.to_string()))?;
 
-        let (shell, args) = default_shell();
+        // PtyOptions.shell wins when set (config-driven `ShellPref`); fall
+        // back to default_shell() for legacy callers (CLI tests).
+        let (shell, args) = opts.shell.clone().unwrap_or_else(default_shell);
         let mut cmd = CommandBuilder::new(shell);
         for arg in args {
             cmd.arg(arg);
