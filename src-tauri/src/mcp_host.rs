@@ -122,6 +122,15 @@ fn handle_envelope(bus: &RiftBus, project_root: &Path, token_present: bool, env:
             }),
         );
 
+        // Streaming tools (D-014 Phase A.1): spawn a subscribe-publish task
+        // and return a start-ack synchronously. Subsequent envelopes flow
+        // back as `mcp.notify.{tool}` rather than a single `mcp.response`.
+        if tool_name == "bus_tail" {
+            let result = start_bus_tail(bus.clone(), request_id.clone(), &env.payload);
+            publish_response(bus, tool_name, request_id, result);
+            return;
+        }
+
         let result = dispatch_tool(bus, project_root, tool_name, &env.payload);
         publish_response(bus, tool_name, request_id, result);
     }
@@ -185,13 +194,102 @@ fn dispatch_tool(
         "bus_history" => tool_bus_history(bus, payload),
         "git_status" => tool_git_status(project_root),
         "aegis_state" => tool_aegis_state(bus),
-        // bus_tail is streaming — Phase A returns a "use subscribe" hint.
-        // Streaming integration with the rift-mcp stdio loop is Phase A.1.
-        "bus_tail" => Err(
-            "bus_tail streaming not yet wired in Phase A — use bus_history for one-shot replay"
-                .into(),
-        ),
+        // bus_tail is intercepted before dispatch_tool — see handle_envelope.
+        "bus_tail" => Err("bus_tail must route through start_bus_tail".into()),
         other => Err(format!("unknown MCP tool: {other}")),
+    }
+}
+
+/// Phase A.1 — start a streaming `bus_tail` subscription.
+///
+/// Parses optional `category` + `kind_prefix` filter args, spawns a task
+/// that subscribes to the bus and publishes one `mcp.notify.bus_tail`
+/// envelope per matching event, and returns a start-ack `Value` for the
+/// initial `mcp.response.bus_tail`.
+///
+/// Per locked v1.0 design, cancellation is implicit — when the stdio
+/// client (`rift-mcp`) disconnects, the bus subscription stays live but
+/// notifications are dropped on the floor by the broadcast channel. The
+/// task itself exits when the bus closes (process shutdown) or when the
+/// subscribe channel returns `Closed`.
+fn start_bus_tail(bus: RiftBus, request_id: Value, payload: &Value) -> Result<Value, String> {
+    // Parse filter args. Both optional; absent = match all.
+    let category_filter = payload
+        .get("category")
+        .and_then(|v| v.as_str())
+        .map(str::to_lowercase);
+    let kind_prefix = payload
+        .get("kind_prefix")
+        .and_then(|v| v.as_str())
+        .map(str::to_owned);
+
+    let filter = match category_filter.as_deref() {
+        None => SubscribeFilter::All,
+        Some(c) => match serde_json::from_value::<Category>(Value::String(c.to_owned())) {
+            Ok(cat) => SubscribeFilter::Category(cat),
+            Err(_) => return Err(format!("invalid category: {c}")),
+        },
+    };
+
+    let bus_for_task = bus.clone();
+    let request_id_for_task = request_id.clone();
+    let kind_prefix_for_task = kind_prefix.clone();
+    tauri::async_runtime::spawn(async move {
+        run_bus_tail(
+            bus_for_task,
+            request_id_for_task,
+            kind_prefix_for_task,
+            filter,
+        )
+        .await;
+    });
+
+    Ok(json!({
+        "stream_started": true,
+        "request_id": request_id,
+        "filter": {
+            "category": category_filter,
+            "kind_prefix": kind_prefix,
+        },
+    }))
+}
+
+/// Body of the streaming subscriber spawned by [`start_bus_tail`].
+async fn run_bus_tail(
+    bus: RiftBus,
+    request_id: Value,
+    kind_prefix: Option<String>,
+    filter: SubscribeFilter,
+) {
+    // Skip the snapshot replay — `bus_tail` is "events from now on" by
+    // design; clients use `bus_history` if they want backfill.
+    let (_snapshot, mut sub) = bus.subscribe(filter);
+
+    loop {
+        match sub.recv().await {
+            Ok(env) => {
+                if let Some(prefix) = kind_prefix.as_deref() {
+                    if !env.kind.starts_with(prefix) {
+                        continue;
+                    }
+                }
+                publish_notify(&bus, "bus_tail", &request_id, &env);
+            }
+            Err(rift_bus::BusError::Lagged(n)) => {
+                tracing::warn!("mcp_host: bus_tail subscriber lagged by {n} envelopes");
+                // Surface the lag to the client as a notification with no
+                // envelope so the stream can resync if it cares.
+                publish_notify_raw(
+                    &bus,
+                    "bus_tail",
+                    json!({
+                        "request_id": request_id,
+                        "lagged": n,
+                    }),
+                );
+            }
+            Err(rift_bus::BusError::Closed) => break,
+        }
     }
 }
 
@@ -254,6 +352,32 @@ fn publish_response(bus: &RiftBus, tool: &str, request_id: Value, result: Result
 }
 
 fn publish_audit(bus: &RiftBus, kind: &str, payload: Value) {
+    if let Ok(env) = Envelope::new(Category::Mcp, kind).with_payload(&payload) {
+        bus.publish(env);
+    }
+}
+
+/// Publish a streaming-tool notification — `mcp.notify.{tool}` envelope
+/// carrying `{ request_id, envelope }`. The rift-mcp translator's
+/// notification forwarder converts these to JSON-RPC notifications on
+/// stdout (method `notifications/rift/{tool}`).
+fn publish_notify(bus: &RiftBus, tool: &str, request_id: &Value, envelope: &Envelope) {
+    let kind = format!("mcp.notify.{tool}");
+    let inner = serde_json::to_value(envelope).unwrap_or(Value::Null);
+    let payload = json!({
+        "request_id": request_id.clone(),
+        "envelope": inner,
+    });
+    if let Ok(env) = Envelope::new(Category::Mcp, kind).with_payload(&payload) {
+        bus.publish(env);
+    }
+}
+
+/// Lower-level notify helper — emit a `mcp.notify.{tool}` with a custom
+/// payload (e.g. lag sentinel). Use [`publish_notify`] for the standard
+/// envelope-carrying form.
+fn publish_notify_raw(bus: &RiftBus, tool: &str, payload: Value) {
+    let kind = format!("mcp.notify.{tool}");
     if let Ok(env) = Envelope::new(Category::Mcp, kind).with_payload(&payload) {
         bus.publish(env);
     }

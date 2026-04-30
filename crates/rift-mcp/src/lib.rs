@@ -6,8 +6,12 @@
 
 #![deny(missing_docs)]
 
+use std::sync::Arc;
+
 use anyhow::{Context, Result};
 use serde_json::{json, Value};
+use tokio::io::AsyncWriteExt;
+use tokio::sync::Mutex;
 
 pub mod host_bridge;
 pub mod jsonrpc;
@@ -35,23 +39,50 @@ pub const SERVER_VERSION: &str = env!("CARGO_PKG_VERSION");
 /// MCP protocol version we speak (locked at the v1.0 spec revision).
 pub const PROTOCOL_VERSION: &str = "2024-11-05";
 
+/// JSON-RPC method name used for `bus_tail` streaming notifications
+/// (D-014 Phase A.1, locked 2026-04-29). Custom Rift namespace —
+/// clients dispatch on this exact method to feed their tail consumer.
+pub const BUS_TAIL_NOTIFY_METHOD: &str = "notifications/rift/bus_tail";
+
+/// JSON-RPC method name used to surface a router-side `Lagged` event —
+/// emitted when the notification broadcast channel overruns the consumer.
+/// Clients should treat receipt as "you missed envelopes; consider
+/// reissuing bus_history to resync."
+pub const BUS_TAIL_LAGGED_METHOD: &str = "notifications/rift/bus_tail.lagged";
+
 /// Run the stdio JSON-RPC loop.
 ///
 /// Reads newline-delimited JSON-RPC requests on stdin, dispatches to a
 /// handler, writes responses to stdout. Long-running tools (e.g.
-/// `bus_tail`) emit notifications.
+/// `bus_tail`) emit notifications via a parallel task that listens on
+/// the host bridge's notification channel.
 ///
 /// Connects to the Rift host and completes the MCP handshake before the
 /// first request is read. Handshake failures bubble up to `main`.
 pub async fn run_stdio(cfg: McpServerConfig) -> Result<()> {
     use tokio::io::{AsyncBufReadExt, BufReader};
 
-    let bridge = HostBridge::connect(cfg.socket_name.clone(), &cfg.token)
-        .await
-        .context("connect to Rift host")?;
+    let bridge = Arc::new(
+        HostBridge::connect(cfg.socket_name.clone(), &cfg.token)
+            .await
+            .context("connect to Rift host")?,
+    );
+
+    // Stdout is shared between the request/response loop and the
+    // notification-forwarder task. Mutex serialises frames so partial
+    // writes can't interleave on the wire.
+    let stdout = Arc::new(Mutex::new(tokio::io::stdout()));
+
+    // Notification forwarder — subscribes to every `mcp.notify.*` envelope
+    // on the bridge and writes a JSON-RPC notification to stdout. Lives
+    // for the duration of the stdio loop.
+    let notify_rx = bridge.subscribe_notifications();
+    let stdout_for_notify = stdout.clone();
+    tokio::spawn(async move {
+        run_notification_forwarder(notify_rx, stdout_for_notify).await;
+    });
 
     let stdin = tokio::io::stdin();
-    let mut stdout = tokio::io::stdout();
     let mut reader = BufReader::new(stdin).lines();
 
     while let Some(line) = reader.next_line().await? {
@@ -67,26 +98,95 @@ pub async fn run_stdio(cfg: McpServerConfig) -> Result<()> {
                     ErrorCode::ParseError,
                     format!("invalid json: {e}"),
                 );
-                write_response(&mut stdout, &resp).await?;
+                write_response(&stdout, &resp).await?;
                 continue;
             }
         };
 
         let resp = dispatch(&bridge, req).await;
-        write_response(&mut stdout, &resp).await?;
+        write_response(&stdout, &resp).await?;
     }
     Ok(())
 }
 
-async fn write_response<W>(stdout: &mut W, resp: &Response) -> Result<()>
-where
-    W: tokio::io::AsyncWriteExt + Unpin,
-{
-    let s = serde_json::to_string(resp)?;
-    stdout.write_all(s.as_bytes()).await?;
-    stdout.write_all(b"\n").await?;
-    stdout.flush().await?;
+/// Serialize and write a JSON-RPC frame (response OR notification) to
+/// stdout under the shared mutex. Each frame is newline-terminated and
+/// the stream is flushed before returning.
+async fn write_frame(stdout: &Mutex<tokio::io::Stdout>, frame: &Value) -> Result<()> {
+    let s = serde_json::to_string(frame)?;
+    let mut guard = stdout.lock().await;
+    guard.write_all(s.as_bytes()).await?;
+    guard.write_all(b"\n").await?;
+    guard.flush().await?;
     Ok(())
+}
+
+async fn write_response(stdout: &Mutex<tokio::io::Stdout>, resp: &Response) -> Result<()> {
+    let frame = serde_json::to_value(resp)?;
+    write_frame(stdout, &frame).await
+}
+
+/// Notification-forwarder task body. Listens on the bridge's broadcast
+/// receiver and converts each `mcp.notify.{tool}` envelope into a
+/// JSON-RPC notification on stdout.
+///
+/// Dispatch by tool kind:
+///   - `mcp.notify.bus_tail` → method [`BUS_TAIL_NOTIFY_METHOD`]
+///   - other kinds: dropped (no client consumer in Phase A.1)
+///
+/// Lag handling: a [`broadcast::error::RecvError::Lagged`] surfaces a
+/// dedicated [`BUS_TAIL_LAGGED_METHOD`] notification carrying the lag
+/// count. The client knows envelopes were dropped and can decide whether
+/// to resync via `bus_history`. Recv errors other than `Lagged` (closed
+/// channel) terminate the task — happens only when the bridge is
+/// dropped, which means the process is shutting down anyway.
+async fn run_notification_forwarder(
+    mut rx: tokio::sync::broadcast::Receiver<rift_bus::Envelope>,
+    stdout: Arc<Mutex<tokio::io::Stdout>>,
+) {
+    use tokio::sync::broadcast::error::RecvError;
+    loop {
+        match rx.recv().await {
+            Ok(env) => {
+                let kind = env.kind.as_str();
+                let method = if kind == "mcp.notify.bus_tail" {
+                    BUS_TAIL_NOTIFY_METHOD
+                } else {
+                    // Unknown notify kind — no client consumer wired yet.
+                    continue;
+                };
+                let request_id = env
+                    .payload
+                    .get("request_id")
+                    .cloned()
+                    .unwrap_or(Value::Null);
+                let inner = env.payload.get("envelope").cloned().unwrap_or(Value::Null);
+                let frame = json!({
+                    "jsonrpc": "2.0",
+                    "method": method,
+                    "params": {
+                        "request_id": request_id,
+                        "envelope": inner,
+                    },
+                });
+                if write_frame(&stdout, &frame).await.is_err() {
+                    // stdout closed — host is shutting us down; just exit.
+                    return;
+                }
+            }
+            Err(RecvError::Lagged(n)) => {
+                let frame = json!({
+                    "jsonrpc": "2.0",
+                    "method": BUS_TAIL_LAGGED_METHOD,
+                    "params": { "skipped": n },
+                });
+                if write_frame(&stdout, &frame).await.is_err() {
+                    return;
+                }
+            }
+            Err(RecvError::Closed) => return,
+        }
+    }
 }
 
 /// Dispatch a single JSON-RPC request. `tools/call` routes through the
@@ -160,20 +260,9 @@ async fn handle_tools_call(bridge: &HostBridge, id: Value, params: Value) -> Res
         }
     };
 
-    // bus_tail streaming is deferred to Phase A.1 — host returns the same
-    // hint, but we shortcut here so we don't make a wire round-trip just
-    // to surface it.
-    if call.name == "bus_tail" {
-        return Response::ok(
-            id,
-            tool_result_text(
-                "bus_tail streaming not yet wired in Phase A — \
-                 use bus_history for one-shot replay.",
-                true,
-            ),
-        );
-    }
-
+    // bus_tail returns immediately with {stream_started: true} after the
+    // host has spawned its subscribe-publish task. Subsequent envelopes
+    // arrive via the notification forwarder, NOT through this response.
     match bridge.call(&call.name, &call.arguments).await {
         Ok(result) => Response::ok(id, tool_result_json(result)),
         Err(BridgeError::Tool { tool, message }) => Response::ok(

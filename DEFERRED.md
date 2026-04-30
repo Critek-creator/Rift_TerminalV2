@@ -166,8 +166,19 @@ no longer pending — it is being built.
 
 **Remaining v1.x work** (per locked D-014 plan §4):
 
-- Phase A.1 — wire `bus_tail` streaming through stdio notifications
-  (currently returns a "use bus_history for one-shot" hint).
+- ~~Phase A.1 — wire `bus_tail` streaming through stdio notifications.~~
+  **CLOSED 2026-04-29**: `HostBridge` refactored to a router-task /
+  oneshot-demux model, `IpcClient::split` exposes split halves,
+  `subscribe_notifications` returns a `broadcast::Receiver`, host-side
+  `start_bus_tail` spawns a subscribe-publish task that emits
+  `mcp.notify.bus_tail` envelopes per matching event, and the rift-mcp
+  notification forwarder converts each into a JSON-RPC notification with
+  method `notifications/rift/bus_tail` (lag sentinel:
+  `notifications/rift/bus_tail.lagged`). Filter args:
+  `{ category?, kind_prefix? }`. Cancellation is implicit
+  (cancel-on-disconnect) per locked v1.0 design — explicit cancel
+  deferred to Phase F's WebSocket transport. 8 wire tests pass
+  (6 existing + 2 new streaming tests covering single notify + ordering).
 - Phase B — Tier 1 completion (`fs_read`, `fs_tree`, `notif_tabs`,
   `pty_list`, `cockpit_state`, `todo_scan`).
 - Phase C — DOM snapshot + screenshot + `js_eval`.

@@ -26,6 +26,25 @@ use tokio::time::{sleep, timeout};
 
 const TEST_TOKEN: &str = "phase-a-wire-test-token";
 
+/// Stand up the same setup as [`setup`] but also returns a clone of the
+/// internal `RiftBus` so the streaming test can publish `mcp.notify.*`
+/// envelopes directly. Used only by the Phase A.1 streaming tests.
+async fn setup_with_bus(
+    accept_token: &'static str,
+    client_token: &str,
+) -> Result<(HostBridge, RiftBus), BridgeError> {
+    let bus = RiftBus::default();
+    let name = unique_name();
+    let _server = IpcServer::start(bus.clone(), &name)
+        .await
+        .expect("ipc server start");
+    sleep(Duration::from_millis(50)).await;
+    spawn_mock_host(bus.clone(), accept_token);
+
+    let bridge = HostBridge::connect(Some(name), client_token).await?;
+    Ok((bridge, bus))
+}
+
 fn unique_name() -> String {
     static COUNTER: AtomicU64 = AtomicU64::new(0);
     let id = COUNTER.fetch_add(1, Ordering::SeqCst);
@@ -186,6 +205,77 @@ async fn unknown_tool_returns_bridge_tool_error() {
             assert!(message.starts_with("unknown MCP tool"), "got: {message}");
         }
         other => panic!("expected BridgeError::Tool, got {other:?}"),
+    }
+}
+
+/// Phase A.1 — `subscribe_notifications` surfaces `mcp.notify.*` envelopes
+/// emitted by the host. Publishes a synthetic notify envelope and asserts
+/// the bridge's broadcast receiver delivers it.
+#[tokio::test]
+async fn streaming_notification_surfaces_via_bridge() {
+    let (bridge, bus) = setup_with_bus(TEST_TOKEN, TEST_TOKEN)
+        .await
+        .expect("connect");
+
+    // Subscribe BEFORE the host publishes — broadcast channels drop
+    // events emitted before any subscriber exists.
+    let mut rx = bridge.subscribe_notifications();
+
+    // Pretend a streaming tool task on the host published a notify.
+    let payload = json!({
+        "request_id": "test-stream-1",
+        "envelope": {
+            "category": "Aegis",
+            "kind": "aegis.session.skill_loaded",
+            "ts": 1_700_000_000_000u64,
+            "payload": { "skill": "aegis", "version": "test" },
+        },
+    });
+    let env = Envelope::new(Category::Mcp, "mcp.notify.bus_tail")
+        .with_payload(&payload)
+        .expect("payload build");
+    bus.publish(env);
+
+    // Bridge router task should forward it within tens of ms.
+    let received = timeout(Duration::from_secs(2), rx.recv())
+        .await
+        .expect("notification arrived")
+        .expect("recv ok");
+    assert_eq!(received.kind, "mcp.notify.bus_tail");
+    assert_eq!(received.payload["request_id"], "test-stream-1");
+    assert_eq!(
+        received.payload["envelope"]["kind"],
+        "aegis.session.skill_loaded"
+    );
+}
+
+/// Phase A.1 — multiple notify envelopes arrive in order through a single
+/// bridge subscription. Validates the broadcast channel doesn't reorder.
+#[tokio::test]
+async fn streaming_notifications_preserve_order() {
+    let (bridge, bus) = setup_with_bus(TEST_TOKEN, TEST_TOKEN)
+        .await
+        .expect("connect");
+
+    let mut rx = bridge.subscribe_notifications();
+
+    for i in 0..5u64 {
+        let payload = json!({
+            "request_id": "test-stream-order",
+            "envelope": { "kind": format!("seq.{i}"), "category": "System" },
+        });
+        let env = Envelope::new(Category::Mcp, "mcp.notify.bus_tail")
+            .with_payload(&payload)
+            .expect("payload build");
+        bus.publish(env);
+    }
+
+    for i in 0..5u64 {
+        let received = timeout(Duration::from_secs(2), rx.recv())
+            .await
+            .expect("notification arrived")
+            .expect("recv ok");
+        assert_eq!(received.payload["envelope"]["kind"], format!("seq.{i}"));
     }
 }
 

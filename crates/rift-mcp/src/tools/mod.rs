@@ -53,13 +53,17 @@ pub fn tool_catalog() -> Vec<ToolSpec> {
         },
         ToolSpec {
             name: "bus_tail",
-            description: "Stream live Rift bus envelopes as MCP notifications until cancelled.",
+            description: "Stream live Rift bus envelopes as JSON-RPC notifications (method `notifications/rift/bus_tail`). Returns `{stream_started: true, request_id, filter}` synchronously; subsequent envelopes flow as notifications until the client disconnects.",
             input_schema: json!({
                 "type": "object",
                 "properties": {
                     "category": {
                         "type": "string",
-                        "description": "Optional category filter.",
+                        "description": "Optional category filter (pty, hook, agent, fs, index, aegis, status, system, mcp).",
+                    },
+                    "kind_prefix": {
+                        "type": "string",
+                        "description": "Optional kind-prefix filter applied client-side in the host task. E.g. `aegis.session.` to only stream Aegis session events.",
                     },
                 },
             }),

@@ -267,6 +267,39 @@ impl IpcClient {
     pub async fn send(&mut self, env: &Envelope) -> Result<(), IpcError> {
         write_frame(&mut self.send, env).await
     }
+
+    /// Split into independent reader + writer halves for callers that need
+    /// concurrent recv/send (e.g. a router task that demuxes responses
+    /// while another task pushes outbound requests). The `interprocess`
+    /// crate's split halves are wrapped in newtypes so the dependency
+    /// stays internal.
+    pub fn split(self) -> (IpcReader, IpcWriter) {
+        (IpcReader { recv: self.recv }, IpcWriter { send: self.send })
+    }
+}
+
+/// Read half of a split [`IpcClient`]. See [`IpcClient::split`].
+pub struct IpcReader {
+    recv: RecvHalf,
+}
+
+impl IpcReader {
+    /// Read the next envelope.
+    pub async fn recv(&mut self) -> Result<Envelope, IpcError> {
+        read_frame(&mut self.recv).await
+    }
+}
+
+/// Write half of a split [`IpcClient`]. See [`IpcClient::split`].
+pub struct IpcWriter {
+    send: SendHalf,
+}
+
+impl IpcWriter {
+    /// Publish an envelope back to the server.
+    pub async fn send(&mut self, env: &Envelope) -> Result<(), IpcError> {
+        write_frame(&mut self.send, env).await
+    }
 }
 
 // ---------------------------------------------------------------------------

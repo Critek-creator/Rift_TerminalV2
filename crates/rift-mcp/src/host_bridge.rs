@@ -1,28 +1,40 @@
 //! Host bridge — connects rift-mcp to a running Rift host over the bus IPC
 //! socket.
 //!
-//! Phase A architecture (D-014 §11):
+//! Architecture (D-014 Phase A → A.1):
 //!
 //! 1. [`HostBridge::connect`] opens an [`IpcClient`] to the Rift host, sends
 //!    a `Category::Mcp / mcp.handshake` envelope with the configured token,
 //!    and awaits the host's `mcp.handshake.ack` (or `mcp.handshake.deny`).
-//! 2. [`HostBridge::call`] sends a `Category::Mcp / mcp.request.{tool}`
-//!    envelope with a fresh `request_id` (uuid v4) and reads frames until
-//!    a matching `mcp.response.{tool}` arrives, returning its `result` or
-//!    `error` payload.
+//! 2. After ack the connection splits into read + write halves. A detached
+//!    **router task** owns the reader and demuxes incoming envelopes:
+//!    * `mcp.response.{tool}` → look up the matching `request_id` in the
+//!      pending map and fulfill its oneshot.
+//!    * `mcp.notify.{tool}`   → broadcast on the notification channel for
+//!      streaming-tool subscribers (`bus_tail` etc.).
 //!
-//! The IPC client is owned behind a [`Mutex`] so concurrent `tools/call`
-//! invocations serialise on the wire. Streaming tools (`bus_tail`, deferred
-//! to Phase A.1) will need a router task that demuxes responses by
-//! `request_id` into per-call channels — out of scope for Phase A.
+//!    Everything else is dropped.
+//! 3. [`HostBridge::call`] registers a oneshot in the pending map, sends a
+//!    `mcp.request.{tool}` envelope through the writer mutex, and awaits
+//!    the oneshot. Concurrent calls multiplex on the wire — the router
+//!    task is the demux point, not a per-call recv loop.
+//! 4. [`HostBridge::subscribe_notifications`] returns a broadcast receiver
+//!    that emits every `mcp.notify.*` envelope. Streaming-tool callers
+//!    filter by `request_id` to isolate their own stream.
+//!
+//! When the host disconnects, the router task's `recv()` returns `Err` and
+//! the task exits. Pending oneshots are dropped, surfacing `RecvError` to
+//! waiting callers — they translate it to [`BridgeError::Disconnected`].
 
+use std::collections::HashMap;
 use std::env;
+use std::sync::Arc;
 use std::time::Duration;
 
-use rift_bus::{Category, Envelope, IpcClient, IpcError};
+use rift_bus::{Category, Envelope, IpcClient, IpcError, IpcReader, IpcWriter};
 use serde_json::{json, Value};
 use thiserror::Error;
-use tokio::sync::Mutex;
+use tokio::sync::{broadcast, oneshot, Mutex};
 use tokio::time::timeout;
 use uuid::Uuid;
 
@@ -40,6 +52,11 @@ fn discovery_path_display() -> String {
 
 /// Default per-call timeout if none provided.
 const DEFAULT_CALL_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Notification broadcast channel capacity. Bursty bus traffic can push past
+/// this — the router task surfaces a `Lagged` notification (see
+/// [`Self::subscribe_notifications`]) so consumers know they missed events.
+const NOTIFY_CHANNEL_CAPACITY: usize = 1024;
 
 /// Errors raised by the host bridge.
 #[derive(Debug, Error)]
@@ -74,12 +91,26 @@ pub enum BridgeError {
     /// Response payload was structurally invalid.
     #[error("malformed response: {0}")]
     Malformed(String),
+    /// Router task exited (host disconnected, IPC closed) before the call's
+    /// response arrived.
+    #[error("host disconnected while waiting for mcp.response.{tool}")]
+    Disconnected {
+        /// Tool name we were waiting on.
+        tool: String,
+    },
 }
 
-/// Owns the [`IpcClient`] connection to the running Rift host. Built once at
-/// startup, shared across `tools/call` invocations.
+/// Pending-call map: request_id → oneshot sender. The router task drains
+/// completed entries; `call()` inserts entries before sending and removes
+/// them on timeout.
+type PendingMap = Arc<Mutex<HashMap<String, oneshot::Sender<Envelope>>>>;
+
+/// Router-task state. Shared between the spawned reader task and
+/// [`HostBridge`] via `Arc`s — the bridge just holds clones.
 pub struct HostBridge {
-    client: Mutex<IpcClient>,
+    writer: Mutex<IpcWriter>,
+    pending: PendingMap,
+    notify_tx: broadcast::Sender<Envelope>,
     /// Per-call timeout. Configurable later if needed.
     call_timeout: Duration,
 }
@@ -102,7 +133,9 @@ impl HostBridge {
             .ok_or_else(|| BridgeError::NoSocketName(discovery_path_display()))?;
         let mut client = IpcClient::connect(&name).await?;
 
-        // Handshake: send mcp.handshake with token, await ack/deny.
+        // Handshake: send mcp.handshake with token, await ack/deny BEFORE
+        // splitting. We do this on the unsplit client because it's a
+        // strict request/response pair — no router needed yet.
         let request_id = Uuid::new_v4().to_string();
         let handshake = Envelope::new(Category::Mcp, "mcp.handshake")
             .with_payload(&json!({ "request_id": request_id, "token": token }))
@@ -144,8 +177,21 @@ impl HostBridge {
             }
         }
 
+        // Handshake confirmed — split into halves and start the router.
+        let (reader, writer) = client.split();
+        let pending: PendingMap = Arc::new(Mutex::new(HashMap::new()));
+        let (notify_tx, _notify_rx) = broadcast::channel(NOTIFY_CHANNEL_CAPACITY);
+
+        let pending_for_router = pending.clone();
+        let notify_tx_for_router = notify_tx.clone();
+        tokio::spawn(async move {
+            run_router(reader, pending_for_router, notify_tx_for_router).await;
+        });
+
         Ok(Self {
-            client: Mutex::new(client),
+            writer: Mutex::new(writer),
+            pending,
+            notify_tx,
             call_timeout: DEFAULT_CALL_TIMEOUT,
         })
     }
@@ -170,35 +216,42 @@ impl HostBridge {
         }
 
         let request_kind = format!("mcp.request.{tool}");
-        let response_kind = format!("mcp.response.{tool}");
         let env = Envelope::new(Category::Mcp, request_kind)
             .with_payload(&payload)
             .map_err(|e| BridgeError::Malformed(format!("request build: {e}")))?;
 
-        let mut client = self.client.lock().await;
-        client.send(&env).await?;
+        // Register the oneshot BEFORE sending so a fast host that responds
+        // before the await can't race ahead of the registration.
+        let (resp_tx, resp_rx) = oneshot::channel::<Envelope>();
+        self.pending
+            .lock()
+            .await
+            .insert(request_id.clone(), resp_tx);
 
-        let response = timeout(self.call_timeout, async {
-            loop {
-                let env = client.recv().await?;
-                if env.category != Category::Mcp || env.kind != response_kind {
-                    continue;
-                }
-                let id_match = env
-                    .payload
-                    .get("request_id")
-                    .and_then(|v| v.as_str())
-                    .is_some_and(|s| s == request_id);
-                if id_match {
-                    return Ok::<Envelope, IpcError>(env);
-                }
+        // Send under the writer lock; drop the lock immediately so other
+        // calls can interleave. The router task handles recv concurrently.
+        if let Err(e) = self.writer.lock().await.send(&env).await {
+            // Send failed — clean up the pending entry so it doesn't leak.
+            self.pending.lock().await.remove(&request_id);
+            return Err(BridgeError::Ipc(e));
+        }
+
+        let response = match timeout(self.call_timeout, resp_rx).await {
+            Ok(Ok(env)) => env,
+            Ok(Err(_recv_err)) => {
+                // Sender dropped — router task exited mid-flight.
+                self.pending.lock().await.remove(&request_id);
+                return Err(BridgeError::Disconnected {
+                    tool: tool.to_owned(),
+                });
             }
-        })
-        .await
-        .map_err(|_| BridgeError::Timeout {
-            tool: tool.to_owned(),
-        })??;
-        drop(client);
+            Err(_elapsed) => {
+                self.pending.lock().await.remove(&request_id);
+                return Err(BridgeError::Timeout {
+                    tool: tool.to_owned(),
+                });
+            }
+        };
 
         // Host wraps the result as { request_id, ok: bool, result|error }.
         let ok = response
@@ -225,8 +278,77 @@ impl HostBridge {
             })
         }
     }
+
+    /// Subscribe to all `mcp.notify.*` envelopes flowing in from the host.
+    ///
+    /// Streaming-tool consumers (`bus_tail`) call this once and filter the
+    /// resulting [`broadcast::Receiver`] by `request_id` — multiple
+    /// concurrent streams share the channel.
+    ///
+    /// The receiver is bounded ([`NOTIFY_CHANNEL_CAPACITY`]); slow
+    /// consumers that lag past the capacity will receive
+    /// [`broadcast::error::RecvError::Lagged`] and should treat it as a
+    /// missed-events sentinel.
+    pub fn subscribe_notifications(&self) -> broadcast::Receiver<Envelope> {
+        self.notify_tx.subscribe()
+    }
+}
+
+/// Router-task body. Demuxes incoming envelopes onto the pending oneshot
+/// map (responses) and the notify broadcast channel (notifications). Exits
+/// silently when [`IpcReader::recv`] returns `Err` (host disconnect).
+async fn run_router(
+    mut reader: IpcReader,
+    pending: PendingMap,
+    notify_tx: broadcast::Sender<Envelope>,
+) {
+    loop {
+        let env = match reader.recv().await {
+            Ok(e) => e,
+            Err(_) => break,
+        };
+
+        if env.category != Category::Mcp {
+            continue;
+        }
+
+        if env.kind.starts_with("mcp.response.") {
+            let request_id = match env
+                .payload
+                .get("request_id")
+                .and_then(|v| v.as_str())
+                .map(str::to_owned)
+            {
+                Some(id) => id,
+                None => continue,
+            };
+            // Pop the matching oneshot. If absent (already timed out, or
+            // never registered), drop the response silently.
+            if let Some(tx) = pending.lock().await.remove(&request_id) {
+                // If the receiver was dropped, send returns Err — also fine.
+                let _ = tx.send(env);
+            }
+            continue;
+        }
+
+        if env.kind.starts_with("mcp.notify.") {
+            // Non-blocking send. If no subscribers exist yet, send returns
+            // Err and the envelope is dropped — exactly the right behavior
+            // (nobody is listening).
+            let _ = notify_tx.send(env);
+            continue;
+        }
+
+        // Other Category::Mcp envelopes (e.g. audit `mcp.invoke`) are not
+        // routed back to the client — they live on the host bus.
+    }
+
+    // Reader exited — leaving the pending map populated would leak.
+    // Dropping the senders surfaces RecvError to waiting callers, which
+    // translate to BridgeError::Disconnected.
+    pending.lock().await.clear();
 }
 
 // Integration tests live alongside the host (`src-tauri/tests/`) — the
 // bridge needs a real `IpcServer` + `spawn_mcp_host` + on-disk `mcp_token`
-// to exercise the full wire shape. Adding those is tracked in C-021.
+// to exercise the full wire shape. See C-021 for the Phase A test set.

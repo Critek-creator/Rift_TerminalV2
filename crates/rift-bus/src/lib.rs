@@ -14,7 +14,7 @@ pub mod translators;
 
 pub use bus::{BusError, RiftBus, SubscribeFilter, Subscription};
 pub use envelope::{Category, Envelope, CURRENT_VERSION};
-pub use ipc::{IpcClient, IpcError, IpcServer, MAX_FRAME_BYTES};
+pub use ipc::{IpcClient, IpcError, IpcReader, IpcServer, IpcWriter, MAX_FRAME_BYTES};
 
 /// Publish a `Category::System / kind="error"` envelope via the errors translator.
 ///
