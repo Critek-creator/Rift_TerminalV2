@@ -394,13 +394,16 @@
   });
 
   // Phase 7.4 — live SKILL segment.
-  // Subscribes at App level (not inside AegisTabContent) so the status-line
-  // SKILL segment updates regardless of which tab is active.
+  // D-016 (closed) — live EFFORT segment. Both subscriptions ride the same
+  // Category::Aegis stream; one $effect, one wire-tap dispatch, two state
+  // bindings. Subscribes at App level (not inside AegisTabContent) so
+  // status-line segments update regardless of which tab is active.
   // pr003 svelte5-async-cleanup-via-sync-shell-iife: $effect cleanup is SYNC;
   // async unsubscribe wrapped in IIFE. Mount-race guarded via `cancelled`
   // flag — if cleanup fires before subscribe resolves, the resolved
   // unsubscribe is invoked immediately so the subscription doesn't leak.
   let aegisSkillName = $state('');
+  let aegisEffort = $state('');
 
   $effect(() => {
     let cancelled = false;
@@ -412,6 +415,13 @@
           if (env.kind === 'aegis.session.skill_loaded') {
             const p = env.payload as { skill_name?: string; skill_version?: string | null };
             aegisSkillName = p.skill_name ?? '';
+          } else if (env.kind === 'aegis.session.effort') {
+            // Producer (private rift-aegis crate, feature-gated) publishes
+            // a tier label per /aegis dispatch — `low` / `medium` / `high`
+            // / `xhigh` / `max`. Public-CI builds without the `aegis`
+            // feature never see this envelope; segment stays at '—'.
+            const p = env.payload as { effort?: string | null };
+            aegisEffort = p.effort ?? '';
           }
         });
         if (cancelled) {
@@ -421,7 +431,7 @@
           unsub = u;
         }
       } catch (err) {
-        console.warn('[App] skill_loaded subscribe failed:', err);
+        console.warn('[App] aegis-session subscribe failed:', err);
       }
     })();
 
@@ -803,6 +813,7 @@
     repo={statusRepo || '—'}
     git={statusGit || '—'}
     skill={aegisSkillName || '—'}
+    effort={aegisEffort || '—'}
   />
 
   <!-- Phase 3.5b — pop-out stack (§10.5). Renders one overlay per entry

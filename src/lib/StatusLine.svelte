@@ -3,8 +3,10 @@
   // category-tinted backgrounds. All values bold. Segment data sources:
   //   * dir / git / repo    → live via translators/status.rs (Category::Status, 5s poll)
   //   * skill               → live via aegis.session.skill_loaded (Phase 7.4 / Aegis)
-  //   * effort              → em-dash placeholder; D-016 deferred (aegis.session.effort
-  //                            envelope not yet published — mirrors the SKILL pattern)
+  //   * effort              → live via aegis.session.effort (D-016 closed; producer
+  //                            in the private rift-aegis crate, feature-gated; on
+  //                            public-CI builds without the `aegis` feature, no
+  //                            envelope is published and the segment stays '—')
   //   * ctx / session / week / model → em-dash placeholder; D-012 upstream-blocked on
   //                            Claude Code usage hook
   //

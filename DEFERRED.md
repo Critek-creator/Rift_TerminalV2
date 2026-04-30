@@ -72,15 +72,7 @@
 - **Why deferred**: §11 explicitly bounds the in-cockpit editor to "spot something in the graph, fix it, return to flow" — multi-file refactoring + IDE features are out of scope. Plain textarea is consistent with that scope but loses the syntax cue. Worth scoping a v1.x decision: do users want syntax-highlighted editing badly enough to take a 150KB dep + a code-editor abstraction surface? If yes, CodeMirror 6 is the right size. Currently undecided.
 - **Unblocking event**: user signals "I want syntax in edit mode badly enough to take CodeMirror 6 as a dep" → wire CM6 + theme.
 
-### D-016 — StatusLine EFFORT segment data source (opened 2026-04-29)
-
-- The EFFORT segment was added to StatusLine row 1 as part of Phase 8.7g.2 alongside the SKILL segment, both in the AMBER family per the new category palette. SKILL is live via `aegis.session.skill_loaded`; EFFORT is currently rendered as `'—'` because no envelope publishes the current Aegis effort level.
-- The data exists conceptually — Aegis's pr001 EFFORT LEVELS section maps tasks to low / medium / high / xhigh / max, and `/aegis` mode dispatches calculate it per-invocation. It just isn't surfaced over the bus yet.
-- **Cost**: small, frontend-only on the consumer side.
-  - Producer (Aegis-side, gitignored crates/rift-aegis): publish `Category::Aegis / kind="aegis.session.effort"` whenever `/aegis` resolves a tier (or as a derived state from the current dispatch). Same envelope shape as `aegis.session.skill_loaded`. Out of scope of public CI; lives behind the `aegis` feature gate.
-  - Consumer (frontend, public): subscribe alongside the existing `aegis.session.skill_loaded` listener in App.svelte; bind the value to `<StatusLine effort={…} />`. ~10 lines.
-- **Why deferred**: the producer is in the private rift-aegis crate, which lives outside the public-CI build (D-011 close). The frontend consumer can land independently but has nothing to show until the producer publishes. Skip until either (a) the public Aegis stub gets a deterministic mock effort value for development OR (b) the user wants to wire it in their private build.
-- **Unblocking event**: rift-aegis publishes an `aegis.session.effort` envelope on dispatch. Then App.svelte adds one subscribe + one bind.
+<!-- D-016 closed 2026-04-29 — see C-022 below. -->
 
 ### D-015 — IndexGraph sub-door rendering (post-v1 ask, opened 2026-04-29) — CLOSED 2026-04-29
 
@@ -116,6 +108,30 @@ WebSocket transport) remain in the locked plan as ongoing v1.x work.
 ---
 
 ## Closed deferrals
+
+### C-022 — D-016 StatusLine EFFORT segment wired (closed 2026-04-29)
+
+Frontend consumer landed publicly: `App.svelte` extends the existing
+Category::Aegis subscriber to capture `aegis.session.effort` envelopes
+(payload `{ effort: "low" | "medium" | "high" | "xhigh" | "max" }`) and
+binds the value into the `<StatusLine effort={…} />` prop. Without a
+producer the segment stays `'—'` — no behavior change for public-CI
+builds that lack the `aegis` feature.
+
+The producer side lives in the gitignored `rift-aegis` crate
+(`snapshot_private.rs`) per the D-011 split: parses the `mode` field
+out of each `aegis.log` line tailed by `run_log_tail`, maps mode →
+effort tier (basic/help/status → low; think/plan/crit/memory/wrap →
+medium; research/audit/verify/bv/guard → high; team → xhigh; full →
+max), and emits one `Category::Aegis / kind="aegis.session.effort"`
+envelope alongside each `aegis.invocation`. That implementation does
+not appear in this commit because the file is gitignored — public
+clones build with the empty stub and the EFFORT segment defaults to
+`'—'`.
+
+Files touched (public): `src/App.svelte` (one new state binding +
+dispatch arm), `src/lib/StatusLine.svelte` (header comment refresh),
+`DEFERRED.md` (this entry).
 
 ### C-021 — D-014 Rift MCP server promoted into v1 (closed 2026-04-29)
 
