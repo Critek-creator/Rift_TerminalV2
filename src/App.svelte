@@ -24,7 +24,7 @@
   import Tree from './lib/Tree.svelte';
   import IndexGraph from './lib/IndexGraph.svelte';
   import Splitter from './lib/Splitter.svelte';
-  import { subscribe, type Category } from './lib/bus';
+  import { subscribe, publish, type Category } from './lib/bus';
   import { enrichmentStore } from './lib/enrichmentStore.svelte';
 
   // Tab id → bus category. `undefined` = no integration registered yet,
@@ -441,6 +441,27 @@
         await unsub?.();
       })();
     };
+  });
+
+  // D-014 Phase B — publish `notif.tabs` snapshot to the bus whenever the
+  // catalog changes (toggle / reorder / detected flip). MCP `notif_tabs`
+  // tool reads the latest snapshot from the replay buffer; without this
+  // producer the tool returns an empty list. Strips presentation-only
+  // fields the bus consumer doesn't need (icon glyph stays — useful for
+  // tool callers that surface tab affordances).
+  $effect(() => {
+    const tabs = notifs.map((n) => ({
+      id: n.id,
+      title: n.title,
+      icon: n.icon,
+      enabled: n.enabled,
+      detected: n.detected,
+      unread_count: n.unreadCount,
+      last_activity_ts: n.lastActivityTs,
+    }));
+    void publish('system', 'notif.tabs', { tabs }).catch((err) => {
+      console.warn('[App] notif.tabs publish failed:', err);
+    });
   });
 
   // Phase 8.6.1 — Category::Index enrichment subscription.
@@ -908,7 +929,9 @@
      flex: 1 1 45% matches mockup #3 .gui-tree canonical sizing.
      Phase 8.7g.5 — bg-base matches graph-pane + terminal so the cockpit
      reads as a single visual surface instead of having a panel-tinted
-     tree zone (user feedback: "different background than terminal/nodes"). */
+     tree zone (user feedback: "different background than terminal/nodes").
+     Phase 8.7q.3 — fixed second-declaration override that was silently
+     reintroducing the bg-panel tint and re-creating the original mismatch. */
   .tree-pane {
     flex: 1 1 45%;
     display: flex;
@@ -916,7 +939,6 @@
     min-height: 0;
     overflow: hidden;
     background: var(--bg-base);
-    background: var(--bg-panel);
   }
 
   /* Pane header — FILE TREE / INDEX title + meta. Shared vocabulary with NotificationPane. */

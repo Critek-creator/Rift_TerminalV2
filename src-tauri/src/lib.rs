@@ -106,7 +106,7 @@ struct PtyRegistryInner {
 
 /// Tracks live PTY sessions. Cheap to clone (`Arc` inside).
 #[derive(Clone, Default)]
-struct PtyRegistry(Arc<PtyRegistryInner>);
+pub(crate) struct PtyRegistry(Arc<PtyRegistryInner>);
 
 impl PtyRegistry {
     fn insert(&self, control: PtyControl) -> u32 {
@@ -158,6 +158,18 @@ impl PtyRegistry {
         {
             handle.abort();
         }
+    }
+
+    /// Snapshot of currently-tracked sessions: `(id, alive)` pairs sorted by
+    /// id ascending. Used by the MCP `pty_list` tool (D-014 Phase B).
+    pub(crate) fn list(&self) -> Vec<(u32, bool)> {
+        let guard = self.0.sessions.lock().expect("pty registry poisoned");
+        let mut entries: Vec<(u32, bool)> = guard
+            .iter()
+            .map(|(id, ctl)| (*id, ctl.is_alive()))
+            .collect();
+        entries.sort_by_key(|(id, _)| *id);
+        entries
     }
 }
 
@@ -1273,8 +1285,14 @@ pub fn run() {
                 let mcp_cfg = cfg.mcp.clone();
                 let mcp_root = app.state::<ProjectRoot>().inner().get();
                 let mcp_socket = socket_name.clone();
-                mcp_host::spawn_mcp_host(mcp_bus, mcp_cfg, mcp_root, mcp_socket);
+                let mcp_pty = app.state::<PtyRegistry>().inner().clone();
+                mcp_host::spawn_mcp_host(mcp_bus, mcp_cfg, mcp_root, mcp_socket, mcp_pty);
             }
+
+            // D-014 Phase B — seed `cockpit.state` snapshot so the
+            // `cockpit_state` MCP tool returns a useful value even before
+            // the user has detached for the first time.
+            cockpit_window::publish_cockpit_state(app.state::<RiftBus>().inner(), false);
 
             // Phase 8.7d — Pre-create the cockpit-detached window at setup
             // (hidden) instead of on-demand at command-time.

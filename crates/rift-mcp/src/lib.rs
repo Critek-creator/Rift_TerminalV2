@@ -329,7 +329,20 @@ mod tests {
             .iter()
             .map(|t| t["name"].as_str().unwrap())
             .collect();
-        for expected in ["bus_history", "bus_tail", "git_status", "aegis_state"] {
+        for expected in [
+            // Phase A
+            "bus_history",
+            "bus_tail",
+            "git_status",
+            "aegis_state",
+            // Phase B — Tier 1 read tools
+            "fs_read",
+            "fs_tree",
+            "todo_scan",
+            "pty_list",
+            "cockpit_state",
+            "notif_tabs",
+        ] {
             assert!(names.contains(&expected), "missing tool {expected}");
         }
     }

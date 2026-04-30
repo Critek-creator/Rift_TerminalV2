@@ -16,10 +16,13 @@
 
 use std::path::{Path, PathBuf};
 
-use rift_bus::{publish_error, Category, Envelope, McpConfig, RiftBus, SubscribeFilter};
+use rift_bus::{
+    build_tree, load_config, publish_error, read_text, Category, Envelope, McpConfig, RiftBus,
+    SubscribeFilter,
+};
 use serde_json::{json, Value};
 
-use crate::git_status;
+use crate::{git_status, todo_scan, PtyRegistry};
 
 /// Spawn the MCP host subscriber on the rift-bus runtime.
 ///
@@ -35,7 +38,13 @@ use crate::git_status;
 /// `socket_name` is the live `rift-bus` IPC socket name — written to the
 /// MCP discovery file so the standalone `rift-mcp` binary can find this
 /// host without `--socket` or `$RIFT_SOCKET_NAME` plumbed through.
-pub fn spawn_mcp_host(bus: RiftBus, cfg: McpConfig, project_root: PathBuf, socket_name: String) {
+pub fn spawn_mcp_host(
+    bus: RiftBus,
+    cfg: McpConfig,
+    project_root: PathBuf,
+    socket_name: String,
+    pty_registry: PtyRegistry,
+) {
     if !cfg.enabled {
         tracing::debug!("mcp_host: MCP disabled in config — subscriber not spawned");
         return;
@@ -63,23 +72,28 @@ pub fn spawn_mcp_host(bus: RiftBus, cfg: McpConfig, project_root: PathBuf, socke
 
     let bus_for_task = bus.clone();
     tauri::async_runtime::spawn(async move {
-        run_subscriber(bus_for_task, project_root, token_present).await;
+        run_subscriber(bus_for_task, project_root, token_present, pty_registry).await;
     });
 }
 
-async fn run_subscriber(bus: RiftBus, project_root: PathBuf, token_present: bool) {
+async fn run_subscriber(
+    bus: RiftBus,
+    project_root: PathBuf,
+    token_present: bool,
+    pty_registry: PtyRegistry,
+) {
     let (snapshot, mut sub) = bus.subscribe(SubscribeFilter::Category(Category::Mcp));
 
     // Replay drain — process any envelopes already in the buffer (rare but
     // possible if the host enables MCP mid-session and there are queued
     // requests; protocol clients typically wait for handshake first).
     for env in snapshot {
-        handle_envelope(&bus, &project_root, token_present, &env);
+        handle_envelope(&bus, &project_root, token_present, &pty_registry, &env);
     }
 
     loop {
         match sub.recv().await {
-            Ok(env) => handle_envelope(&bus, &project_root, token_present, &env),
+            Ok(env) => handle_envelope(&bus, &project_root, token_present, &pty_registry, &env),
             Err(rift_bus::BusError::Lagged(n)) => {
                 tracing::warn!("mcp_host: subscriber lagged by {n} envelopes");
             }
@@ -88,7 +102,13 @@ async fn run_subscriber(bus: RiftBus, project_root: PathBuf, token_present: bool
     }
 }
 
-fn handle_envelope(bus: &RiftBus, project_root: &Path, token_present: bool, env: &Envelope) {
+fn handle_envelope(
+    bus: &RiftBus,
+    project_root: &Path,
+    token_present: bool,
+    pty_registry: &PtyRegistry,
+    env: &Envelope,
+) {
     // Ignore our own outbound envelopes (responses, audit, errors). The
     // subscriber sees everything in Category::Mcp, including what we publish.
     let kind = env.kind.as_str();
@@ -131,7 +151,7 @@ fn handle_envelope(bus: &RiftBus, project_root: &Path, token_present: bool, env:
             return;
         }
 
-        let result = dispatch_tool(bus, project_root, tool_name, &env.payload);
+        let result = dispatch_tool(bus, project_root, pty_registry, tool_name, &env.payload);
         publish_response(bus, tool_name, request_id, result);
     }
 }
@@ -187,15 +207,24 @@ fn handle_handshake(bus: &RiftBus, env: &Envelope, token_present: bool) {
 fn dispatch_tool(
     bus: &RiftBus,
     project_root: &Path,
+    pty_registry: &PtyRegistry,
     tool: &str,
     payload: &Value,
 ) -> Result<Value, String> {
     match tool {
+        // Phase A
         "bus_history" => tool_bus_history(bus, payload),
         "git_status" => tool_git_status(project_root),
         "aegis_state" => tool_aegis_state(bus),
-        // bus_tail is intercepted before dispatch_tool — see handle_envelope.
+        // Phase A.1 — bus_tail is intercepted before dispatch_tool — see handle_envelope.
         "bus_tail" => Err("bus_tail must route through start_bus_tail".into()),
+        // Phase B — Tier 1 read tools (D-014 §3 Tier 1 catalog)
+        "fs_read" => tool_fs_read(project_root, payload),
+        "fs_tree" => tool_fs_tree(project_root, payload),
+        "todo_scan" => tool_todo_scan(project_root),
+        "pty_list" => tool_pty_list(pty_registry),
+        "cockpit_state" => tool_cockpit_state(bus),
+        "notif_tabs" => tool_notif_tabs(bus),
         other => Err(format!("unknown MCP tool: {other}")),
     }
 }
@@ -337,6 +366,139 @@ fn tool_aegis_state(bus: &RiftBus) -> Result<Value, String> {
     match last {
         Some(env) => Ok(env.payload),
         None => Ok(Value::Null),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Phase B — Tier 1 read tools (D-014 plan §3 Tier 1)
+// ---------------------------------------------------------------------------
+
+/// `fs_read` — read a project-relative text file.
+///
+/// Args: `{ "path": "<relative-to-project-root>" }`. Mirrors the public
+/// `fs_read_text` Tauri command's path-validation discipline (root is the
+/// current `ProjectRoot`, NOT the launch cwd — post-swap reads land in
+/// the swapped project).
+fn tool_fs_read(project_root: &Path, payload: &Value) -> Result<Value, String> {
+    let path = payload
+        .get("path")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| "fs_read: missing required 'path' argument".to_owned())?;
+    let text = read_text(project_root, path).map_err(|e| e.to_string())?;
+    Ok(json!({ "path": path, "content": text }))
+}
+
+/// `fs_tree` — static snapshot of the project filesystem subtree.
+///
+/// Args: `{ "max_depth"?: number }`. Defaults to the same constant the
+/// Tauri command uses (`FS_TREE_DEFAULT_MAX_DEPTH = 6`). Ignore globs
+/// come from the persisted [`RiftConfig`] — same source the watcher uses.
+fn tool_fs_tree(project_root: &Path, payload: &Value) -> Result<Value, String> {
+    let max_depth = payload
+        .get("max_depth")
+        .and_then(|v| v.as_u64())
+        .map(|n| n.min(64) as u32)
+        .unwrap_or(rift_bus::FS_TREE_DEFAULT_MAX_DEPTH);
+
+    let ignore_patterns: Vec<String> =
+        load_config()
+            .map(|cfg| cfg.fs.ignore_globs)
+            .unwrap_or_else(|_| {
+                rift_bus::DEFAULT_IGNORE_GLOBS
+                    .iter()
+                    .map(|s| s.to_string())
+                    .collect()
+            });
+
+    let mut builder = globset::GlobSetBuilder::new();
+    for pattern in &ignore_patterns {
+        let glob = globset::Glob::new(pattern)
+            .map_err(|e| format!("fs_tree: invalid ignore glob '{pattern}': {e}"))?;
+        builder.add(glob);
+    }
+    let ignore_globs = builder
+        .build()
+        .map_err(|e| format!("fs_tree: failed to build GlobSet: {e}"))?;
+
+    let tree = build_tree(project_root, max_depth, &ignore_globs).map_err(|e| e.to_string())?;
+    serde_json::to_value(tree).map_err(|e| e.to_string())
+}
+
+/// `todo_scan` — scan project source for TODO/FIXME/XXX markers.
+///
+/// Same payload shape as the TODO notif tab. Ignore globs are loaded from
+/// [`RiftConfig`] (matching the public `todo_scan_command`).
+fn tool_todo_scan(project_root: &Path) -> Result<Value, String> {
+    let ignore_patterns: Vec<String> =
+        load_config()
+            .map(|cfg| cfg.fs.ignore_globs)
+            .unwrap_or_else(|_| {
+                rift_bus::DEFAULT_IGNORE_GLOBS
+                    .iter()
+                    .map(|s| s.to_string())
+                    .collect()
+            });
+
+    let mut builder = globset::GlobSetBuilder::new();
+    for pattern in &ignore_patterns {
+        let glob = globset::Glob::new(pattern)
+            .map_err(|e| format!("todo_scan: invalid ignore glob '{pattern}': {e}"))?;
+        builder.add(glob);
+    }
+    let ignore_globs = builder
+        .build()
+        .map_err(|e| format!("todo_scan: failed to build GlobSet: {e}"))?;
+
+    let entries = todo_scan::scan_todos(project_root, &ignore_globs);
+    let count = entries.len();
+    let entries_json = serde_json::to_value(entries).map_err(|e| e.to_string())?;
+    Ok(json!({ "entries": entries_json, "count": count }))
+}
+
+/// `pty_list` — currently-tracked PTY sessions: `[{ id, alive }]`.
+///
+/// Phase B v1.0 returns id + liveness. Per-session dimensions are not
+/// surfaced here yet; can be added when the registry tracks them
+/// alongside [`PtyControl`].
+fn tool_pty_list(pty_registry: &PtyRegistry) -> Result<Value, String> {
+    let entries: Vec<Value> = pty_registry
+        .list()
+        .into_iter()
+        .map(|(id, alive)| json!({ "id": id, "alive": alive }))
+        .collect();
+    let count = entries.len();
+    Ok(json!({ "sessions": entries, "count": count }))
+}
+
+/// `cockpit_state` — last `Category::System / kind="cockpit.state"`
+/// snapshot envelope. Producer is `cockpit_window` — the module
+/// publishes one envelope at startup and on every detach/reattach. If
+/// no producer envelope is in the bus replay buffer, returns
+/// `{ detached: false }` (sensible default — bare install isn't
+/// detached).
+fn tool_cockpit_state(bus: &RiftBus) -> Result<Value, String> {
+    let (snapshot, _sub) = bus.subscribe(SubscribeFilter::Category(Category::System));
+    let last = snapshot
+        .into_iter()
+        .rev()
+        .find(|e| e.kind == "cockpit.state");
+    match last {
+        Some(env) => Ok(env.payload),
+        None => Ok(json!({ "detached": false })),
+    }
+}
+
+/// `notif_tabs` — last `Category::System / kind="notif.tabs"` snapshot
+/// envelope. Producer is `App.svelte` — it republishes whenever the
+/// catalog changes (toggle / reorder / capability detection). If no
+/// producer envelope has landed yet (bare boot, before App mounts),
+/// returns an empty list rather than erroring.
+fn tool_notif_tabs(bus: &RiftBus) -> Result<Value, String> {
+    let (snapshot, _sub) = bus.subscribe(SubscribeFilter::Category(Category::System));
+    let last = snapshot.into_iter().rev().find(|e| e.kind == "notif.tabs");
+    match last {
+        Some(env) => Ok(env.payload),
+        None => Ok(json!({ "tabs": [] })),
     }
 }
 

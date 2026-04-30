@@ -15,7 +15,8 @@
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use rift_bus::publish_error;
+use rift_bus::{publish_error, Category, Envelope, RiftBus};
+use serde_json::json;
 use tauri::{AppHandle, Emitter, EventTarget, Manager, State};
 
 // ---------------------------------------------------------------------------
@@ -126,6 +127,9 @@ pub fn cockpit_detach(app: AppHandle, state: State<'_, CockpitWindowState>) -> R
                 if let Some(s) = app_for_close.try_state::<CockpitWindowState>() {
                     s.is_detached.store(false, Ordering::SeqCst);
                 }
+                if let Some(b) = app_for_close.try_state::<RiftBus>() {
+                    publish_cockpit_state(b.inner(), false);
+                }
                 emit_to_main(&app_for_close, EVENT_REATTACHED);
             }
         });
@@ -142,6 +146,7 @@ pub fn cockpit_detach(app: AppHandle, state: State<'_, CockpitWindowState>) -> R
 
     // Notify main that the cockpit is now detached.
     emit_to_main(&app, EVENT_DETACHED);
+    publish_cockpit_state(&bus, true);
 
     Ok(())
 }
@@ -168,12 +173,14 @@ pub fn cockpit_reattach(
             })?;
             state.is_detached.store(false, Ordering::SeqCst);
             emit_to_main(&app, EVENT_REATTACHED);
+            publish_cockpit_state(&bus, false);
         }
         None => {
             // Window missing entirely (setup-time build failed). Recover state
             // so the UI doesn't get stuck in "detached" mode.
             state.is_detached.store(false, Ordering::SeqCst);
             emit_to_main(&app, EVENT_REATTACHED);
+            publish_cockpit_state(&bus, false);
         }
     }
 
@@ -187,4 +194,17 @@ pub fn cockpit_reattach(
 #[tauri::command]
 pub fn cockpit_status(state: State<'_, CockpitWindowState>) -> bool {
     state.is_detached.load(Ordering::SeqCst)
+}
+
+/// Publish a `Category::System / kind="cockpit.state"` envelope so MCP
+/// consumers (`cockpit_state` tool, D-014 Phase B) can see the current
+/// detach state without holding a reference to [`CockpitWindowState`].
+///
+/// Should be called whenever the detach flag flips, plus once at startup
+/// from `setup()` so the bus replay buffer always carries a snapshot.
+pub fn publish_cockpit_state(bus: &RiftBus, detached: bool) {
+    let payload = json!({ "detached": detached });
+    if let Ok(env) = Envelope::new(Category::System, "cockpit.state").with_payload(&payload) {
+        bus.publish(env);
+    }
 }

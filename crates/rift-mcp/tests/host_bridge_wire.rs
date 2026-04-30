@@ -108,9 +108,21 @@ fn handle_envelope(bus: &RiftBus, accept_token: &str, env: &Envelope) {
 
     if let Some(tool) = kind.strip_prefix("mcp.request.") {
         let result: Result<Value, String> = match tool {
+            // Phase A
             "bus_history" => Ok(json!({ "envelopes": [], "count": 0 })),
             "git_status" => Ok(json!({ "branch": "main", "dirty": false })),
             "aegis_state" => Ok(json!({ "skill": "aegis", "version": "test" })),
+            // Phase B — Tier 1 read tools (D-014 §3)
+            "fs_read" => Ok(json!({ "path": "src/lib.rs", "content": "fn main() {}" })),
+            "fs_tree" => Ok(json!({
+                "name": "root",
+                "isDir": true,
+                "children": [],
+            })),
+            "todo_scan" => Ok(json!({ "entries": [], "count": 0 })),
+            "pty_list" => Ok(json!({ "sessions": [], "count": 0 })),
+            "cockpit_state" => Ok(json!({ "detached": false })),
+            "notif_tabs" => Ok(json!({ "tabs": [] })),
             "fail_me" => Err("simulated host failure".into()),
             "silent" => return, // never replies — used for timeout test
             other => Err(format!("unknown MCP tool: {other}")),
@@ -205,6 +217,35 @@ async fn unknown_tool_returns_bridge_tool_error() {
             assert!(message.starts_with("unknown MCP tool"), "got: {message}");
         }
         other => panic!("expected BridgeError::Tool, got {other:?}"),
+    }
+}
+
+/// Phase B — every newly-added Tier 1 read tool round-trips through the
+/// bridge and returns the mock host's payload unchanged. One test instead
+/// of six because the wire is identical per tool — only the payload shape
+/// differs, and the bridge is payload-opaque.
+#[tokio::test]
+async fn phase_b_tools_round_trip() {
+    let bridge = setup(TEST_TOKEN, TEST_TOKEN).await.expect("connect");
+
+    let cases: &[(&str, Value, &str)] = &[
+        ("fs_read", json!({ "path": "src/lib.rs" }), "path"),
+        ("fs_tree", json!({}), "name"),
+        ("todo_scan", json!({}), "count"),
+        ("pty_list", json!({}), "count"),
+        ("cockpit_state", json!({}), "detached"),
+        ("notif_tabs", json!({}), "tabs"),
+    ];
+
+    for (tool, args, expected_field) in cases {
+        let result = bridge
+            .call(tool, args)
+            .await
+            .unwrap_or_else(|e| panic!("{tool} call failed: {e:?}"));
+        assert!(
+            result.get(*expected_field).is_some(),
+            "{tool} response missing '{expected_field}': {result}"
+        );
     }
 }
 

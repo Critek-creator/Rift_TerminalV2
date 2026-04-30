@@ -195,8 +195,19 @@ no longer pending — it is being built.
   (cancel-on-disconnect) per locked v1.0 design — explicit cancel
   deferred to Phase F's WebSocket transport. 8 wire tests pass
   (6 existing + 2 new streaming tests covering single notify + ordering).
-- Phase B — Tier 1 completion (`fs_read`, `fs_tree`, `notif_tabs`,
-  `pty_list`, `cockpit_state`, `todo_scan`).
+- ~~Phase B — Tier 1 completion (`fs_read`, `fs_tree`, `notif_tabs`,
+  `pty_list`, `cockpit_state`, `todo_scan`).~~ **CLOSED 2026-04-29**:
+  6 read-only tools added to `rift-mcp` catalog and dispatched
+  host-side. `fs_read` / `fs_tree` / `todo_scan` wrap the existing
+  `read_text` / `build_tree` / `todo_scan::scan_todos` machinery
+  (same `RiftConfig.fs.ignore_globs` source the watcher uses).
+  `pty_list` reads from a new `PtyRegistry::list` (id + alive).
+  `cockpit_state` and `notif_tabs` read the latest snapshot envelope
+  from the bus replay buffer — producers are
+  `cockpit_window::publish_cockpit_state` (fires on detach/reattach +
+  startup snapshot) and an `App.svelte $effect` that republishes
+  `notif.tabs` whenever the catalog changes. 9 wire tests pass
+  (8 existing + 1 new `phase_b_tools_round_trip` covering all 6).
 - Phase C — DOM snapshot + screenshot + `js_eval`.
 - Phase D — mutating tools (`bus_publish`, `pty_input`, `fs_write`,
   `git_action`).
