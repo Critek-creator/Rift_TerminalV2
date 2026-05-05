@@ -64,6 +64,7 @@ use rift_bus::{
     SentinelEvent, ShellPref, SubscribeFilter, TreeNode, DEFAULT_IGNORE_GLOBS,
     FS_TREE_DEFAULT_MAX_DEPTH,
 };
+use rift_core::process::is_claude_descendant;
 use rift_core::pty::{PtyControl, PtyDims, PtyOptions, PtySession};
 use rift_core::shell::{resolve_auto_shell, resolve_custom_shell, resolve_named_shell};
 use serde::Serialize;
@@ -538,6 +539,15 @@ async fn pty_start(
     // Register a fresh CommandBuffer for this session (commands translator).
     app.state::<CommandBufferRegistry>().insert(id);
 
+    // L3: capture the root child PID for process-name detection.
+    let l3_root_pid = if lanes_enabled {
+        app.state::<PtyRegistry>()
+            .get(id)
+            .and_then(|ctl| ctl.child_pid())
+    } else {
+        None
+    };
+
     let drain_app = app.clone();
     // L2: clone the bus for hook/aegis subscription inside the drain task.
     let drain_bus = if lanes_enabled {
@@ -594,7 +604,20 @@ async fn pty_start(
                 chunk_opt = output.recv() => {
                     let Some(chunk) = chunk_opt else { break };
                     let out = match lane_classifier {
-                        Some(ref mut cls) => cls.transform(&chunk),
+                        Some(ref mut cls) => {
+                            let transformed = cls.transform(&chunk);
+                            // L3: On CMD_START, sample process tree for claude.
+                            if cls.take_cmd_start_flag() {
+                                if let Some(pid) = l3_root_pid {
+                                    if is_claude_descendant(pid) {
+                                        if let Some(ansi) = cls.inject_event(SentinelEvent::ClaudeStart) {
+                                            let _ = on_chunk.send(ansi);
+                                        }
+                                    }
+                                }
+                            }
+                            transformed
+                        }
                         None => chunk,
                     };
                     if on_chunk.send(out).is_err() { break; }

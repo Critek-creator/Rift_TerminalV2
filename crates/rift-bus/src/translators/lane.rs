@@ -109,6 +109,10 @@ pub struct LaneClassifier {
     total_bytes: usize,
     /// Partial sentinel buffer — accumulates bytes when we're mid-escape.
     partial_osc: Option<Vec<u8>>,
+    /// L3 flag: set when a CMD_START event is processed by the last
+    /// `transform()` / `feed()` call. The host reads this to trigger
+    /// process-name detection (sampled once per command).
+    cmd_start_fired: bool,
 }
 
 /// OSC 6973 prefix: ESC ] 6 9 7 3 ;
@@ -124,11 +128,21 @@ impl LaneClassifier {
             lane_stack: Vec::new(),
             total_bytes: 0,
             partial_osc: None,
+            cmd_start_fired: false,
         }
     }
 
     pub fn current_lane(&self) -> Lane {
         self.current_lane
+    }
+
+    /// L3: Returns `true` if the last `transform()` or `feed()` call
+    /// processed a CMD_START sentinel. Used by the drain task to trigger
+    /// one-shot process-name detection.
+    pub fn take_cmd_start_flag(&mut self) -> bool {
+        let v = self.cmd_start_fired;
+        self.cmd_start_fired = false;
+        v
     }
 
     /// Feed a chunk of PTY output bytes. Returns any lane transitions that
@@ -140,6 +154,7 @@ impl LaneClassifier {
     /// unrecognized OSC sequences, so passing them through is also safe
     /// (they just won't render anything).
     pub fn feed(&mut self, chunk: &[u8]) -> Vec<LaneChange> {
+        self.cmd_start_fired = false;
         let mut changes = Vec::new();
         let mut i = 0;
 
@@ -212,6 +227,9 @@ impl LaneClassifier {
     }
 
     fn apply_event(&mut self, event: SentinelEvent) -> Option<LaneChange> {
+        if matches!(event, SentinelEvent::CmdStart) {
+            self.cmd_start_fired = true;
+        }
         let new_lane = match event {
             SentinelEvent::PromptStart => {
                 self.lane_stack.clear();
@@ -304,6 +322,7 @@ impl LaneClassifier {
     /// mid-chunk). On sentinel-containing chunks, sentinels are removed and
     /// color escapes are spliced at the transition points.
     pub fn transform(&mut self, chunk: &[u8]) -> Vec<u8> {
+        self.cmd_start_fired = false;
         let mut out = Vec::with_capacity(chunk.len());
         let mut i = 0;
 

@@ -217,6 +217,18 @@ impl PtyControl {
     pub fn is_alive(&self) -> bool {
         self.inner.alive.load(Ordering::SeqCst)
     }
+
+    /// Return the PID of the root child process (the shell). Used by L3
+    /// process-name detection to walk the child tree looking for known
+    /// binaries (e.g. `claude.exe`). Returns `None` if the portable-pty
+    /// backend doesn't support process-id retrieval.
+    pub fn child_pid(&self) -> Option<u32> {
+        self.inner
+            .child
+            .lock()
+            .expect("pty child mutex poisoned")
+            .process_id()
+    }
 }
 
 // ---------------------------------------------------------------------------
