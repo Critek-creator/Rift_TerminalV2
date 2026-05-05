@@ -1379,7 +1379,8 @@ pub fn run() {
                 let mcp_root = app.state::<ProjectRoot>().inner().get();
                 let mcp_socket = socket_name.clone();
                 let mcp_pty = app.state::<PtyRegistry>().inner().clone();
-                mcp_host::spawn_mcp_host(mcp_bus, mcp_cfg, mcp_root, mcp_socket, mcp_pty);
+                let mcp_app = app.handle().clone();
+                mcp_host::spawn_mcp_host(mcp_bus, mcp_cfg, mcp_root, mcp_socket, mcp_pty, mcp_app);
             }
 
             // D-014 Phase B — seed `cockpit.state` snapshot so the

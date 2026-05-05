@@ -15,12 +15,15 @@
 //! Spec: `decisions/D-014_rift_mcp_v1_plan.md` (locked v1.1 — 2026-04-29).
 
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use rift_bus::{
     build_tree, load_config, publish_error, read_text, Category, Envelope, McpConfig, RiftBus,
     SubscribeFilter,
 };
 use serde_json::{json, Value};
+use tauri::{AppHandle, Listener, Manager};
+use tokio::sync::oneshot;
 
 use crate::{git_status, todo_scan, PtyRegistry};
 
@@ -44,6 +47,7 @@ pub fn spawn_mcp_host(
     project_root: PathBuf,
     socket_name: String,
     pty_registry: PtyRegistry,
+    app_handle: AppHandle,
 ) {
     if !cfg.enabled {
         tracing::debug!("mcp_host: MCP disabled in config — subscriber not spawned");
@@ -71,29 +75,53 @@ pub fn spawn_mcp_host(
     }
 
     let bus_for_task = bus.clone();
+    let cfg_for_task = cfg;
     tauri::async_runtime::spawn(async move {
-        run_subscriber(bus_for_task, project_root, token_present, pty_registry).await;
+        run_subscriber(
+            bus_for_task,
+            cfg_for_task,
+            project_root,
+            token_present,
+            pty_registry,
+            app_handle,
+        )
+        .await;
     });
 }
 
 async fn run_subscriber(
     bus: RiftBus,
+    cfg: McpConfig,
     project_root: PathBuf,
     token_present: bool,
     pty_registry: PtyRegistry,
+    app_handle: AppHandle,
 ) {
     let (snapshot, mut sub) = bus.subscribe(SubscribeFilter::Category(Category::Mcp));
 
-    // Replay drain — process any envelopes already in the buffer (rare but
-    // possible if the host enables MCP mid-session and there are queued
-    // requests; protocol clients typically wait for handshake first).
     for env in snapshot {
-        handle_envelope(&bus, &project_root, token_present, &pty_registry, &env);
+        handle_envelope(
+            &bus,
+            &cfg,
+            &project_root,
+            token_present,
+            &pty_registry,
+            &app_handle,
+            &env,
+        );
     }
 
     loop {
         match sub.recv().await {
-            Ok(env) => handle_envelope(&bus, &project_root, token_present, &pty_registry, &env),
+            Ok(env) => handle_envelope(
+                &bus,
+                &cfg,
+                &project_root,
+                token_present,
+                &pty_registry,
+                &app_handle,
+                &env,
+            ),
             Err(rift_bus::BusError::Lagged(n)) => {
                 tracing::warn!("mcp_host: subscriber lagged by {n} envelopes");
             }
@@ -104,9 +132,11 @@ async fn run_subscriber(
 
 fn handle_envelope(
     bus: &RiftBus,
+    cfg: &McpConfig,
     project_root: &Path,
     token_present: bool,
     pty_registry: &PtyRegistry,
+    app_handle: &AppHandle,
     env: &Envelope,
 ) {
     // Ignore our own outbound envelopes (responses, audit, errors). The
@@ -151,7 +181,15 @@ fn handle_envelope(
             return;
         }
 
-        let result = dispatch_tool(bus, project_root, pty_registry, tool_name, &env.payload);
+        let result = dispatch_tool(
+            bus,
+            cfg,
+            project_root,
+            pty_registry,
+            app_handle,
+            tool_name,
+            &env.payload,
+        );
         publish_response(bus, tool_name, request_id, result);
     }
 }
@@ -206,8 +244,10 @@ fn handle_handshake(bus: &RiftBus, env: &Envelope, token_present: bool) {
 
 fn dispatch_tool(
     bus: &RiftBus,
+    cfg: &McpConfig,
     project_root: &Path,
     pty_registry: &PtyRegistry,
+    app_handle: &AppHandle,
     tool: &str,
     payload: &Value,
 ) -> Result<Value, String> {
@@ -225,6 +265,28 @@ fn dispatch_tool(
         "pty_list" => tool_pty_list(pty_registry),
         "cockpit_state" => tool_cockpit_state(bus),
         "notif_tabs" => tool_notif_tabs(bus),
+        // Phase C — Tier 2 inspection tools (D-014 §3, default-off)
+        "dom_snapshot" => {
+            if !cfg.allow_inspection {
+                return Err("dom_snapshot requires mcp.allow_inspection = true".into());
+            }
+            tool_dom_snapshot(app_handle, payload)
+        }
+        "screenshot" => {
+            if !cfg.allow_inspection {
+                return Err("screenshot requires mcp.allow_inspection = true".into());
+            }
+            tool_screenshot(app_handle, payload)
+        }
+        "js_eval" => {
+            if !cfg.allow_inspection {
+                return Err("js_eval requires mcp.allow_inspection = true".into());
+            }
+            if !cfg.allow_js_eval {
+                return Err("js_eval requires mcp.allow_js_eval = true".into());
+            }
+            tool_js_eval(app_handle, payload)
+        }
         other => Err(format!("unknown MCP tool: {other}")),
     }
 }
@@ -500,6 +562,135 @@ fn tool_notif_tabs(bus: &RiftBus) -> Result<Value, String> {
         Some(env) => Ok(env.payload),
         None => Ok(json!({ "tabs": [] })),
     }
+}
+
+// ---------------------------------------------------------------------------
+// Phase C — Tier 2 inspection tools (D-014 §3, default-off)
+// ---------------------------------------------------------------------------
+
+fn resolve_window_label(payload: &Value) -> &str {
+    payload
+        .get("window")
+        .and_then(|v| v.as_str())
+        .unwrap_or("main")
+}
+
+fn eval_js_blocking(app_handle: &AppHandle, window_label: &str, js: &str) -> Result<Value, String> {
+    let webview = app_handle
+        .get_webview_window(window_label)
+        .ok_or_else(|| format!("window '{window_label}' not found"))?;
+
+    let callback_id = format!("mcp-eval-{}", uuid::Uuid::new_v4());
+    let (tx, rx) = oneshot::channel::<String>();
+
+    let tx = std::sync::Mutex::new(Some(tx));
+    let cb_id_for_listener = callback_id.clone();
+    app_handle.once(&cb_id_for_listener, move |event| {
+        if let Some(sender) = tx.lock().unwrap().take() {
+            let _ = sender.send(event.payload().to_string());
+        }
+    });
+
+    let escaped_cb = callback_id.replace('\'', "\\'");
+    let eval_script = format!(
+        r#"(async function() {{
+            const __cbId = '{escaped_cb}';
+            try {{
+                const __result = await (async function() {{ {js} }})();
+                const __serialized = (typeof __result === 'string') ? __result : JSON.stringify(__result);
+                window.__TAURI__.event.emit(__cbId, JSON.stringify({{ ok: true, result: __serialized }}));
+            }} catch (e) {{
+                window.__TAURI__.event.emit(__cbId, JSON.stringify({{ ok: false, error: e.message || String(e) }}));
+            }}
+        }})()"#
+    );
+
+    webview
+        .eval(&eval_script)
+        .map_err(|e| format!("eval dispatch failed: {e}"))?;
+
+    let result = tauri::async_runtime::block_on(async {
+        tokio::time::timeout(Duration::from_secs(10), rx).await
+    });
+
+    match result {
+        Ok(Ok(raw)) => {
+            let parsed: Value =
+                serde_json::from_str(&raw).map_err(|e| format!("parse eval result: {e}"))?;
+            if parsed.get("ok") == Some(&Value::Bool(true)) {
+                let inner = parsed
+                    .get("result")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("null");
+                Ok(serde_json::from_str(inner).unwrap_or(Value::String(inner.to_owned())))
+            } else {
+                Err(parsed
+                    .get("error")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown JS error")
+                    .to_owned())
+            }
+        }
+        Ok(Err(_)) => Err("eval callback channel closed unexpectedly".into()),
+        Err(_) => Err("js_eval timed out after 10s".into()),
+    }
+}
+
+fn tool_dom_snapshot(app_handle: &AppHandle, payload: &Value) -> Result<Value, String> {
+    let window = resolve_window_label(payload);
+    let html = eval_js_blocking(
+        app_handle,
+        window,
+        "return document.documentElement.outerHTML;",
+    )?;
+    Ok(json!({ "window": window, "html": html }))
+}
+
+fn tool_screenshot(app_handle: &AppHandle, payload: &Value) -> Result<Value, String> {
+    let window = resolve_window_label(payload);
+    let result = eval_js_blocking(
+        app_handle,
+        window,
+        r#"
+            const canvas = document.createElement('canvas');
+            const rect = document.documentElement.getBoundingClientRect();
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            const ctx = canvas.getContext('2d');
+            const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${canvas.width}" height="${canvas.height}">
+                <foreignObject width="100%" height="100%">
+                    <div xmlns="http://www.w3.org/1999/xhtml">${document.documentElement.outerHTML}</div>
+                </foreignObject>
+            </svg>`;
+            const img = new Image();
+            const blob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' });
+            const url = URL.createObjectURL(blob);
+            await new Promise((resolve, reject) => {
+                img.onload = resolve;
+                img.onerror = () => reject(new Error('SVG render failed — screenshot unavailable (cross-origin or tainted canvas)'));
+                img.src = url;
+            });
+            ctx.drawImage(img, 0, 0);
+            URL.revokeObjectURL(url);
+            return canvas.toDataURL('image/png');
+        "#,
+    )?;
+    let data_url = result.as_str().unwrap_or("");
+    let base64 = data_url
+        .strip_prefix("data:image/png;base64,")
+        .unwrap_or(data_url);
+    Ok(json!({ "window": window, "png_base64": base64, "width": null, "height": null }))
+}
+
+fn tool_js_eval(app_handle: &AppHandle, payload: &Value) -> Result<Value, String> {
+    let window = resolve_window_label(payload);
+    let code = payload
+        .get("code")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| "js_eval: missing required 'code' argument".to_owned())?;
+    let wrapper = format!("return (async function() {{ {code} }})();");
+    let result = eval_js_blocking(app_handle, window, &wrapper)?;
+    Ok(json!({ "window": window, "result": result }))
 }
 
 fn publish_response(bus: &RiftBus, tool: &str, request_id: Value, result: Result<Value, String>) {

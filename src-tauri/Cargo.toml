@@ -22,6 +22,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
+uuid = { version = "1", features = ["v4"] }
 rift-bus = { path = "../crates/rift-bus" }
 rift-core = { path = "../crates/rift-core" }
 # Phase 7 — Aegis private translator (feature-gated optional path dep).

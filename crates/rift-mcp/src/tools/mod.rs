@@ -1,4 +1,4 @@
-//! Tool catalog — Phase A (4 tools) + Phase B (6 tools) read-only Tier 1.
+//! Tool catalog — Phase A (4) + Phase B (6) + Phase C (3) = 13 tools.
 //!
 //! Each tool's `inputSchema` is a JSON Schema object understood by MCP
 //! clients. Per-tool semantics live host-side in `src-tauri/src/mcp_host.rs`;
@@ -29,7 +29,7 @@ pub struct ToolSpec {
     pub input_schema: Value,
 }
 
-/// Phase A + Phase B tool catalog (10 tools — D-014 §3 Tier 1 read tools).
+/// Phase A + B + C tool catalog (13 tools — D-014 §3 Tier 1 + Tier 2).
 pub fn tool_catalog() -> Vec<ToolSpec> {
     vec![
         ToolSpec {
@@ -144,6 +144,54 @@ pub fn tool_catalog() -> Vec<ToolSpec> {
             input_schema: json!({
                 "type": "object",
                 "properties": {},
+            }),
+        },
+        // ----- Phase C — Tier 2 inspection tools (D-014 §3, default-off) -----
+        ToolSpec {
+            name: "dom_snapshot",
+            description: "Return the full HTML of the named Rift webview window. Requires `mcp.allow_inspection = true` in config.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "window": {
+                        "type": "string",
+                        "enum": ["main", "cockpit"],
+                        "description": "Which window to snapshot. Default: main.",
+                    },
+                },
+            }),
+        },
+        ToolSpec {
+            name: "screenshot",
+            description: "Capture the named Rift webview window as a base64-encoded PNG. Requires `mcp.allow_inspection = true` in config.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "window": {
+                        "type": "string",
+                        "enum": ["main", "cockpit"],
+                        "description": "Which window to capture. Default: main.",
+                    },
+                },
+            }),
+        },
+        ToolSpec {
+            name: "js_eval",
+            description: "Evaluate JavaScript in the named Rift webview and return the result. Requires BOTH `mcp.allow_inspection = true` AND `mcp.allow_js_eval = true` in config.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "window": {
+                        "type": "string",
+                        "enum": ["main", "cockpit"],
+                        "description": "Which window to evaluate in. Default: main.",
+                    },
+                    "code": {
+                        "type": "string",
+                        "description": "JavaScript code to evaluate. The last expression's value is returned as JSON.",
+                    },
+                },
+                "required": ["code"],
             }),
         },
     ]

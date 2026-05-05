@@ -342,6 +342,10 @@ mod tests {
             "pty_list",
             "cockpit_state",
             "notif_tabs",
+            // Phase C — Tier 2 inspection tools
+            "dom_snapshot",
+            "screenshot",
+            "js_eval",
         ] {
             assert!(names.contains(&expected), "missing tool {expected}");
         }
