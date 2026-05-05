@@ -9,5 +9,6 @@ pub mod commands;
 pub mod errors;
 pub mod fs;
 pub mod index;
+pub mod lane;
 pub mod status;
 pub mod vault_walker;
