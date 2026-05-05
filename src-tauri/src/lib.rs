@@ -58,10 +58,10 @@ type DrainHandle = tauri::async_runtime::JoinHandle<()>;
 use rift_aegis::probe as aegis_probe;
 
 use rift_bus::{
-    build_tree, load_config, publish_command, publish_error, read_text, save_config,
-    spawn_fs_watcher, spawn_status_translator, spawn_vault_walker, write_text, Category,
-    CommandBuffer, Envelope, FsWatcher, IpcServer, RiftBus, RiftConfig, ShellPref, SubscribeFilter,
-    TreeNode, DEFAULT_IGNORE_GLOBS, FS_TREE_DEFAULT_MAX_DEPTH,
+    build_tree, load_config, prepare_lane_prelude, publish_command, publish_error, read_text,
+    save_config, spawn_fs_watcher, spawn_status_translator, spawn_vault_walker, write_text,
+    Category, CommandBuffer, Envelope, FsWatcher, IpcServer, LaneClassifier, RiftBus, RiftConfig,
+    ShellPref, SubscribeFilter, TreeNode, DEFAULT_IGNORE_GLOBS, FS_TREE_DEFAULT_MAX_DEPTH,
 };
 use rift_core::pty::{PtyControl, PtyDims, PtyOptions, PtySession};
 use rift_core::shell::{resolve_auto_shell, resolve_custom_shell, resolve_named_shell};
@@ -462,7 +462,21 @@ async fn pty_start(
     // on Unix — fixing the cmd.exe-only history-key UX surfaced in the
     // 2026-04-29 audit.
     let cfg_for_shell = load_config().unwrap_or_default();
-    let (shell_path, shell_args) = resolve_shell_from_pref(&cfg_for_shell.terminal.shell);
+    let (shell_path, mut shell_args) = resolve_shell_from_pref(&cfg_for_shell.terminal.shell);
+    // D-018: Lane classification prelude injection. When lanes_enabled,
+    // write the shell-specific prelude to a temp file and modify the
+    // spawn args so the shell sources it at startup (transparent to user).
+    let lanes_enabled = cfg_for_shell.terminal.lanes_enabled;
+    if lanes_enabled {
+        if let Some(injection) = prepare_lane_prelude(&shell_path) {
+            if !injection.shell_args.is_empty() {
+                shell_args = injection.shell_args;
+            }
+            for (k, v) in injection.extra_env {
+                opts = opts.with_env(k, v);
+            }
+        }
+    }
     opts = opts.with_shell(shell_path, shell_args);
     if let Some(ipc) = app.try_state::<BusIpcState>() {
         opts = opts.with_env("RIFT_SOCKET_NAME", ipc.socket_name.clone());
@@ -514,8 +528,20 @@ async fn pty_start(
             });
         }
 
+        // D-018: Lane classifier sits in the output path when enabled.
+        // Strips OSC 6973 sentinels and injects ANSI lane-color prefixes.
+        let mut lane_classifier = if lanes_enabled {
+            Some(LaneClassifier::new())
+        } else {
+            None
+        };
+
         while let Some(chunk) = output.recv().await {
-            if on_chunk.send(chunk).is_err() {
+            let out = match lane_classifier {
+                Some(ref mut cls) => cls.transform(&chunk),
+                None => chunk,
+            };
+            if on_chunk.send(out).is_err() {
                 break;
             }
         }

@@ -175,3 +175,13 @@ pub use config::{ensure_mcp_token, generate_mcp_token, load_mcp_token, save_mcp_
 /// name to this file on startup so the standalone `rift-mcp` binary can
 /// connect without `--socket` or `$RIFT_SOCKET_NAME` plumbed through.
 pub use config::{clear_mcp_socket, load_mcp_socket, mcp_socket_path, save_mcp_socket};
+
+// ---------------------------------------------------------------------------
+// Lane classifier re-exports (D-018)
+// ---------------------------------------------------------------------------
+
+/// Lane classifier + prelude injection for live PTY-stream lane classification.
+pub use translators::lane::{LaneClassifier, PreludeInjection};
+
+/// Prepare the lane-classification shell prelude for a given shell binary.
+pub use translators::lane::prepare_lane_prelude;

@@ -29,6 +29,12 @@
 //! single-pass byte scanner with no allocations on non-sentinel chunks.
 
 use std::fmt;
+use std::path::{Path, PathBuf};
+
+// Embedded prelude scripts (include_str! embeds at compile time).
+const PRELUDE_PWSH: &str = include_str!("lane_prelude/pwsh.ps1");
+const PRELUDE_BASH: &str = include_str!("lane_prelude/bash.sh");
+const PRELUDE_ZSH: &str = include_str!("lane_prelude/zsh.sh");
 
 /// Lane identity — the 8 lanes from §10.1.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -255,6 +261,223 @@ impl Default for LaneClassifier {
     }
 }
 
+// -------------------------------------------------------------------------
+// ANSI lane-color escapes (24-bit, matching src/lib/laneFormat.ts palette)
+// -------------------------------------------------------------------------
+
+impl Lane {
+    /// ANSI 24-bit foreground escape for this lane. Matches the palette in
+    /// `src/lib/laneFormat.ts` so Rift-owned and PTY-stream colors are
+    /// consistent.
+    fn ansi_prefix(&self) -> &'static [u8] {
+        match self {
+            // SYS: italic + amber faint (168, 120, 48)
+            Lane::Sys => b"\x1b[3;38;2;168;120;48m",
+            // UserInput: off-white (216, 212, 200)
+            Lane::UserInput => b"\x1b[38;2;216;212;200m",
+            // CLAUDE: blue (108, 182, 255)
+            Lane::Claude => b"\x1b[38;2;108;182;255m",
+            // AGENT: purple (197, 143, 255)
+            Lane::Agent => b"\x1b[38;2;197;143;255m",
+            // HOOK: cyan (111, 224, 224)
+            Lane::Hook => b"\x1b[38;2;111;224;224m",
+            // AEGIS: amber primary (255, 168, 38)
+            Lane::Aegis => b"\x1b[38;2;255;168;38m",
+            // OK: terminal green (79, 232, 85)
+            Lane::Ok => b"\x1b[38;2;79;232;85m",
+            // ERR: terminal red (255, 72, 72)
+            Lane::Err => b"\x1b[38;2;255;72;72m",
+        }
+    }
+}
+
+// -------------------------------------------------------------------------
+// Chunk transformer — strip sentinels + inject lane colors
+// -------------------------------------------------------------------------
+
+impl LaneClassifier {
+    /// Transform a PTY chunk: strip OSC 6973 sentinels and inject ANSI lane-
+    /// color escapes at each lane transition. Returns the modified byte stream
+    /// ready for xterm.js.
+    ///
+    /// On chunks with no sentinels, this is a memcpy (no color change needed
+    /// mid-chunk). On sentinel-containing chunks, sentinels are removed and
+    /// color escapes are spliced at the transition points.
+    pub fn transform(&mut self, chunk: &[u8]) -> Vec<u8> {
+        let mut out = Vec::with_capacity(chunk.len());
+        let mut i = 0;
+
+        while i < chunk.len() {
+            // Continue accumulating a partial sentinel from prior chunk.
+            if let Some(ref mut buf) = self.partial_osc {
+                if chunk[i] == BEL {
+                    let event_str = String::from_utf8_lossy(buf).to_string();
+                    if let Some(evt) = parse_sentinel_event(&event_str) {
+                        if let Some(change) = self.apply_event(evt) {
+                            out.extend_from_slice(change.lane.ansi_prefix());
+                        }
+                    }
+                    self.partial_osc = None;
+                    i += 1;
+                } else if buf.len() > 256 {
+                    self.partial_osc = None;
+                } else {
+                    buf.push(chunk[i]);
+                    i += 1;
+                }
+                continue;
+            }
+
+            // Look for ESC (start of potential sentinel).
+            if chunk[i] == 0x1b {
+                let remaining = &chunk[i..];
+                if remaining.len() >= OSC_PREFIX_LEN && &remaining[..OSC_PREFIX_LEN] == OSC_PREFIX {
+                    // Full prefix found — scan for BEL.
+                    let after_prefix = i + OSC_PREFIX_LEN;
+                    if let Some(bel_pos) = chunk[after_prefix..].iter().position(|&b| b == BEL) {
+                        // Complete sentinel — parse and emit color if lane changed.
+                        let event_bytes = &chunk[after_prefix..after_prefix + bel_pos];
+                        let event_str = String::from_utf8_lossy(event_bytes).to_string();
+                        if let Some(evt) = parse_sentinel_event(&event_str) {
+                            if let Some(change) = self.apply_event(evt) {
+                                out.extend_from_slice(change.lane.ansi_prefix());
+                            }
+                        }
+                        i = after_prefix + bel_pos + 1;
+                    } else {
+                        // Prefix found but BEL not in chunk — start partial.
+                        self.partial_osc = Some(chunk[after_prefix..].to_vec());
+                        i = chunk.len();
+                    }
+                } else {
+                    // Not our sentinel — pass through.
+                    out.push(chunk[i]);
+                    i += 1;
+                    self.total_bytes += 1;
+                }
+            } else {
+                out.push(chunk[i]);
+                i += 1;
+                self.total_bytes += 1;
+            }
+        }
+
+        out
+    }
+}
+
+// -------------------------------------------------------------------------
+// Shell prelude injection
+// -------------------------------------------------------------------------
+
+/// Instructions for injecting the lane prelude into a shell spawn.
+#[derive(Debug)]
+pub struct PreludeInjection {
+    /// Replace the shell args with these (e.g. ["-NoExit", "-Command", "..."]).
+    pub shell_args: Vec<String>,
+    /// Additional env vars to set on the PTY.
+    pub extra_env: Vec<(String, String)>,
+}
+
+/// Determine which shell is at `resolved_path` by inspecting its filename.
+fn detect_shell_kind(resolved_path: &Path) -> ShellKind {
+    let stem = resolved_path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("")
+        .to_lowercase();
+    match stem.as_str() {
+        "pwsh" | "powershell" => ShellKind::Pwsh,
+        "bash" => ShellKind::Bash,
+        "zsh" => ShellKind::Zsh,
+        _ => ShellKind::Unknown,
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ShellKind {
+    Pwsh,
+    Bash,
+    Zsh,
+    Unknown,
+}
+
+/// Prepare the lane-classification prelude for injection into a PTY session.
+///
+/// Writes the appropriate prelude script to a temp file and returns
+/// `PreludeInjection` with the modified shell args / env. Returns `None`
+/// for shells that don't support lane classification (cmd.exe, sh).
+///
+/// `resolved_path` is the concrete shell binary (e.g. `C:\Program Files\PowerShell\7\pwsh.exe`).
+pub fn prepare_lane_prelude(resolved_path: &Path) -> Option<PreludeInjection> {
+    let kind = detect_shell_kind(resolved_path);
+    match kind {
+        ShellKind::Pwsh => prepare_pwsh_prelude(),
+        ShellKind::Bash => prepare_bash_prelude(),
+        ShellKind::Zsh => prepare_zsh_prelude(),
+        ShellKind::Unknown => None,
+    }
+}
+
+fn prelude_temp_dir() -> PathBuf {
+    let mut dir = std::env::temp_dir();
+    dir.push("rift-lane-prelude");
+    dir
+}
+
+fn prepare_pwsh_prelude() -> Option<PreludeInjection> {
+    let dir = prelude_temp_dir();
+    std::fs::create_dir_all(&dir).ok()?;
+    let file = dir.join("prelude.ps1");
+    std::fs::write(&file, PRELUDE_PWSH).ok()?;
+    let path_str = file.to_string_lossy().replace('\'', "''");
+    Some(PreludeInjection {
+        shell_args: vec![
+            "-NoExit".into(),
+            "-Command".into(),
+            format!(". '{path_str}'"),
+        ],
+        extra_env: vec![],
+    })
+}
+
+fn prepare_bash_prelude() -> Option<PreludeInjection> {
+    let dir = prelude_temp_dir();
+    std::fs::create_dir_all(&dir).ok()?;
+    let file = dir.join("prelude-bash.sh");
+    let content = format!(
+        "# Rift lane prelude wrapper — sources user's .bashrc then lane hooks\n\
+         [[ -f ~/.bashrc ]] && source ~/.bashrc\n\
+         {PRELUDE_BASH}"
+    );
+    std::fs::write(&file, content).ok()?;
+    let path_str = file.to_string_lossy().to_string();
+    Some(PreludeInjection {
+        shell_args: vec!["--rcfile".into(), path_str],
+        extra_env: vec![],
+    })
+}
+
+fn prepare_zsh_prelude() -> Option<PreludeInjection> {
+    let dir = prelude_temp_dir();
+    let zdotdir = dir.join("zsh");
+    std::fs::create_dir_all(&zdotdir).ok()?;
+    let zshrc = zdotdir.join(".zshrc");
+    let content = format!(
+        "# Rift lane prelude wrapper — sources user's .zshrc then lane hooks\n\
+         _rift_real_zdotdir=\"$HOME\"\n\
+         [[ -f \"$_rift_real_zdotdir/.zshrc\" ]] && source \"$_rift_real_zdotdir/.zshrc\"\n\
+         unset _rift_real_zdotdir\n\
+         {PRELUDE_ZSH}"
+    );
+    std::fs::write(&zshrc, content).ok()?;
+    let zdotdir_str = zdotdir.to_string_lossy().to_string();
+    Some(PreludeInjection {
+        shell_args: vec![],
+        extra_env: vec![("ZDOTDIR".into(), zdotdir_str)],
+    })
+}
+
 /// Parse a sentinel event string (the content between `\x1b]6973;` and `\x07`).
 fn parse_sentinel_event(s: &str) -> Option<SentinelEvent> {
     let parts: Vec<&str> = s.splitn(2, ';').collect();
@@ -390,5 +613,95 @@ mod tests {
         let big = vec![b'A'; 65536];
         let changes = c.feed(&big);
         assert!(changes.is_empty());
+    }
+
+    // -----------------------------------------------------------------
+    // transform() tests
+    // -----------------------------------------------------------------
+
+    #[test]
+    fn transform_passthrough_no_sentinels() {
+        let mut c = LaneClassifier::new();
+        let input = b"hello world\r\n";
+        let out = c.transform(input);
+        assert_eq!(out, input);
+    }
+
+    #[test]
+    fn transform_strips_sentinel_injects_color() {
+        let mut c = LaneClassifier::new();
+        let input = b"\x1b]6973;PROMPT_END\x07typed text";
+        let out = c.transform(input);
+        // Sentinel must be stripped; UserInput color prefix injected.
+        assert!(!out.windows(4).any(|w| w == b"6973"));
+        assert!(out.starts_with(Lane::UserInput.ansi_prefix()));
+        assert!(out.windows(10).any(|w| w == b"typed text"));
+    }
+
+    #[test]
+    fn transform_multiple_transitions() {
+        let mut c = LaneClassifier::new();
+        let input =
+            b"\x1b]6973;PROMPT_END\x07cmd\x1b]6973;CMD_START\x07output\x1b]6973;CMD_END;exit=1\x07";
+        let out = c.transform(input);
+        // Should contain UserInput prefix, Ok prefix, and Err prefix.
+        let out_str = String::from_utf8_lossy(&out);
+        // UserInput color for "cmd"
+        assert!(out.windows(3).any(|w| w == b"cmd"));
+        // Err color injected after CMD_END;exit=1
+        assert!(out
+            .windows(Lane::Err.ansi_prefix().len())
+            .any(|w| w == Lane::Err.ansi_prefix()));
+        // "output" text preserved
+        assert!(out_str.contains("output"));
+    }
+
+    #[test]
+    fn transform_large_chunk_no_sentinel_is_identity() {
+        let mut c = LaneClassifier::new();
+        let big = vec![b'X'; 65536];
+        let out = c.transform(&big);
+        assert_eq!(out, big);
+    }
+
+    // -----------------------------------------------------------------
+    // Prelude injection tests
+    // -----------------------------------------------------------------
+
+    #[test]
+    fn detect_pwsh_from_path() {
+        let path = Path::new("C:\\Program Files\\PowerShell\\7\\pwsh.exe");
+        assert_eq!(detect_shell_kind(path), ShellKind::Pwsh);
+    }
+
+    #[test]
+    fn detect_bash_from_path() {
+        let path = Path::new("/usr/bin/bash");
+        assert_eq!(detect_shell_kind(path), ShellKind::Bash);
+    }
+
+    #[test]
+    fn detect_unknown_cmd() {
+        let path = Path::new("C:\\Windows\\System32\\cmd.exe");
+        assert_eq!(detect_shell_kind(path), ShellKind::Unknown);
+    }
+
+    #[test]
+    fn prepare_prelude_pwsh_writes_file() {
+        let path = Path::new("/usr/local/bin/pwsh");
+        let injection = prepare_lane_prelude(path).expect("pwsh should produce injection");
+        assert_eq!(injection.shell_args.len(), 3);
+        assert_eq!(injection.shell_args[0], "-NoExit");
+        assert_eq!(injection.shell_args[1], "-Command");
+        assert!(injection.shell_args[2].contains("prelude.ps1"));
+        // Verify the file was actually written.
+        let dir = prelude_temp_dir();
+        assert!(dir.join("prelude.ps1").exists());
+    }
+
+    #[test]
+    fn prepare_prelude_unknown_returns_none() {
+        let path = Path::new("C:\\Windows\\System32\\cmd.exe");
+        assert!(prepare_lane_prelude(path).is_none());
     }
 }
