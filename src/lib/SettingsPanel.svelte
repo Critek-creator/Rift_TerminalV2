@@ -27,6 +27,9 @@
 
   let { popoutId }: Props = $props();
 
+  type SettingsTab = 'general' | 'terminal' | 'index' | 'mcp';
+  let activeTab = $state<SettingsTab>('general');
+
   // ---------------------------------------------------------------------
   // About
   // ---------------------------------------------------------------------
@@ -88,11 +91,15 @@
     ignore_globs: string[];
     max_depth: number;
   }
+  type IndexLabelVisibility = 'always' | 'hover_only' | 'on_zoom2x' | 'unknown';
+  type IndexDensity = 'compact' | 'standard' | 'spacious' | 'unknown';
   interface IndexConfig {
     ignore_globs: string[];
     sync_mode: 'live' | 'manual' | 'unknown';
     camera_transform?: unknown;
     node_positions?: unknown;
+    label_visibility: IndexLabelVisibility;
+    density: IndexDensity;
   }
   interface CockpitConfig {
     detached_pos?: unknown;
@@ -144,6 +151,8 @@
   let fsIgnoreText = $state('');
   let fsMaxDepth = $state(0);
   let indexSyncMode = $state<'live' | 'manual'>('live');
+  let indexLabelVisibility = $state<'always' | 'hover_only' | 'on_zoom2x'>('always');
+  let indexDensity = $state<'compact' | 'standard' | 'spacious'>('standard');
 
   let savingFs = $state(false);
   let savingIndex = $state(false);
@@ -176,6 +185,13 @@
     }
   }
 
+  /** Phase 8.7q.1 — broadcast a `rift:config-changed` window event so live
+   *  surfaces (IndexGraph density + label-visibility, etc.) re-read their
+   *  config without needing a remount. Called after every successful save. */
+  function broadcastConfigChanged(): void {
+    window.dispatchEvent(new CustomEvent('rift:config-changed'));
+  }
+
   async function onToggleMcp(value: boolean, key: keyof McpConfig) {
     if (!config) return;
     savingMcp = true;
@@ -187,6 +203,7 @@
       };
       await invoke('config_save', { cfg: next });
       config = next;
+      broadcastConfigChanged();
       // Generating-on-enable so the token is ready when the user copies it.
       if (key === 'enabled' && value && !mcpToken) {
         try {
@@ -252,7 +269,12 @@
         || fsMaxDepth !== config.fs.max_depth)
   );
   const indexDirty = $derived(
-    config !== null && indexSyncMode !== config.index.sync_mode
+    config !== null
+    && (
+      indexSyncMode !== config.index.sync_mode
+      || indexLabelVisibility !== (config.index.label_visibility === 'unknown' ? 'always' : config.index.label_visibility)
+      || indexDensity !== (config.index.density === 'unknown' ? 'standard' : config.index.density)
+    )
   );
 
   function buildTerminalShellPref(): ShellPref {
@@ -283,6 +305,18 @@
     fsIgnoreText = c.fs.ignore_globs.join('\n');
     fsMaxDepth = c.fs.max_depth;
     indexSyncMode = c.index.sync_mode === 'manual' ? 'manual' : 'live';
+    indexLabelVisibility =
+      c.index.label_visibility === 'hover_only'
+        ? 'hover_only'
+        : c.index.label_visibility === 'on_zoom2x'
+          ? 'on_zoom2x'
+          : 'always';
+    indexDensity =
+      c.index.density === 'compact'
+        ? 'compact'
+        : c.index.density === 'spacious'
+          ? 'spacious'
+          : 'standard';
     // Terminal snapshot — defaults for old configs are filled by serde-side
     // #[serde(default)], so c.terminal is always present at runtime.
     termShellKind = c.terminal.shell.kind;
@@ -323,6 +357,7 @@
       };
       await invoke('config_save', { cfg: next });
       config = next;
+      broadcastConfigChanged();
       saveBanner = { section: 'fs', ok: true, msg: 'filesystem settings saved' };
     } catch (err) {
       saveBanner = { section: 'fs', ok: false, msg: String(err) };
@@ -348,6 +383,7 @@
       };
       await invoke('config_save', { cfg: next });
       config = next;
+      broadcastConfigChanged();
       saveBanner = {
         section: 'terminal',
         ok: true,
@@ -370,10 +406,13 @@
         index: {
           ...config.index,
           sync_mode: indexSyncMode,
+          label_visibility: indexLabelVisibility,
+          density: indexDensity,
         },
       };
       await invoke('config_save', { cfg: next });
       config = next;
+      broadcastConfigChanged();
       saveBanner = { section: 'index', ok: true, msg: 'index settings saved' };
     } catch (err) {
       saveBanner = { section: 'index', ok: false, msg: String(err) };
@@ -435,8 +474,24 @@
      role="dialog"
      tabindex="-1"
 >
+  <nav class="tab-strip">
+    {#each [
+      { id: 'general',  label: 'GENERAL' },
+      { id: 'terminal', label: 'TERMINAL' },
+      { id: 'index',    label: 'INDEX' },
+      { id: 'mcp',      label: 'MCP' },
+    ] as tab (tab.id)}
+      <button
+        class="tab-btn"
+        class:active={activeTab === tab.id}
+        onclick={() => (activeTab = tab.id as SettingsTab)}
+      >{tab.label}</button>
+    {/each}
+  </nav>
+
   <div class="settings-body">
 
+    {#if activeTab === 'general'}
     <!-- ABOUT -->
     <section class="section">
       <div class="section-label">About</div>
@@ -520,7 +575,63 @@
       </div>
     </section>
 
-    <!-- TERMINAL — D-018 groundwork (audit close 2026-04-29) -->
+    <!-- FILESYSTEM -->
+    <section class="section">
+      <div class="section-label">Filesystem</div>
+      {#if configError}
+        <div class="banner banner-fail">{configError}</div>
+      {:else if !config}
+        <div class="hint">loading…</div>
+      {:else}
+        <label class="field">
+          <span class="field-label">ignore globs · one per line</span>
+          <textarea
+            class="field-input"
+            bind:value={fsIgnoreText}
+            rows="6"
+            spellcheck="false"
+          ></textarea>
+        </label>
+        <label class="field">
+          <span class="field-label">max walk depth · 1–64</span>
+          <input
+            type="number"
+            class="field-input field-narrow"
+            bind:value={fsMaxDepth}
+            min="1"
+            max="64"
+          />
+        </label>
+        <div class="row">
+          <button
+            type="button"
+            class="btn primary"
+            disabled={!fsDirty || savingFs}
+            onclick={saveFsConfig}
+          >
+            {savingFs ? 'saving…' : 'save filesystem'}
+          </button>
+          {#if saveBanner && saveBanner.section === 'fs'}
+            <span class="banner-inline" class:fail={!saveBanner.ok}>
+              {saveBanner.msg}
+            </span>
+          {/if}
+        </div>
+      {/if}
+    </section>
+
+    <!-- NOTIFICATIONS -->
+    <section class="section">
+      <div class="section-label">Notifications</div>
+      <div class="hint">
+        notification tabs are managed from a dedicated popout — opens via the
+        <code>⋯</code> button on the right edge of the tab strip, or here.
+      </div>
+    </section>
+    {/if}
+
+    {#if activeTab === 'terminal'}
+    <!-- TERMINAL -->
     {#if config}
       <section class="section">
         <div class="section-label">Terminal</div>
@@ -624,53 +735,12 @@
           {/if}
         </div>
       </section>
+    {:else}
+      <div class="hint">loading config…</div>
+    {/if}
     {/if}
 
-    <!-- FILESYSTEM -->
-    <section class="section">
-      <div class="section-label">Filesystem</div>
-      {#if configError}
-        <div class="banner banner-fail">{configError}</div>
-      {:else if !config}
-        <div class="hint">loading…</div>
-      {:else}
-        <label class="field">
-          <span class="field-label">ignore globs · one per line</span>
-          <textarea
-            class="field-input"
-            bind:value={fsIgnoreText}
-            rows="6"
-            spellcheck="false"
-          ></textarea>
-        </label>
-        <label class="field">
-          <span class="field-label">max walk depth · 1–64</span>
-          <input
-            type="number"
-            class="field-input field-narrow"
-            bind:value={fsMaxDepth}
-            min="1"
-            max="64"
-          />
-        </label>
-        <div class="row">
-          <button
-            type="button"
-            class="btn primary"
-            disabled={!fsDirty || savingFs}
-            onclick={saveFsConfig}
-          >
-            {savingFs ? 'saving…' : 'save filesystem'}
-          </button>
-          {#if saveBanner && saveBanner.section === 'fs'}
-            <span class="banner-inline" class:fail={!saveBanner.ok}>
-              {saveBanner.msg}
-            </span>
-          {/if}
-        </div>
-      {/if}
-    </section>
-
+    {#if activeTab === 'index'}
     <!-- INDEX -->
     {#if config}
       <section class="section">
@@ -700,6 +770,46 @@
             <span>manual</span>
           </label>
         </div>
+
+        <div class="hint" style="margin-top: 12px;">
+          graph cluster density — scales the radial spread between vault clusters.
+        </div>
+        <div class="radio-row">
+          {#each ['compact', 'standard', 'spacious'] as d (d)}
+            <label class="radio">
+              <input
+                type="radio"
+                name="index-density"
+                value={d}
+                checked={indexDensity === d}
+                onchange={() => (indexDensity = d as 'compact' | 'standard' | 'spacious')}
+              />
+              <span>{d}</span>
+            </label>
+          {/each}
+        </div>
+
+        <div class="hint" style="margin-top: 8px;">
+          label visibility — when to show the id + tagline under each node.
+        </div>
+        <div class="radio-row">
+          {#each [
+            { v: 'always', label: 'always' },
+            { v: 'hover_only', label: 'hover only' },
+            { v: 'on_zoom2x', label: 'on 2× zoom' },
+          ] as opt (opt.v)}
+            <label class="radio">
+              <input
+                type="radio"
+                name="index-label-vis"
+                value={opt.v}
+                checked={indexLabelVisibility === opt.v}
+                onchange={() => (indexLabelVisibility = opt.v as 'always' | 'hover_only' | 'on_zoom2x')}
+              />
+              <span>{opt.label}</span>
+            </label>
+          {/each}
+        </div>
         <div class="row">
           <button
             type="button"
@@ -716,8 +826,12 @@
           {/if}
         </div>
       </section>
+    {:else}
+      <div class="hint">loading config…</div>
+    {/if}
     {/if}
 
+    {#if activeTab === 'mcp'}
     <!-- MCP — D-014 Phase A -->
     {#if config}
       <section class="section">
@@ -815,16 +929,10 @@
           </span>
         {/if}
       </section>
+    {:else}
+      <div class="hint">loading config…</div>
     {/if}
-
-    <!-- NOTIFICATIONS -->
-    <section class="section">
-      <div class="section-label">Notifications</div>
-      <div class="hint">
-        notification tabs are managed from a dedicated popout — opens via the
-        <code>⋯</code> button on the right edge of the tab strip, or here.
-      </div>
-    </section>
+    {/if}
 
   </div>
 
@@ -840,6 +948,34 @@
     min-height: 0;
     font-family: 'JetBrains Mono', monospace;
     color: var(--amber-warm);
+  }
+
+  .tab-strip {
+    flex-shrink: 0;
+    display: flex;
+    gap: 0;
+    border-bottom: 1px solid var(--border-subtle);
+    padding: 0 18px;
+  }
+  .tab-btn {
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: var(--amber-faint);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    padding: 8px 14px 6px;
+    cursor: pointer;
+    transition: color 0.12s, border-color 0.12s;
+  }
+  .tab-btn:hover {
+    color: var(--amber-warm);
+  }
+  .tab-btn.active {
+    color: var(--amber-bright);
+    border-bottom-color: var(--amber-bright);
   }
 
   .settings-body {

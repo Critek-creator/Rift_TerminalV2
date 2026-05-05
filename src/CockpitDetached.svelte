@@ -23,6 +23,12 @@
   import Tree from './lib/Tree.svelte';
   import IndexGraph from './lib/IndexGraph.svelte';
   import Splitter from './lib/Splitter.svelte';
+  import { signalBusReady } from './lib/bus';
+
+  // Detached window has its own bus.ts module scope — the ready-gate
+  // starts unresolved. Signal immediately since there are no orphan
+  // subscriptions to clean up in a freshly-spawned window.
+  signalBusReady();
 
   // Phase 8.7e — graph/tree split is resizable + persisted (separate
   // localStorage key from main cockpit so the user can tune detached layout

@@ -134,6 +134,19 @@
     if (typeof payload === 'string') return payload;
     try { return JSON.stringify(payload); } catch { return String(payload); }
   }
+  function formatPayloadExpanded(payload: unknown): string {
+    if (payload === null || payload === undefined) return '';
+    if (typeof payload === 'string') return payload;
+    try { return JSON.stringify(payload, null, 2); } catch { return String(payload); }
+  }
+
+  // Phase 8.7q.4 — click-to-expand row pattern (mirrors NotificationPane).
+  let expandedRows = $state<Set<string>>(new Set());
+  function toggleRow(key: string): void {
+    const next = new Set(expandedRows);
+    if (next.has(key)) next.delete(key); else next.add(key);
+    expandedRows = next;
+  }
 
   function onHandleDragStart(e: DragEvent) {
     if (e.dataTransfer) {
@@ -201,11 +214,33 @@
         </div>
       {:else}
         {#each recentEvents as e, i (e.ts + ':' + e.category + ':' + e.kind + ':' + i)}
-          <div class="row">
+          {@const rowKey = e.ts + ':' + e.category + ':' + e.kind + ':' + i}
+          {@const isExpanded = expandedRows.has(rowKey)}
+          <!-- svelte-ignore a11y_click_events_have_key_events -->
+          <!-- svelte-ignore a11y_no_static_element_interactions -->
+          <div
+            class="row"
+            class:expanded={isExpanded}
+            onclick={(ev) => {
+              const target = ev.target as HTMLElement;
+              if (target.closest('.payload-expanded')) return;
+              toggleRow(rowKey);
+            }}
+            title="click to {isExpanded ? 'collapse' : 'expand'}"
+          >
+            <span class="caret">{isExpanded ? '▼' : '▶'}</span>
             <span class="ts">{formatTs(e.ts)}</span>
             <span class="cat" style="color: {CAT_COLOR[e.category]};">{e.category}</span>
             <span class="kind">{e.kind}</span>
-            <span class="payload">{formatPayload(e.payload)}</span>
+            {#if isExpanded}
+              <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+              <pre
+                class="payload-expanded"
+                onmousedown={(ev) => ev.stopPropagation()}
+              >{formatPayloadExpanded(e.payload)}</pre>
+            {:else}
+              <span class="payload">{formatPayload(e.payload)}</span>
+            {/if}
           </div>
         {/each}
       {/if}
@@ -241,6 +276,8 @@
     display: flex;
     flex-direction: column;
     min-height: 0;
+    /* Phase 8.7q.3 — see NotificationPane same-named comment. */
+    min-width: 0;
     background: var(--bg-base);
     color: var(--amber-warm);
     font-family: 'JetBrains Mono', monospace;
@@ -356,6 +393,7 @@
     flex: 1;
     display: flex; flex-direction: column;
     min-height: 0;
+    min-width: 0;
     border-bottom: 1px solid var(--border-subtle);
   }
   .log-header {
@@ -370,6 +408,8 @@
   .log-body {
     flex: 1;
     overflow-y: auto;
+    overflow-x: hidden;
+    min-width: 0;
     padding: 8px 14px;
     color: var(--amber-warm);
     font-size: 11px;
@@ -384,13 +424,34 @@
 
   .log-body .row {
     display: grid;
-    grid-template-columns: 70px 60px 140px 1fr;
-    gap: 10px;
+    grid-template-columns: 14px 70px 60px 140px minmax(0, 1fr);
+    gap: 8px;
     align-items: baseline;
     padding: 1px 0;
     white-space: nowrap;
+    cursor: pointer;
+    user-select: text;
   }
   .log-body .row:hover { background: rgba(212, 137, 10, 0.04); }
+  .log-body .row.expanded {
+    grid-template-columns: 14px 70px 60px minmax(0, 1fr);
+    grid-template-areas:
+      "caret ts    cat   kind"
+      "pl    pl    pl    pl";
+    background: rgba(212, 137, 10, 0.05);
+    padding: 4px 0 6px;
+    white-space: normal;
+  }
+  .log-body .row.expanded .caret { grid-area: caret; color: var(--amber-bright); }
+  .log-body .row.expanded .ts    { grid-area: ts; }
+  .log-body .row.expanded .cat   { grid-area: cat; }
+  .log-body .row.expanded .kind  { grid-area: kind; }
+  .log-body .caret {
+    color: var(--amber-faint);
+    font-size: 9px;
+    line-height: 1.5;
+    user-select: none;
+  }
   .log-body .ts {
     color: var(--amber-faint);
     font-variant-numeric: tabular-nums;
@@ -412,6 +473,27 @@
     overflow: hidden;
     text-overflow: ellipsis;
   }
+  .log-body .payload-expanded {
+    grid-area: pl;
+    margin: 4px 0 0 22px;
+    padding: 6px 8px;
+    background: var(--bg-base);
+    border: 1px solid var(--border-subtle);
+    color: var(--amber-warm);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10.5px;
+    line-height: 1.45;
+    white-space: pre-wrap;
+    word-break: break-word;
+    min-width: 0;
+    max-height: 320px;
+    overflow-x: auto;
+    overflow-y: auto;
+    user-select: text;
+    cursor: text;
+  }
+  .log-body .payload-expanded::-webkit-scrollbar { width: 5px; }
+  .log-body .payload-expanded::-webkit-scrollbar-thumb { background: var(--amber-faint); }
 
   .state-panel {
     flex-shrink: 0;

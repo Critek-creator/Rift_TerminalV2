@@ -24,7 +24,7 @@
   import Tree from './lib/Tree.svelte';
   import IndexGraph from './lib/IndexGraph.svelte';
   import Splitter from './lib/Splitter.svelte';
-  import { subscribe, publish, type Category } from './lib/bus';
+  import { subscribe, publish, signalBusReady, type Category } from './lib/bus';
   import { enrichmentStore } from './lib/enrichmentStore.svelte';
 
   // Tab id → bus category. `undefined` = no integration registered yet,
@@ -140,6 +140,7 @@
     if (!enabled && promoted === id) {
       promoted = null;
     }
+    persistNotifOrder();
   }
 
   // Phase 8.7h — reset all notif tabs to enabled. Capability-driven
@@ -167,7 +168,7 @@
   }
   function persistNotifOrder() {
     try {
-      const order = notifs.map((n) => n.id);
+      const order = notifs.map((n) => ({ id: n.id, enabled: n.enabled }));
       localStorage.setItem(NOTIF_ORDER_KEY, JSON.stringify(order));
     } catch {
       // localStorage unavailable (private mode etc.) — silent best-effort.
@@ -179,13 +180,27 @@
       if (!raw) return;
       const order = JSON.parse(raw) as unknown;
       if (!Array.isArray(order)) return;
+      // Build a map of persisted enabled state. Supports both formats:
+      // old: ["errors", "hooks", ...] — enabled state not saved
+      // new: [{id: "errors", enabled: true}, ...] — enabled state saved
+      const enabledMap = new Map<string, boolean>();
+      const orderedIds: string[] = [];
+      for (const entry of order) {
+        if (typeof entry === 'string') {
+          orderedIds.push(entry);
+        } else if (entry && typeof entry === 'object' && typeof (entry as {id?: unknown}).id === 'string') {
+          const e = entry as { id: string; enabled?: boolean };
+          orderedIds.push(e.id);
+          if (typeof e.enabled === 'boolean') enabledMap.set(e.id, e.enabled);
+        }
+      }
       const idToTab = new Map(notifs.map((n) => [n.id, n]));
       const reordered: typeof notifs = [];
-      for (const id of order) {
-        if (typeof id !== 'string') continue;
+      for (const id of orderedIds) {
         const tab = idToTab.get(id);
         if (tab) {
-          reordered.push(tab);
+          const persisted = enabledMap.get(id);
+          reordered.push(persisted !== undefined ? { ...tab, enabled: persisted } : tab);
           idToTab.delete(id);
         }
       }
@@ -323,6 +338,16 @@
           // future Category::Pty kinds (e.g. resize, exit) don't accidentally
           // count toward the Commands tab badge.
           if (env.category === 'pty' && env.kind !== 'command.submitted') return;
+          // Phase 8.7q.4 — skip the `system/notif.tabs` snapshot publish
+          // (broadcast by the $effect at ~line 452 whenever `notifs`
+          // changes). It is a state-mirror, not an activity event.
+          // Without this guard:
+          //   $effect publishes notif.tabs → master subscriber bumps
+          //   errors.unreadCount → notifs changes → $effect re-runs
+          //   → publishes again ⟶ infinite loop @ ~100Hz, generating
+          //   ~10k orphan-callback "[TAURI] Couldn't find callback id"
+          //   warnings/sec on dead subscribers.
+          if (env.category === 'system' && env.kind === 'notif.tabs') return;
           const now = Date.now();
           notifs = notifs.map((n) => {
             if (n.id !== id) return n;
@@ -514,6 +539,24 @@
   });
 
   onMount(() => {
+    // Phase 8.7q.4 — drain orphan async resources from the prior page load.
+    // On every mount (including HMR reloads), kill all Rust-side PTY drains
+    // and bus subscriptions whose JS callbacks died with the prior page.
+    // bus.ts gates subscribe() behind signalBusReady(), so no subscription
+    // can fire until this reset completes — eliminating the race where
+    // $effects create subs before reset kills orphans.
+    // NOTE: resetBusReady() is NOT called here — $effect subscribe calls
+    // are already awaiting the module-scope promise. Replacing it would
+    // leave them hanging on a dead promise forever.
+    void (async () => {
+      try {
+        await invoke('rift_reset_for_reload');
+      } catch (err) {
+        console.warn('[App] rift_reset_for_reload failed:', err);
+      }
+      signalBusReady();
+    })();
+
     // Phase 8.7j — restore persisted notif tab order before any subscription
     // fires. Pure synchronous read of localStorage; ordering must settle
     // before TabBar renders to avoid a flicker.
@@ -891,6 +934,12 @@
     display: flex;
     flex-direction: column;
     min-height: 0;
+    /* Phase 8.7q.3 — min-width: 0 + overflow: hidden enforce the 420px
+       basis as a hard cap. Without these, intrinsic min-content of the
+       inner pane (long unbroken JSON in a notif row) overrides flex-basis
+       and pushes .main-left (the terminal) out of the viewport. */
+    min-width: 0;
+    overflow: hidden;
     border-left: 1px solid var(--border-subtle);
     background: var(--bg-base);
   }
@@ -982,6 +1031,8 @@
     flex: 1;
     flex-direction: column;
     min-height: 0;
+    /* Phase 8.7q.3 — see .promoted-pane comment. */
+    min-width: 0;
   }
   .surface.visible { display: flex; }
 

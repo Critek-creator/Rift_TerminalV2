@@ -220,7 +220,10 @@
     // specialist 2026-04-28.
     if (typeof document !== 'undefined' && document.fonts && document.fonts.ready) {
       try {
-        await document.fonts.ready;
+        await Promise.race([
+          document.fonts.ready,
+          new Promise<void>((r) => setTimeout(r, 2000)),
+        ]);
       } catch {
         // jsdom/old browsers — proceed regardless.
       }
@@ -380,6 +383,18 @@
       term.writeln(`\r\n${laneFormatGated('ERR', `pty_start failed: ${err}`, lanesEnabled)}`);
       return;
     }
+
+    // Safety re-fit: xterm's canvas can fail to paint on first mount
+    // when the parent flex layout settles in a later frame than
+    // deferredFit measured. One extra rAF + fit + refresh is cheap
+    // when redundant and fixes the blank-terminal-on-cold-start race.
+    requestAnimationFrame(() => {
+      try { fit?.fit(); } catch { /* best-effort */ }
+      if (term) {
+        term.refresh(0, term.rows - 1);
+        term.scrollToBottom();
+      }
+    });
 
     term.onData((data) => {
       if (sessionId === null || !alive) return;

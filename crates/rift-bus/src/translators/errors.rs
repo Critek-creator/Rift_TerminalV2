@@ -37,6 +37,7 @@ use crate::{Category, Envelope, RiftBus};
 /// * `context` — optional structured context; `None` → `null` in payload.
 pub fn publish(bus: &RiftBus, source: &str, message: impl AsRef<str>, context: Option<Value>) {
     let message = message.as_ref().to_string();
+
     let payload = json!({
         "source":  source,
         "message": message,

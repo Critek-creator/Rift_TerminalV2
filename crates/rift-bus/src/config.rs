@@ -160,6 +160,51 @@ pub struct IndexConfig {
     /// Reserved: opaque per-node position snapshot blob.
     /// Not read or written in v1 — transient D3 positions are never persisted.
     pub node_positions: Option<serde_json::Value>,
+    /// Phase 8.7p — IndexGraph node label visibility policy.
+    /// `Always` shows id + subtitle on every node; `HoverOnly` hides them
+    /// until hover; `OnZoom2x` requires zoom factor ≥ 2.0 to render text.
+    pub label_visibility: IndexLabelVisibility,
+    /// Phase 8.7p — IndexGraph cluster density. Scales the radial RADIUS
+    /// constant: Compact = 0.85, Standard = 1.0, Spacious = 1.2.
+    pub density: IndexDensity,
+}
+
+/// IndexGraph label visibility policy (Phase 8.7p).
+///
+/// `#[non_exhaustive]` mirrors [`SyncMode`] — newer-version configs
+/// degrade to `Unknown` instead of erroring.
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum IndexLabelVisibility {
+    /// Render id + subtitle text on every node always (default).
+    #[default]
+    Always,
+    /// Render text only on the currently hovered node.
+    HoverOnly,
+    /// Render text only when the d3-zoom transform `k` is ≥ 2.0.
+    OnZoom2x,
+    /// Forward-compat catch-all.
+    #[serde(other)]
+    Unknown,
+}
+
+/// IndexGraph cluster density (Phase 8.7p). Scales the radial RADIUS
+/// constant in `IndexGraph.svelte`.
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum IndexDensity {
+    /// 0.85× the standard RADIUS — fits more vaults in a small viewport.
+    Compact,
+    /// 1.0× — current behavior (default).
+    #[default]
+    Standard,
+    /// 1.2× — more breathing room around every cluster.
+    Spacious,
+    /// Forward-compat catch-all.
+    #[serde(other)]
+    Unknown,
 }
 
 /// MCP server configuration (D-014, locked 2026-04-29).

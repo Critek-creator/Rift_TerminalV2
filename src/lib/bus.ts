@@ -36,6 +36,21 @@ export interface SubscribeOptions {
   category?: Category;
 }
 
+// Ready-gate: subscribe() blocks until signalBusReady() is called.
+// App.svelte calls rift_reset_for_reload first, then signals ready.
+// This eliminates the race where $effects create subscriptions BEFORE
+// the reset kills orphans from the previous page load.
+let _readyResolve: () => void;
+let _readyPromise = new Promise<void>((r) => { _readyResolve = r; });
+
+export function signalBusReady(): void {
+  _readyResolve();
+}
+
+export function resetBusReady(): void {
+  _readyPromise = new Promise<void>((r) => { _readyResolve = r; });
+}
+
 /**
  * Subscribe to bus envelopes. Replay snapshot drains synchronously into
  * `onEnvelope` first, followed by live events. Returns an `unsubscribe`
@@ -45,6 +60,7 @@ export async function subscribe(
   options: SubscribeOptions,
   onEnvelope: (envelope: Envelope) => void,
 ): Promise<() => Promise<void>> {
+  await _readyPromise;
   const channel = new Channel<Envelope>();
   channel.onmessage = onEnvelope;
   const id = await invoke<number>('bus_subscribe', {

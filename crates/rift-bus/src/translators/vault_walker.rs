@@ -75,6 +75,13 @@ pub struct VaultMeta {
     pub id: String,
     /// Human-readable vault name.
     pub name: String,
+    /// Short tagline used by the IndexGraph node label, e.g. `"term-rust"`,
+    /// `"rules"`, `"aegis"`. Derived from the explicit `label:` frontmatter
+    /// field when present (e.g. r006 declares `label: terminal-emulator-rust`),
+    /// else fabricated by [`derive_short_label`] from `name`. Always
+    /// `Some(_)` after a successful parse — the `Option` exists so callers
+    /// constructing partial test fixtures can omit it.
+    pub short_label: Option<String>,
     /// Abyssal Index type prefix, e.g. `"project"`, `"practices"`, `"research"`.
     pub vault_type: String,
     /// Last-updated date string (YYYY-MM-DD).
@@ -176,9 +183,13 @@ fn parse_frontmatter_yaml(content: &str) -> Option<VaultMeta> {
         })
         .unwrap_or_default();
 
+    let label_field: Option<String> = get_str("label");
+    let short_label = Some(label_field.unwrap_or_else(|| derive_short_label(&name)));
+
     Some(VaultMeta {
         id,
         name,
+        short_label,
         vault_type,
         updated,
         repo,
@@ -248,6 +259,11 @@ fn parse_frontmatter_telegraphic(content: &str) -> Option<VaultMeta> {
     let mut source: Option<String> = None;
     let mut cross_refs: Vec<String> = Vec::new();
     let mut explicit_type: Option<String> = None;
+    // Phase 8.7p — `label:` field for IndexGraph short tagline. Production
+    // vaults set this on the VAULT line itself (e.g. r006 declares
+    // `label: terminal-emulator-rust`); when absent we derive from `name`
+    // after this parse loop completes.
+    let mut explicit_label: Option<String> = None;
 
     let mut absorb_kv = |key: &str, raw_value: &str| {
         let val = raw_value.trim();
@@ -266,6 +282,9 @@ fn parse_frontmatter_telegraphic(content: &str) -> Option<VaultMeta> {
             }
             "type" if explicit_type.is_none() && !val.is_empty() => {
                 explicit_type = Some(val.to_owned());
+            }
+            "label" if explicit_label.is_none() && !val.is_empty() => {
+                explicit_label = Some(val.to_owned());
             }
             _ => {}
         }
@@ -326,15 +345,87 @@ fn parse_frontmatter_telegraphic(content: &str) -> Option<VaultMeta> {
         return None;
     }
 
+    // Some VAULT lines (e.g. `VAULT: r006 | label: terminal-emulator-rust |
+    // updated: ...`) put the `label:` value where `name` would otherwise
+    // sit — the second pipe field. parse_frontmatter_telegraphic captures
+    // that as the `name` field literally ("label: terminal-emulator-rust").
+    // When that shape is detected, peel the prefix back off and use the
+    // value as both name AND short_label so the IndexGraph displays the
+    // intended tag-line. This mirrors how QUICK-REF in MAIN_INDEX uses the
+    // label as the human-readable codename.
+    let (final_name, label_from_name): (String, Option<String>) =
+        if let Some(stripped) = name.strip_prefix("label:") {
+            let v = stripped.trim().to_owned();
+            (v.clone(), Some(v))
+        } else {
+            (name, None)
+        };
+
+    let short_label = Some(
+        explicit_label
+            .or(label_from_name)
+            .unwrap_or_else(|| derive_short_label(&final_name)),
+    );
+
     Some(VaultMeta {
         id,
-        name,
+        name: final_name,
+        short_label,
         vault_type,
         updated,
         repo,
         source,
         cross_refs,
     })
+}
+
+/// Phase 8.7p — fabricate a short tagline from a vault `name` when no
+/// explicit `label:` field is declared.
+///
+/// Heuristic: lowercase, replace runs of non-alphanumeric characters with
+/// hyphens, drop leading/trailing hyphens, then truncate to ~14 chars at
+/// the nearest hyphen boundary. Single-word names pass through unchanged.
+///
+/// Examples:
+///   `"Rift Terminal Core"`     → `"rift-terminal"`
+///   `"Global Practices"`       → `"global-practic"`  (truncated; clarity beats length)
+///   `"Lessons / Gotchas"`      → `"lessons"`
+///   `"Aegis"`                  → `"aegis"`
+///
+/// The output is purely visual — never a stable identifier. If a vault
+/// author wants a specific tag-line, they declare `label:` in the
+/// frontmatter and bypass this function entirely.
+pub fn derive_short_label(name: &str) -> String {
+    const MAX_LEN: usize = 14;
+    // Lowercase, hyphenate non-alphanumeric-non-underscore runs.
+    // Underscores survive because real vault names can carry them
+    // (e.g. agt006_plugin_registry → "agt006_plugin"); hyphens act
+    // as the canonical word separator.
+    let mut out = String::with_capacity(name.len());
+    let mut prev_hyphen = true; // skip leading hyphens
+    for ch in name.chars() {
+        if ch.is_ascii_alphanumeric() || ch == '_' {
+            out.push(ch.to_ascii_lowercase());
+            prev_hyphen = false;
+        } else if !prev_hyphen {
+            out.push('-');
+            prev_hyphen = true;
+        }
+    }
+    while out.ends_with('-') {
+        out.pop();
+    }
+    if out.len() <= MAX_LEN {
+        return out;
+    }
+    // Hard truncate at MAX_LEN — preserves more meaning than backing off
+    // to the prior word boundary. Trailing hyphens stripped so a cut
+    // that lands ON a hyphen doesn't leave a dangling separator.
+    let mut truncated = out[..MAX_LEN].to_owned();
+    while truncated.ends_with('-') {
+        truncated.pop();
+    }
+    truncated
 }
 
 /// Sanitize a raw `updated:` value — take text up to the first whitespace or
@@ -420,6 +511,8 @@ fn publish_vault_update_rich(
         "path":             path_str,
         "change_kind":      change_kind,
         "name":             meta.name,
+        "short_label":      meta.short_label,
+        "updated_ms":       file_mtime_ms(path),
         "cross_refs":       meta.cross_refs,
     });
     bus.publish(env);
@@ -441,8 +534,20 @@ fn publish_vault_update_minimal(
         "parent_vault_id": parent_vault_id,
         "path":            path_str,
         "change_kind":     change_kind,
+        "updated_ms":      file_mtime_ms(path),
     });
     bus.publish(env);
+}
+
+/// Read file mtime as Unix epoch milliseconds. Returns `None` when metadata
+/// or the system-time conversion fails (cross-system clock skew, missing
+/// platform support, etc.). Best-effort by design — drives the "recent"
+/// state class in the IndexGraph but is not load-bearing.
+fn file_mtime_ms(path: &std::path::Path) -> Option<u64> {
+    let meta = std::fs::metadata(path).ok()?;
+    let mtime = meta.modified().ok()?;
+    let dur = mtime.duration_since(std::time::UNIX_EPOCH).ok()?;
+    Some(dur.as_millis() as u64)
 }
 
 /// D-015 / Phase 8.7n — derive a vault id and its parent id from a path
@@ -1145,6 +1250,55 @@ fn flush_debounce(
 mod tests {
     use super::*;
     use crate::{Category, RiftBus, SubscribeFilter};
+
+    // -------------------------------------------------------------------------
+    // Phase 8.7p — short_label derivation tests
+    // -------------------------------------------------------------------------
+    #[test]
+    fn derive_short_label_basic_cases() {
+        assert_eq!(derive_short_label("Aegis"), "aegis");
+        assert_eq!(derive_short_label("Rift Terminal Core"), "rift-terminal");
+        assert_eq!(derive_short_label("Lessons / Gotchas"), "lessons-gotcha");
+        assert_eq!(derive_short_label("Global Practices"), "global-practic");
+    }
+
+    #[test]
+    fn derive_short_label_strips_punctuation() {
+        assert_eq!(derive_short_label("foo!@#bar"), "foo-bar");
+        assert_eq!(derive_short_label("!!leading_punct"), "leading_punct");
+        assert_eq!(derive_short_label("trailing!!!"), "trailing");
+    }
+
+    #[test]
+    fn derive_short_label_preserves_existing_separators() {
+        // Already-tagline-shaped names get hard-truncated at MAX_LEN=14.
+        // Truncation preserves more meaning than backing off to the prior
+        // word boundary — `terminal-emula` reads better than `terminal`.
+        assert_eq!(
+            derive_short_label("terminal-emulator-rust"),
+            "terminal-emula"
+        );
+        assert_eq!(derive_short_label("p006"), "p006");
+    }
+
+    #[test]
+    fn telegraphic_label_field_extracted() {
+        // Production VAULT line shape #1 — `label:` as a pipe-extra field.
+        let content = "VAULT: r006 | label: terminal-emulator-rust | updated: 2026-04-20\n";
+        let meta = parse_frontmatter(content).expect("should parse");
+        assert_eq!(meta.id, "r006");
+        assert_eq!(meta.short_label.as_deref(), Some("terminal-emulator-rust"));
+    }
+
+    #[test]
+    fn telegraphic_short_label_falls_back_to_name_derivation() {
+        // No `label:` field — short_label is derived from the name.
+        let content = "VAULT: p006 | Rift Terminal Core | updated: 2026-04-29\n";
+        let meta = parse_frontmatter(content).expect("should parse");
+        assert_eq!(meta.id, "p006");
+        assert_eq!(meta.name, "Rift Terminal Core");
+        assert_eq!(meta.short_label.as_deref(), Some("rift-terminal"));
+    }
 
     // -------------------------------------------------------------------------
     // T1 — frontmatter_parse_valid

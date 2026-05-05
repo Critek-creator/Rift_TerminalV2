@@ -30,7 +30,7 @@ use tokio::sync::broadcast;
 use crate::envelope::{Category, Envelope};
 
 const DEFAULT_BROADCAST_CAPACITY: usize = 1024;
-const DEFAULT_REPLAY_CAPACITY: usize = 128;
+const DEFAULT_REPLAY_CAPACITY: usize = 512;
 
 #[derive(Debug, thiserror::Error)]
 pub enum BusError {

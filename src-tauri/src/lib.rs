@@ -171,6 +171,37 @@ impl PtyRegistry {
         entries.sort_by_key(|(id, _)| *id);
         entries
     }
+
+    /// Phase 8.7q.4 — kill every tracked session + abort every drain handle.
+    /// Used by the WebView reload-cleanup path (`rift_reset_for_reload`)
+    /// to close orphan PTY sessions whose `Channel<Vec<u8>>` callback ids
+    /// died with the prior page load. Without this, Rust drain tasks keep
+    /// pumping bytes into dead callbacks and Tauri spams the console with
+    /// "Couldn't find callback id" warnings.
+    ///
+    /// Returns the number of sessions killed.
+    fn kill_all(&self) -> usize {
+        // Collect ids first so we can release the lock before invoking
+        // `remove`, which re-acquires it.
+        let ids: Vec<u32> = self
+            .0
+            .sessions
+            .lock()
+            .expect("pty registry poisoned")
+            .keys()
+            .copied()
+            .collect();
+        let count = ids.len();
+        for id in ids {
+            // Best-effort — kill failures are non-fatal (session may be
+            // dead already); we just need the drain handle aborted.
+            if let Some(ctl) = self.get(id) {
+                let _ = ctl.kill();
+            }
+            self.remove(id); // aborts drain handle + removes from map
+        }
+        count
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -257,6 +288,35 @@ impl BusSubscriptionRegistry {
             let _ = tx.send(());
             handle.abort();
         }
+    }
+
+    /// Phase 8.7q.4 — drain every WebView-Channel-based bus subscription.
+    /// Same rationale as [`PtyRegistry::kill_all`]: after a hard-refresh,
+    /// every `Channel<Envelope>` handed to `bus_subscribe` is orphaned
+    /// (the JS callback id is gone) but Rust's drain task keeps pushing
+    /// envelopes through it, generating "Couldn't find callback id"
+    /// console flood. Wiped on every `rift_reset_for_reload` invocation.
+    ///
+    /// Note: in-process Rust subscribers are NOT in this registry — they
+    /// hold their own `Subscription` handles via `bus.subscribe()` and
+    /// are unaffected. Only WebView-side Channel subscriptions are dropped.
+    ///
+    /// Returns the number of subscriptions cleaned up.
+    fn remove_all(&self) -> usize {
+        // Drain into a vec under the lock to avoid the lock+abort race.
+        let drained: Vec<(oneshot::Sender<()>, DrainHandle)> = {
+            let mut guard = self
+                .subs
+                .lock()
+                .expect("bus subscription registry poisoned");
+            guard.drain().map(|(_, v)| v).collect()
+        };
+        let count = drained.len();
+        for (tx, handle) in drained {
+            let _ = tx.send(());
+            handle.abort();
+        }
+        count
     }
 }
 
@@ -624,11 +684,13 @@ async fn bus_subscribe(
     });
 
     // Store the close sender AND the drain handle together, keyed by id.
-    registry
-        .subs
-        .lock()
-        .expect("bus subscription registry poisoned")
-        .insert(id, (close_tx, drain_handle));
+    {
+        let mut guard = registry
+            .subs
+            .lock()
+            .expect("bus subscription registry poisoned");
+        guard.insert(id, (close_tx, drain_handle));
+    }
 
     Ok(id)
 }
@@ -636,6 +698,37 @@ async fn bus_subscribe(
 #[tauri::command]
 fn bus_unsubscribe(state: State<'_, BusSubscriptionRegistry>, id: u64) {
     state.remove(id);
+}
+
+/// Phase 8.7q.4 — page-load cleanup hook.
+///
+/// Called on every WebView mount (App.svelte `onMount`) to drain orphan
+/// async resources whose JS-side callback ids died with the prior page.
+///
+/// Specifically:
+///   * Every `Channel<Vec<u8>>` registered via [`pty_start`] is dead —
+///     the PTY drain task on the Rust side keeps pumping bytes into a
+///     callback id JS no longer knows about, producing the "[TAURI]
+///     Couldn't find callback id" console flood (~5000/s on heavy
+///     output). Killing all PTY sessions terminates those drain tasks.
+///   * Every `Channel<Envelope>` registered via [`bus_subscribe`] has
+///     the same fate — same flood, same fix.
+///
+/// In-process Rust subscribers (translators using `bus.subscribe()`
+/// directly) are NOT affected — only the Tauri-Channel-backed ones,
+/// which is what we want.
+///
+/// Returns a `(pty_killed, bus_unsubscribed)` count tuple for telemetry
+/// (visible in the dev terminal's `[publish_error]` log if errors fire,
+/// otherwise silent).
+#[tauri::command]
+fn rift_reset_for_reload(
+    pty: State<'_, PtyRegistry>,
+    bus_subs: State<'_, BusSubscriptionRegistry>,
+) -> (usize, usize) {
+    let pty_count = pty.kill_all();
+    let bus_count = bus_subs.remove_all();
+    (pty_count, bus_count)
 }
 
 /// Return a static snapshot of the filesystem tree rooted at the current
@@ -1351,6 +1444,7 @@ pub fn run() {
             bus_subscribe,
             bus_unsubscribe,
             bus_publish,
+            rift_reset_for_reload,
             fs_tree,
             fs_read_text,
             fs_write_text,
