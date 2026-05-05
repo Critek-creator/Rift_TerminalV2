@@ -15,26 +15,26 @@
 #
 # Embedded into rift-mcp via include_str! — do not move to a config directory.
 
-$_rift_osc = "`e]6973;"
-$_rift_bel = "`a"
+$global:_rift_osc = "`e]6973;"
+$global:_rift_bel = "`a"
 
 # Save user's existing prompt (posh-git, Starship, etc.)
-$_rift_original_prompt = $Function:prompt
+$global:_rift_original_prompt = $Function:prompt
 
 function prompt {
     # Emit CMD_END for the PREVIOUS command (exit code from $?)
     # On first prompt after spawn, $LASTEXITCODE is null — treat as 0.
     $_exit = if ($null -eq $global:LASTEXITCODE) { 0 } else { $global:LASTEXITCODE }
-    [Console]::Write("${_rift_osc}CMD_END;exit=${_exit}${_rift_bel}")
+    [Console]::Write("$($global:_rift_osc)CMD_END;exit=$($_exit)$($global:_rift_bel)")
 
     # PROMPT_START — shell is rendering the prompt
-    [Console]::Write("${_rift_osc}PROMPT_START${_rift_bel}")
+    [Console]::Write("$($global:_rift_osc)PROMPT_START$($global:_rift_bel)")
 
     # Run the original prompt function (user customizations preserved)
-    $result = if ($_rift_original_prompt) { & $_rift_original_prompt } else { "PS> " }
+    $result = if ($global:_rift_original_prompt) { & $global:_rift_original_prompt } else { "PS> " }
 
     # PROMPT_END — prompt done, cursor awaits user input
-    [Console]::Write("${_rift_osc}PROMPT_END${_rift_bel}")
+    [Console]::Write("$($global:_rift_osc)PROMPT_END$($global:_rift_bel)")
 
     return $result
 }
@@ -43,7 +43,7 @@ function prompt {
 # AcceptLine is the standard readline accept handler.
 if (Get-Module PSReadLine -ErrorAction SilentlyContinue) {
     Set-PSReadLineKeyHandler -Key Enter -ScriptBlock {
-        [Console]::Write("${script:_rift_osc}CMD_START${script:_rift_bel}")
+        [Console]::Write("$($global:_rift_osc)CMD_START$($global:_rift_bel)")
         [Microsoft.PowerShell.PSConsoleReadLine]::AcceptLine()
     }
 }
