@@ -61,7 +61,8 @@ use rift_bus::{
     build_tree, load_config, prepare_lane_prelude, publish_command, publish_error, read_text,
     save_config, spawn_fs_watcher, spawn_status_translator, spawn_vault_walker, write_text,
     Category, CommandBuffer, Envelope, FsWatcher, IpcServer, LaneClassifier, RiftBus, RiftConfig,
-    ShellPref, SubscribeFilter, TreeNode, DEFAULT_IGNORE_GLOBS, FS_TREE_DEFAULT_MAX_DEPTH,
+    SentinelEvent, ShellPref, SubscribeFilter, TreeNode, DEFAULT_IGNORE_GLOBS,
+    FS_TREE_DEFAULT_MAX_DEPTH,
 };
 use rift_core::pty::{PtyControl, PtyDims, PtyOptions, PtySession};
 use rift_core::shell::{resolve_auto_shell, resolve_custom_shell, resolve_named_shell};
@@ -380,6 +381,40 @@ impl ProjectRoot {
     }
 }
 
+/// L2: Map a `Category::Hook` bus envelope to a `SentinelEvent`.
+///
+/// Heuristic: envelope kinds ending in `.started` or starting with `Pre`
+/// map to HookStart; `.finished`/`Post` map to HookEnd. Single-shot
+/// events (no clear start/end) default to HookStart (the next
+/// PROMPT_START from L1 will naturally clear the Hook lane).
+fn envelope_to_hook_event(env: &Envelope) -> SentinelEvent {
+    let kind = &env.kind;
+    let name = env
+        .payload
+        .get("name")
+        .and_then(|v| v.as_str())
+        .unwrap_or(kind)
+        .to_owned();
+    if kind.ends_with(".finished") || kind.starts_with("Post") {
+        SentinelEvent::HookEnd { name }
+    } else {
+        SentinelEvent::HookStart { name }
+    }
+}
+
+/// L2: Map a `Category::Aegis` bus envelope to a `SentinelEvent`.
+///
+/// Aegis envelopes with kind ending in `.end` or `.finished` map to
+/// AegisEnd; everything else to AegisStart.
+fn envelope_to_aegis_event(env: &Envelope) -> SentinelEvent {
+    let kind = &env.kind;
+    if kind.ends_with(".end") || kind.ends_with(".finished") {
+        SentinelEvent::AegisEnd
+    } else {
+        SentinelEvent::AegisStart
+    }
+}
+
 fn parse_category(raw: &str) -> Result<Category, String> {
     serde_json::from_value::<Category>(serde_json::Value::String(raw.to_lowercase()))
         .map_err(|e| format!("invalid category {raw:?}: {e}"))
@@ -504,6 +539,12 @@ async fn pty_start(
     app.state::<CommandBufferRegistry>().insert(id);
 
     let drain_app = app.clone();
+    // L2: clone the bus for hook/aegis subscription inside the drain task.
+    let drain_bus = if lanes_enabled {
+        Some(app.state::<RiftBus>().inner().clone())
+    } else {
+        None
+    };
     // Store the outer drain handle in the registry so pty_kill (and the
     // natural-exit path inside the inner watcher) can abort it on cleanup.
     // The inner exit_rx watcher is structured as a nested spawn whose
@@ -536,13 +577,60 @@ async fn pty_start(
             None
         };
 
-        while let Some(chunk) = output.recv().await {
-            let out = match lane_classifier {
-                Some(ref mut cls) => cls.transform(&chunk),
-                None => chunk,
-            };
-            if on_chunk.send(out).is_err() {
-                break;
+        // L2: Subscribe to Hook + Aegis bus events for direct lane injection.
+        // When a hook/aegis event arrives on the bus, we inject the lane
+        // transition directly into the classifier (no PTY round-trip needed).
+        let mut hook_sub = drain_bus.as_ref().map(|bus| {
+            let (_snap, sub) = bus.subscribe(SubscribeFilter::Category(Category::Hook));
+            sub
+        });
+        let mut aegis_sub = drain_bus.as_ref().map(|bus| {
+            let (_snap, sub) = bus.subscribe(SubscribeFilter::Category(Category::Aegis));
+            sub
+        });
+
+        loop {
+            tokio::select! {
+                chunk_opt = output.recv() => {
+                    let Some(chunk) = chunk_opt else { break };
+                    let out = match lane_classifier {
+                        Some(ref mut cls) => cls.transform(&chunk),
+                        None => chunk,
+                    };
+                    if on_chunk.send(out).is_err() { break; }
+                }
+                // L2 hook events: inject HookStart/HookEnd lane transitions.
+                hook_result = async {
+                    match hook_sub {
+                        Some(ref mut sub) => sub.recv().await,
+                        None => std::future::pending().await,
+                    }
+                } => {
+                    if let Ok(env) = hook_result {
+                        if let Some(ref mut cls) = lane_classifier {
+                            let event = envelope_to_hook_event(&env);
+                            if let Some(ansi) = cls.inject_event(event) {
+                                let _ = on_chunk.send(ansi);
+                            }
+                        }
+                    }
+                }
+                // L2 aegis events: inject AegisStart/AegisEnd lane transitions.
+                aegis_result = async {
+                    match aegis_sub {
+                        Some(ref mut sub) => sub.recv().await,
+                        None => std::future::pending().await,
+                    }
+                } => {
+                    if let Ok(env) = aegis_result {
+                        if let Some(ref mut cls) = lane_classifier {
+                            let event = envelope_to_aegis_event(&env);
+                            if let Some(ansi) = cls.inject_event(event) {
+                                let _ = on_chunk.send(ansi);
+                            }
+                        }
+                    }
+                }
             }
         }
     });

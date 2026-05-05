@@ -367,6 +367,24 @@ impl LaneClassifier {
 }
 
 // -------------------------------------------------------------------------
+// L2 — Bus-driven lane injection (hook / aegis events)
+// -------------------------------------------------------------------------
+
+impl LaneClassifier {
+    /// Inject a synthetic lane event from a bus envelope (L2 mechanism).
+    /// Returns the ANSI escape bytes to emit into the output channel so
+    /// xterm.js picks up the color change immediately.
+    ///
+    /// Used by the drain task when it receives a `Category::Hook` or
+    /// `Category::Aegis` bus event — the event doesn't flow through the
+    /// PTY byte stream, so we inject the lane transition directly.
+    pub fn inject_event(&mut self, event: SentinelEvent) -> Option<Vec<u8>> {
+        self.apply_event(event)
+            .map(|change| change.lane.ansi_prefix().to_vec())
+    }
+}
+
+// -------------------------------------------------------------------------
 // Shell prelude injection
 // -------------------------------------------------------------------------
 
