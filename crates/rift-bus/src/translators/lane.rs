@@ -323,7 +323,12 @@ impl LaneClassifier {
     /// color escapes are spliced at the transition points.
     pub fn transform(&mut self, chunk: &[u8]) -> Vec<u8> {
         self.cmd_start_fired = false;
-        let mut out = Vec::with_capacity(chunk.len());
+        let mut out = Vec::with_capacity(chunk.len() + 24);
+        // Prepend the current lane's ANSI color at the start of every
+        // chunk. This ensures the lane tint survives SGR resets from
+        // PSReadLine and other shell components — programs that set their
+        // own colors override it naturally for their content.
+        out.extend_from_slice(self.current_lane.ansi_prefix());
         let mut i = 0;
 
         while i < chunk.len() {
@@ -661,7 +666,9 @@ mod tests {
         let mut c = LaneClassifier::new();
         let input = b"hello world\r\n";
         let out = c.transform(input);
-        assert_eq!(out, input);
+        // Prepends current lane (Sys) color, then passthrough.
+        assert!(out.starts_with(Lane::Sys.ansi_prefix()));
+        assert!(out.windows(13).any(|w| w == b"hello world\r\n"));
     }
 
     #[test]
@@ -669,9 +676,12 @@ mod tests {
         let mut c = LaneClassifier::new();
         let input = b"\x1b]6973;PROMPT_END\x07typed text";
         let out = c.transform(input);
-        // Sentinel must be stripped; UserInput color prefix injected.
+        // Starts with Sys prepend, sentinel stripped, UserInput color injected.
+        assert!(out.starts_with(Lane::Sys.ansi_prefix()));
         assert!(!out.windows(4).any(|w| w == b"6973"));
-        assert!(out.starts_with(Lane::UserInput.ansi_prefix()));
+        assert!(out
+            .windows(Lane::UserInput.ansi_prefix().len())
+            .any(|w| w == Lane::UserInput.ansi_prefix()));
         assert!(out.windows(10).any(|w| w == b"typed text"));
     }
 
@@ -694,11 +704,13 @@ mod tests {
     }
 
     #[test]
-    fn transform_large_chunk_no_sentinel_is_identity() {
+    fn transform_large_chunk_prepends_lane_color() {
         let mut c = LaneClassifier::new();
         let big = vec![b'X'; 65536];
         let out = c.transform(&big);
-        assert_eq!(out, big);
+        // Prepends Sys lane color, then the original bytes.
+        assert!(out.starts_with(Lane::Sys.ansi_prefix()));
+        assert_eq!(out.len(), big.len() + Lane::Sys.ansi_prefix().len());
     }
 
     // -----------------------------------------------------------------
