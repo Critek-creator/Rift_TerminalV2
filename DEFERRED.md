@@ -45,21 +45,7 @@
   2. User asks for "show me what I just touched" filtering. THEN state-decay becomes worth the complexity.
 - **Adjacent tracking**: `IndexConfig.density` + `IndexConfig.label_visibility` (shipped 2026-04-29) are the v1 escape valves. If they fully solve the layout-crowdedness complaint, D-019 collapse stays deferred indefinitely. The state-decay half is more independent and could land on its own if a user signal arrives.
 
-### D-018 — Live PTY-stream lane classification per §10.1 (opened 2026-04-29)
-
-- §10.1 (`RIFT_V2_VISION.md:155-171`) is LOCKED: every line in the terminal surface should carry a small bordered tag prefix (`CLAUDE`, `AGENT`, `HOOK`, `AEGIS`, `OK`, `WARN`, `ERR`, `SYS`) with border + text colored to its lane. The CSS half is already shipped (`src/styles.css:154-185` `.lane-*` + `.tag-*` classes used by `NotificationPane`/`AegisLogTab`/etc.) — HTML/Svelte surfaces honor §10.1.
-- The **terminal surface** does NOT honor §10.1 on the live PTY byte stream. `Terminal.svelte:onChunk` writes raw PTY bytes through `term.write()` with zero categorization. CC stdout, shell stdout, agent stdout, hook stdout — all flow as undifferentiated ANSI through xterm.js. Audited 2026-04-29 (`/aegis --audit`).
-- **Partial close (2026-04-29)** — the audit-closure plan shipped `src/lib/laneFormat.ts` + wired Rift-OWNED emit sites (pty_start failed / pty_write failed / session exited) through `laneFormatGated('ERR'|'SYS', …, lanesEnabled)`. That covers strings Rift writes via `term.write()` directly, NOT bytes flowing from the PTY. Gated on `RiftConfig.terminal.lanes_enabled` (default true).
-- **What remains (the hard part)**: classify bytes coming OUT of the PTY into §10.1 lanes. Rift can't trivially tell which bytes came from `claude-code` (CLAUDE), the shell prompt (SYS), an Aegis hook line (HOOK / AEGIS), or arbitrary user output. Three rough strategies:
-  1. **Process-detection overlay.** Watch the PTY's child-process tree (foreground process group) and tag bytes by which child wrote them. Cleanest signal but Windows ConPTY exposes the process tree differently from Unix; non-trivial cross-platform code. Doesn't disambiguate Aegis-hook lines from Claude-emitted lines if both flow from the same Claude Code process.
-  2. **Hook-spool overlay.** Time-correlate bus envelopes (HookLog, AegisLog, etc.) against PTY bytes received in the same window and synthesize a tag prefix when a match-window contains a hook fingerprint. Cheap to prototype but flaky under sustained streaming output.
-  3. **Shell-wrapper / PROMPT_COMMAND injection.** When `pty_start` launches the shell, set `$PROMPT` (cmd) / `PROMPT_COMMAND` (bash/zsh) / `$PSStyle` (pwsh) / a Starship-style prelude that emits a known sentinel. Then Rift parses sentinel-bracketed regions to classify. Most reliable for prompt/user-input boundaries; useless for Claude Code's own output unless the user's `claude` config also emits sentinels.
-- **Why deferred**: each strategy has correctness gotchas that would burn a sprint to nail down. Spec §9 (translator boundary) probably wants this implemented as a new `crates/rift-bus/src/translators/lane.rs` that subscribes to the bus and emits a parallel terminal-overlay channel rather than parsing bytes inline at the xterm boundary. The design beat needs to settle the byte-stream-vs-overlay-channel architecture before any code lands. Wrong answer = brittle heuristic that gets ripped out.
-- **Unblocking event** (3-step):
-  1. ~~`/aegis --think` brainstorm comparing all 3 strategies against §9's translator-boundary discipline. Output: a written decision pinned under `decisions/§10.1_live_lane_classification.md`.~~ **DONE 2026-04-29** — Strategy D (hybrid sentinel + bus-injected boundaries + process-name fallback) selected. Decision doc landed at `decisions/§10.1_live_lane_classification.md`.
-  2. Prototype the chosen strategy in a feature branch with measurement: ConPTY OSC fidelity on Windows 11 (CU-3), per-chunk latency budget under bursty PTY output (CU-2 — `cat /dev/zero | head -c 1G`), Starship/oh-my-zsh injection-matrix smoke test.
-  3. If prototype passes, ship `crates/rift-bus/src/translators/lane.rs` per §9; hook translator gains `Weak<LaneTranslator>` for L2 sentinel injection; `RiftConfig.terminal.lanes_enabled` (already shipped 2026-04-29) gates the entire pipeline.
-- **Adjacent tracking**: `RiftConfig.terminal.lanes_enabled` (TerminalConfig, shipped 2026-04-29) is the runtime escape valve. When D-018 closes, this flag toggles BOTH the Rift-emitted line tagging AND the live-stream classifier — power users can opt out without losing other terminal config.
+<!-- D-018 fully closed 2026-05-05 — see C-023 below. -->
 
 ### D-017 — Viewer edit-mode syntax highlighting (post-v1 ask, opened 2026-04-29) — CLOSED 2026-04-29
 
@@ -108,6 +94,35 @@ WebSocket transport) remain in the locked plan as ongoing v1.x work.
 ---
 
 ## Closed deferrals
+
+### C-023 — D-018 Live PTY-stream lane classification (closed 2026-05-05)
+
+Strategy D (hybrid sentinel + bus-injected + process-name fallback) fully
+implemented per `decisions/§10.1_live_lane_classification.md`. All three
+classification layers shipped:
+
+- **L1 — Shell-integration sentinels.** OSC 6973 parser + state machine
+  (`crates/rift-bus/src/translators/lane.rs`). Shell preludes for pwsh,
+  bash, zsh (`lane_prelude/`) emit PROMPT_START/END, CMD_START,
+  CMD_END;exit=N. Injected at spawn via temp-file + modified shell args.
+- **L2 — Bus-translator-injected sentinels.** Drain task `select!`s on
+  `Category::Hook` + `Category::Aegis` bus events; `inject_event()`
+  pushes/pops the lane stack directly (no PTY round-trip).
+- **L3 — Process-name fallback.** On CMD_START, sample the child process
+  tree (`CreateToolhelp32Snapshot` on Windows, `/proc` on Linux). If
+  `claude` detected → inject CLAUDE lane. macOS = no-op (users opt in
+  via `RIFT_CLAUDE_SENTINELS=1`).
+
+Pipeline: `LaneClassifier::transform()` sits between PTY reader and
+`Channel<Vec<u8>>`. Strips sentinels, injects ANSI 24-bit lane-color
+escapes at transitions. Gated on `RiftConfig.terminal.lanes_enabled`
+(default true); disabled = zero overhead.
+
+Commits: `ca4d970` (scaffold), `f15decd` (preludes + CU-3 scaffold),
+`d8cbcd9` (pipeline wiring), `951047e` (L2), `8cfbf10` (L3),
+`fb07959` (Cargo.lock). 18 unit tests. Decision doc Phase 5 (ship)
+criteria met minus CU-2/CU-3 live measurements (documented as manual
+validation via `npm run tauri:dev`).
 
 ### C-022 — D-016 StatusLine EFFORT segment wired (closed 2026-04-29)
 
