@@ -1109,6 +1109,47 @@ fn git_action_command(
 ///   - macOS    → `open "<path>"`
 ///   - Linux    → `xdg-open "<path>"`
 ///
+/// Lightweight Aegis detection probe (non-gated — runs in every build).
+///
+/// Checks `~/.claude/skills/aegis/SKILL.md` existence and publishes
+/// `aegis.detected` on the bus so the frontend can show the Aegis tab.
+/// The private `rift-aegis` translator (feature-gated) adds snapshot +
+/// log tail on top of this when compiled in.
+async fn aegis_detect_lightweight(bus: RiftBus) {
+    let path = match directories::BaseDirs::new() {
+        Some(b) => b
+            .home_dir()
+            .join(".claude")
+            .join("skills")
+            .join("aegis")
+            .join("SKILL.md"),
+        None => {
+            tracing::warn!("aegis_detect: could not resolve home directory");
+            return;
+        }
+    };
+    let exists = tokio::fs::metadata(&path).await.is_ok();
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+
+    let payload = serde_json::json!({
+        "skill_path": path.to_string_lossy(),
+        "detected_at_ms": ts,
+        "exists": exists,
+    });
+
+    if let Ok(env) = Envelope::new(Category::Aegis, "aegis.detected").with_payload(&payload) {
+        bus.publish(env);
+        tracing::info!(
+            "aegis_detect: SKILL.md {} at '{}'",
+            if exists { "found" } else { "not found" },
+            path.display()
+        );
+    }
+}
+
 /// Returns `Err` (with a descriptive message) if:
 ///   - `BaseDirs::new()` fails (very rare: no home dir).
 ///   - The resolved file does not exist on disk.
@@ -1447,11 +1488,16 @@ pub fn run() {
             let status_bus = bus_for_ipc.clone();
             let status_root = app.state::<ProjectRoot>().inner().get();
 
-            // Phase 7.1 — Aegis private translator load-detection probe.
-            // Feature-gated: only compiled when `--features aegis` is set
-            // AND the gitignored crates/rift-aegis/ exists locally. Public
-            // builds skip this entirely. Clone before bus_for_ipc is moved
-            // into the IPC spawn below.
+            // Phase 7.1 — Aegis detection (two-layer).
+            //
+            // Layer 1 (non-gated): lightweight file-existence probe that runs
+            // in every build. Publishes `aegis.detected` so the Aegis tab
+            // appears whenever `~/.claude/skills/aegis/SKILL.md` exists.
+            //
+            // Layer 2 (feature-gated): the private rift-aegis translator that
+            // additionally publishes a startup snapshot and spawns aegis.log
+            // live tail. Only compiled with `--features aegis`.
+            let aegis_detect_bus = bus_for_ipc.clone();
             #[cfg(feature = "aegis")]
             let aegis_bus = bus_for_ipc.clone();
 
@@ -1473,6 +1519,12 @@ pub fn run() {
                 }
             });
 
+            // Layer 1 — non-gated detection probe.
+            tauri::async_runtime::spawn(async move {
+                aegis_detect_lightweight(aegis_detect_bus).await;
+            });
+
+            // Layer 2 — private translator (snapshot + log tail).
             #[cfg(feature = "aegis")]
             tauri::async_runtime::spawn(async move {
                 aegis_probe(aegis_bus).await;

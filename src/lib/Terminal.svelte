@@ -231,6 +231,9 @@
 
     term.open(host);
 
+    // Expose the xterm instance for MCP pty_read tool (D-014 Phase D).
+    (window as any).__RIFT_TERM__ = term;
+
     // Phase 8.7g — Ctrl+C / Ctrl+V clipboard shortcuts.
     //
     // Default xterm behavior on Windows: Ctrl+C sends SIGINT to the PTY

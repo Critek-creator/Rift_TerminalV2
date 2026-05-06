@@ -1,4 +1,4 @@
-//! Tool catalog — Phase A (4) + Phase B (6) + Phase C (3) = 13 tools.
+//! Tool catalog — Phase A (4) + Phase B (6) + Phase C (3) + Phase D (7) = 20 tools.
 //!
 //! Each tool's `inputSchema` is a JSON Schema object understood by MCP
 //! clients. Per-tool semantics live host-side in `src-tauri/src/mcp_host.rs`;
@@ -29,7 +29,7 @@ pub struct ToolSpec {
     pub input_schema: Value,
 }
 
-/// Phase A + B + C tool catalog (13 tools — D-014 §3 Tier 1 + Tier 2).
+/// Phase A + B + C + D tool catalog (20 tools — D-014 §3 Tier 1 + Tier 2 + Tier 3).
 pub fn tool_catalog() -> Vec<ToolSpec> {
     vec![
         ToolSpec {
@@ -192,6 +192,163 @@ pub fn tool_catalog() -> Vec<ToolSpec> {
                     },
                 },
                 "required": ["code"],
+            }),
+        },
+        // ----- Phase D — Tier 3 mutating + read tools (D-014 §3) -----
+        ToolSpec {
+            name: "pty_input",
+            description: "Type text into a PTY session. Requires `mcp.allow_mutations = true` in config.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "integer",
+                        "description": "PTY session ID (from `pty_list`).",
+                    },
+                    "data": {
+                        "type": "string",
+                        "description": "Text to write to the PTY. Use \\r for Enter, \\x03 for Ctrl+C, etc.",
+                    },
+                },
+                "required": ["id", "data"],
+            }),
+        },
+        ToolSpec {
+            name: "pty_read",
+            description: "Read the current visible content of the terminal buffer. Returns the last N lines of terminal output. Requires `mcp.allow_inspection = true` in config.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "lines": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 5000,
+                        "description": "Number of lines to read from the bottom of the buffer. Default: visible rows.",
+                    },
+                },
+            }),
+        },
+        ToolSpec {
+            name: "bus_publish",
+            description: "Publish an envelope to the Rift bus. Requires `mcp.allow_mutations = true` in config.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "category": {
+                        "type": "string",
+                        "description": "Envelope category (hook, agent, fs, index, aegis, status, system).",
+                    },
+                    "kind": {
+                        "type": "string",
+                        "description": "Envelope kind string, e.g. `hook.result`.",
+                    },
+                    "payload": {
+                        "type": "object",
+                        "description": "JSON payload to attach to the envelope.",
+                    },
+                },
+                "required": ["category", "kind"],
+            }),
+        },
+        ToolSpec {
+            name: "fs_write",
+            description: "Write text content to a project-relative file. Path is validated against the current ProjectRoot — traversals out of the project tree are rejected. Only writes to existing files in v1. Requires `mcp.allow_mutations = true` in config.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Project-relative path, e.g. `src/lib.rs`. Forward slashes accepted on all platforms.",
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": "Full file content to write.",
+                    },
+                },
+                "required": ["path", "content"],
+            }),
+        },
+        ToolSpec {
+            name: "git_action",
+            description: "Run a git mutating action in the project root. Supported actions: `fetch`, `pull`, `push`, `commit-all`. `commit-all` requires the `message` argument. Requires `mcp.allow_mutations = true` in config.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "enum": ["fetch", "pull", "push", "commit-all"],
+                        "description": "Git action to perform.",
+                    },
+                    "message": {
+                        "type": "string",
+                        "description": "Commit message (required for `commit-all`, ignored otherwise).",
+                    },
+                },
+                "required": ["action"],
+            }),
+        },
+        ToolSpec {
+            name: "simulate_click",
+            description: "Simulate a mouse click at the given coordinates in a Rift webview window. Requires BOTH `mcp.allow_inspection = true` AND `mcp.allow_mutations = true` in config.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "window": {
+                        "type": "string",
+                        "enum": ["main", "cockpit"],
+                        "description": "Which window to click in. Default: main.",
+                    },
+                    "x": {
+                        "type": "number",
+                        "description": "X coordinate (pixels from left edge of viewport).",
+                    },
+                    "y": {
+                        "type": "number",
+                        "description": "Y coordinate (pixels from top edge of viewport).",
+                    },
+                    "selector": {
+                        "type": "string",
+                        "description": "CSS selector to click instead of coordinates. If provided, x/y are ignored.",
+                    },
+                },
+            }),
+        },
+        ToolSpec {
+            name: "simulate_drag",
+            description: "Simulate a mouse drag from one point to another in a Rift webview window. Requires BOTH `mcp.allow_inspection = true` AND `mcp.allow_mutations = true` in config.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "window": {
+                        "type": "string",
+                        "enum": ["main", "cockpit"],
+                        "description": "Which window to drag in. Default: main.",
+                    },
+                    "from_x": {
+                        "type": "number",
+                        "description": "Start X coordinate.",
+                    },
+                    "from_y": {
+                        "type": "number",
+                        "description": "Start Y coordinate.",
+                    },
+                    "to_x": {
+                        "type": "number",
+                        "description": "End X coordinate.",
+                    },
+                    "to_y": {
+                        "type": "number",
+                        "description": "End Y coordinate.",
+                    },
+                    "from_selector": {
+                        "type": "string",
+                        "description": "CSS selector for the drag source. If provided, from_x/from_y are ignored.",
+                    },
+                    "to_selector": {
+                        "type": "string",
+                        "description": "CSS selector for the drop target. If provided, to_x/to_y are ignored.",
+                    },
+                },
             }),
         },
     ]

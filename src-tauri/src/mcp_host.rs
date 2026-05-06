@@ -18,8 +18,8 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use rift_bus::{
-    build_tree, load_config, publish_error, read_text, Category, Envelope, McpConfig, RiftBus,
-    SubscribeFilter,
+    build_tree, load_config, publish_error, read_text, write_text, Category, Envelope, McpConfig,
+    RiftBus, SubscribeFilter,
 };
 use serde_json::{json, Value};
 use tauri::{AppHandle, Listener, Manager};
@@ -286,6 +286,55 @@ fn dispatch_tool(
                 return Err("js_eval requires mcp.allow_js_eval = true".into());
             }
             tool_js_eval(app_handle, payload)
+        }
+        // Phase D — Tier 3 mutating + read tools (D-014 §3)
+        "pty_input" => {
+            if !cfg.allow_mutations {
+                return Err("pty_input requires mcp.allow_mutations = true".into());
+            }
+            tool_pty_input(pty_registry, payload)
+        }
+        "pty_read" => {
+            if !cfg.allow_inspection {
+                return Err("pty_read requires mcp.allow_inspection = true".into());
+            }
+            tool_pty_read(app_handle, payload)
+        }
+        "bus_publish" => {
+            if !cfg.allow_mutations {
+                return Err("bus_publish requires mcp.allow_mutations = true".into());
+            }
+            tool_bus_publish(bus, payload)
+        }
+        "fs_write" => {
+            if !cfg.allow_mutations {
+                return Err("fs_write requires mcp.allow_mutations = true".into());
+            }
+            tool_fs_write(project_root, payload)
+        }
+        "git_action" => {
+            if !cfg.allow_mutations {
+                return Err("git_action requires mcp.allow_mutations = true".into());
+            }
+            tool_git_action(project_root, payload)
+        }
+        "simulate_click" => {
+            if !cfg.allow_inspection {
+                return Err("simulate_click requires mcp.allow_inspection = true".into());
+            }
+            if !cfg.allow_mutations {
+                return Err("simulate_click requires mcp.allow_mutations = true".into());
+            }
+            tool_simulate_click(app_handle, payload)
+        }
+        "simulate_drag" => {
+            if !cfg.allow_inspection {
+                return Err("simulate_drag requires mcp.allow_inspection = true".into());
+            }
+            if !cfg.allow_mutations {
+                return Err("simulate_drag requires mcp.allow_mutations = true".into());
+            }
+            tool_simulate_drag(app_handle, payload)
         }
         other => Err(format!("unknown MCP tool: {other}")),
     }
@@ -691,6 +740,255 @@ fn tool_js_eval(app_handle: &AppHandle, payload: &Value) -> Result<Value, String
     let wrapper = format!("return (async function() {{ {code} }})();");
     let result = eval_js_blocking(app_handle, window, &wrapper)?;
     Ok(json!({ "window": window, "result": result }))
+}
+
+// ---------------------------------------------------------------------------
+// Phase D — Tier 3 mutating + read tools (D-014 §3)
+// ---------------------------------------------------------------------------
+
+/// `pty_input` — write text into a PTY session.
+fn tool_pty_input(pty_registry: &PtyRegistry, payload: &Value) -> Result<Value, String> {
+    let id = payload
+        .get("id")
+        .and_then(|v| v.as_u64())
+        .ok_or_else(|| "pty_input: missing required 'id' argument".to_owned())? as u32;
+    let data = payload
+        .get("data")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| "pty_input: missing required 'data' argument".to_owned())?;
+
+    let control = pty_registry
+        .get(id)
+        .ok_or_else(|| format!("pty_input: no PTY session with id {id}"))?;
+
+    if !control.is_alive() {
+        return Err(format!("pty_input: PTY session {id} is not alive"));
+    }
+
+    let bytes = data.as_bytes();
+    control
+        .write(bytes)
+        .map_err(|e| format!("pty_input: write failed: {e}"))?;
+
+    Ok(json!({ "ok": true, "id": id, "bytes_written": bytes.len() }))
+}
+
+/// `pty_read` — read the current visible terminal buffer content.
+///
+/// Uses `eval_js_blocking` to read from the xterm.js instance exposed on
+/// `window.__RIFT_TERM__` by Terminal.svelte.
+fn tool_pty_read(app_handle: &AppHandle, payload: &Value) -> Result<Value, String> {
+    let lines_requested = payload
+        .get("lines")
+        .and_then(|v| v.as_u64())
+        .map(|n| n.min(5000) as usize);
+
+    let js = format!(
+        r#"
+        const term = window.__RIFT_TERM__;
+        if (!term) return {{ error: 'no terminal instance' }};
+        const buf = term.buffer.active;
+        const totalRows = buf.length;
+        const viewportRows = term.rows;
+        const cols = term.cols;
+        const cursorRow = buf.cursorY;
+        const cursorCol = buf.cursorX;
+        const requested = {lines_arg};
+        const count = requested > 0 ? Math.min(requested, totalRows) : viewportRows;
+        const startLine = Math.max(0, totalRows - count);
+        const lines = [];
+        for (let i = startLine; i < totalRows; i++) {{
+            const line = buf.getLine(i);
+            lines.push(line ? line.translateToString(true) : '');
+        }}
+        return {{ lines, cursor_row: cursorRow, cursor_col: cursorCol, rows: viewportRows, cols, total_lines: totalRows }};
+        "#,
+        lines_arg = lines_requested.unwrap_or(0),
+    );
+
+    let wrapper = format!("return (function() {{ {js} }})();");
+    let result = eval_js_blocking(app_handle, "main", &wrapper)?;
+
+    if result.get("error").is_some() {
+        return Err(result["error"].as_str().unwrap_or("unknown").to_owned());
+    }
+
+    Ok(result)
+}
+
+/// `bus_publish` — publish an envelope to the Rift bus.
+fn tool_bus_publish(bus: &RiftBus, payload: &Value) -> Result<Value, String> {
+    let category_str = payload
+        .get("category")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| "bus_publish: missing required 'category' argument".to_owned())?;
+    let kind = payload
+        .get("kind")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| "bus_publish: missing required 'kind' argument".to_owned())?;
+    let envelope_payload = payload.get("payload").cloned().unwrap_or(json!({}));
+
+    let category: Category = serde_json::from_value(Value::String(category_str.to_owned()))
+        .map_err(|_| format!("bus_publish: invalid category: {category_str}"))?;
+
+    let env = Envelope::new(category, kind)
+        .with_payload(&envelope_payload)
+        .map_err(|e| format!("bus_publish: envelope creation failed: {e}"))?;
+
+    bus.publish(env);
+    Ok(json!({ "ok": true, "category": category_str, "kind": kind }))
+}
+
+/// `fs_write` — write text content to a project-relative file.
+fn tool_fs_write(project_root: &Path, payload: &Value) -> Result<Value, String> {
+    let path = payload
+        .get("path")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| "fs_write: missing required 'path' argument".to_owned())?;
+    let content = payload
+        .get("content")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| "fs_write: missing required 'content' argument".to_owned())?;
+
+    write_text(project_root, path, content).map_err(|e| format!("fs_write: {e}"))?;
+    Ok(json!({ "ok": true, "path": path, "bytes_written": content.len() }))
+}
+
+/// `git_action` — run a git mutating action in the project root.
+fn tool_git_action(project_root: &Path, payload: &Value) -> Result<Value, String> {
+    let action = payload
+        .get("action")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| "git_action: missing required 'action' argument".to_owned())?;
+    let message = payload.get("message").and_then(|v| v.as_str());
+
+    let result = git_status::run_action(project_root, action, message)
+        .map_err(|e| format!("git_action: {e}"))?;
+    serde_json::to_value(result).map_err(|e| format!("git_action: serialize failed: {e}"))
+}
+
+/// `simulate_click` — dispatch a synthetic click event at coordinates or a CSS selector.
+fn tool_simulate_click(app_handle: &AppHandle, payload: &Value) -> Result<Value, String> {
+    let window = resolve_window_label(payload);
+
+    let target_js = if let Some(selector) = payload.get("selector").and_then(|v| v.as_str()) {
+        let escaped = selector.replace('\\', "\\\\").replace('\'', "\\'");
+        format!(
+            "const el = document.querySelector('{escaped}'); \
+             if (!el) return {{ error: 'selector not found: {escaped}' }}; \
+             const r = el.getBoundingClientRect(); \
+             const x = r.left + r.width / 2; \
+             const y = r.top + r.height / 2;"
+        )
+    } else {
+        let x = payload
+            .get("x")
+            .and_then(|v| v.as_f64())
+            .ok_or_else(|| "simulate_click: need 'selector' or 'x'+'y' coordinates".to_owned())?;
+        let y = payload
+            .get("y")
+            .and_then(|v| v.as_f64())
+            .ok_or_else(|| "simulate_click: need 'y' coordinate".to_owned())?;
+        format!("const x = {x}; const y = {y}; const el = document.elementFromPoint(x, y);")
+    };
+
+    let js = format!(
+        r#"
+        {target_js}
+        if (el) {{
+            el.dispatchEvent(new MouseEvent('mousedown', {{ clientX: x, clientY: y, bubbles: true }}));
+            el.dispatchEvent(new MouseEvent('mouseup', {{ clientX: x, clientY: y, bubbles: true }}));
+            el.dispatchEvent(new MouseEvent('click', {{ clientX: x, clientY: y, bubbles: true }}));
+        }}
+        return {{ ok: true, x, y, tag: el ? el.tagName : null }};
+        "#
+    );
+
+    let wrapper = format!("return (function() {{ {js} }})();");
+    let result = eval_js_blocking(app_handle, window, &wrapper)?;
+
+    if result.get("error").is_some() {
+        return Err(result["error"].as_str().unwrap_or("unknown").to_owned());
+    }
+    Ok(result)
+}
+
+/// `simulate_drag` — dispatch synthetic mousedown→mousemove→mouseup between two points.
+fn tool_simulate_drag(app_handle: &AppHandle, payload: &Value) -> Result<Value, String> {
+    let window = resolve_window_label(payload);
+
+    let from_js = if let Some(selector) = payload.get("from_selector").and_then(|v| v.as_str()) {
+        let escaped = selector.replace('\\', "\\\\").replace('\'', "\\'");
+        format!(
+            "const fromEl = document.querySelector('{escaped}'); \
+                 if (!fromEl) return {{ error: 'from_selector not found: {escaped}' }}; \
+                 const fr = fromEl.getBoundingClientRect(); \
+                 const fx = fr.left + fr.width / 2; \
+                 const fy = fr.top + fr.height / 2;"
+        )
+    } else {
+        let fx = payload
+            .get("from_x")
+            .and_then(|v| v.as_f64())
+            .ok_or_else(|| "simulate_drag: need 'from_selector' or 'from_x'+'from_y'".to_owned())?;
+        let fy = payload
+            .get("from_y")
+            .and_then(|v| v.as_f64())
+            .ok_or_else(|| "simulate_drag: need 'from_y'".to_owned())?;
+        format!(
+            "const fx = {fx}; const fy = {fy}; const fromEl = document.elementFromPoint(fx, fy);"
+        )
+    };
+
+    let to_js = if let Some(selector) = payload.get("to_selector").and_then(|v| v.as_str()) {
+        let escaped = selector.replace('\\', "\\\\").replace('\'', "\\'");
+        format!(
+            "const toEl = document.querySelector('{escaped}'); \
+             if (!toEl) return {{ error: 'to_selector not found: {escaped}' }}; \
+             const tr = toEl.getBoundingClientRect(); \
+             const tx = tr.left + tr.width / 2; \
+             const ty = tr.top + tr.height / 2;"
+        )
+    } else {
+        let tx = payload
+            .get("to_x")
+            .and_then(|v| v.as_f64())
+            .ok_or_else(|| "simulate_drag: need 'to_selector' or 'to_x'+'to_y'".to_owned())?;
+        let ty = payload
+            .get("to_y")
+            .and_then(|v| v.as_f64())
+            .ok_or_else(|| "simulate_drag: need 'to_y'".to_owned())?;
+        format!("const tx = {tx}; const ty = {ty};")
+    };
+
+    let js = format!(
+        r#"
+        {from_js}
+        {to_js}
+        if (fromEl) {{
+            fromEl.dispatchEvent(new MouseEvent('mousedown', {{ clientX: fx, clientY: fy, bubbles: true }}));
+            const steps = 5;
+            for (let i = 1; i <= steps; i++) {{
+                const mx = fx + (tx - fx) * (i / steps);
+                const my = fy + (ty - fy) * (i / steps);
+                document.dispatchEvent(new MouseEvent('mousemove', {{ clientX: mx, clientY: my, bubbles: true }}));
+            }}
+            const dropTarget = document.elementFromPoint(tx, ty);
+            if (dropTarget) {{
+                dropTarget.dispatchEvent(new MouseEvent('mouseup', {{ clientX: tx, clientY: ty, bubbles: true }}));
+            }}
+        }}
+        return {{ ok: true, from: {{ x: fx, y: fy }}, to: {{ x: tx, y: ty }} }};
+        "#
+    );
+
+    let wrapper = format!("return (function() {{ {js} }})();");
+    let result = eval_js_blocking(app_handle, window, &wrapper)?;
+
+    if result.get("error").is_some() {
+        return Err(result["error"].as_str().unwrap_or("unknown").to_owned());
+    }
+    Ok(result)
 }
 
 fn publish_response(bus: &RiftBus, tool: &str, request_id: Value, result: Result<Value, String>) {

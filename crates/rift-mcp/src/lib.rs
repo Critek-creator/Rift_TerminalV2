@@ -346,6 +346,14 @@ mod tests {
             "dom_snapshot",
             "screenshot",
             "js_eval",
+            // Phase D — Tier 3 mutating + read tools
+            "pty_input",
+            "pty_read",
+            "bus_publish",
+            "fs_write",
+            "git_action",
+            "simulate_click",
+            "simulate_drag",
         ] {
             assert!(names.contains(&expected), "missing tool {expected}");
         }
