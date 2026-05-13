@@ -2,7 +2,7 @@
 
 *Generated: 2026-04-26 by `/aegis` (PLAN mode, TIER-SOLO). Revised 2026-04-27 after Phase 7 ship + §10.15/§10.17 resolution.*
 *Source-of-truth refs: `RIFT_V2_VISION.md` v0.6 (locked) + `rift-v2-mockup.html` + p006 v1 lessons*
-*Status: ACTIVE — Phase 8.x in flight; Phases 0-7 shipped.*
+*Status: ACTIVE — Phases 0-9 shipped (v0.1.1 released). Post-v1 enhancements: D-014 MCP (complete), D-018 lanes (complete), D-019 IndexGraph (open). Phase 10 (ecosystem mesh) planned.*
 
 ---
 
@@ -15,7 +15,7 @@
 
 ---
 
-## Build Sequencing — 9 phases
+## Build Sequencing — 10 phases
 
 | Phase | Name                              | Gate(s)                       | Locked spec refs            |
 |-------|-----------------------------------|-------------------------------|-----------------------------|
@@ -29,6 +29,7 @@
 | 7     | Aegis private translator module   | depends on Phase 4 + Phase 5  | §9 two-doc, §10.13          |
 | 8     | Index integration (tab + graph)   | depends on Phase 6; **§10.18 graph-lib decision** | §10.12, §10.14, §10.18      |
 | 9     | v1 ship: MSI + signing + runbook  | all above PASS                | §13 packaging               |
+| 10    | Ecosystem Mesh (post-v1)          | v1 shipped; each sub-phase independent | ecosystem-arch (pr002)       |
 
 ### Phase 0 — Repo + Tauri scaffold
 
@@ -138,6 +139,61 @@
 **Out:** signed MSI installer + GitHub release + runbook.
 - Apply V1 lessons: `cargo-wix` invoked from package dir (not workspace root), workspace-relative paths in `.wxs`, conditional code-signing in CI.
 - Release runbook documents the full Phase 0→9 build verification flow.
+
+### Phase 10 — Ecosystem Mesh (post-v1, incremental)
+
+**Prerequisites:** v1 shipped (Phase 9). Each sub-phase unblocks independently when its sibling component ships — no linear ordering required. Architecture already supports all of this via §9 translator pattern.
+
+**Source of truth:** `~/Documents/Abyssal_Arts_main/Project Ideas/abyssal-arts-ecosystem.md` (vaulted in pr002).
+
+**Out:** Rift becomes the ecosystem panopticon described in the Abyssal Arts ecosystem architecture — all components observable, grunt-tier dispatch active, capture events flowing.
+
+**Sub-phases (activate independently per component readiness):**
+
+#### 10.1 — Grunt Tier Dispatch Router
+**Unblocks when:** Local LLM layer (Gemma 4 / Ollama) operational on the PC.
+- Add `tier` field to envelope schema (additive — `#[serde(default)]`, no version bump per lesson `envelope-version-additive-categories-no-bump`).
+- New translator: `translators/grunt.rs` — subscribes to `type=task, tier=grunt` envelopes, routes to local LLM endpoint, publishes `type=result` on completion.
+- Bus routing logic: active dispatch (not passive observation). Claude tags tasks; Rift routes.
+- New notification tab: `GruntTabContent.svelte` — shows grunt task queue, in-progress, results, error rate.
+- StatusLine segment: grunt tier health (queue depth / active / errors).
+- Token economics observable: show partner-vs-grunt split per the ecosystem doc's "80%+ local" target.
+
+#### 10.2 — Bridge Translator
+**Unblocks when:** Abyssal Bridge MCP server deployed and reachable (Cloudflare Tunnel active).
+- New translator: `translators/bridge.rs` — subscribes to Bridge status events (heartbeat, file ops, captures, shell executions happening remotely).
+- New `Category::Bridge` envelope variant (additive).
+- Tab or section: Bridge connection status (connected/disconnected/latency), recent remote operations, capture events sourced from phone.
+- Feature detection: Bridge presence = Bridge tab lights up; absence = no tab (§10.7 pattern).
+
+#### 10.3 — Capture Event Pipeline
+**Unblocks when:** Brain Dump (or any capture source) emits `type=capture` events onto the bus.
+- New `Category::Capture` envelope variant.
+- Capture events surface in existing notification tabs (likely Hooks or a new "Inbox" tab) — raw thought entered the system, here's where it landed.
+- Optional: capture → Index vault auto-routing (if the capture is structured enough). Human approval gate before vault write.
+- Brain Dump Android app would need IPC bridge (via Bridge translator or direct local socket if on same network).
+
+#### 10.4 — Chat App Translator
+**Unblocks when:** Claude Chat App (custom) exists and speaks the IPC bus protocol.
+- New translator: `translators/chat.rs` — subscribes to Chat session events (conversation start/end, context loaded, task dispatched, result received).
+- New `Category::Chat` envelope variant.
+- Tab or section: active conversations, which vaults/projects are in context, dispatch history.
+- Bidirectional: Chat App can query Rift state (via MCP or direct bus subscription), Rift can display Chat activity.
+
+#### 10.5 — Ecosystem Overview Tab
+**Unblocks when:** ≥2 ecosystem components connected (any combination beyond Aegis + Index which are already wired).
+- `EcosystemTabContent.svelte` — unified dashboard showing all connected components, their health, last-seen timestamp, message throughput.
+- Component registry: each translator self-registers with name + version + capabilities on startup. Overview tab renders the registry.
+- Health aggregation: green/amber/red per component based on heartbeat + error rate.
+- Token economics panel: partner-tier vs grunt-tier task volume, cost savings estimate.
+- Success criteria visibility: the 4 ecosystem success criteria from pr002 rendered as live metrics where measurable.
+
+**Phase 10 scope discipline:**
+- Each sub-phase is ONE translator + ONE tab/section — same pattern as Phase 5 (Hooks) and Phase 7 (Aegis).
+- No sub-phase touches Rift core or existing translators (additive only).
+- All envelope schema changes are additive (`#[serde(default)]`) — no breaking changes to existing consumers.
+- No sub-phase requires another sub-phase. 10.1 can ship alone. 10.5 can ship before 10.2. Independence is the point.
+- Sentinel (D-010) is NOT in Phase 10 — it has its own deferral and unblocking criteria. When Sentinel ships, it adds a translator like any Phase 10 component, but its implementation is tracked separately because it's an Abyssal Arts product (p007), not just a Rift feature.
 
 ---
 
