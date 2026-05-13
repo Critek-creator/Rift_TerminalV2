@@ -949,7 +949,7 @@
     position: fixed;
     transform: translate(-50%, -50%);
     pointer-events: none;
-    z-index: 9999;
+    z-index: 5000;
     display: flex;
     align-items: center;
     gap: 8px;

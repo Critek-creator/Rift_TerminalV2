@@ -1,11 +1,15 @@
 [package]
-name = "rift"
+name = "rift-app"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
 description = "Rift Terminal v2 — standalone terminal + GUI cockpit"
 rust-version.workspace = true
+
+[[bin]]
+name = "rift-app"
+path = "src/main.rs"
 
 [lib]
 name = "rift_lib"

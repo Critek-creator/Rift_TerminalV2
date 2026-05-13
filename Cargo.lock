@@ -3162,7 +3162,20 @@ dependencies = [
 ]
 
 [[package]]
-name = "rift"
+name = "rift-aegis"
+version = "0.1.0"
+dependencies = [
+ "directories",
+ "notify",
+ "rift-bus",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "rift-app"
 version = "0.1.1"
 dependencies = [
  "directories",
@@ -3180,19 +3193,6 @@ dependencies = [
  "tokio",
  "tracing",
  "uuid",
-]
-
-[[package]]
-name = "rift-aegis"
-version = "0.1.0"
-dependencies = [
- "directories",
- "notify",
- "rift-bus",
- "serde",
- "serde_json",
- "tokio",
- "tracing",
 ]
 
 [[package]]

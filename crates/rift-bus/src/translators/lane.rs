@@ -469,9 +469,23 @@ fn prelude_temp_dir() -> PathBuf {
 
 fn prepare_pwsh_prelude() -> Option<PreludeInjection> {
     let dir = prelude_temp_dir();
-    std::fs::create_dir_all(&dir).ok()?;
+    if let Err(e) = std::fs::create_dir_all(&dir) {
+        tracing::warn!(
+            dir = %dir.display(),
+            error = %e,
+            "rift-lane-prelude: failed to create pwsh prelude directory"
+        );
+        return None;
+    }
     let file = dir.join("prelude.ps1");
-    std::fs::write(&file, PRELUDE_PWSH).ok()?;
+    if let Err(e) = std::fs::write(&file, PRELUDE_PWSH) {
+        tracing::warn!(
+            path = %file.display(),
+            error = %e,
+            "rift-lane-prelude: failed to write pwsh prelude script"
+        );
+        return None;
+    }
     let path_str = file.to_string_lossy().replace('\'', "''");
     Some(PreludeInjection {
         shell_args: vec![
@@ -485,14 +499,28 @@ fn prepare_pwsh_prelude() -> Option<PreludeInjection> {
 
 fn prepare_bash_prelude() -> Option<PreludeInjection> {
     let dir = prelude_temp_dir();
-    std::fs::create_dir_all(&dir).ok()?;
+    if let Err(e) = std::fs::create_dir_all(&dir) {
+        tracing::warn!(
+            dir = %dir.display(),
+            error = %e,
+            "rift-lane-prelude: failed to create bash prelude directory"
+        );
+        return None;
+    }
     let file = dir.join("prelude-bash.sh");
     let content = format!(
         "# Rift lane prelude wrapper — sources user's .bashrc then lane hooks\n\
          [[ -f ~/.bashrc ]] && source ~/.bashrc\n\
          {PRELUDE_BASH}"
     );
-    std::fs::write(&file, content).ok()?;
+    if let Err(e) = std::fs::write(&file, content) {
+        tracing::warn!(
+            path = %file.display(),
+            error = %e,
+            "rift-lane-prelude: failed to write bash prelude script"
+        );
+        return None;
+    }
     let path_str = file.to_string_lossy().to_string();
     Some(PreludeInjection {
         shell_args: vec!["--rcfile".into(), path_str],
@@ -503,7 +531,14 @@ fn prepare_bash_prelude() -> Option<PreludeInjection> {
 fn prepare_zsh_prelude() -> Option<PreludeInjection> {
     let dir = prelude_temp_dir();
     let zdotdir = dir.join("zsh");
-    std::fs::create_dir_all(&zdotdir).ok()?;
+    if let Err(e) = std::fs::create_dir_all(&zdotdir) {
+        tracing::warn!(
+            dir = %zdotdir.display(),
+            error = %e,
+            "rift-lane-prelude: failed to create zsh prelude directory"
+        );
+        return None;
+    }
     let zshrc = zdotdir.join(".zshrc");
     let content = format!(
         "# Rift lane prelude wrapper — sources user's .zshrc then lane hooks\n\
@@ -512,7 +547,14 @@ fn prepare_zsh_prelude() -> Option<PreludeInjection> {
          unset _rift_real_zdotdir\n\
          {PRELUDE_ZSH}"
     );
-    std::fs::write(&zshrc, content).ok()?;
+    if let Err(e) = std::fs::write(&zshrc, content) {
+        tracing::warn!(
+            path = %zshrc.display(),
+            error = %e,
+            "rift-lane-prelude: failed to write zsh prelude script"
+        );
+        return None;
+    }
     let zdotdir_str = zdotdir.to_string_lossy().to_string();
     Some(PreludeInjection {
         shell_args: vec![],

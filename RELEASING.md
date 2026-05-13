@@ -127,7 +127,7 @@ cargo build -p rift-mcp --locked && cargo test -p rift-mcp --locked  # D-014
 npm run tauri build
 
 # 5. Run the bundled binary manually to confirm it launches.
-#    Path: target/release/rift.exe (Windows) or target/release/bundle/.../...
+#    Path: target/release/rift-app.exe (Windows) or target/release/bundle/.../...
 ```
 
 If any step fails, fix and re-run from the top.

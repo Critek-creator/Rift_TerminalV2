@@ -950,75 +950,90 @@
     color: var(--amber-warm);
   }
 
+  /* ─── Tab strip ──────────────────────────────────────────────────────── */
   .tab-strip {
     flex-shrink: 0;
     display: flex;
     gap: 0;
     border-bottom: 1px solid var(--border-subtle);
-    padding: 0 18px;
+    padding: 0 16px;
+    background: var(--bg-panel, #0c0c0a);
   }
   .tab-btn {
     background: none;
     border: none;
-    border-bottom: 2px solid transparent;
+    border-bottom: 3px solid transparent;
     color: var(--amber-faint);
     font-family: 'JetBrains Mono', monospace;
     font-size: 9px;
     font-weight: 700;
     letter-spacing: 0.14em;
-    padding: 8px 14px 6px;
+    padding: 9px 16px 7px;
     cursor: pointer;
-    transition: color 0.12s, border-color 0.12s;
+    transition: color 0.12s, border-color 0.12s, background 0.12s;
+    /* ensure the bottom border doesn't shift layout */
+    margin-bottom: -1px;
   }
   .tab-btn:hover {
     color: var(--amber-warm);
+    background: var(--bg-hover, #1a1a14);
   }
   .tab-btn.active {
     color: var(--amber-bright);
     border-bottom-color: var(--amber-bright);
+    background: var(--bg-elevated, #14140F);
   }
 
+  /* ─── Scrollable body ────────────────────────────────────────────────── */
   .settings-body {
     flex: 1;
     overflow-y: auto;
-    padding: 12px 18px 8px;
+    padding: 16px 18px 12px;
   }
-  .settings-body::-webkit-scrollbar { width: 5px; }
-  .settings-body::-webkit-scrollbar-thumb { background: var(--amber-faint); }
+  .settings-body::-webkit-scrollbar { width: 4px; }
+  .settings-body::-webkit-scrollbar-thumb {
+    background: var(--amber-faint);
+    border-radius: 2px;
+  }
+  .settings-body::-webkit-scrollbar-track { background: transparent; }
 
+  /* ─── Sections ───────────────────────────────────────────────────────── */
   .section {
-    padding: 10px 0;
+    padding: 14px 0 16px;
     border-bottom: 1px solid var(--border-subtle);
   }
   .section:last-of-type { border-bottom: none; }
   .section-label {
-    color: var(--amber-bright);
-    text-shadow: var(--glow-amber-faint);
-    font-size: 10px;
-    letter-spacing: 0.18em;
+    color: var(--amber-faint);
+    font-size: 9px;
+    letter-spacing: 0.12em;
     text-transform: uppercase;
     font-weight: 700;
-    margin-bottom: 8px;
+    margin-bottom: 10px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border-subtle);
   }
 
+  /* ─── Hints / prose ──────────────────────────────────────────────────── */
   .hint {
     color: var(--amber-faint);
     font-size: 10px;
     font-style: italic;
-    line-height: 1.5;
-    margin-bottom: 8px;
+    line-height: 1.55;
+    margin-bottom: 10px;
   }
   .hint code {
     color: var(--amber-warm);
     font-style: normal;
   }
 
+  /* ─── Key-value display rows ─────────────────────────────────────────── */
   .kv {
     display: grid;
     grid-template-columns: 100px 1fr;
     gap: 12px;
     align-items: baseline;
-    padding: 2px 0;
+    padding: 3px 0;
     font-size: 11px;
   }
   .kv .k {
@@ -1037,75 +1052,128 @@
     color: var(--amber-dim);
   }
 
+  /* ─── Flex utility row (buttons / inline banners) ────────────────────── */
   .row {
     display: flex;
     align-items: center;
     gap: 10px;
-    margin-top: 8px;
+    margin-top: 10px;
     flex-wrap: wrap;
   }
 
+  /* ─── Checkbox toggle row ────────────────────────────────────────────── */
   .kv-toggle {
     display: inline-flex;
     align-items: center;
-    gap: 8px;
+    gap: 10px;
     font-size: 11px;
     color: var(--amber-warm);
     cursor: pointer;
+    padding: 4px 0;
   }
-  .kv-toggle input { cursor: pointer; }
+  /* Custom checkbox — replaces browser default with amber square */
+  .kv-toggle input[type="checkbox"] {
+    appearance: none;
+    -webkit-appearance: none;
+    width: 14px;
+    height: 14px;
+    border: 1px solid var(--amber-faint);
+    background: var(--bg-base, #080806);
+    cursor: pointer;
+    flex-shrink: 0;
+    position: relative;
+    transition: border-color 0.12s, background 0.12s;
+  }
+  .kv-toggle input[type="checkbox"]:checked {
+    background: var(--amber-bright);
+    border-color: var(--amber-bright);
+  }
+  .kv-toggle input[type="checkbox"]:checked::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Cpath d='M1.5 5l2.5 2.5 4.5-4.5' stroke='%23080806' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center/8px no-repeat;
+  }
+  .kv-toggle input[type="checkbox"]:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px rgba(255, 200, 64, 0.4);
+  }
+  .kv-toggle input[type="checkbox"]:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
 
+  /* ─── Mono value display ─────────────────────────────────────────────── */
   .mono-wrap {
     font-family: 'JetBrains Mono', monospace;
     word-break: break-all;
     font-size: 10px;
   }
 
+  /* ─── Buttons ────────────────────────────────────────────────────────── */
   .btn {
     background: transparent;
-    border: 1px solid var(--amber-faint);
-    color: var(--amber-warm);
+    border: 1px solid var(--border-active, #4a3818);
+    color: var(--amber-dim);
     font-family: inherit;
     font-size: 10px;
     letter-spacing: 0.08em;
     text-transform: uppercase;
     font-weight: 700;
-    padding: 4px 10px;
+    padding: 0 12px;
+    height: 32px;
+    line-height: 32px;
     cursor: pointer;
-    transition: color 0.12s, border-color 0.12s, background 0.12s;
+    transition: color 0.12s, border-color 0.12s, background 0.12s, box-shadow 0.12s, transform 0.1s;
+    white-space: nowrap;
   }
   .btn:hover:not(:disabled) {
-    border-color: var(--amber-bright);
-    color: var(--amber-bright);
+    border-color: var(--amber-primary, #FFA826);
+    color: var(--amber-warm);
+    transform: translateY(-1px);
   }
-  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn:active:not(:disabled) {
+    transform: translateY(0);
+  }
+  .btn:disabled { opacity: 0.35; cursor: not-allowed; }
   .btn.primary {
-    background: var(--amber-bright);
-    border-color: var(--amber-bright);
-    color: var(--bg-base);
+    background: var(--amber-bright, #FFC840);
+    border-color: var(--amber-bright, #FFC840);
+    color: var(--bg-base, #080806);
+    font-weight: 800;
   }
   .btn.primary:hover:not(:disabled) {
-    box-shadow: var(--glow-amber-faint);
+    box-shadow: var(--glow-amber-strong, 0 0 14px rgba(255, 200, 64, 0.85));
+    transform: translateY(-1px);
+  }
+  .btn.primary:active:not(:disabled) {
+    transform: translateY(0);
+    box-shadow: var(--glow-amber, 0 0 8px rgba(255, 168, 38, 0.55));
   }
 
+  /* ─── Banners (block — update / error notices) ───────────────────────── */
   .banner {
-    margin-top: 8px;
-    padding: 8px 10px;
+    margin-top: 10px;
+    padding: 10px 12px;
     border: 1px solid var(--border-subtle);
     font-size: 10px;
     line-height: 1.5;
+    background: var(--bg-panel, #0c0c0a);
   }
   .banner-ok {
     border-color: var(--term-green, #33CC33);
     color: var(--term-green, #33CC33);
+    background: rgba(51, 204, 51, 0.05);
   }
   .banner-info {
-    border-color: var(--amber-bright);
+    border-color: var(--amber-bright, #FFC840);
     color: var(--amber-warm);
+    background: rgba(255, 200, 64, 0.05);
   }
   .banner-fail {
-    border-color: var(--term-red);
-    color: var(--term-red);
+    border-color: var(--term-red, #CC3333);
+    color: var(--term-red, #CC3333);
+    background: rgba(204, 51, 51, 0.05);
   }
   .banner-title {
     color: var(--amber-bright);
@@ -1116,63 +1184,97 @@
   }
   .banner-body {
     color: var(--amber-dim);
-    margin-bottom: 6px;
+    margin-bottom: 8px;
     white-space: pre-wrap;
   }
   .banner-actions {
     display: flex;
     gap: 6px;
+    margin-top: 6px;
   }
+
+  /* Inline save feedback — sits in the .row next to the save button */
   .banner-inline {
+    display: inline-flex;
+    align-items: center;
+    height: 32px;
+    padding: 0 10px;
+    border: 1px solid var(--term-green, #33CC33);
+    background: rgba(51, 204, 51, 0.07);
     color: var(--term-green, #33CC33);
     font-size: 9px;
     letter-spacing: 0.06em;
     text-transform: uppercase;
     font-weight: 700;
   }
-  .banner-inline.fail { color: var(--term-red); }
+  .banner-inline.fail {
+    border-color: var(--term-red, #CC3333);
+    background: rgba(204, 51, 51, 0.07);
+    color: var(--term-red, #CC3333);
+  }
 
+  /* ─── Form fields ────────────────────────────────────────────────────── */
   .field {
     display: flex;
     flex-direction: column;
-    gap: 4px;
-    margin-bottom: 8px;
+    gap: 6px;
+    margin-bottom: 12px;
   }
   .field-label {
     color: var(--amber-dim);
     font-size: 9px;
-    letter-spacing: 0.08em;
+    letter-spacing: 0.10em;
     text-transform: uppercase;
     font-weight: 700;
   }
   .field-input {
-    background: var(--bg-base);
-    border: 1px solid var(--amber-faint);
+    background: var(--bg-surface, #0F0F0D);
+    border: 1px solid var(--border-active, #4a3818);
     color: var(--amber-warm);
     font-family: inherit;
     font-size: 11px;
-    padding: 6px 8px;
+    padding: 0 10px;
+    height: 34px;
+    line-height: 34px;
+    resize: none;
+    box-sizing: border-box;
+    transition: border-color 0.12s, box-shadow 0.12s;
+    caret-color: var(--amber-bright);
+  }
+  /* textarea overrides — restore resize and natural height */
+  .field-input[rows] {
+    height: auto;
+    line-height: 1.6;
+    padding: 8px 10px;
     resize: vertical;
   }
   .field-input:focus {
     outline: none;
-    border-color: var(--amber-bright);
-    box-shadow: var(--glow-amber-faint);
+    border-color: var(--amber-primary, #FFA826);
+    box-shadow: 0 0 0 1px var(--amber-dim, #D8A028), var(--glow-amber, 0 0 8px rgba(255, 168, 38, 0.55));
+  }
+  .field-input::placeholder {
+    color: var(--amber-faint);
+    font-style: italic;
+  }
+  .field-input:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
   }
   .field-narrow {
-    width: 80px;
-    resize: none;
+    width: 88px;
   }
 
+  /* ─── Radio groups ───────────────────────────────────────────────────── */
   .radio-row {
     display: flex;
-    gap: 14px;
-    margin-bottom: 4px;
+    gap: 16px;
+    margin-bottom: 6px;
+    flex-wrap: wrap;
   }
   /* Terminal section has 8 radios — wrap onto multiple rows on narrow popouts. */
   .radio-row.radio-wrap {
-    flex-wrap: wrap;
-    row-gap: 6px;
+    row-gap: 8px;
   }
   .radio {
     display: inline-flex;
@@ -1184,16 +1286,45 @@
     letter-spacing: 0.06em;
     color: var(--amber-warm);
     font-weight: 600;
+    padding: 3px 0;
+    transition: color 0.1s;
   }
+  .radio:hover { color: var(--amber-bright); }
   .radio input[type="radio"] {
-    accent-color: var(--amber-bright);
+    appearance: none;
+    -webkit-appearance: none;
+    width: 12px;
+    height: 12px;
+    border: 1px solid var(--amber-faint);
+    border-radius: 50%;
+    background: var(--bg-base, #080806);
+    cursor: pointer;
+    flex-shrink: 0;
+    position: relative;
+    transition: border-color 0.12s;
+  }
+  .radio input[type="radio"]:checked {
+    border-color: var(--amber-bright);
+  }
+  .radio input[type="radio"]:checked::after {
+    content: '';
+    position: absolute;
+    inset: 2px;
+    border-radius: 50%;
+    background: var(--amber-bright);
+  }
+  .radio input[type="radio"]:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px rgba(255, 200, 64, 0.4);
   }
 
+  /* ─── Footer ─────────────────────────────────────────────────────────── */
   .settings-footer {
     flex-shrink: 0;
     border-top: 1px solid var(--border-subtle);
     padding: 10px 18px;
     display: flex;
     justify-content: flex-end;
+    background: var(--bg-panel, #0c0c0a);
   }
 </style>

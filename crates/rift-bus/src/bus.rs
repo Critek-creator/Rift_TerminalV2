@@ -119,7 +119,16 @@ impl RiftBus {
             }
             replay.push_back(env.clone());
         }
-        let _ = self.inner.tx.send(env);
+        if let Err(e) = self.inner.tx.send(env) {
+            // No live receivers — normal during startup or after all subscribers
+            // have dropped. The envelope is already in the replay buffer above,
+            // so late subscribers will still see it. Log at trace level only.
+            tracing::trace!(
+                kind = %e.0.kind,
+                category = ?e.0.category,
+                "rift-bus: broadcast dropped (no receivers); event preserved in replay buffer",
+            );
+        }
     }
 
     /// Subscribe with a filter. Returns:

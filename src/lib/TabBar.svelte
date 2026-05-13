@@ -319,9 +319,10 @@
     box-shadow: inset 0 0 0 1px var(--amber-bright);
   }
   .group { display: flex; align-items: stretch; }
+  /* Slightly brighter divider between session and notification groups */
   .group.right {
     margin-left: auto;
-    border-left: 1px solid var(--border-subtle);
+    border-left: 1px solid var(--border-active);
   }
 
   /* Phase 8.7g.3 — tab text lifted: inactive amber-dim → amber-warm,
@@ -341,13 +342,23 @@
     font-size: 12px;
     cursor: pointer;
     position: relative;
-    transition: color 0.12s, background 0.12s;
+    transition: color 0.15s, background 0.15s;
     user-select: none;
   }
+  /* Hover: preview the active-state top border at 1px, fading in */
   .tab:hover {
     color: var(--amber-bright);
     background: var(--bg-hover);
   }
+  .tab:hover::before {
+    content: '';
+    position: absolute;
+    inset: 0 0 auto 0;
+    height: 1px;
+    background: var(--amber-bright);
+    opacity: 0.45;
+  }
+  /* Active state: 3px top bar + glow below it + subtle bottom fill */
   .tab.active {
     color: var(--amber-bright);
     background: var(--bg-base);
@@ -357,27 +368,44 @@
     content: '';
     position: absolute;
     inset: 0 0 auto 0;
-    height: 2px;
+    height: 3px;
     background: var(--amber-bright);
-    box-shadow: 0 0 6px var(--amber-bright);
+    box-shadow: 0 2px 8px rgba(255, 200, 64, 0.55), 0 0 4px rgba(255, 200, 64, 0.35);
+    opacity: 1;
   }
-  .tab.notif { cursor: grab; }
-  .tab.notif:active { cursor: grabbing; }
-  /* Phase 8.7j — drop-target indicator: bright vertical bar on the leading
-     edge of the tab being hovered while another tab is dragged onto it. */
-  .tab.notif.reorder-target {
-    box-shadow: inset 3px 0 0 var(--amber-bright);
-    background: var(--bg-hover);
+  /* Bottom highlight: thin amber line at base of active tab for "selected tray" effect */
+  .tab.active::after {
+    content: '';
+    position: absolute;
+    inset: auto 0 0 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(255, 200, 64, 0.28), transparent);
+    pointer-events: none;
   }
+  /* Disabled tabs — visually distinct from hover, not just low opacity */
   .tab.notif.disabled {
     color: var(--amber-faint);
     text-decoration: line-through;
     cursor: pointer;
-    opacity: 0.55;
+    opacity: 0.45;
+    filter: saturate(0.4);
   }
   .tab.notif.disabled:hover {
     color: var(--amber-dim);
-    opacity: 0.85;
+    opacity: 0.75;
+    filter: saturate(0.7);
+  }
+  /* Suppress hover ::before tease on disabled and promoted tabs */
+  .tab.notif.disabled:hover::before,
+  .tab.notif.promoted:hover::before {
+    display: none;
+  }
+  .tab.notif { cursor: grab; }
+  .tab.notif:active { cursor: grabbing; }
+  /* Phase 8.7j — drop-target indicator */
+  .tab.notif.reorder-target {
+    box-shadow: inset 3px 0 0 var(--amber-bright);
+    background: var(--bg-hover);
   }
   .tab.notif.promoted {
     opacity: 0.55;
@@ -393,17 +421,24 @@
 
   .icon { font-size: 11px; opacity: 0.85; }
 
+  /* Close button — 18×18 click target, smooth red transition */
   .close {
     margin-left: 4px;
     color: var(--amber-faint);
     font-size: 12px;
-    width: 14px;
-    height: 14px;
-    line-height: 14px;
+    width: 18px;
+    height: 18px;
+    line-height: 18px;
     text-align: center;
     cursor: pointer;
+    border-radius: 2px;
+    transition: color 0.18s, background 0.18s;
+    flex-shrink: 0;
   }
-  .close:hover { color: var(--term-red); }
+  .close:hover {
+    color: var(--term-red);
+    background: rgba(255, 72, 72, 0.12);
+  }
 
   .add {
     width: 36px;
@@ -417,8 +452,7 @@
   }
   .add:hover { color: var(--amber-bright); background: var(--bg-hover); }
 
-  /* Phase 8.7h — manage button (notif strip tail). Same vocabulary as
-     .add but on the right group; subtle by default, lights up on hover. */
+  /* Phase 8.7h — manage button (notif strip tail) */
   .manage {
     width: 28px;
     background: transparent;
@@ -435,6 +469,7 @@
     background: var(--bg-hover);
   }
 
+  /* Badge — crisp 9px text, gentle pulse when count > 0 */
   .badge {
     background: var(--amber-bright);
     color: var(--bg-base);
@@ -445,10 +480,16 @@
     min-width: 16px;
     text-align: center;
     letter-spacing: 0.04em;
+    line-height: 14px;
+    animation: badge-pulse 2s ease-in-out infinite;
+  }
+  @keyframes badge-pulse {
+    0%, 100% { opacity: 1; }
+    50%       { opacity: 0.7; }
   }
 
   /* §10.9 — live-active animated amber border. The pulse runs on the bottom
-     border (sits under the existing 2px amber active-state border without
+     border (sits under the existing 3px amber active-state border without
      conflicting) plus a soft outer glow. Disabled / promoted tabs do not
      pulse — the strip is for "look here" signaling, and a promoted tab is
      already living in its side pane. */
@@ -462,14 +503,15 @@
     animation: notif-live-pulse 1.4s ease-in-out infinite;
     pointer-events: none;
   }
-  /* When the tab is also active, the existing ::before solid bar is the
-     primary signal; the live ::after still pulses underneath but shifts to
-     an outer glow halo so the two cues don't fight visually. */
+  /* When the tab is also active, the ::after from .tab.active is already
+     rendering a bottom gradient; override to the live-pulse variant. */
   .tab.notif.live.active::after {
-    inset: 0;
-    background: transparent;
-    border: 1px solid var(--amber-bright);
+    inset: auto 0 0 0;
+    height: 2px;
+    background: var(--amber-bright);
+    border: none;
     box-shadow: 0 0 10px rgba(245, 158, 11, 0.55);
+    animation: notif-live-pulse 1.4s ease-in-out infinite;
   }
   @keyframes notif-live-pulse {
     0%, 100% { opacity: 1;   box-shadow: 0 0 6px  var(--amber-bright); }

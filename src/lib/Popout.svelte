@@ -78,6 +78,20 @@
   // Per-entry z-index — base 1000, +10 per stack level so each new
   // overlay paints above the prior one without colliding with app chrome.
   const zIndex = $derived(1000 + stackIndex * 10);
+
+  // Focus management — move focus into the dialog card when it becomes the
+  // top entry. This satisfies WCAG 2.1 SC 2.1.2 (No Keyboard Trap) and the
+  // ARIA dialog pattern requirement that focus moves to the dialog on open.
+  // tabindex="-1" on the card makes it programmatically focusable without
+  // placing it in the natural tab order.
+  let cardEl = $state<HTMLElement | null>(null);
+  $effect(() => {
+    if (isTop && cardEl) {
+      // Defer one microtask so the card is fully painted before focus moves.
+      const frame = requestAnimationFrame(() => cardEl?.focus());
+      return () => cancelAnimationFrame(frame);
+    }
+  });
   const cardWidth = $derived(entry.width ?? 'min(640px, 80vw)');
 
   /** Display title for the card header. */
@@ -110,6 +124,7 @@
     tabindex="-1"
     aria-modal="true"
     aria-labelledby="popout-title-{entry.id}"
+    bind:this={cardEl}
   >
     <header class="card-header">
       <h2 class="card-title" id="popout-title-{entry.id}">{cardTitle}</h2>
@@ -170,19 +185,29 @@
 </div>
 
 <style>
+  /* Backdrop: warm-tinted dark overlay with subtle blur for depth */
   .backdrop {
     position: fixed;
     inset: 0;
-    background: rgba(0, 0, 0, 0.7);
+    /* Slightly warm the black — hint of amber in the tint */
+    background: rgba(4, 3, 1, 0.78);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
     display: grid;
     place-items: center;
     animation: popout-fade-in 120ms ease-out;
   }
 
+  /* Card: depth shadow + faint amber outer glow + top-edge highlight */
   .card {
     background: var(--bg-elevated);
+    /* Top border slightly brighter to create a lifted edge highlight */
     border: 1px solid var(--amber-bright);
-    box-shadow: var(--glow-amber-faint), 0 8px 32px rgba(0, 0, 0, 0.5);
+    border-top-color: rgba(255, 200, 64, 0.55);
+    box-shadow:
+      0 4px 24px rgba(0, 0, 0, 0.6),
+      0 0 1px rgba(255, 168, 38, 0.2),
+      var(--glow-amber-faint);
     color: var(--amber-warm);
     font-family: inherit;
     max-width: 90vw;
@@ -197,7 +222,7 @@
        the resize widget to render. */
     resize: both;
     overflow: hidden;
-    animation: popout-card-in 160ms cubic-bezier(0.2, 0.7, 0.3, 1);
+    animation: popout-card-in 150ms cubic-bezier(0.18, 0.72, 0.28, 1);
   }
   /* Viewer popout — comfortable default so file content is readable
      without immediate resize. User can still drag the BR corner up/down. */
@@ -208,12 +233,14 @@
     min-height: 320px;
   }
 
+  /* Header: slightly more prominent separator from body */
   .card-header {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 12px 16px;
-    border-bottom: 1px solid var(--border-subtle);
+    padding: 12px 18px;
+    border-bottom: 1px solid var(--border-active);
+    flex-shrink: 0;
   }
 
   .card-title {
@@ -226,23 +253,35 @@
     margin: 0;
   }
 
+  /* Close button: 28×28 click target, smooth red hover */
   .card-close {
     background: transparent;
     border: none;
     color: var(--amber-faint);
-    font-size: 14px;
+    font-size: 16px;
     line-height: 1;
     cursor: pointer;
-    padding: 2px 6px;
+    padding: 0;
+    width: 28px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 2px;
     font-family: inherit;
+    transition: color 0.18s, background 0.18s;
+    flex-shrink: 0;
   }
   .card-close:hover {
     color: var(--term-red);
+    background: rgba(255, 72, 72, 0.12);
   }
 
+  /* Body: consistent 18px padding, smooth scrolling with styled scrollbar */
   .card-body {
-    padding: 16px;
+    padding: 18px;
     overflow: auto;
+    scroll-behavior: smooth;
   }
   /* Viewer manages its own padding + scrolling — strip the card padding. */
   .card-body-viewer {
@@ -280,8 +319,14 @@
     min-height: 0;
     flex: 1;
   }
+  /* Styled scrollbar — amber-tinted track on the card body */
   .card-body::-webkit-scrollbar { width: 5px; }
-  .card-body::-webkit-scrollbar-thumb { background: var(--amber-faint); }
+  .card-body::-webkit-scrollbar-track { background: var(--bg-base); }
+  .card-body::-webkit-scrollbar-thumb {
+    background: var(--border-active);
+    border-radius: 2px;
+  }
+  .card-body::-webkit-scrollbar-thumb:hover { background: var(--amber-faint); }
 
   .text-body {
     white-space: pre-wrap;
@@ -306,6 +351,7 @@
     letter-spacing: 0.08em;
     font-weight: 600;
     cursor: pointer;
+    transition: border-color 0.15s, color 0.15s, box-shadow 0.15s;
   }
   .btn-cancel {
     background: transparent;
@@ -329,8 +375,9 @@
     from { opacity: 0; }
     to   { opacity: 1; }
   }
+  /* Card entry: scale from 0.97 to 1 with slight upward travel */
   @keyframes popout-card-in {
-    from { opacity: 0; transform: scale(0.98) translateY(4px); }
-    to   { opacity: 1; transform: scale(1) translateY(0); }
+    from { opacity: 0; transform: scale(0.97) translateY(6px); }
+    to   { opacity: 1; transform: scale(1)    translateY(0);   }
   }
 </style>
