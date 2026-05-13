@@ -108,20 +108,24 @@ async fn run_subscriber(
             &pty_registry,
             &app_handle,
             &env,
-        );
+        )
+        .await;
     }
 
     loop {
         match sub.recv().await {
-            Ok(env) => handle_envelope(
-                &bus,
-                &cfg,
-                &project_root,
-                token_present,
-                &pty_registry,
-                &app_handle,
-                &env,
-            ),
+            Ok(env) => {
+                handle_envelope(
+                    &bus,
+                    &cfg,
+                    &project_root,
+                    token_present,
+                    &pty_registry,
+                    &app_handle,
+                    &env,
+                )
+                .await
+            }
             Err(rift_bus::BusError::Lagged(n)) => {
                 tracing::warn!("mcp_host: subscriber lagged by {n} envelopes");
             }
@@ -130,7 +134,7 @@ async fn run_subscriber(
     }
 }
 
-fn handle_envelope(
+async fn handle_envelope(
     bus: &RiftBus,
     cfg: &McpConfig,
     project_root: &Path,
@@ -189,7 +193,8 @@ fn handle_envelope(
             app_handle,
             tool_name,
             &env.payload,
-        );
+        )
+        .await;
         publish_response(bus, tool_name, request_id, result);
     }
 }
@@ -242,7 +247,7 @@ fn handle_handshake(bus: &RiftBus, env: &Envelope, token_present: bool) {
     }
 }
 
-fn dispatch_tool(
+async fn dispatch_tool(
     bus: &RiftBus,
     cfg: &McpConfig,
     project_root: &Path,
@@ -270,13 +275,13 @@ fn dispatch_tool(
             if !cfg.allow_inspection {
                 return Err("dom_snapshot requires mcp.allow_inspection = true".into());
             }
-            tool_dom_snapshot(app_handle, payload)
+            tool_dom_snapshot(app_handle, payload).await
         }
         "screenshot" => {
             if !cfg.allow_inspection {
                 return Err("screenshot requires mcp.allow_inspection = true".into());
             }
-            tool_screenshot(app_handle, payload)
+            tool_screenshot(app_handle, payload).await
         }
         "js_eval" => {
             if !cfg.allow_inspection {
@@ -285,7 +290,7 @@ fn dispatch_tool(
             if !cfg.allow_js_eval {
                 return Err("js_eval requires mcp.allow_js_eval = true".into());
             }
-            tool_js_eval(app_handle, payload)
+            tool_js_eval(app_handle, payload).await
         }
         // Phase D — Tier 3 mutating + read tools (D-014 §3)
         "pty_input" => {
@@ -298,7 +303,7 @@ fn dispatch_tool(
             if !cfg.allow_inspection {
                 return Err("pty_read requires mcp.allow_inspection = true".into());
             }
-            tool_pty_read(app_handle, payload)
+            tool_pty_read(app_handle, payload).await
         }
         "bus_publish" => {
             if !cfg.allow_mutations {
@@ -325,7 +330,7 @@ fn dispatch_tool(
             if !cfg.allow_mutations {
                 return Err("simulate_click requires mcp.allow_mutations = true".into());
             }
-            tool_simulate_click(app_handle, payload)
+            tool_simulate_click(app_handle, payload).await
         }
         "simulate_drag" => {
             if !cfg.allow_inspection {
@@ -334,7 +339,7 @@ fn dispatch_tool(
             if !cfg.allow_mutations {
                 return Err("simulate_drag requires mcp.allow_mutations = true".into());
             }
-            tool_simulate_drag(app_handle, payload)
+            tool_simulate_drag(app_handle, payload).await
         }
         other => Err(format!("unknown MCP tool: {other}")),
     }
@@ -624,7 +629,7 @@ fn resolve_window_label(payload: &Value) -> &str {
         .unwrap_or("main")
 }
 
-fn eval_js_blocking(app_handle: &AppHandle, window_label: &str, js: &str) -> Result<Value, String> {
+async fn eval_js(app_handle: &AppHandle, window_label: &str, js: &str) -> Result<Value, String> {
     let webview = app_handle
         .get_webview_window(window_label)
         .ok_or_else(|| format!("window '{window_label}' not found"))?;
@@ -658,9 +663,7 @@ fn eval_js_blocking(app_handle: &AppHandle, window_label: &str, js: &str) -> Res
         .eval(&eval_script)
         .map_err(|e| format!("eval dispatch failed: {e}"))?;
 
-    let result = tauri::async_runtime::block_on(async {
-        tokio::time::timeout(Duration::from_secs(10), rx).await
-    });
+    let result = tokio::time::timeout(Duration::from_secs(10), rx).await;
 
     match result {
         Ok(Ok(raw)) => {
@@ -685,19 +688,20 @@ fn eval_js_blocking(app_handle: &AppHandle, window_label: &str, js: &str) -> Res
     }
 }
 
-fn tool_dom_snapshot(app_handle: &AppHandle, payload: &Value) -> Result<Value, String> {
+async fn tool_dom_snapshot(app_handle: &AppHandle, payload: &Value) -> Result<Value, String> {
     let window = resolve_window_label(payload);
-    let html = eval_js_blocking(
+    let html = eval_js(
         app_handle,
         window,
         "return document.documentElement.outerHTML;",
-    )?;
+    )
+    .await?;
     Ok(json!({ "window": window, "html": html }))
 }
 
-fn tool_screenshot(app_handle: &AppHandle, payload: &Value) -> Result<Value, String> {
+async fn tool_screenshot(app_handle: &AppHandle, payload: &Value) -> Result<Value, String> {
     let window = resolve_window_label(payload);
-    let result = eval_js_blocking(
+    let result = eval_js(
         app_handle,
         window,
         r#"
@@ -723,7 +727,8 @@ fn tool_screenshot(app_handle: &AppHandle, payload: &Value) -> Result<Value, Str
             URL.revokeObjectURL(url);
             return canvas.toDataURL('image/png');
         "#,
-    )?;
+    )
+    .await?;
     let data_url = result.as_str().unwrap_or("");
     let base64 = data_url
         .strip_prefix("data:image/png;base64,")
@@ -731,14 +736,14 @@ fn tool_screenshot(app_handle: &AppHandle, payload: &Value) -> Result<Value, Str
     Ok(json!({ "window": window, "png_base64": base64, "width": null, "height": null }))
 }
 
-fn tool_js_eval(app_handle: &AppHandle, payload: &Value) -> Result<Value, String> {
+async fn tool_js_eval(app_handle: &AppHandle, payload: &Value) -> Result<Value, String> {
     let window = resolve_window_label(payload);
     let code = payload
         .get("code")
         .and_then(|v| v.as_str())
         .ok_or_else(|| "js_eval: missing required 'code' argument".to_owned())?;
     let wrapper = format!("return (async function() {{ {code} }})();");
-    let result = eval_js_blocking(app_handle, window, &wrapper)?;
+    let result = eval_js(app_handle, window, &wrapper).await?;
     Ok(json!({ "window": window, "result": result }))
 }
 
@@ -775,9 +780,9 @@ fn tool_pty_input(pty_registry: &PtyRegistry, payload: &Value) -> Result<Value, 
 
 /// `pty_read` — read the current visible terminal buffer content.
 ///
-/// Uses `eval_js_blocking` to read from the xterm.js instance exposed on
+/// Uses `eval_js` to read from the xterm.js instance exposed on
 /// `window.__RIFT_TERM__` by Terminal.svelte.
-fn tool_pty_read(app_handle: &AppHandle, payload: &Value) -> Result<Value, String> {
+async fn tool_pty_read(app_handle: &AppHandle, payload: &Value) -> Result<Value, String> {
     let lines_requested = payload
         .get("lines")
         .and_then(|v| v.as_u64())
@@ -807,7 +812,7 @@ fn tool_pty_read(app_handle: &AppHandle, payload: &Value) -> Result<Value, Strin
     );
 
     let wrapper = format!("return (function() {{ {js} }})();");
-    let result = eval_js_blocking(app_handle, "main", &wrapper)?;
+    let result = eval_js(app_handle, "main", &wrapper).await?;
 
     if result.get("error").is_some() {
         return Err(result["error"].as_str().unwrap_or("unknown").to_owned());
@@ -868,7 +873,7 @@ fn tool_git_action(project_root: &Path, payload: &Value) -> Result<Value, String
 }
 
 /// `simulate_click` — dispatch a synthetic click event at coordinates or a CSS selector.
-fn tool_simulate_click(app_handle: &AppHandle, payload: &Value) -> Result<Value, String> {
+async fn tool_simulate_click(app_handle: &AppHandle, payload: &Value) -> Result<Value, String> {
     let window = resolve_window_label(payload);
 
     let target_js = if let Some(selector) = payload.get("selector").and_then(|v| v.as_str()) {
@@ -905,7 +910,7 @@ fn tool_simulate_click(app_handle: &AppHandle, payload: &Value) -> Result<Value,
     );
 
     let wrapper = format!("return (function() {{ {js} }})();");
-    let result = eval_js_blocking(app_handle, window, &wrapper)?;
+    let result = eval_js(app_handle, window, &wrapper).await?;
 
     if result.get("error").is_some() {
         return Err(result["error"].as_str().unwrap_or("unknown").to_owned());
@@ -914,7 +919,7 @@ fn tool_simulate_click(app_handle: &AppHandle, payload: &Value) -> Result<Value,
 }
 
 /// `simulate_drag` — dispatch synthetic mousedown→mousemove→mouseup between two points.
-fn tool_simulate_drag(app_handle: &AppHandle, payload: &Value) -> Result<Value, String> {
+async fn tool_simulate_drag(app_handle: &AppHandle, payload: &Value) -> Result<Value, String> {
     let window = resolve_window_label(payload);
 
     let from_js = if let Some(selector) = payload.get("from_selector").and_then(|v| v.as_str()) {
@@ -983,7 +988,7 @@ fn tool_simulate_drag(app_handle: &AppHandle, payload: &Value) -> Result<Value, 
     );
 
     let wrapper = format!("return (function() {{ {js} }})();");
-    let result = eval_js_blocking(app_handle, window, &wrapper)?;
+    let result = eval_js(app_handle, window, &wrapper).await?;
 
     if result.get("error").is_some() {
         return Err(result["error"].as_str().unwrap_or("unknown").to_owned());
