@@ -53,19 +53,26 @@ pub enum Cmd {
     Status,
 }
 
-/// Resolve the socket name from `--socket` arg or `$RIFT_SOCKET_NAME`.
+/// Resolve the socket name from `--socket` arg, `$RIFT_SOCKET_NAME`, or
+/// the on-disk discovery file written by the running Rift host.
 pub fn resolve_socket(arg: Option<&str>) -> Result<String> {
     if let Some(s) = arg {
         return Ok(s.to_owned());
     }
-    std::env::var(SOCKET_ENV_VAR).map_err(|_| {
-        anyhow!(
-            "no socket name. Pass --socket <name> or set ${SOCKET_ENV_VAR}.\n\
-             The running Rift instance prints the socket name on boot \
-             (typical value: rift-v2-<pid>.sock); shells launched from \
-             inside Rift inherit ${SOCKET_ENV_VAR} automatically."
-        )
-    })
+    if let Ok(s) = std::env::var(SOCKET_ENV_VAR) {
+        return Ok(s);
+    }
+    if let Ok(Some(s)) = rift_bus::load_mcp_socket() {
+        return Ok(s);
+    }
+    Err(anyhow!(
+        "no socket name. Pass --socket <name> or set ${SOCKET_ENV_VAR}.\n\
+         The running Rift instance writes its socket name to the discovery \
+         file at {}; if Rift is running, this should resolve automatically.",
+        rift_bus::mcp_socket_path()
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|_| "<config dir unavailable>".to_owned())
+    ))
 }
 
 /// Open a connection to a running Rift instance and publish a single
@@ -189,10 +196,19 @@ mod tests {
         let _guard = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let prev = std::env::var(SOCKET_ENV_VAR).ok();
         std::env::remove_var(SOCKET_ENV_VAR);
-        let err = resolve_socket(None).unwrap_err();
-        let msg = format!("{err:#}");
-        assert!(msg.contains("--socket"), "got: {msg}");
-        assert!(msg.contains(SOCKET_ENV_VAR), "got: {msg}");
+        // If the on-disk discovery file exists (Rift is running on this
+        // machine), resolve_socket succeeds via that fallback — skip the
+        // error assertion. On CI (no Rift), all three sources fail.
+        match resolve_socket(None) {
+            Err(err) => {
+                let msg = format!("{err:#}");
+                assert!(msg.contains("--socket"), "got: {msg}");
+                assert!(msg.contains(SOCKET_ENV_VAR), "got: {msg}");
+            }
+            Ok(s) => {
+                assert!(!s.is_empty(), "discovery file returned empty socket name");
+            }
+        }
         if let Some(p) = prev {
             std::env::set_var(SOCKET_ENV_VAR, p);
         }
