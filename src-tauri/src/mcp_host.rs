@@ -649,12 +649,17 @@ async fn eval_js(app_handle: &AppHandle, window_label: &str, js: &str) -> Result
     let eval_script = format!(
         r#"(async function() {{
             const __cbId = '{escaped_cb}';
+            const __emit = window.__TAURI__ && window.__TAURI__.event && window.__TAURI__.event.emit;
+            if (!__emit) {{
+                console.error('[rift-mcp] window.__TAURI__.event.emit unavailable — withGlobalTauri may be disabled');
+                return;
+            }}
             try {{
                 const __result = await (async function() {{ {js} }})();
                 const __serialized = (typeof __result === 'string') ? __result : JSON.stringify(__result);
-                window.__TAURI__.event.emit(__cbId, JSON.stringify({{ ok: true, result: __serialized }}));
+                await __emit(__cbId, {{ ok: true, result: __serialized }});
             }} catch (e) {{
-                window.__TAURI__.event.emit(__cbId, JSON.stringify({{ ok: false, error: e.message || String(e) }}));
+                await __emit(__cbId, {{ ok: false, error: e.message || String(e) }});
             }}
         }})()"#
     );
