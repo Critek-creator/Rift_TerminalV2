@@ -640,6 +640,7 @@
           ? (item.aggregateGlow ?? 0)
           : treeActivity.getEntry(item.node.path).glowIntensity}
         {@const enrichments = enrichmentStore.get(item.node.path)}
+        {@const nodeColor = item.node.isDir ? null : fileColor(item.node.name)}
         <!-- svelte-ignore a11y_click_events_have_key_events -->
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <!--
@@ -654,7 +655,7 @@
           onmousedown={(e) => onTreeNodeMouseDown(e, item.node)}
           onclick={() => handleNodeClick(item.node)}
           ondblclick={() => handleNodeDblClick(item.node)}
-          style="cursor: pointer;{item.node.isDir ? '' : ` --file-color: ${fileColor(item.node.name)};`}"
+          style="cursor: pointer;"
         >
           {#if item.node.isDir}
             <!-- Directory: rounded rectangle.
@@ -683,23 +684,24 @@
               font-size="7"
             >{isCollapsedDir ? '▶' : '▾'}</text>
           {:else}
-            <!-- File: circle -->
+            <!-- File: circle — stroke colored by file type, amber glow on activity -->
             <circle
               class="node-bg node-state-{sc}"
               cx={item.x}
               cy={item.y}
               r={FILE_R}
-              style={sc === 'recent' && glow > 0
+              style="{sc !== 'background' && nodeColor ? `stroke: ${nodeColor};` : ''}{sc === 'recent' && glow > 0
                 ? `filter: drop-shadow(0 0 ${3 + glow * 6}px rgba(212,137,10,${0.25 + glow * 0.45}));`
-                : ''}
+                : ''}"
             />
           {/if}
 
-          <!-- Label to the right of the node -->
+          <!-- Label to the right of the node — file-type color via inline style -->
           <text
             class="tree-node-label {sc}"
             x={item.x + (item.node.isDir ? DIR_W / 2 : FILE_R) + 6}
             y={item.y}
+            style={sc !== 'background' && nodeColor ? `fill: ${nodeColor};` : ''}
           >{item.node.name}</text>
 
           <!-- Enrichment dot (Phase 8.6.2) — muted-amber §10.1 "meta/timestamps" lane.
@@ -805,19 +807,19 @@
   }
   :global(.node-state-ambient) {
     fill: var(--bg-elevated);
-    stroke: var(--file-color, var(--amber-warm));
+    stroke: var(--amber-warm);
     stroke-width: 1;
     filter: drop-shadow(0 0 3px rgba(176, 122, 18, 0.3));
   }
   :global(.node-state-recent) {
     fill: var(--bg-elevated);
-    stroke: var(--file-color, var(--amber-primary));
+    stroke: var(--amber-primary);
     stroke-width: 1.5;
     filter: drop-shadow(0 0 6px rgba(212, 137, 10, 0.55));
   }
   :global(.node-state-active) {
     fill: var(--bg-elevated);
-    stroke: var(--file-color, var(--amber-bright));
+    stroke: var(--amber-bright);
     stroke-width: 2;
     filter: drop-shadow(0 0 12px rgba(245, 158, 11, 0.85));
     animation: pulse-glow 1.6s ease-in-out infinite;
@@ -849,7 +851,7 @@
 
   /* Labels */
   :global(.tree-node-label) {
-    fill: var(--file-color, var(--amber-dim));
+    fill: var(--amber-dim);
     font-family: 'JetBrains Mono', monospace;
     font-size: 10px;
     font-weight: 500;
@@ -857,8 +859,8 @@
     pointer-events: none;
     user-select: none;
   }
-  :global(.tree-node-label.active)     { fill: var(--file-color, var(--amber-bright)); font-weight: 700; }
-  :global(.tree-node-label.recent)     { fill: var(--file-color, var(--amber-warm));   font-weight: 600; }
+  :global(.tree-node-label.active)     { fill: var(--amber-bright); font-weight: 700; }
+  :global(.tree-node-label.recent)     { fill: var(--amber-warm);   font-weight: 600; }
   :global(.tree-node-label.background) { fill: var(--amber-faint); }
 
   /* Edges */

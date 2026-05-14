@@ -1,4 +1,4 @@
-export type FileColorCategory = 'rust' | 'script' | 'frontend' | 'config' | 'docs' | 'default';
+export type FileColorCategory = 'rust' | 'script' | 'frontend' | 'config' | 'docs' | 'media' | 'default';
 
 const EXT_MAP: Record<string, FileColorCategory> = {
   '.rs': 'rust',
@@ -8,6 +8,9 @@ const EXT_MAP: Record<string, FileColorCategory> = {
   '.cjs': 'script',
   '.tsx': 'script',
   '.jsx': 'script',
+  '.kt': 'script',
+  '.java': 'script',
+  '.py': 'script',
   '.svelte': 'frontend',
   '.html': 'frontend',
   '.css': 'frontend',
@@ -21,12 +24,32 @@ const EXT_MAP: Record<string, FileColorCategory> = {
   '.lock': 'config',
   '.ini': 'config',
   '.env': 'config',
+  '.gradle': 'config',
+  '.kts': 'config',
+  '.pro': 'config',
+  '.properties': 'config',
   '.md': 'docs',
   '.txt': 'docs',
   '.sh': 'docs',
   '.ps1': 'docs',
   '.bat': 'docs',
   '.cmd': 'docs',
+  '.png': 'media',
+  '.jpg': 'media',
+  '.jpeg': 'media',
+  '.gif': 'media',
+  '.svg': 'media',
+  '.ico': 'media',
+  '.webp': 'media',
+  '.bmp': 'media',
+  '.mp3': 'media',
+  '.wav': 'media',
+  '.ogg': 'media',
+  '.mp4': 'media',
+  '.ttf': 'media',
+  '.otf': 'media',
+  '.woff': 'media',
+  '.woff2': 'media',
 };
 
 const CATEGORY_CSS: Record<FileColorCategory, string> = {
@@ -35,6 +58,7 @@ const CATEGORY_CSS: Record<FileColorCategory, string> = {
   frontend: 'var(--term-cyan)',
   config: 'var(--term-purple)',
   docs: 'var(--term-green)',
+  media: 'var(--term-white)',
   default: 'var(--amber-dim)',
 };
 
