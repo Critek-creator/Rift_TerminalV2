@@ -1623,6 +1623,16 @@ pub fn run() {
 
             cockpit_builder.build()?;
 
+            // Force-center the main window to override any stale WebView2
+            // cached position. EBWebView persists window state across runs
+            // and can restore to off-screen coordinates (e.g. after a
+            // monitor disconnect or resolution change), making the window
+            // invisible on launch.
+            if let Some(main_win) = app.get_webview_window("main") {
+                let _ = main_win.center();
+                let _ = main_win.show();
+            }
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
