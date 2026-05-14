@@ -60,10 +60,10 @@ use rift_aegis::probe as aegis_probe;
 
 use rift_bus::{
     build_tree, load_config, prepare_lane_prelude, publish_command, publish_error, read_text,
-    save_config, spawn_fs_watcher, spawn_status_translator, spawn_vault_walker, write_text,
-    Category, CommandBuffer, Envelope, FsWatcher, IpcServer, LaneClassifier, RiftBus, RiftConfig,
-    SentinelEvent, ShellPref, SubscribeFilter, TreeNode, DEFAULT_IGNORE_GLOBS,
-    FS_TREE_DEFAULT_MAX_DEPTH,
+    save_config, spawn_fs_watcher, spawn_session_logger, spawn_status_translator,
+    spawn_vault_walker, write_text, Category, CommandBuffer, Envelope, FsWatcher, IpcServer,
+    LaneClassifier, RiftBus, RiftConfig, SentinelEvent, ShellPref, SubscribeFilter, TreeNode,
+    DEFAULT_IGNORE_GLOBS, FS_TREE_DEFAULT_MAX_DEPTH,
 };
 use rift_core::process::is_claude_descendant;
 use rift_core::pty::{PtyControl, PtyDims, PtyOptions, PtySession};
@@ -1554,6 +1554,17 @@ pub fn run() {
                 tokio::time::sleep(std::time::Duration::from_millis(250)).await;
                 spawn_status_translator(status_bus, status_root, status_shutdown).await;
             });
+
+            // Session logger — persists every bus envelope to a .jsonl file on disk.
+            // No boot delay needed (no visual output, no layout race).
+            {
+                let session_bus = app.state::<RiftBus>().inner().clone();
+                let session_cfg = cfg.session.clone();
+                let session_shutdown = app.state::<ShutdownNotify>().handle();
+                tauri::async_runtime::spawn(async move {
+                    spawn_session_logger(session_bus, session_cfg, session_shutdown).await;
+                });
+            }
 
             // D-014 Phase A — MCP host subscriber (off by default).
             //

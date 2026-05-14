@@ -33,17 +33,7 @@
 <!-- D-017 closed 2026-04-29 — see C-019 below. -->
 <!-- D-015 closed 2026-04-29 — see C-020 below. -->
 
-### D-019 — IndexGraph cluster collapse + state decay timer (opened 2026-04-29)
-
-- Phase 8.7p shipped the cluster-bubble layout + per-state node visuals (active / recent / ambient / background). Two follow-up sub-questions surfaced during planning that didn't make v1:
-  1. **Cluster collapse / expand.** Click on a cluster bubble's empty area → collapse all nodes in that kind into a single super-node with a count badge (e.g. `lore (6)`). Click the super-node → expand back. Useful for users with deep vault hierarchies (lore, sub-doors at depth 4) who want to focus on one category at a time without dimming everything else.
-  2. **Auto state-decay timer.** Today the `recent` state is purely time-based (`updatedMs` within the last hour, recomputed each tick). A natural extension: nodes the user has interacted with (clicked, dragged, dropped) get an in-memory `last_interacted_ms` that drives their state separately from the file mtime. Then a decay schedule: `last_interacted_ms` within last 5 min → `active`; within last 30 min → `recent`; within last 2h → `ambient`; else → `background`. Combined with kind-filter, the most-recently-touched cluster lights up while everything else fades.
-- **Cost**: medium for the collapse path (new RenderedSuperNode type + click handler + bubble-click discrimination from background-pan); small for the decay timer (one map of `id → last_interacted_ms` + a `setInterval` that bumps reactive state every 30s).
-- **Why deferred**: both depend on Phase 8.7p settling under real use first. Cluster collapse is only useful once users have enough vaults that the spatial layout feels crowded — which is the exact scenario this phase JUST fixed via density + label-visibility knobs. Wait for the user-feedback signal before adding more knobs. State-decay risks chronic re-render flicker if implemented naïvely (a `setInterval` driving `$state.raw<RenderedNode[]>` would re-allocate the array every 30s — needs careful change-detection so unchanged nodes preserve identity).
-- **Unblocking event**:
-  1. User reports the v1 layout feels crowded even after picking `density: spacious` AND `label_visibility: hover_only`. THEN cluster collapse becomes worth the complexity.
-  2. User asks for "show me what I just touched" filtering. THEN state-decay becomes worth the complexity.
-- **Adjacent tracking**: `IndexConfig.density` + `IndexConfig.label_visibility` (shipped 2026-04-29) are the v1 escape valves. If they fully solve the layout-crowdedness complaint, D-019 collapse stays deferred indefinitely. The state-decay half is more independent and could land on its own if a user signal arrives.
+<!-- D-019 fully closed 2026-05-14 — see C-024 below. -->
 
 <!-- D-018 fully closed 2026-05-05 — see C-023 below. -->
 
@@ -91,9 +81,34 @@ WebSocket transport) remain in the locked plan as ongoing v1.x work.
 - Created during Phase 7.0 architecture lock (this commit). No code change required to open this deferral — pure spec deferral. Phase 7.5 will write the placeholder card and reference this entry inline.
 - Phase 7.5 placeholder card landed in `src/lib/NotificationPane.svelte` (persistent-state section, bottom of the state-panel footer).
 
+### D-020 — Temporal activity heatmap for the filesystem tree (post-v1, opened 2026-05-14)
+
+- Feature Agent candidate `2026-05-14-activity-filesystem-heatmap-temporal-tree-928` (Curator tier: Medium).
+- An accumulated-activity heatmap layer on the fs tree that color-codes nodes by touch frequency over a configurable time window (5m/15m/1h), making hotspot patterns (thrashing files, build-output concentration, edit clusters) visible that instantaneous glow cannot reveal.
+- Infrastructure exists: `treeActivity.svelte.ts` (instantaneous state), `Tree.svelte` (hierarchical bubble-up), `enrichmentStore.svelte.ts` (data-joining pattern), `[tree]` config section. The feature adds a `HeatAccumulator` + config fields (`heatmap_enabled`, `heatmap_window_minutes`, `heatmap_intensity_threshold`).
+- Curator rationale: all 5 reasons substantively evidenced with codebase + spec §11 citations, vision-spec-aligned ambient visualization extension; occurrence_count=1 at default Medium landing — design-iteration risk (color ramp + intensity tuning + glow interaction) warrants evidence accumulation before elevating.
+- **Unblocking event**: user decides to build it, or a second Feature Agent run independently surfaces the same idea (which would bump occurrence_count and likely tier to High). Design decisions needed: color ramp palette (amber→red or separate heatmap palette?), interaction with existing glow states, whether the heatmap is always-on or toggle-able.
+
 ---
 
 ## Closed deferrals
+
+### C-024 — D-019 IndexGraph cluster collapse + state decay timer (closed 2026-05-14)
+
+Obsoleted by the IndexGraph remake (commit `376ef8b`). The D3 radial
+force-directed graph that motivated cluster-collapse and state-decay
+was replaced entirely with a vault browser list layout. The new
+implementation renders vaults as a structured list rather than a
+spatial force graph, eliminating the crowdedness problem that cluster
+collapse was designed to solve and the re-render flicker concern that
+blocked state-decay.
+
+Both sub-features (collapse/expand super-nodes, interaction-driven
+decay timer) were specific to the D3 simulation loop and
+`RenderedNode` / `RenderedSuperNode` types — neither concept maps
+onto the list-based IndexGraph. If spatial layout returns in a future
+phase (e.g. a D3 or Canvas graph view alongside the list), these
+ideas can be revisited from scratch against the new architecture.
 
 ### C-023 — D-018 Live PTY-stream lane classification (closed 2026-05-05)
 

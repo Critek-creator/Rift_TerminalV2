@@ -78,11 +78,17 @@ pub struct RiftConfig {
     /// Off by default. Token is auto-generated on first launch with
     /// `enabled = true`; lives next to `config.toml` as `mcp_token`.
     pub mcp: McpConfig,
+    /// Session event persistence (bus → .jsonl file on disk).
+    /// Enabled by default; 7-day retention; 100 MiB cap per session file.
+    pub session: SessionConfig,
     /// Terminal surface settings (shell preference, font, scrollback, lanes).
     /// Defaults to `Auto` shell discovery (pwsh > powershell > %COMSPEC% > cmd
     /// on Windows, $SHELL > /bin/zsh > /bin/bash > /bin/sh on Unix), 13px
     /// JetBrains Mono, 1.55 line-height, 1000-line scrollback, lanes enabled.
     pub terminal: TerminalConfig,
+    /// Notification tab filter rules. Per-tab severity thresholds control
+    /// which events render in notification tabs. Default: info.
+    pub notif_filters: NotifFilterConfig,
 }
 
 /// A recently-used project entry stored in the config.
@@ -205,6 +211,93 @@ pub enum IndexDensity {
     /// Forward-compat catch-all.
     #[serde(other)]
     Unknown,
+}
+
+/// Severity level for notification tab filtering.
+///
+/// Events whose derived severity falls below a tab's threshold are not
+/// rendered (but still captured by the session logger). Debug is the
+/// lowest (show everything); Error is the highest (show only errors).
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+#[non_exhaustive]
+pub enum SeverityLevel {
+    /// Show everything including debug-level events.
+    Debug,
+    /// Default threshold — show info and above.
+    #[default]
+    Info,
+    /// Show only warnings and errors.
+    Warn,
+    /// Show only errors.
+    Error,
+    /// Forward-compat catch-all. Treated as Info at runtime.
+    #[serde(other)]
+    Unknown,
+}
+
+/// Notification filter configuration.
+///
+/// `default_threshold` applies to any tab not listed in `per_tab`.
+/// The BusTail tab defaults to Debug (firehose by design) unless
+/// explicitly overridden.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(default)]
+pub struct NotifFilterConfig {
+    /// Minimum severity for events to appear in notification tabs.
+    pub default_threshold: SeverityLevel,
+    /// Per-tab threshold overrides keyed by tab ID (e.g. "errors", "hooks",
+    /// "bustail", "aegis", "agents", "todo", "git", "index", "commands").
+    pub per_tab: std::collections::HashMap<String, SeverityLevel>,
+}
+
+impl Default for NotifFilterConfig {
+    fn default() -> Self {
+        Self {
+            default_threshold: SeverityLevel::Info,
+            per_tab: std::collections::HashMap::new(),
+        }
+    }
+}
+
+/// Session event persistence configuration.
+///
+/// When enabled, a dedicated bus subscriber writes every envelope to a
+/// per-launch JSON-lines file under the platform sessions directory. The
+/// cleanup sweep deletes files older than `retention_days` at startup.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SessionConfig {
+    /// Master switch. When `false`, the session logger task returns
+    /// immediately and no file is created.
+    pub enabled: bool,
+    /// Auto-delete session files older than this many days at startup.
+    pub retention_days: u32,
+    /// Stop writing to the current session file once it exceeds this size.
+    /// The file is capped, not rotated — the next launch gets a fresh file.
+    pub max_file_size_mb: u32,
+}
+
+impl Default for SessionConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            retention_days: 7,
+            max_file_size_mb: 100,
+        }
+    }
+}
+
+/// Resolve the platform sessions directory for Rift.
+///
+/// Sibling of `config.toml`:
+/// * Windows: `%APPDATA%\com.abyssal.rift\config\sessions\`
+/// * macOS:   `~/Library/Application Support/com.abyssal.rift/sessions/`
+/// * Linux:   `$XDG_CONFIG_HOME/rift/sessions/`
+pub fn sessions_dir() -> Result<PathBuf, ConfigError> {
+    let dirs =
+        directories::ProjectDirs::from("com", "abyssal", "rift").ok_or(ConfigError::NoConfigDir)?;
+    Ok(dirs.config_dir().join("sessions"))
 }
 
 /// MCP server configuration (D-014, locked 2026-04-29).
@@ -883,5 +976,89 @@ sync_mode = "future_variant_xyz"
             back.node_positions.is_none(),
             "node_positions must round-trip as None"
         );
+    }
+
+    // T25 — parse_config_without_session_section_uses_defaults
+    //
+    // A config TOML with no [session] section must parse successfully and
+    // produce SessionConfig::default(). Validates the additive-versioning
+    // invariant: existing configs without [session] do not break.
+    #[test]
+    fn parse_config_without_session_section_uses_defaults() {
+        let toml_str = r#"
+[fs]
+max_depth = 4
+"#;
+        let cfg: RiftConfig = toml::from_str(toml_str).expect("parse should succeed");
+        assert!(
+            cfg.session.enabled,
+            "session.enabled should default to true"
+        );
+        assert_eq!(
+            cfg.session.retention_days, 7,
+            "session.retention_days should default to 7"
+        );
+        assert_eq!(
+            cfg.session.max_file_size_mb, 100,
+            "session.max_file_size_mb should default to 100"
+        );
+    }
+
+    // T26 — session_config_round_trips
+    #[test]
+    fn session_config_round_trips() {
+        let original = SessionConfig::default();
+        let toml_str = toml::to_string_pretty(&original).expect("serialize");
+        let back: SessionConfig = toml::from_str(&toml_str).expect("deserialize");
+        assert_eq!(back.enabled, original.enabled);
+        assert_eq!(back.retention_days, original.retention_days);
+        assert_eq!(back.max_file_size_mb, original.max_file_size_mb);
+    }
+
+    // T27 — parse_config_without_notif_filters_section_uses_defaults
+    #[test]
+    fn parse_config_without_notif_filters_section_uses_defaults() {
+        let toml_str = r#"
+[fs]
+max_depth = 4
+"#;
+        let cfg: RiftConfig = toml::from_str(toml_str).expect("parse should succeed");
+        assert_eq!(
+            cfg.notif_filters.default_threshold,
+            SeverityLevel::Info,
+            "default_threshold should default to Info"
+        );
+        assert!(
+            cfg.notif_filters.per_tab.is_empty(),
+            "per_tab should default to empty"
+        );
+    }
+
+    // T28 — notif_filter_config_round_trips
+    #[test]
+    fn notif_filter_config_round_trips() {
+        let mut original = NotifFilterConfig {
+            default_threshold: SeverityLevel::Warn,
+            ..Default::default()
+        };
+        original
+            .per_tab
+            .insert("bustail".to_string(), SeverityLevel::Debug);
+        let toml_str = toml::to_string_pretty(&original).expect("serialize");
+        let back: NotifFilterConfig = toml::from_str(&toml_str).expect("deserialize");
+        assert_eq!(back.default_threshold, SeverityLevel::Warn);
+        assert_eq!(back.per_tab.get("bustail"), Some(&SeverityLevel::Debug));
+    }
+
+    // T29 — severity_level_unknown_variant_forward_compat
+    #[test]
+    fn severity_level_unknown_variant_forward_compat() {
+        let toml_str = r#"
+[notif_filters]
+default_threshold = "future_level_xyz"
+"#;
+        let cfg: RiftConfig =
+            toml::from_str(toml_str).expect("parse must not error on unknown variant");
+        assert_eq!(cfg.notif_filters.default_threshold, SeverityLevel::Unknown);
     }
 }

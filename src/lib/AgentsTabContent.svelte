@@ -22,12 +22,14 @@
   import { onMount, onDestroy } from 'svelte';
   import { subscribe, publish, type Envelope } from './bus';
   import { NOTIF_TAB_MIME } from './dragMime';
+  import { shouldShow, type SeverityLevel } from './notifFilter';
 
   interface Props {
+    severityThreshold?: SeverityLevel;
     onDragBack?: () => void;
   }
 
-  let { onDragBack }: Props = $props();
+  let { severityThreshold = 'info', onDragBack }: Props = $props();
 
   type AgentStatus = 'running' | 'cancelling' | 'completed' | 'cancelled' | 'error';
 
@@ -74,6 +76,7 @@
   const integrationDetected = $derived(totalEvents > 0);
 
   function handleEnvelope(env: Envelope) {
+    if (!shouldShow(env.kind, severityThreshold)) return;
     totalEvents += 1;
     lastTickTs = Date.now();
 

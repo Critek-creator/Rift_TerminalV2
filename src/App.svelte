@@ -26,6 +26,8 @@
   import Splitter from './lib/Splitter.svelte';
   import { subscribe, publish, signalBusReady, type Category } from './lib/bus';
   import { enrichmentStore } from './lib/enrichmentStore.svelte';
+  import { parseSeverity, type SeverityLevel } from './lib/notifFilter';
+  import type { RiftConfig as RiftConfigType } from './lib/riftConfig';
 
   // Tab id → bus category. `undefined` = no integration registered yet,
   // so the pane stays in placeholder mode until a translator lights it up.
@@ -73,6 +75,35 @@
     // translator (Aegis today, Sentinel post-D-010) is what fulfills it.
     { id: 'agents',   title: 'agents',   icon: '◊', enabled: true, detected: false, unreadCount: 0, lastActivityTs: null },
   ]);
+
+  // ----- notification filter thresholds -----
+  // Loaded from RiftConfig.notif_filters on mount + rift:config-changed.
+  // BusTail defaults to 'debug' (firehose by design) unless explicitly overridden.
+  let notifFilterDefault = $state<SeverityLevel>('info');
+  let notifFilterPerTab = $state<Record<string, SeverityLevel>>({});
+
+  function thresholdFor(tabId: string): SeverityLevel {
+    if (tabId in notifFilterPerTab) return notifFilterPerTab[tabId];
+    if (tabId === 'bustail') return 'debug';
+    return notifFilterDefault;
+  }
+
+  async function loadNotifFilters() {
+    try {
+      const cfg = await invoke<RiftConfigType>('config_get');
+      const nf = cfg?.notif_filters;
+      notifFilterDefault = parseSeverity(nf?.default_threshold);
+      const pt: Record<string, SeverityLevel> = {};
+      if (nf?.per_tab) {
+        for (const [k, v] of Object.entries(nf.per_tab)) {
+          pt[k] = parseSeverity(v);
+        }
+      }
+      notifFilterPerTab = pt;
+    } catch {
+      // Silent fallback to defaults on error.
+    }
+  }
 
   // Reverse map for envelope routing — Category → notif tab id. Used by the
   // master subscription below to attribute incoming envelopes to the right
@@ -568,6 +599,13 @@
     let unlistenDetached: (() => void) | undefined;
     let unlistenReattached: (() => void) | undefined;
 
+    // Load notification filter thresholds from config on mount.
+    void loadNotifFilters();
+
+    // Re-read filters when Settings saves (rift:config-changed broadcast).
+    const onConfigChanged = () => { void loadNotifFilters(); };
+    window.addEventListener('rift:config-changed', onConfigChanged);
+
     void (async () => {
       try {
         cockpitDetached = await invoke<boolean>('cockpit_status');
@@ -652,6 +690,7 @@
     return () => {
       unlistenDetached?.();
       unlistenReattached?.();
+      window.removeEventListener('rift:config-changed', onConfigChanged);
     };
   });
 
@@ -745,23 +784,24 @@
           {#key activeNotifTab.id}
             <div class="surface visible">
               {#if activeNotifTab.id === 'aegis'}
-                <AegisTabContent />
+                <AegisTabContent severityThreshold={thresholdFor('aegis')} />
               {:else if activeNotifTab.id === 'index'}
                 <IndexTabContent />
               {:else if activeNotifTab.id === 'bustail'}
-                <BusTailTabContent />
+                <BusTailTabContent severityThreshold={thresholdFor('bustail')} />
               {:else if activeNotifTab.id === 'todo'}
                 <TodoTabContent />
               {:else if activeNotifTab.id === 'git'}
                 <GitTabContent />
               {:else if activeNotifTab.id === 'agents'}
-                <AgentsTabContent />
+                <AgentsTabContent severityThreshold={thresholdFor('agents')} />
               {:else}
                 <NotificationPane
                   title={activeNotifTab.title}
                   icon={activeNotifTab.icon}
                   accent={notifAccent(activeNotifTab.id)}
                   categoryFilter={CATEGORY_BY_NOTIF[activeNotifTab.id]}
+                  severityThreshold={thresholdFor(activeNotifTab.id)}
                 />
               {/if}
             </div>
@@ -788,23 +828,24 @@
         {#key promotedTab.id}
           <aside class="promoted-pane">
             {#if promotedTab.id === 'aegis'}
-              <AegisTabContent onDragBack={demoteTab} />
+              <AegisTabContent severityThreshold={thresholdFor('aegis')} onDragBack={demoteTab} />
             {:else if promotedTab.id === 'index'}
               <IndexTabContent onDragBack={demoteTab} />
             {:else if promotedTab.id === 'bustail'}
-              <BusTailTabContent onDragBack={demoteTab} />
+              <BusTailTabContent severityThreshold={thresholdFor('bustail')} onDragBack={demoteTab} />
             {:else if promotedTab.id === 'todo'}
               <TodoTabContent onDragBack={demoteTab} />
             {:else if promotedTab.id === 'git'}
               <GitTabContent onDragBack={demoteTab} />
             {:else if promotedTab.id === 'agents'}
-              <AgentsTabContent onDragBack={demoteTab} />
+              <AgentsTabContent severityThreshold={thresholdFor('agents')} onDragBack={demoteTab} />
             {:else}
               <NotificationPane
                 title={promotedTab.title}
                 icon={promotedTab.icon}
                 accent={notifAccent(promotedTab.id)}
                 categoryFilter={CATEGORY_BY_NOTIF[promotedTab.id]}
+                severityThreshold={thresholdFor(promotedTab.id)}
                 onDragBack={demoteTab}
               />
             {/if}

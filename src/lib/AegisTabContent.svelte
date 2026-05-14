@@ -15,13 +15,16 @@
   import { subscribe, type Envelope } from './bus';
   import AegisTabRenderer from './AegisTabRenderer.svelte';
   import { NOTIF_TAB_MIME } from './dragMime';
+  import { shouldShow, type SeverityLevel } from './notifFilter';
 
   interface Props {
+    /** Minimum severity for events to render. Default: info. */
+    severityThreshold?: SeverityLevel;
     /** Drag-back handle for promoted-pane mode (Phase 3.5a). */
     onDragBack?: () => void;
   }
 
-  let { onDragBack }: Props = $props();
+  let { severityThreshold = 'info', onDragBack }: Props = $props();
 
   const RECENT_LOG_LIMIT = 100;
   const LIVE_ACTIVITY_WINDOW_MS = 4000;
@@ -83,7 +86,8 @@
   // ---------------------------------------------------------------------------
 
   function handleEnvelope(env: Envelope) {
-    // Capture the latest aegis.context payload for the status header.
+    // aegis.context always passes — it's a structural event, not log noise.
+    if (env.kind !== 'aegis.context' && !shouldShow(env.kind, severityThreshold)) return;
     if (env.kind === 'aegis.context') {
       contextPayload = env.payload as typeof contextPayload;
     }

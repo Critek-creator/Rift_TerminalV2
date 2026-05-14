@@ -18,6 +18,7 @@
   import { onMount, onDestroy } from 'svelte';
   import { subscribe, type Category, type Envelope } from './bus';
   import { NOTIF_TAB_MIME } from './dragMime';
+  import { shouldShow, type SeverityLevel } from './notifFilter';
 
   interface Props {
     title: string;
@@ -25,12 +26,14 @@
     accent?: 'amber' | 'cyan' | 'purple' | 'red';
     /** When set, drives `bus_subscribe`. */
     categoryFilter?: Category;
+    /** Minimum severity for events to render. Default: info. */
+    severityThreshold?: SeverityLevel;
     /** Phase 3.5a — side-pane only. Renders a draggable handle bar
      *  whose drop on the tab strip demotes the pane back to a tab. */
     onDragBack?: () => void;
   }
 
-  let { title, icon, accent = 'amber', categoryFilter, onDragBack }: Props = $props();
+  let { title, icon, accent = 'amber', categoryFilter, severityThreshold = 'info', onDragBack }: Props = $props();
 
   const RECENT_LOG_LIMIT = 100;
   const LIVE_ACTIVITY_WINDOW_MS = 4000;
@@ -64,6 +67,7 @@
 
   function handleEnvelope(env: Envelope) {
     if (paused) return;
+    if (!shouldShow(env.kind, severityThreshold)) return;
     events = [...events, env];
     if (events.length > RECENT_LOG_LIMIT * 2) {
       // Trim the underlying buffer so we never grow unbounded.

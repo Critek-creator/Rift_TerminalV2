@@ -20,6 +20,7 @@
   import { getVersion, getName } from '@tauri-apps/api/app';
   import { check, type Update } from '@tauri-apps/plugin-updater';
   import { popouts } from './popouts.svelte';
+  import type { RiftConfig, McpConfig, ShellPref, SeverityLevel } from './riftConfig';
 
   interface Props {
     popoutId: number;
@@ -82,62 +83,9 @@
   // Project + Filesystem + Index (loaded from RiftConfig)
   // ---------------------------------------------------------------------
 
-  interface ProjectEntry {
-    name: string;
-    path: string;
-    last_used_ms: number;
-  }
-  interface FsConfig {
-    ignore_globs: string[];
-    max_depth: number;
-  }
-  type IndexLabelVisibility = 'always' | 'hover_only' | 'on_zoom2x' | 'unknown';
-  type IndexDensity = 'compact' | 'standard' | 'spacious' | 'unknown';
-  interface IndexConfig {
-    ignore_globs: string[];
-    sync_mode: 'live' | 'manual' | 'unknown';
-    camera_transform?: unknown;
-    node_positions?: unknown;
-    label_visibility: IndexLabelVisibility;
-    density: IndexDensity;
-  }
-  interface CockpitConfig {
-    detached_pos?: unknown;
-  }
-  interface McpConfig {
-    enabled: boolean;
-    allow_inspection: boolean;
-    allow_js_eval: boolean;
-    allow_mutations: boolean;
-  }
-  // ShellPref mirrors the Rust enum's adjacently-tagged JSON shape:
-  // unit variants → {kind: "auto"}; Custom → {kind: "custom", path: "..."}.
-  type ShellPref =
-    | { kind: 'auto' }
-    | { kind: 'pwsh' }
-    | { kind: 'powershell' }
-    | { kind: 'cmd' }
-    | { kind: 'bash' }
-    | { kind: 'zsh' }
-    | { kind: 'sh' }
-    | { kind: 'custom'; path: string }
-    | { kind: 'unknown' };
+  // Config data types imported from ./riftConfig.ts (canonical source).
+  // UI-only types (ShellKind, McpStatus) stay local.
   type ShellKind = ShellPref['kind'];
-  interface TerminalConfig {
-    shell: ShellPref;
-    font_size: number;
-    line_height: number;
-    scrollback: number;
-    lanes_enabled: boolean;
-  }
-  interface RiftConfig {
-    projects: ProjectEntry[];
-    fs: FsConfig;
-    cockpit: CockpitConfig;
-    index: IndexConfig;
-    mcp: McpConfig;
-    terminal: TerminalConfig;
-  }
   interface McpStatus {
     enabled: boolean;
     token_present: boolean;
@@ -159,7 +107,7 @@
   let savingMcp = $state(false);
   let savingTerminal = $state(false);
   let saveBanner = $state<{
-    section: 'fs' | 'index' | 'mcp' | 'terminal';
+    section: 'fs' | 'index' | 'mcp' | 'terminal' | 'notif';
     ok: boolean;
     msg: string;
   } | null>(null);
@@ -171,6 +119,54 @@
   let termLineHeight = $state(1.55);
   let termScrollback = $state(1000);
   let termLanesEnabled = $state(true);
+
+  // Notification filters
+  const SEVERITY_OPTIONS: SeverityLevel[] = ['debug', 'info', 'warn', 'error'];
+  const NOTIF_TAB_IDS = ['errors', 'hooks', 'commands', 'aegis', 'index', 'bustail', 'todo', 'git', 'agents'];
+  let notifDefaultThreshold = $state<SeverityLevel>('info');
+  let notifPerTab = $state<Record<string, SeverityLevel>>({});
+  let savingNotif = $state(false);
+
+  const notifDirty = $derived(
+    config !== null
+    && (
+      notifDefaultThreshold !== (config.notif_filters?.default_threshold ?? 'info')
+      || JSON.stringify(notifPerTab) !== JSON.stringify(config.notif_filters?.per_tab ?? {})
+    )
+  );
+
+  async function saveNotifFilters() {
+    if (!config) return;
+    savingNotif = true;
+    saveBanner = null;
+    try {
+      const next: RiftConfig = {
+        ...config,
+        notif_filters: {
+          default_threshold: notifDefaultThreshold,
+          per_tab: { ...notifPerTab },
+        },
+      };
+      await invoke('config_save', { cfg: next });
+      config = next;
+      broadcastConfigChanged();
+      saveBanner = { section: 'notif', ok: true, msg: 'notification filters saved' };
+    } catch (err) {
+      saveBanner = { section: 'notif', ok: false, msg: String(err) };
+    } finally {
+      savingNotif = false;
+    }
+  }
+
+  function setPerTabThreshold(tabId: string, value: string) {
+    if (value === 'default') {
+      const next = { ...notifPerTab };
+      delete next[tabId];
+      notifPerTab = next;
+    } else {
+      notifPerTab = { ...notifPerTab, [tabId]: value as SeverityLevel };
+    }
+  }
 
   // MCP — D-014 Phase A
   let mcpToken = $state<string | null>(null);
@@ -325,6 +321,11 @@
     termLineHeight = c.terminal.line_height;
     termScrollback = c.terminal.scrollback;
     termLanesEnabled = c.terminal.lanes_enabled;
+    // Notification filters snapshot.
+    const nf = c.notif_filters ?? { default_threshold: 'info', per_tab: {} };
+    notifDefaultThreshold = (['debug', 'info', 'warn', 'error'].includes(nf.default_threshold)
+      ? nf.default_threshold : 'info') as SeverityLevel;
+    notifPerTab = { ...(nf.per_tab ?? {}) };
   }
 
   async function reloadConfig() {
@@ -622,10 +623,50 @@
 
     <!-- NOTIFICATIONS -->
     <section class="section">
-      <div class="section-label">Notifications</div>
+      <div class="section-label">Notification Filters</div>
       <div class="hint">
-        notification tabs are managed from a dedicated popout — opens via the
-        <code>⋯</code> button on the right edge of the tab strip, or here.
+        set minimum severity per notification tab. events below the threshold
+        are hidden from the tab (still captured by session logger).
+      </div>
+
+      <label class="field">
+        <span class="field-label">default threshold</span>
+        <select
+          class="select"
+          value={notifDefaultThreshold}
+          onchange={(e) => { notifDefaultThreshold = (e.target as HTMLSelectElement).value as SeverityLevel; }}
+        >
+          {#each SEVERITY_OPTIONS as s (s)}
+            <option value={s}>{s}</option>
+          {/each}
+        </select>
+      </label>
+
+      <div class="notif-per-tab">
+        <div class="field-label" style="margin-bottom: 6px;">per-tab overrides</div>
+        {#each NOTIF_TAB_IDS as tabId (tabId)}
+          <label class="field notif-tab-row">
+            <span class="field-label notif-tab-name">{tabId}</span>
+            <select
+              class="select"
+              value={notifPerTab[tabId] ?? 'default'}
+              onchange={(e) => setPerTabThreshold(tabId, (e.target as HTMLSelectElement).value)}
+            >
+              <option value="default">default ({notifDefaultThreshold})</option>
+              {#each SEVERITY_OPTIONS as s (s)}
+                <option value={s}>{s}</option>
+              {/each}
+            </select>
+          </label>
+        {/each}
+      </div>
+
+      <div class="save-row">
+        <button
+          class="save-btn"
+          disabled={!notifDirty || savingNotif}
+          onclick={saveNotifFilters}
+        >{savingNotif ? 'saving...' : 'save filters'}</button>
       </div>
     </section>
     {/if}

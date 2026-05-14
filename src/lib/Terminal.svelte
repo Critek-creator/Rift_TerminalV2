@@ -139,14 +139,7 @@
       lanesEnabled: true,
     };
     try {
-      const cfg = await invoke<{
-        terminal: {
-          font_size: number;
-          line_height: number;
-          scrollback: number;
-          lanes_enabled: boolean;
-        };
-      }>('config_get');
+      const cfg = await invoke<import('./riftConfig').RiftConfig>('config_get');
       const t = cfg?.terminal ?? null;
       if (!t) return fallback;
       return {

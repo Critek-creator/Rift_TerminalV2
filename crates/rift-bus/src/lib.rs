@@ -10,6 +10,7 @@ pub mod bus;
 pub mod config;
 pub mod envelope;
 pub mod ipc;
+pub mod session_logger;
 pub mod translators;
 
 pub use bus::{BusError, RiftBus, SubscribeFilter, Subscription};
@@ -151,9 +152,9 @@ pub use translators::vault_walker::spawn_vault_walker;
 /// Top-level Rift configuration struct.
 pub use config::{
     CockpitConfig, DetachedPos, FsConfig, IndexDensity, IndexLabelVisibility, McpConfig,
-    ProjectEntry, RiftConfig, ShellPref, TerminalConfig, TERMINAL_DEFAULT_FONT_SIZE,
-    TERMINAL_DEFAULT_LINE_HEIGHT, TERMINAL_DEFAULT_SCROLLBACK, TERMINAL_MAX_FONT_SIZE,
-    TERMINAL_MIN_FONT_SIZE,
+    NotifFilterConfig, ProjectEntry, RiftConfig, SeverityLevel, ShellPref, TerminalConfig,
+    TERMINAL_DEFAULT_FONT_SIZE, TERMINAL_DEFAULT_LINE_HEIGHT, TERMINAL_DEFAULT_SCROLLBACK,
+    TERMINAL_MAX_FONT_SIZE, TERMINAL_MIN_FONT_SIZE,
 };
 
 /// Load config from the platform config directory (default on missing file).
@@ -185,3 +186,24 @@ pub use translators::lane::{LaneClassifier, PreludeInjection, SentinelEvent};
 
 /// Prepare the lane-classification shell prelude for a given shell binary.
 pub use translators::lane::prepare_lane_prelude;
+
+// ---------------------------------------------------------------------------
+// Session logger re-exports
+// ---------------------------------------------------------------------------
+
+/// Run the session event persistence logger (bus → .jsonl file on disk).
+///
+/// This is an `async fn` — callers must wrap it in `tauri::async_runtime::spawn`
+/// per the Phase 7.1 setup() pattern (mirrors `spawn_vault_walker`):
+/// ```ignore
+/// tauri::async_runtime::spawn(async move {
+///     rift_bus::spawn_session_logger(bus, cfg, shutdown).await;
+/// });
+/// ```
+pub use session_logger::spawn_session_logger;
+
+/// Re-export [`SessionConfig`] so callers can write `rift_bus::SessionConfig`.
+pub use config::SessionConfig;
+
+/// Resolve the platform sessions directory path.
+pub use config::sessions_dir;

@@ -3178,9 +3178,11 @@ dependencies = [
 name = "rift-app"
 version = "0.1.1"
 dependencies = [
+ "base64 0.22.1",
  "directories",
  "dunce",
  "globset",
+ "png",
  "rift-aegis",
  "rift-bus",
  "rift-core",
@@ -3193,6 +3195,7 @@ dependencies = [
  "tokio",
  "tracing",
  "uuid",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]

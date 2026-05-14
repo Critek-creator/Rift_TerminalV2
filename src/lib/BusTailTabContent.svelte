@@ -17,12 +17,14 @@
   import { onMount, onDestroy } from 'svelte';
   import { subscribe, type Category, type Envelope } from './bus';
   import { NOTIF_TAB_MIME } from './dragMime';
+  import { shouldShow, type SeverityLevel } from './notifFilter';
 
   interface Props {
+    severityThreshold?: SeverityLevel;
     onDragBack?: () => void;
   }
 
-  let { onDragBack }: Props = $props();
+  let { severityThreshold = 'debug', onDragBack }: Props = $props();
 
   const RECENT_LOG_LIMIT = 200;
   const LIVE_ACTIVITY_WINDOW_MS = 4000;
@@ -82,6 +84,7 @@
 
   function handleEnvelope(env: Envelope) {
     if (paused) return;
+    if (!shouldShow(env.kind, severityThreshold)) return;
     events = [...events, env];
     if (events.length > RECENT_LOG_LIMIT * 2) {
       events = events.slice(-RECENT_LOG_LIMIT);

@@ -17,22 +17,7 @@
   import { invoke } from '@tauri-apps/api/core';
   import { open as openDialog } from '@tauri-apps/plugin-dialog';
   import { popouts } from './popouts.svelte';
-
-  // ---------------------------------------------------------------------------
-  // Types
-  // ---------------------------------------------------------------------------
-
-  interface ProjectEntry {
-    name: string;
-    path: string; // PathBuf serializes to string over Tauri IPC
-    last_used_ms: number;
-  }
-
-  interface RiftConfig {
-    projects: ProjectEntry[];
-    fs: { ignore_globs: string[]; max_depth: number };
-    cockpit: { detached_pos: null | { x: number; y: number; width: number; height: number } };
-  }
+  import type { RiftConfig, ProjectEntry } from './riftConfig';
 
   // ---------------------------------------------------------------------------
   // Props
