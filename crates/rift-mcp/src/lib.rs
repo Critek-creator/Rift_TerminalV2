@@ -50,6 +50,26 @@ pub const BUS_TAIL_NOTIFY_METHOD: &str = "notifications/rift/bus_tail";
 /// reissuing bus_history to resync."
 pub const BUS_TAIL_LAGGED_METHOD: &str = "notifications/rift/bus_tail.lagged";
 
+/// Connect to the host and spawn a notification forwarder task.
+///
+/// Returns the bridge wrapped in an `Arc`. The notification forwarder
+/// dies automatically when the bridge (and its broadcast sender) is
+/// dropped — no explicit cancellation needed.
+async fn connect_and_forward(
+    cfg: &McpServerConfig,
+    stdout: &Arc<Mutex<tokio::io::Stdout>>,
+) -> Result<Arc<HostBridge>, BridgeError> {
+    let bridge = Arc::new(HostBridge::connect(cfg.socket_name.clone(), &cfg.token).await?);
+
+    let notify_rx = bridge.subscribe_notifications();
+    let stdout_for_notify = stdout.clone();
+    tokio::spawn(async move {
+        run_notification_forwarder(notify_rx, stdout_for_notify).await;
+    });
+
+    Ok(bridge)
+}
+
 /// Run the stdio JSON-RPC loop.
 ///
 /// Reads newline-delimited JSON-RPC requests on stdin, dispatches to a
@@ -59,28 +79,21 @@ pub const BUS_TAIL_LAGGED_METHOD: &str = "notifications/rift/bus_tail.lagged";
 ///
 /// Connects to the Rift host and completes the MCP handshake before the
 /// first request is read. Handshake failures bubble up to `main`.
+///
+/// Auto-reconnects when the host disconnects (e.g. Rift restarts). The
+/// MCP server stays alive on stdin/stdout throughout — only tool calls
+/// that arrive mid-reconnect receive a transient error.
 pub async fn run_stdio(cfg: McpServerConfig) -> Result<()> {
     use tokio::io::{AsyncBufReadExt, BufReader};
-
-    let bridge = Arc::new(
-        HostBridge::connect(cfg.socket_name.clone(), &cfg.token)
-            .await
-            .context("connect to Rift host")?,
-    );
 
     // Stdout is shared between the request/response loop and the
     // notification-forwarder task. Mutex serialises frames so partial
     // writes can't interleave on the wire.
     let stdout = Arc::new(Mutex::new(tokio::io::stdout()));
 
-    // Notification forwarder — subscribes to every `mcp.notify.*` envelope
-    // on the bridge and writes a JSON-RPC notification to stdout. Lives
-    // for the duration of the stdio loop.
-    let notify_rx = bridge.subscribe_notifications();
-    let stdout_for_notify = stdout.clone();
-    tokio::spawn(async move {
-        run_notification_forwarder(notify_rx, stdout_for_notify).await;
-    });
+    let mut bridge = connect_and_forward(&cfg, &stdout)
+        .await
+        .context("connect to Rift host")?;
 
     let stdin = tokio::io::stdin();
     let mut reader = BufReader::new(stdin).lines();
@@ -103,10 +116,58 @@ pub async fn run_stdio(cfg: McpServerConfig) -> Result<()> {
             }
         };
 
-        let resp = dispatch(&bridge, req).await;
+        let resp = dispatch(&bridge, req.clone()).await;
+
+        // Reconnect on disconnect/pipe errors — retry the call once.
+        if needs_reconnect(&resp) {
+            eprintln!("rift-mcp: host disconnected, reconnecting...");
+            match try_reconnect(&cfg, &stdout).await {
+                Some(new_bridge) => {
+                    bridge = new_bridge;
+                    eprintln!("rift-mcp: reconnected");
+                    let retry = dispatch(&bridge, req).await;
+                    write_response(&stdout, &retry).await?;
+                    continue;
+                }
+                None => {
+                    eprintln!("rift-mcp: reconnect failed — returning error to client");
+                }
+            }
+        }
+
         write_response(&stdout, &resp).await?;
     }
     Ok(())
+}
+
+/// Check whether a response indicates the host bridge is broken.
+fn needs_reconnect(resp: &Response) -> bool {
+    resp.error.as_ref().is_some_and(|e| {
+        e.code == ErrorCode::InternalError as i32
+            && (e.message.contains("disconnected")
+                || e.message.contains("pipe")
+                || e.message.contains("ipc:"))
+    })
+}
+
+/// Attempt to reconnect with exponential backoff (3 attempts, 500ms base).
+/// Re-reads the discovery file each attempt since the socket name changes
+/// on Rift restart.
+async fn try_reconnect(
+    cfg: &McpServerConfig,
+    stdout: &Arc<Mutex<tokio::io::Stdout>>,
+) -> Option<Arc<HostBridge>> {
+    for attempt in 0..3u32 {
+        let delay = std::time::Duration::from_millis(500 * 2u64.pow(attempt));
+        tokio::time::sleep(delay).await;
+        match connect_and_forward(cfg, stdout).await {
+            Ok(b) => return Some(b),
+            Err(e) => {
+                eprintln!("rift-mcp: reconnect attempt {} failed: {e}", attempt + 1);
+            }
+        }
+    }
+    None
 }
 
 /// Serialize and write a JSON-RPC frame (response OR notification) to
