@@ -728,7 +728,27 @@ async fn tool_js_eval(app_handle: &AppHandle, payload: &Value) -> Result<Value, 
         .get("code")
         .and_then(|v| v.as_str())
         .ok_or_else(|| "js_eval: missing required 'code' argument".to_owned())?;
-    let wrapper = format!("return (async function() {{ {code} }})();");
+
+    // eval_js wraps {js} in `(async function() { {js} })()`, so the code
+    // runs as a function body. Bare expressions don't return a value from a
+    // function body — only explicit `return` does. Auto-return the last
+    // expression so callers get "last expression value" semantics without
+    // needing to write `return` manually.
+    let trimmed = code.trim();
+    let wrapper = if trimmed.contains("return ") || trimmed.contains("return\n") {
+        trimmed.to_string()
+    } else if let Some(last_sep) = trimmed.rfind(|c: char| c == ';' || c == '\n') {
+        let (head, tail) = trimmed.split_at(last_sep + 1);
+        let tail = tail.trim();
+        if tail.is_empty() {
+            trimmed.to_string()
+        } else {
+            format!("{head} return {tail}")
+        }
+    } else {
+        format!("return ({trimmed})")
+    };
+
     let result = eval_js(app_handle, window, &wrapper).await?;
     Ok(json!({ "window": window, "result": result }))
 }

@@ -46,6 +46,7 @@
   import { buildEnrichmentTitle, dotX } from './enrichmentUtils';
   import { RIFT_VAULT_DROP_EVENT, type RiftVaultDropDetail } from './dragMime';
   import { fileColor } from './fileColors';
+  import { crossRefHighlight } from './crossRefHighlight.svelte';
 
   // ---------------------------------------------------------------------------
   // Layout constants
@@ -112,6 +113,19 @@
    * reactive state is declared at the component root (no per-{#each}-row $state).
    */
   let hoveredEnrichmentPath = $state<string | null>(null);
+
+  /** File paths highlighted by vault-browser hover (cross-component, cyan glow). */
+  const vaultHighlightedPaths = $derived.by<Set<string>>(() => {
+    const vaultId = crossRefHighlight.hoveredVaultId;
+    if (!vaultId) return new Set();
+    const paths = new Set<string>();
+    for (const [fsPath, entries] of enrichmentStore.map) {
+      if (entries.some((e) => e.vault_id === vaultId)) {
+        paths.add(fsPath);
+      }
+    }
+    return paths;
+  });
 
   // ---------------------------------------------------------------------------
   // Collapse helpers (design call A)
@@ -625,8 +639,9 @@
       {#each layout as item (item.node.path + '_edge')}
         {#if item.parentX !== null && item.parentY !== null}
           {@const sc = item.aggregateState ?? stateClass(item.node.path)}
+          {@const isCrossRef = vaultHighlightedPaths.has(item.node.path)}
           <path
-            class="edge {sc === 'active' ? 'active' : sc === 'background' ? 'background' : ''}"
+            class="edge {sc === 'active' ? 'active' : sc === 'background' ? 'background' : ''}{isCrossRef ? ' crossref' : ''}"
             d={edgePath(item.parentX, item.parentY, item.x, item.y)}
           />
         {/if}
@@ -641,6 +656,7 @@
           : treeActivity.getEntry(item.node.path).glowIntensity}
         {@const enrichments = enrichmentStore.get(item.node.path)}
         {@const nodeColor = item.node.isDir ? null : fileColor(item.node.name)}
+        {@const isCrossRef = vaultHighlightedPaths.has(item.node.path)}
         <!-- svelte-ignore a11y_click_events_have_key_events -->
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <!--
@@ -662,16 +678,18 @@
                  Collapsed dirs use aggregateGlow for drop-shadow;
                  expanded dirs use their own entry's glow (design call F). -->
             <rect
-              class="node-bg node-state-{sc}"
+              class="node-bg node-state-{sc}{isCrossRef ? ' node-crossref' : ''}"
               x={item.x - DIR_W / 2}
               y={item.y - DIR_H / 2}
               width={DIR_W}
               height={DIR_H}
               rx={DIR_RX}
               ry={DIR_RX}
-              style={sc === 'recent' && glow > 0
-                ? `filter: drop-shadow(0 0 ${4 + glow * 8}px rgba(212,137,10,${0.3 + glow * 0.45}));`
-                : ''}
+              style={isCrossRef
+                ? `filter: drop-shadow(0 0 8px rgba(74,212,212,0.65));`
+                : sc === 'recent' && glow > 0
+                  ? `filter: drop-shadow(0 0 ${4 + glow * 8}px rgba(212,137,10,${0.3 + glow * 0.45}));`
+                  : ''}
             />
             <!-- Folder glyph: ▶ when collapsed, ▾ when expanded (design call D).
                  Glyph state class tracks the same sc as the dir bg. -->
@@ -686,22 +704,24 @@
           {:else}
             <!-- File: circle — stroke colored by file type, amber glow on activity -->
             <circle
-              class="node-bg node-state-{sc}"
+              class="node-bg node-state-{sc}{isCrossRef ? ' node-crossref' : ''}"
               cx={item.x}
               cy={item.y}
               r={FILE_R}
-              style="{sc !== 'background' && nodeColor ? `stroke: ${nodeColor};` : ''}{sc === 'recent' && glow > 0
-                ? `filter: drop-shadow(0 0 ${3 + glow * 6}px rgba(212,137,10,${0.25 + glow * 0.45}));`
-                : ''}"
+              style="{isCrossRef
+                ? `stroke: #4ad4d4; filter: drop-shadow(0 0 8px rgba(74,212,212,0.65));`
+                : (sc !== 'background' && nodeColor ? `stroke: ${nodeColor};` : '') + (sc === 'recent' && glow > 0
+                  ? `filter: drop-shadow(0 0 ${3 + glow * 6}px rgba(212,137,10,${0.25 + glow * 0.45}));`
+                  : '')}"
             />
           {/if}
 
           <!-- Label to the right of the node — file-type color via inline style -->
           <text
-            class="tree-node-label {sc}"
+            class="tree-node-label {sc}{isCrossRef ? ' crossref' : ''}"
             x={item.x + (item.node.isDir ? DIR_W / 2 : FILE_R) + 6}
             y={item.y}
-            style={sc !== 'background' && nodeColor ? `fill: ${nodeColor};` : ''}
+            style={isCrossRef ? 'fill: #4ad4d4;' : sc !== 'background' && nodeColor ? `fill: ${nodeColor};` : ''}
           >{item.node.name}</text>
 
           <!-- Enrichment dot (Phase 8.6.2) — muted-amber §10.1 "meta/timestamps" lane.
@@ -716,8 +736,8 @@
             <g
               class="enrichment-dot-group"
               aria-label="Enriched"
-              onmouseenter={() => { hoveredEnrichmentPath = item.node.path; }}
-              onmouseleave={() => { hoveredEnrichmentPath = null; }}
+              onmouseenter={() => { hoveredEnrichmentPath = item.node.path; crossRefHighlight.hoveredTreePath = item.node.path; }}
+              onmouseleave={() => { hoveredEnrichmentPath = null; crossRefHighlight.hoveredTreePath = null; }}
             >
               <!-- Screen-reader + native tooltip fallback -->
               <title>{buildEnrichmentTitle(enrichments)}</title>
@@ -849,6 +869,17 @@
   :global(.node-glyph.recent)     { fill: var(--amber-primary); }
   :global(.node-glyph.background) { fill: var(--amber-faint); }
 
+  /* Cross-ref highlight — vault browser hover (cyan accent from Index tab) */
+  :global(.node-crossref) {
+    stroke: var(--term-cyan, #4ad4d4);
+    stroke-width: 2;
+    animation: crossref-pulse 0.35s ease-out;
+  }
+  @keyframes -global-crossref-pulse {
+    from { filter: drop-shadow(0 0 14px rgba(74, 212, 212, 0.9)); }
+    to   { filter: drop-shadow(0 0 8px rgba(74, 212, 212, 0.65)); }
+  }
+
   /* Labels */
   :global(.tree-node-label) {
     fill: var(--amber-dim);
@@ -862,6 +893,7 @@
   :global(.tree-node-label.active)     { fill: var(--amber-bright); font-weight: 700; }
   :global(.tree-node-label.recent)     { fill: var(--amber-warm);   font-weight: 600; }
   :global(.tree-node-label.background) { fill: var(--amber-faint); }
+  :global(.tree-node-label.crossref) { fill: var(--term-cyan, #4ad4d4); font-weight: 700; }
 
   /* Edges */
   :global(.edge) {
@@ -879,6 +911,12 @@
   :global(.edge.background) {
     stroke: var(--border-subtle);
     opacity: 0.3;
+  }
+  :global(.edge.crossref) {
+    stroke: var(--term-cyan, #4ad4d4);
+    stroke-width: 1.5;
+    opacity: 0.8;
+    filter: drop-shadow(0 0 3px rgba(74, 212, 212, 0.5));
   }
 
   /* Enrichment dot tooltip (Phase 8.6.2) */

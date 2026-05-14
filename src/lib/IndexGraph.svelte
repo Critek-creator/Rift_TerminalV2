@@ -13,6 +13,8 @@
   import { onMount } from 'svelte';
   import { subscribe } from './bus';
   import { RIFT_VAULT_DROP_EVENT, type RiftVaultDropDetail } from './dragMime';
+  import { crossRefHighlight } from './crossRefHighlight.svelte';
+  import { enrichmentStore } from './enrichmentStore.svelte';
 
   type VaultKind = 'p' | 'pr' | 'r' | 's' | 'lore' | 'agt' | 'h';
   type NodeState = 'active' | 'recent' | 'ambient' | 'background';
@@ -188,6 +190,15 @@
   const hoveredConnections = $derived.by<Set<string>>(() => {
     if (!hoveredId) return new Set();
     return new Set(connectionsFor(hoveredId));
+  });
+
+  /** Vault IDs highlighted by Tree enrichment-dot hover (cross-component). */
+  const treeHighlightedVaultIds = $derived.by<Set<string>>(() => {
+    const treePath = crossRefHighlight.hoveredTreePath;
+    if (!treePath) return new Set();
+    const entries = enrichmentStore.get(treePath);
+    if (!entries) return new Set();
+    return new Set(entries.map((e) => e.vault_id));
   });
 
   // ---------------------------------------------------------------------------
@@ -395,15 +406,17 @@
               {@const state = nodeState(vault)}
               {@const conns = connectionsFor(vault.id)}
               {@const isHighlighted = hoveredId === vault.id || hoveredConnections.has(vault.id)}
+              {@const isTreeHighlighted = treeHighlightedVaultIds.has(vault.id)}
               {@const isSelected = selectedId === vault.id}
               <button
                 type="button"
                 class="vault-row"
                 class:highlighted={isHighlighted}
+                class:tree-highlighted={isTreeHighlighted}
                 class:selected={isSelected}
                 class:dragging={draggingId === vault.id}
-                onmouseenter={() => { hoveredId = vault.id; }}
-                onmouseleave={() => { if (hoveredId === vault.id) hoveredId = null; }}
+                onmouseenter={() => { hoveredId = vault.id; crossRefHighlight.hoveredVaultId = vault.id; }}
+                onmouseleave={() => { if (hoveredId === vault.id) hoveredId = null; crossRefHighlight.hoveredVaultId = null; }}
                 onclick={() => { selectedId = selectedId === vault.id ? null : vault.id; }}
                 onmousedown={(e) => onRowMouseDown(e, vault)}
               >
@@ -630,8 +643,22 @@
     border-left-color: var(--amber-dim);
   }
   .vault-row.highlighted {
-    background: rgba(255, 168, 38, 0.06);
-    border-left-color: var(--amber-warm);
+    background: rgba(255, 168, 38, 0.12);
+    border-left-color: var(--amber-bright);
+    animation: xref-flash 0.3s ease-out;
+  }
+  .vault-row.tree-highlighted {
+    background: rgba(74, 212, 212, 0.1);
+    border-left-color: var(--term-cyan);
+    animation: xref-cyan-flash 0.3s ease-out;
+  }
+  @keyframes xref-flash {
+    from { background: rgba(255, 168, 38, 0.25); }
+    to   { background: rgba(255, 168, 38, 0.12); }
+  }
+  @keyframes xref-cyan-flash {
+    from { background: rgba(74, 212, 212, 0.22); }
+    to   { background: rgba(74, 212, 212, 0.1); }
   }
   .vault-row.selected {
     background: var(--bg-hover);

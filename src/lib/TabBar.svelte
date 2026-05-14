@@ -103,8 +103,6 @@
 
   function onNotifClick(tab: NotifTab) {
     if (!tab.enabled) return;
-    // Promoted tab in strip = no-op; user interacts with the side pane instead.
-    if (isPromoted(tab.id)) return;
     onActivateNotif(tab.id);
   }
 
@@ -280,7 +278,7 @@
         oncontextmenu={(e) => { e.preventDefault(); onToggleNotif(tab.id); }}
         title={tab.enabled
           ? (isPromoted(tab.id)
-              ? 'promoted to side pane · drag pane handle back to dock'
+              ? 'click to close side pane · drag to reorder · right-click to hide'
               : 'click to open · drag onto another tab to reorder · drag off strip to promote · right-click to hide')
           : 'right-click to enable'}
       >
@@ -395,8 +393,15 @@
     opacity: 0.75;
     filter: saturate(0.7);
   }
-  /* Suppress hover ::before tease on disabled and promoted tabs */
-  .tab.notif.disabled:hover::before,
+  /* Suppress hover ::before tease on disabled tabs */
+  .tab.notif.disabled:hover::before {
+    display: none;
+  }
+  /* Promoted tabs get a subtle hover glow to signal click-to-close */
+  .tab.notif.promoted:hover {
+    opacity: 0.75;
+    background: var(--bg-hover);
+  }
   .tab.notif.promoted:hover::before {
     display: none;
   }
@@ -409,7 +414,7 @@
   }
   .tab.notif.promoted {
     opacity: 0.55;
-    cursor: default;
+    cursor: pointer;
   }
   .tab.notif.promoted .icon {
     color: var(--amber-bright);
