@@ -18,7 +18,7 @@
   import { onMount, onDestroy } from 'svelte';
   import { subscribe, type Category, type Envelope } from './bus';
   import { NOTIF_TAB_MIME } from './dragMime';
-  import { shouldShow, type SeverityLevel } from './notifFilter';
+  import { shouldShow, kindToSeverity, type SeverityLevel } from './notifFilter';
 
   interface Props {
     title: string;
@@ -158,6 +158,28 @@
     expandedRows = new Set();
   }
 
+  function kindColor(kind: string): string {
+    const k = kind.toLowerCase();
+    if (k.includes('error') || k.includes('fail') || k.includes('panic')) return 'var(--term-red)';
+    if (k.includes('warn')) return 'var(--amber-primary)';
+    if (k.includes('ok') || k.includes('success')) return 'var(--term-green)';
+    if (k.startsWith('fs.')) return 'var(--term-cyan)';
+    if (k.startsWith('claude.') || k.includes('llm')) return 'var(--term-blue)';
+    if (k.startsWith('agent.')) return 'var(--term-purple)';
+    if (k.startsWith('aegis.')) return 'var(--amber-primary)';
+    if (k.startsWith('hook.')) return 'var(--term-cyan)';
+    return 'var(--accent, var(--amber-primary))';
+  }
+
+  function severityColor(kind: string): string {
+    switch (kindToSeverity(kind)) {
+      case 'error': return 'var(--term-red)';
+      case 'warn': return 'var(--amber-primary)';
+      case 'debug': return 'var(--amber-faint)';
+      default: return 'var(--amber-dim)';
+    }
+  }
+
   function onHandleDragStart(e: DragEvent) {
     if (e.dataTransfer) {
       e.dataTransfer.effectAllowed = 'move';
@@ -219,7 +241,7 @@
     {:else}
       <div class="strip-events">
         {#each liveEvents as e, i (e.ts + ':' + e.kind + ':' + i)}
-          <span class="strip-event">{e.kind}</span>
+          <span class="strip-event" style="color: {kindColor(e.kind)}; border-color: {kindColor(e.kind)}">{e.kind}</span>
         {/each}
       </div>
     {/if}
@@ -253,9 +275,9 @@
             }}
             title="click to {isExpanded ? 'collapse' : 'expand'}"
           >
-            <span class="caret">{isExpanded ? '▼' : '▶'}</span>
+            <span class="caret" style="color: {severityColor(e.kind)}">{isExpanded ? '▼' : '▶'}</span>
             <span class="ts">{formatTs(e.ts)}</span>
-            <span class="kind">{e.kind}</span>
+            <span class="kind" style="color: {kindColor(e.kind)}">{e.kind}</span>
             {#if isExpanded}
               <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
               <pre
@@ -282,7 +304,7 @@
         <div class="histogram">
           {#each Object.entries(kindHistogram).sort(([, a], [, b]) => b - a).slice(0, 6) as [k, n] (k)}
             <div class="histo-row">
-              <span class="histo-kind">{k}</span>
+              <span class="histo-kind" style="color: {kindColor(k)}">{k}</span>
               <span class="histo-count">{n}</span>
             </div>
           {/each}
@@ -370,6 +392,7 @@
     padding: 0 14px;
     background: var(--bg-elevated);
     border-bottom: 1px solid var(--border-subtle);
+    box-shadow: var(--depth-edge-light), var(--depth-section-sep);
     display: flex; align-items: center; gap: 14px;
     color: var(--amber-warm);
     font-size: 11px; letter-spacing: 0.1em; font-weight: 700;
@@ -391,8 +414,9 @@
     height: 26px;
     padding: 0 14px;
     border-bottom: 1px solid var(--border-subtle);
+    box-shadow: var(--depth-edge-light);
     display: flex; align-items: center; gap: 14px;
-    background: linear-gradient(to bottom, rgba(212, 137, 10, 0.04), transparent);
+    background: linear-gradient(to bottom, rgba(212, 137, 10, 0.05), transparent);
     color: var(--amber-dim);
     font-size: 10px;
     letter-spacing: 0.1em;
@@ -429,6 +453,7 @@
     letter-spacing: 0.12em;
     border-bottom: 1px solid var(--border-subtle);
     background: var(--bg-surface);
+    box-shadow: var(--depth-edge-light), var(--depth-section-sep);
   }
   .log-body {
     flex: 1;
@@ -441,6 +466,7 @@
     color: var(--amber-warm);
     font-size: 11px;
     line-height: 1.5;
+    box-shadow: var(--depth-inset);
   }
   .log-body::-webkit-scrollbar { width: 5px; }
   .log-body::-webkit-scrollbar-thumb { background: var(--amber-faint); }
@@ -510,6 +536,7 @@
     padding: 6px 8px;
     background: var(--bg-base);
     border: 1px solid var(--border-subtle);
+    box-shadow: inset 0 1px 4px rgba(0, 0, 0, 0.3);
     color: var(--amber-warm);
     font-family: 'JetBrains Mono', monospace;
     font-size: 10.5px;
@@ -536,6 +563,8 @@
     background: var(--bg-panel);
     max-height: 180px;
     overflow-y: auto;
+    border-top: 1px solid var(--border-subtle);
+    box-shadow: var(--depth-lift), var(--depth-edge-light);
   }
   .state-header {
     padding: 6px 14px;
@@ -544,6 +573,7 @@
     font-weight: 700;
     letter-spacing: 0.12em;
     border-bottom: 1px solid var(--border-subtle);
+    box-shadow: var(--depth-edge-light);
   }
   .state-body {
     padding: 8px 14px 12px;
@@ -574,6 +604,7 @@
     margin-top: 10px;
     padding: 8px 10px;
     border: 1px dashed var(--border-subtle);
+    box-shadow: var(--depth-inset);
     display: flex;
     flex-direction: column;
     gap: 4px;

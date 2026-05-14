@@ -363,6 +363,7 @@
     padding: 0 14px;
     background: var(--bg-elevated);
     border-bottom: 1px solid var(--border-subtle);
+    box-shadow: var(--depth-edge-light), var(--depth-section-sep);
     display: flex;
     align-items: center;
     gap: 14px;
@@ -393,6 +394,7 @@
     height: 26px;
     padding: 0 14px;
     border-bottom: 1px solid var(--border-subtle);
+    box-shadow: var(--depth-edge-light);
     display: flex;
     align-items: center;
     gap: 14px;
@@ -432,6 +434,7 @@
     font-size: 10px;
     font-weight: 700;
     letter-spacing: 0.12em;
+    box-shadow: var(--depth-edge-light), var(--depth-section-sep);
     border-bottom: 1px solid var(--border-subtle);
     background: var(--bg-surface);
     flex-shrink: 0;
@@ -442,6 +445,7 @@
     padding: 8px 14px;
     color: var(--amber-warm);
     font-size: 11px;
+    box-shadow: var(--depth-inset);
     line-height: 1.5;
   }
   .log-body::-webkit-scrollbar { width: 5px; }
@@ -462,6 +466,8 @@
     background: var(--bg-panel);
     max-height: 220px;
     overflow-y: auto;
+    border-top: 1px solid var(--border-subtle);
+    box-shadow: var(--depth-lift), var(--depth-edge-light);
   }
   .state-header {
     padding: 6px 14px;
@@ -469,6 +475,7 @@
     font-size: 10px;
     font-weight: 700;
     letter-spacing: 0.12em;
+    box-shadow: var(--depth-edge-light);
     border-bottom: 1px solid var(--border-subtle);
   }
   .state-body {

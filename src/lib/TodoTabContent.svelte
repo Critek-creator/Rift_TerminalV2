@@ -362,6 +362,7 @@
     padding: 0 14px;
     background: var(--bg-elevated);
     border-bottom: 1px solid var(--border-subtle);
+    box-shadow: var(--depth-edge-light), var(--depth-section-sep);
     display: flex; align-items: center; gap: 14px;
     color: var(--amber-warm);
     font-size: 11px; letter-spacing: 0.1em; font-weight: 700;
@@ -400,8 +401,9 @@
     min-height: 32px;
     padding: 4px 14px;
     border-bottom: 1px solid var(--border-subtle);
+    box-shadow: var(--depth-edge-light);
     display: flex; align-items: center; gap: 10px;
-    background: linear-gradient(to bottom, rgba(212, 137, 10, 0.04), transparent);
+    background: linear-gradient(to bottom, rgba(212, 137, 10, 0.05), transparent);
     color: var(--amber-dim);
     font-size: 10px;
     letter-spacing: 0.1em;
@@ -452,6 +454,7 @@
     font-size: 10px;
     font-weight: 700;
     letter-spacing: 0.12em;
+    box-shadow: var(--depth-edge-light), var(--depth-section-sep);
     border-bottom: 1px solid var(--border-subtle);
     background: var(--bg-surface);
   }
@@ -461,6 +464,7 @@
     padding: 4px 14px;
     color: var(--amber-warm);
     font-size: 11px;
+    box-shadow: var(--depth-inset);
     line-height: 1.5;
     display: flex;
     flex-direction: column;
@@ -566,6 +570,8 @@
     background: var(--bg-panel);
     max-height: 180px;
     overflow-y: auto;
+    border-top: 1px solid var(--border-subtle);
+    box-shadow: var(--depth-lift), var(--depth-edge-light);
   }
   .state-header {
     padding: 6px 14px;
@@ -573,6 +579,7 @@
     font-size: 10px;
     font-weight: 700;
     letter-spacing: 0.12em;
+    box-shadow: var(--depth-edge-light);
     border-bottom: 1px solid var(--border-subtle);
   }
   .state-body {

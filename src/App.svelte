@@ -18,6 +18,8 @@
   import TodoTabContent from './lib/TodoTabContent.svelte';
   import GitTabContent from './lib/GitTabContent.svelte';
   import AgentsTabContent from './lib/AgentsTabContent.svelte';
+  import FsTabContent from './lib/FsTabContent.svelte';
+  import McpTabContent from './lib/McpTabContent.svelte';
   import StatusLine from './lib/StatusLine.svelte';
   import Popout from './lib/Popout.svelte';
   import { popouts } from './lib/popouts.svelte';
@@ -38,6 +40,8 @@
     aegis: 'aegis',       // Phase 7.2 — Aegis integration tab (private translator, feature-gated)
     index: 'index',       // Phase 8.2 — Index integration tab (vault-walker source wires in Phase 8.5)
     agents: 'agent',      // Phase 8.7k — Agents tracker (§10.11 display layer; Sentinel detection deferred via D-010)
+    filesystem: 'fs',     // Filesystem watcher events (read/write/create/delete)
+    mcp: 'mcp',           // MCP server traffic (tool invocations, handshakes, request/response)
   };
 
   // ----- session tabs -----
@@ -74,6 +78,11 @@
     // button in the tab publishes agent.cancel back to the bus per §9 — a
     // translator (Aegis today, Sentinel post-D-010) is what fulfills it.
     { id: 'agents',   title: 'agents',   icon: '◊', enabled: true, detected: false, unreadCount: 0, lastActivityTs: null },
+    // Filesystem watcher — always-on since the fs watcher runs in core.
+    { id: 'filesystem', title: 'files', icon: '📂', enabled: true, detected: true, unreadCount: 0, lastActivityTs: null },
+    // MCP traffic — detected:false, flips on first Category::Mcp envelope
+    // (MCP server may or may not be connected).
+    { id: 'mcp',    title: 'mcp',    icon: '⬡', enabled: true, detected: false, unreadCount: 0, lastActivityTs: null },
   ]);
 
   // ----- notification filter thresholds -----
@@ -115,6 +124,8 @@
     aegis: 'aegis',
     index: 'index',
     agent: 'agents',
+    fs: 'filesystem',
+    mcp: 'mcp',
   };
 
   // ----- which surface is in the main pane -----
@@ -795,6 +806,10 @@
                 <GitTabContent />
               {:else if activeNotifTab.id === 'agents'}
                 <AgentsTabContent severityThreshold={thresholdFor('agents')} />
+              {:else if activeNotifTab.id === 'filesystem'}
+                <FsTabContent severityThreshold={thresholdFor('filesystem')} />
+              {:else if activeNotifTab.id === 'mcp'}
+                <McpTabContent severityThreshold={thresholdFor('mcp')} />
               {:else}
                 <NotificationPane
                   title={activeNotifTab.title}
@@ -839,6 +854,10 @@
               <GitTabContent onDragBack={demoteTab} />
             {:else if promotedTab.id === 'agents'}
               <AgentsTabContent severityThreshold={thresholdFor('agents')} onDragBack={demoteTab} />
+            {:else if promotedTab.id === 'filesystem'}
+              <FsTabContent severityThreshold={thresholdFor('filesystem')} onDragBack={demoteTab} />
+            {:else if promotedTab.id === 'mcp'}
+              <McpTabContent severityThreshold={thresholdFor('mcp')} onDragBack={demoteTab} />
             {:else}
               <NotificationPane
                 title={promotedTab.title}

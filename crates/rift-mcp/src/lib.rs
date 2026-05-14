@@ -11,7 +11,7 @@ use std::sync::Arc;
 use anyhow::{Context, Result};
 use serde_json::{json, Value};
 use tokio::io::AsyncWriteExt;
-use tokio::sync::Mutex;
+use tokio::sync::{watch, Mutex};
 
 pub mod host_bridge;
 pub mod jsonrpc;
@@ -55,16 +55,21 @@ pub const BUS_TAIL_LAGGED_METHOD: &str = "notifications/rift/bus_tail.lagged";
 /// Returns the bridge wrapped in an `Arc`. The notification forwarder
 /// dies automatically when the bridge (and its broadcast sender) is
 /// dropped — no explicit cancellation needed.
+///
+/// The `ready` gate holds the forwarder from writing to stdout until the
+/// MCP `initialized` handshake has completed. Premature writes crash
+/// Claude Code's message parser.
 async fn connect_and_forward(
     cfg: &McpServerConfig,
     stdout: &Arc<Mutex<tokio::io::Stdout>>,
+    ready: watch::Receiver<bool>,
 ) -> Result<Arc<HostBridge>, BridgeError> {
     let bridge = Arc::new(HostBridge::connect(cfg.socket_name.clone(), &cfg.token).await?);
 
     let notify_rx = bridge.subscribe_notifications();
     let stdout_for_notify = stdout.clone();
     tokio::spawn(async move {
-        run_notification_forwarder(notify_rx, stdout_for_notify).await;
+        run_notification_forwarder(notify_rx, stdout_for_notify, ready).await;
     });
 
     Ok(bridge)
@@ -91,7 +96,12 @@ pub async fn run_stdio(cfg: McpServerConfig) -> Result<()> {
     // writes can't interleave on the wire.
     let stdout = Arc::new(Mutex::new(tokio::io::stdout()));
 
-    let mut bridge = connect_and_forward(&cfg, &stdout)
+    // Ready gate: the notification forwarder holds until the MCP
+    // initialized handshake completes. Writing to stdout before the
+    // client is ready crashes Claude Code's message parser.
+    let (ready_tx, ready_rx) = watch::channel(false);
+
+    let mut bridge = connect_and_forward(&cfg, &stdout, ready_rx.clone())
         .await
         .context("connect to Rift host")?;
 
@@ -106,22 +116,34 @@ pub async fn run_stdio(cfg: McpServerConfig) -> Result<()> {
         let req: Request = match serde_json::from_str(trimmed) {
             Ok(r) => r,
             Err(e) => {
-                let resp = Response::error(
-                    Value::Null,
-                    ErrorCode::ParseError,
-                    format!("invalid json: {e}"),
-                );
-                write_response(&stdout, &resp).await?;
+                // Cannot determine the request id from unparseable JSON.
+                // Responding with id:null crashes Claude Code's parser,
+                // so log to stderr and drop instead.
+                eprintln!("rift-mcp: parse error (dropped): {e}");
                 continue;
             }
         };
+
+        // JSON-RPC 2.0: notifications have no id (absent → null via
+        // serde default). Servers MUST NOT respond to notifications.
+        let is_notification = req.id.is_null();
+
+        // Open the notification-forwarder gate once the client confirms
+        // it is ready for server-initiated messages.
+        if req.method == "notifications/initialized" || req.method == "initialized" {
+            let _ = ready_tx.send(true);
+        }
+
+        if is_notification {
+            continue;
+        }
 
         let resp = dispatch(&bridge, req.clone()).await;
 
         // Reconnect on disconnect/pipe errors — retry the call once.
         if needs_reconnect(&resp) {
             eprintln!("rift-mcp: host disconnected, reconnecting...");
-            match try_reconnect(&cfg, &stdout).await {
+            match try_reconnect(&cfg, &stdout, ready_rx.clone()).await {
                 Some(new_bridge) => {
                     bridge = new_bridge;
                     eprintln!("rift-mcp: reconnected");
@@ -150,17 +172,18 @@ fn needs_reconnect(resp: &Response) -> bool {
     })
 }
 
-/// Attempt to reconnect with exponential backoff (3 attempts, 500ms base).
-/// Re-reads the discovery file each attempt since the socket name changes
-/// on Rift restart.
+/// Attempt to reconnect with exponential backoff (5 attempts, 1s base,
+/// ~31s total window). Re-reads the discovery file each attempt since the
+/// socket name changes on Rift restart.
 async fn try_reconnect(
     cfg: &McpServerConfig,
     stdout: &Arc<Mutex<tokio::io::Stdout>>,
+    ready: watch::Receiver<bool>,
 ) -> Option<Arc<HostBridge>> {
-    for attempt in 0..3u32 {
-        let delay = std::time::Duration::from_millis(500 * 2u64.pow(attempt));
+    for attempt in 0..5u32 {
+        let delay = std::time::Duration::from_millis(1000 * 2u64.pow(attempt));
         tokio::time::sleep(delay).await;
-        match connect_and_forward(cfg, stdout).await {
+        match connect_and_forward(cfg, stdout, ready.clone()).await {
             Ok(b) => return Some(b),
             Err(e) => {
                 eprintln!("rift-mcp: reconnect attempt {} failed: {e}", attempt + 1);
@@ -204,7 +227,15 @@ async fn write_response(stdout: &Mutex<tokio::io::Stdout>, resp: &Response) -> R
 async fn run_notification_forwarder(
     mut rx: tokio::sync::broadcast::Receiver<rift_bus::Envelope>,
     stdout: Arc<Mutex<tokio::io::Stdout>>,
+    mut ready: watch::Receiver<bool>,
 ) {
+    // Wait for the MCP initialized handshake before writing any
+    // notifications. Premature writes crash Claude Code's parser.
+    while !*ready.borrow_and_update() {
+        if ready.changed().await.is_err() {
+            return;
+        }
+    }
     use tokio::sync::broadcast::error::RecvError;
     loop {
         match rx.recv().await {

@@ -46,6 +46,12 @@
   --glow-amber:        0 0 8px rgba(255, 168, 38, 0.55);
   --glow-amber-strong: 0 0 14px rgba(255, 200, 64, 0.85);
   --glow-amber-faint:  0 0 4px rgba(255, 168, 38, 0.35);
+
+  /* Depth system — CRT bezel shadows for layered panel aesthetic. */
+  --depth-inset:       inset 0 3px 10px rgba(0, 0, 0, 0.55);
+  --depth-lift:        0 -3px 12px rgba(0, 0, 0, 0.5);
+  --depth-edge-light:  inset 0 1px 0 rgba(255, 168, 38, 0.16);
+  --depth-section-sep: 0 2px 6px rgba(0, 0, 0, 0.45);
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }

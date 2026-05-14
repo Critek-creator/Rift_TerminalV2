@@ -45,6 +45,7 @@
   import { enrichmentStore } from './enrichmentStore.svelte';
   import { buildEnrichmentTitle, dotX } from './enrichmentUtils';
   import { RIFT_VAULT_DROP_EVENT, type RiftVaultDropDetail } from './dragMime';
+  import { fileColor } from './fileColors';
 
   // ---------------------------------------------------------------------------
   // Layout constants
@@ -653,7 +654,7 @@
           onmousedown={(e) => onTreeNodeMouseDown(e, item.node)}
           onclick={() => handleNodeClick(item.node)}
           ondblclick={() => handleNodeDblClick(item.node)}
-          style="cursor: pointer;"
+          style="cursor: pointer;{item.node.isDir ? '' : ` --file-color: ${fileColor(item.node.name)};`}"
         >
           {#if item.node.isDir}
             <!-- Directory: rounded rectangle.
@@ -804,19 +805,19 @@
   }
   :global(.node-state-ambient) {
     fill: var(--bg-elevated);
-    stroke: var(--amber-warm);
+    stroke: var(--file-color, var(--amber-warm));
     stroke-width: 1;
     filter: drop-shadow(0 0 3px rgba(176, 122, 18, 0.3));
   }
   :global(.node-state-recent) {
     fill: var(--bg-elevated);
-    stroke: var(--amber-primary);
+    stroke: var(--file-color, var(--amber-primary));
     stroke-width: 1.5;
     filter: drop-shadow(0 0 6px rgba(212, 137, 10, 0.55));
   }
   :global(.node-state-active) {
     fill: var(--bg-elevated);
-    stroke: var(--amber-bright);
+    stroke: var(--file-color, var(--amber-bright));
     stroke-width: 2;
     filter: drop-shadow(0 0 12px rgba(245, 158, 11, 0.85));
     animation: pulse-glow 1.6s ease-in-out infinite;
@@ -848,7 +849,7 @@
 
   /* Labels */
   :global(.tree-node-label) {
-    fill: var(--amber-dim);
+    fill: var(--file-color, var(--amber-dim));
     font-family: 'JetBrains Mono', monospace;
     font-size: 10px;
     font-weight: 500;
@@ -856,8 +857,8 @@
     pointer-events: none;
     user-select: none;
   }
-  :global(.tree-node-label.active)     { fill: var(--amber-bright); font-weight: 700; }
-  :global(.tree-node-label.recent)     { fill: var(--amber-warm);   font-weight: 600; }
+  :global(.tree-node-label.active)     { fill: var(--file-color, var(--amber-bright)); font-weight: 700; }
+  :global(.tree-node-label.recent)     { fill: var(--file-color, var(--amber-warm));   font-weight: 600; }
   :global(.tree-node-label.background) { fill: var(--amber-faint); }
 
   /* Edges */

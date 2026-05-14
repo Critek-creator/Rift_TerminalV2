@@ -7,13 +7,19 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+fn default_id() -> Value {
+    Value::Null
+}
+
 /// JSON-RPC request frame.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Request {
     /// Always `"2.0"`.
     pub jsonrpc: String,
-    /// Request id. Number, string, or null. Notifications use `null` and
-    /// expect no response, but we treat them uniformly and discard.
+    /// Request id. Number, string, or null for notifications. Absent `id`
+    /// fields deserialize to `Value::Null` so JSON-RPC 2.0 notifications
+    /// (which omit `id`) parse without error.
+    #[serde(default = "default_id")]
     pub id: Value,
     /// Method name (e.g. `"initialize"`, `"tools/call"`).
     pub method: String,
