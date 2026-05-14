@@ -705,40 +705,21 @@ async fn tool_dom_snapshot(app_handle: &AppHandle, payload: &Value) -> Result<Va
 }
 
 async fn tool_screenshot(app_handle: &AppHandle, payload: &Value) -> Result<Value, String> {
-    let window = resolve_window_label(payload);
-    let result = eval_js(
-        app_handle,
-        window,
-        r#"
-            const canvas = document.createElement('canvas');
-            const rect = document.documentElement.getBoundingClientRect();
-            canvas.width = window.innerWidth;
-            canvas.height = window.innerHeight;
-            const ctx = canvas.getContext('2d');
-            const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${canvas.width}" height="${canvas.height}">
-                <foreignObject width="100%" height="100%">
-                    <div xmlns="http://www.w3.org/1999/xhtml">${document.documentElement.outerHTML}</div>
-                </foreignObject>
-            </svg>`;
-            const img = new Image();
-            const blob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' });
-            const url = URL.createObjectURL(blob);
-            await new Promise((resolve, reject) => {
-                img.onload = resolve;
-                img.onerror = () => reject(new Error('SVG render failed — screenshot unavailable (cross-origin or tainted canvas)'));
-                img.src = url;
-            });
-            ctx.drawImage(img, 0, 0);
-            URL.revokeObjectURL(url);
-            return canvas.toDataURL('image/png');
-        "#,
-    )
-    .await?;
-    let data_url = result.as_str().unwrap_or("");
-    let base64 = data_url
-        .strip_prefix("data:image/png;base64,")
-        .unwrap_or(data_url);
-    Ok(json!({ "window": window, "png_base64": base64, "width": null, "height": null }))
+    let window_label = resolve_window_label(payload);
+    let webview = app_handle
+        .get_webview_window(window_label)
+        .ok_or_else(|| format!("window '{window_label}' not found"))?;
+
+    let hwnd = webview
+        .hwnd()
+        .map_err(|e| format!("failed to get HWND: {e}"))?;
+
+    let png_bytes = crate::capture::capture_window_png(hwnd.0 as isize)
+        .map_err(|e| format!("capture failed: {e}"))?;
+
+    use base64::Engine;
+    let b64 = base64::engine::general_purpose::STANDARD.encode(&png_bytes);
+    Ok(json!({ "window": window_label, "png_base64": b64 }))
 }
 
 async fn tool_js_eval(app_handle: &AppHandle, payload: &Value) -> Result<Value, String> {

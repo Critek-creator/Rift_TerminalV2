@@ -41,6 +41,15 @@ rift-aegis = { path = "../crates/rift-aegis", optional = true }
 globset = { workspace = true }
 dunce = { workspace = true }
 directories = { workspace = true }
+base64 = "0.22"
+png = "0.17"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = [
+    "Win32_Graphics_Gdi",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_Foundation",
+] }
 
 [features]
 default = ["custom-protocol"]

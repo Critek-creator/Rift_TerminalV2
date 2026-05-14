@@ -1,3 +1,4 @@
+mod capture;
 mod cockpit_window;
 mod git_status;
 mod mcp_host;
