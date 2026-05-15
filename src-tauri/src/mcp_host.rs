@@ -729,6 +729,7 @@ async fn tool_dom_snapshot(app_handle: &AppHandle, payload: &Value) -> Result<Va
     Ok(json!({ "window": window, "html": html }))
 }
 
+#[cfg(windows)]
 async fn tool_screenshot(app_handle: &AppHandle, payload: &Value) -> Result<Value, String> {
     let window_label = resolve_window_label(payload);
     let webview = app_handle
@@ -745,6 +746,11 @@ async fn tool_screenshot(app_handle: &AppHandle, payload: &Value) -> Result<Valu
     use base64::Engine;
     let b64 = base64::engine::general_purpose::STANDARD.encode(&png_bytes);
     Ok(json!({ "window": window_label, "png_base64": b64 }))
+}
+
+#[cfg(not(windows))]
+async fn tool_screenshot(_app_handle: &AppHandle, _payload: &Value) -> Result<Value, String> {
+    Err("screenshot is only supported on Windows".into())
 }
 
 async fn tool_js_eval(app_handle: &AppHandle, payload: &Value) -> Result<Value, String> {
