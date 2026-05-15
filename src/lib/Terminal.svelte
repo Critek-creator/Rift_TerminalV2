@@ -173,7 +173,7 @@
         cursor: '#FFC840',                     /* amber-bright */
         cursorAccent: '#080806',
         selectionBackground: 'rgba(255, 168, 38, 0.30)',
-        black: '#080806',
+        black: '#3A3530',
         red: '#FF4848',
         green: '#4FE855',
         yellow: '#FFC840',                     /* amber-bright */
@@ -181,7 +181,7 @@
         magenta: '#C58FFF',
         cyan: '#6FE0E0',
         white: '#E8E4D8',
-        brightBlack: '#A87830',                /* amber-faint */
+        brightBlack: '#C49A50',                /* amber-faint (brightened for readability) */
         brightRed: '#FF6868',
         brightGreen: '#7FFA85',
         brightYellow: '#FFD968',                /* lifted amber-bright */
@@ -412,6 +412,7 @@
     });
     resizeObs.observe(host);
 
+    // v1: each Terminal filters globally; bounded by terminal count (1-2).
     unlistenExited = await listen<PtyExited>('pty_exited', (event) => {
       if (event.payload.id !== sessionId) return;
       alive = false;

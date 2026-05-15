@@ -63,7 +63,7 @@ use rift_bus::{
     save_config, spawn_fs_watcher, spawn_session_logger, spawn_status_translator,
     spawn_vault_walker, write_text, Category, CommandBuffer, Envelope, FsWatcher, IpcServer,
     LaneClassifier, RiftBus, RiftConfig, SentinelEvent, ShellPref, SubscribeFilter, TreeNode,
-    DEFAULT_IGNORE_GLOBS, FS_TREE_DEFAULT_MAX_DEPTH,
+    FS_TREE_DEFAULT_MAX_DEPTH,
 };
 use rift_core::process::is_claude_descendant;
 use rift_core::pty::{PtyControl, PtyDims, PtyOptions, PtySession};
@@ -383,6 +383,33 @@ impl ProjectRoot {
     }
 }
 
+// ---------------------------------------------------------------------------
+// CachedConfig (M9 audit fix)
+//
+// Avoids re-reading config from disk on every Tauri command that needs it.
+// Initialized from load_config() at startup; invalidated by config_save.
+// ---------------------------------------------------------------------------
+
+struct CachedConfig {
+    inner: Mutex<RiftConfig>,
+}
+
+impl CachedConfig {
+    fn new(cfg: RiftConfig) -> Self {
+        Self {
+            inner: Mutex::new(cfg),
+        }
+    }
+
+    fn get(&self) -> RiftConfig {
+        self.inner.lock().expect("cached config poisoned").clone()
+    }
+
+    fn set(&self, cfg: RiftConfig) {
+        *self.inner.lock().expect("cached config poisoned") = cfg;
+    }
+}
+
 /// L2: Map a `Category::Hook` bus envelope to a `SentinelEvent`.
 ///
 /// Heuristic: envelope kinds ending in `.started` or starting with `Pre`
@@ -478,6 +505,7 @@ fn resolve_shell_from_pref(pref: &ShellPref) -> (std::path::PathBuf, Vec<String>
 #[tauri::command]
 async fn pty_start(
     app: AppHandle,
+    cached_config: State<'_, CachedConfig>,
     rows: u16,
     cols: u16,
     on_chunk: Channel<Vec<u8>>,
@@ -498,7 +526,7 @@ async fn pty_start(
     // pwsh > powershell > %COMSPEC% > cmd on Windows / $SHELL > zsh > bash > sh
     // on Unix — fixing the cmd.exe-only history-key UX surfaced in the
     // 2026-04-29 audit.
-    let cfg_for_shell = load_config().unwrap_or_default();
+    let cfg_for_shell = cached_config.get();
     let (shell_path, mut shell_args) = resolve_shell_from_pref(&cfg_for_shell.terminal.shell);
     // D-018: Lane classification prelude injection. When lanes_enabled,
     // write the shell-specific prelude to a temp file and modify the
@@ -517,6 +545,8 @@ async fn pty_start(
     opts = opts.with_shell(shell_path, shell_args);
     if let Some(ipc) = app.try_state::<BusIpcState>() {
         opts = opts.with_env("RIFT_SOCKET_NAME", ipc.socket_name.clone());
+    } else {
+        tracing::warn!("pty_start: IPC server not ready yet — RIFT_SOCKET_NAME omitted; hooks from this PTY session won't publish to the bus until next pty_start");
     }
     // Phase 8.7g.4 — pin PTY cwd to the canonical project root so
     // `cargo run --` (which starts the binary from src-tauri/) doesn't
@@ -766,7 +796,6 @@ async fn bus_subscribe(
 ) -> Result<u64, String> {
     let bus = app.state::<RiftBus>().inner().clone();
     let registry = app.state::<BusSubscriptionRegistry>().inner();
-    let registry_for_task = app.state::<BusSubscriptionRegistry>().inner();
 
     let filter = match category.as_deref() {
         None => SubscribeFilter::All,
@@ -786,8 +815,6 @@ async fn bus_subscribe(
     // `State<'_, _>` reference (which doesn't outlive this function).
     let registry_clone: BusSubscriptionRegistryHandle =
         BusSubscriptionRegistryHandle::new(app.clone());
-
-    let _ = registry_for_task; // silence unused — same value as `registry`
 
     // Allocate the subscription id before spawning so the id is captured in
     // the task closure, while the handle is stored back into the registry
@@ -873,21 +900,17 @@ fn rift_reset_for_reload(
 /// project root (managed [`ProjectRoot`] state — Phase 6.7).
 ///
 /// Globs are read from the current [`RiftConfig`]'s `fs.ignore_globs`.
-/// Falling back to [`DEFAULT_IGNORE_GLOBS`] on config-load failure ensures
+/// Falling back to serde-default ignore globs on config-load failure ensures
 /// the command always succeeds even if the config file is absent.
 #[tauri::command]
 fn fs_tree(
     bus: State<'_, RiftBus>,
     project_root: State<'_, ProjectRoot>,
+    cached_cfg: State<'_, CachedConfig>,
 ) -> Result<TreeNode, String> {
     let root = project_root.get();
 
-    // Load config to obtain the user's ignore-glob list. Fall back to the
-    // canonical defaults if the config is unavailable (first launch, parse
-    // error, etc.) so the command always succeeds.
-    let ignore_patterns: Vec<String> = load_config()
-        .map(|cfg| cfg.fs.ignore_globs)
-        .unwrap_or_else(|_| DEFAULT_IGNORE_GLOBS.iter().map(|s| s.to_string()).collect());
+    let ignore_patterns: Vec<String> = cached_cfg.get().fs.ignore_globs;
 
     let mut builder = globset::GlobSetBuilder::new();
     for pattern in &ignore_patterns {
@@ -971,6 +994,7 @@ fn fs_write_text(
 
 // ---------------------------------------------------------------------------
 // Phase 7.3 commands — aegis quick-actions (open files in OS default editor)
+// §9 exemption: OS editor launch is a local utility, not an external integration.
 // ---------------------------------------------------------------------------
 
 /// Open `~/.claude/anti-claude-lessons.md` in the OS default editor.
@@ -1002,12 +1026,11 @@ async fn aegis_open_settings() -> Result<(), String> {
 fn todo_scan_command(
     bus: State<'_, RiftBus>,
     project_root: State<'_, ProjectRoot>,
+    cached_config: State<'_, CachedConfig>,
 ) -> Result<Vec<todo_scan::TodoEntry>, String> {
     let root = project_root.get();
 
-    let ignore_patterns: Vec<String> = load_config()
-        .map(|cfg| cfg.fs.ignore_globs)
-        .unwrap_or_else(|_| DEFAULT_IGNORE_GLOBS.iter().map(|s| s.to_string()).collect());
+    let ignore_patterns: Vec<String> = cached_config.get().fs.ignore_globs;
 
     let mut builder = globset::GlobSetBuilder::new();
     for pattern in &ignore_patterns {
@@ -1044,8 +1067,8 @@ struct McpStatus {
 /// Return current MCP enable state, whether a token is on disk, and the
 /// token-file path so Settings can show "Token stored at <path>".
 #[tauri::command]
-fn mcp_status() -> Result<McpStatus, String> {
-    let cfg = load_config().unwrap_or_default();
+fn mcp_status(cached_config: State<'_, CachedConfig>) -> Result<McpStatus, String> {
+    let cfg = cached_config.get();
     let token_path = rift_bus::mcp_token_path()
         .map(|p| p.display().to_string())
         .unwrap_or_else(|e| format!("(unavailable: {e})"));
@@ -1222,22 +1245,24 @@ fn open_in_os_editor(rel_to_home: &str) -> Result<(), String> {
 /// Return the current [`RiftConfig`] (loads from disk; returns defaults on
 /// first launch or missing file).
 #[tauri::command]
-fn config_get(bus: State<'_, RiftBus>) -> Result<RiftConfig, String> {
-    load_config().map_err(|e| {
-        let msg = e.to_string();
-        publish_error(bus.inner(), "tauri.command.config_get", &msg, None);
-        msg
-    })
+fn config_get(cached_config: State<'_, CachedConfig>) -> Result<RiftConfig, String> {
+    Ok(cached_config.get())
 }
 
 /// Persist `cfg` to the platform config directory (atomic write).
 #[tauri::command]
-fn config_save(bus: State<'_, RiftBus>, cfg: RiftConfig) -> Result<(), String> {
+fn config_save(
+    bus: State<'_, RiftBus>,
+    cached: State<'_, CachedConfig>,
+    cfg: RiftConfig,
+) -> Result<(), String> {
     save_config(&cfg).map_err(|e| {
         let msg = e.to_string();
         publish_error(bus.inner(), "tauri.command.config_save", &msg, None);
         msg
-    })
+    })?;
+    cached.set(cfg);
+    Ok(())
 }
 
 /// Swap the active project to `path`.
@@ -1400,6 +1425,9 @@ pub fn run() {
             // Load config for ignore globs. Fall back to defaults on first launch.
             let cfg = load_config().unwrap_or_default();
             let fs_ignore_globs = cfg.fs.ignore_globs.clone();
+
+            // Register cached config (M9: avoids disk re-read per command call).
+            app.manage(CachedConfig::new(cfg.clone()));
 
             // Register the canonical project root.
             app.manage(ProjectRoot::new(fs_root.clone()));

@@ -135,10 +135,13 @@
   // ---------------------------------------------------------------------------
 
   let quickActionError = $state<string | null>(null);
+  let quickActionTimer: ReturnType<typeof setTimeout> | undefined;
 
   function clearErrorAfterDelay() {
-    setTimeout(() => {
+    if (quickActionTimer) clearTimeout(quickActionTimer);
+    quickActionTimer = setTimeout(() => {
       quickActionError = null;
+      quickActionTimer = undefined;
     }, 3000);
   }
 

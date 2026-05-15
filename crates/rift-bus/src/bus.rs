@@ -76,6 +76,9 @@ pub struct RiftBus {
 
 struct RiftBusInner {
     tx: broadcast::Sender<Envelope>,
+    /// Ring buffer of recent envelopes for late-subscriber replay.
+    /// Locked via `.expect()` — poison indicates a prior panic in the
+    /// single publisher path, meaning the bus state is unrecoverable.
     replay: Mutex<VecDeque<Envelope>>,
     replay_capacity: usize,
 }

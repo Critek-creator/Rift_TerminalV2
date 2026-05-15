@@ -54,6 +54,7 @@
   let saving = $state(false);
   let error = $state<string | null>(null);
   let savedFlash = $state(false);
+  let savedFlashTimer: ReturnType<typeof setTimeout> | undefined;
   let highlightedHtml = $state<string>('');
 
   /** Container for the CodeMirror EditorView (mounted in edit mode). */
@@ -381,8 +382,10 @@
       originalContent = content;
       mode = 'view';
       savedFlash = true;
-      setTimeout(() => {
+      if (savedFlashTimer) clearTimeout(savedFlashTimer);
+      savedFlashTimer = setTimeout(() => {
         savedFlash = false;
+        savedFlashTimer = undefined;
       }, 1200);
     } catch (e: unknown) {
       error = String(e);
@@ -404,20 +407,15 @@
     // re-run because it is registered as a side-effect (no dependency tracking
     // on `content` in that effect; it fires once on mount). To force a reload
     // we invoke directly here.
-    let cancelled = false;
     (async () => {
       try {
         const text = await invoke<string>('fs_read_text', { path });
-        if (cancelled) return;
         content = text;
         originalContent = text;
       } catch (e: unknown) {
-        if (cancelled) return;
         error = String(e);
       }
     })();
-    // Note: cancelled never set to true here because retry is fire-and-forget
-    // from user gesture; component lifetime handles cleanup via unmount.
   }
 </script>
 

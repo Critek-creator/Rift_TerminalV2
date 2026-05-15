@@ -228,30 +228,29 @@
 >
   <div class="group">
     {#each sessions as tab (tab.id)}
-      <button
-        type="button"
+      <div
         class="tab session"
         class:active={isActiveSession(tab.id)}
-        aria-current={isActiveSession(tab.id) ? 'page' : 'false'}
+        role="tab"
+        tabindex="0"
+        aria-selected={isActiveSession(tab.id)}
         onclick={() => onActivateSession(tab.id)}
+        onkeydown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            onActivateSession(tab.id);
+          }
+        }}
       >
         <span class="icon">▶</span>
         <span>{tab.title}</span>
-        <span
-          role="button"
-          tabindex="0"
+        <button
+          type="button"
           class="close"
           aria-label="close tab"
           onclick={(e) => { e.stopPropagation(); onCloseSession(tab.id); }}
-          onkeydown={(e) => {
-            if (e.key === 'Enter' || e.key === ' ') {
-              e.preventDefault();
-              e.stopPropagation();
-              onCloseSession(tab.id);
-            }
-          }}
-        >×</span>
-      </button>
+        >×</button>
+      </div>
     {/each}
     <button type="button" class="add" aria-label="new tab" onclick={onAddSession}>+</button>
   </div>

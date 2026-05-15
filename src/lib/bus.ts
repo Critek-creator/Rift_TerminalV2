@@ -68,7 +68,9 @@ export async function subscribe(
     onEnvelope: channel,
   });
   return async () => {
-    await invoke('bus_unsubscribe', { id });
+    await invoke('bus_unsubscribe', { id }).catch((e: unknown) => {
+      console.warn('bus_unsubscribe failed (id=%d):', id, e);
+    });
   };
 }
 
