@@ -66,17 +66,17 @@ The graph cockpit's foundation is filesystem activity (reads/writes/creates/dele
 
 Every output line is routed to one of these lanes. Tag prefixes are small bordered uppercase boxes (`CLAUDE`, `AGENT`, `HOOK`, `AEGIS`, `OK`, `WARN`, `ERR`, `SYS`). Border color matches lane.
 
-| Lane | Hex | Use |
-|---|---|---|
-| Amber bright | `#f59e0b` | Prompt / cursor |
-| Off-white | `#d8d4c8` | User input |
-| Blue | `#4a9eff` | Claude voice |
-| Purple | `#b078e8` | Agents |
-| Cyan | `#4ad4d4` | Hooks |
-| Amber primary | `#D4890A` | Aegis |
-| Terminal green | `#33CC33` | Success |
-| Terminal red | `#CC3333` | Errors / warnings |
-| Faint amber italic | `#5a4410` | Meta / timestamps |
+| Lane | Hex | CSS var | Use |
+|---|---|---|---|
+| Amber bright | `#FFC840` | `--amber-bright` | Prompt / cursor |
+| Off-white | `#E8E4D8` | `--term-white` | User input |
+| Blue | `#6CB6FF` | `--term-blue` | Claude voice |
+| Purple | `#C58FFF` | `--term-purple` | Agents |
+| Cyan | `#6FE0E0` | `--term-cyan` | Hooks |
+| Amber primary | `#FFA826` | `--amber-primary` | Aegis |
+| Terminal green | `#4FE855` | `--term-green` | Success |
+| Terminal red | `#FF4848` | `--term-red` | Errors / warnings |
+| Faint amber italic | `#A87830` | `--amber-faint` | Meta / timestamps |
 
 Aesthetic: matte black textured background, amber/terminal-tone accents, JetBrains Mono, scanlines + CRT vignette as brand fingerprint. Match `rift-v2-mockup.html` — do not improvise.
 

@@ -300,9 +300,6 @@ fn dispatch_protocol(req: Request, id: Value) -> Result<Response, Request> {
         "initialize" => Ok(handle_initialize(id)),
         "ping" => Ok(Response::ok(id, json!({}))),
         "tools/list" => Ok(handle_tools_list(id)),
-        // MCP defines "notifications/initialized" as a no-response
-        // notification; we tolerate it silently.
-        "notifications/initialized" => Ok(Response::ok(id, Value::Null)),
         "tools/call" => Err(req),
         other => Ok(Response::error(
             id,

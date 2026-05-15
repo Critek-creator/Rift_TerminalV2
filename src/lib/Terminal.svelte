@@ -435,6 +435,7 @@
     unlistenExited?.();
     resizeObs?.disconnect();
     host?.removeEventListener(RIFT_VAULT_DROP_EVENT, onTermVaultDrop);
+    fit?.dispose();
     term?.dispose();
   });
 </script>

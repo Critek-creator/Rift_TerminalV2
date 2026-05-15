@@ -709,9 +709,9 @@
               cy={item.y}
               r={FILE_R}
               style="{isCrossRef
-                ? `stroke: #4ad4d4; filter: drop-shadow(0 0 8px rgba(74,212,212,0.65));`
+                ? `stroke: var(--term-cyan); filter: drop-shadow(0 0 8px rgba(111,224,224,0.65));`
                 : (sc !== 'background' && nodeColor ? `stroke: ${nodeColor};` : '') + (sc === 'recent' && glow > 0
-                  ? `filter: drop-shadow(0 0 ${3 + glow * 6}px rgba(212,137,10,${0.25 + glow * 0.45}));`
+                  ? `filter: drop-shadow(0 0 ${3 + glow * 6}px rgba(255,168,38,${0.25 + glow * 0.45}));`
                   : '')}"
             />
           {/if}
@@ -721,7 +721,7 @@
             class="tree-node-label {sc}{isCrossRef ? ' crossref' : ''}"
             x={item.x + (item.node.isDir ? DIR_W / 2 : FILE_R) + 6}
             y={item.y}
-            style={isCrossRef ? 'fill: #4ad4d4;' : sc !== 'background' && nodeColor ? `fill: ${nodeColor};` : ''}
+            style={isCrossRef ? 'fill: var(--term-cyan);' : sc !== 'background' && nodeColor ? `fill: ${nodeColor};` : ''}
           >{item.node.name}</text>
 
           <!-- Enrichment dot (Phase 8.6.2) — muted-amber §10.1 "meta/timestamps" lane.
@@ -747,7 +747,7 @@
                 cx={ex}
                 cy={item.y}
                 r={FILE_R / 2}
-                fill="#5a4410"
+                fill="var(--amber-faint)"
                 stroke="none"
                 style="pointer-events: none;"
               />
@@ -925,12 +925,12 @@
   }
   :global(.enrichment-tooltip) {
     background: #0a0908;
-    border: 1px solid #5a4410;
+    border: 1px solid var(--amber-faint);
     border-radius: 3px;
     padding: 4px 7px;
     font-family: 'JetBrains Mono', monospace;
     font-size: 9px;
-    color: #D4890A;
+    color: var(--amber-primary);
     white-space: nowrap;
     pointer-events: none;
     width: max-content;
@@ -941,15 +941,15 @@
   }
   :global(.et-vault-id) {
     font-weight: 700;
-    color: #D4890A;
+    color: var(--amber-primary);
   }
   :global(.et-vault-kind) {
     font-weight: 400;
-    color: #5a4410;
+    color: var(--amber-faint);
   }
   :global(.et-tags) {
     font-size: 8px;
-    color: #5a4410;
+    color: var(--amber-faint);
     padding-left: 4px;
   }
 

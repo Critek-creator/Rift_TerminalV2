@@ -98,6 +98,8 @@ async fn run_subscriber(
     app_handle: AppHandle,
 ) {
     let (snapshot, mut sub) = bus.subscribe(SubscribeFilter::Category(Category::Mcp));
+    let bus_tail_handle: std::sync::Mutex<Option<tauri::async_runtime::JoinHandle<()>>> =
+        std::sync::Mutex::new(None);
 
     for env in snapshot {
         handle_envelope(
@@ -108,6 +110,7 @@ async fn run_subscriber(
             &pty_registry,
             &app_handle,
             &env,
+            &bus_tail_handle,
         )
         .await;
     }
@@ -123,6 +126,7 @@ async fn run_subscriber(
                     &pty_registry,
                     &app_handle,
                     &env,
+                    &bus_tail_handle,
                 )
                 .await
             }
@@ -134,6 +138,7 @@ async fn run_subscriber(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn handle_envelope(
     bus: &RiftBus,
     cfg: &McpConfig,
@@ -142,6 +147,7 @@ async fn handle_envelope(
     pty_registry: &PtyRegistry,
     app_handle: &AppHandle,
     env: &Envelope,
+    bus_tail_handle: &std::sync::Mutex<Option<tauri::async_runtime::JoinHandle<()>>>,
 ) {
     // Ignore our own outbound envelopes (responses, audit, errors). The
     // subscriber sees everything in Category::Mcp, including what we publish.
@@ -180,7 +186,17 @@ async fn handle_envelope(
         // and return a start-ack synchronously. Subsequent envelopes flow
         // back as `mcp.notify.{tool}` rather than a single `mcp.response`.
         if tool_name == "bus_tail" {
-            let result = start_bus_tail(bus.clone(), request_id.clone(), &env.payload);
+            if let Ok(mut prev) = bus_tail_handle.lock() {
+                if let Some(h) = prev.take() {
+                    h.abort();
+                }
+            }
+            let result = start_bus_tail(
+                bus.clone(),
+                request_id.clone(),
+                &env.payload,
+                bus_tail_handle,
+            );
             publish_response(bus, tool_name, request_id, result);
             return;
         }
@@ -357,7 +373,12 @@ async fn dispatch_tool(
 /// notifications are dropped on the floor by the broadcast channel. The
 /// task itself exits when the bus closes (process shutdown) or when the
 /// subscribe channel returns `Closed`.
-fn start_bus_tail(bus: RiftBus, request_id: Value, payload: &Value) -> Result<Value, String> {
+fn start_bus_tail(
+    bus: RiftBus,
+    request_id: Value,
+    payload: &Value,
+    bus_tail_handle: &std::sync::Mutex<Option<tauri::async_runtime::JoinHandle<()>>>,
+) -> Result<Value, String> {
     // Parse filter args. Both optional; absent = match all.
     let category_filter = payload
         .get("category")
@@ -379,7 +400,7 @@ fn start_bus_tail(bus: RiftBus, request_id: Value, payload: &Value) -> Result<Va
     let bus_for_task = bus.clone();
     let request_id_for_task = request_id.clone();
     let kind_prefix_for_task = kind_prefix.clone();
-    tauri::async_runtime::spawn(async move {
+    let handle = tauri::async_runtime::spawn(async move {
         run_bus_tail(
             bus_for_task,
             request_id_for_task,
@@ -388,6 +409,9 @@ fn start_bus_tail(bus: RiftBus, request_id: Value, payload: &Value) -> Result<Va
         )
         .await;
     });
+    if let Ok(mut prev) = bus_tail_handle.lock() {
+        *prev = Some(handle);
+    }
 
     Ok(json!({
         "stream_started": true,
@@ -640,7 +664,7 @@ async fn eval_js(app_handle: &AppHandle, window_label: &str, js: &str) -> Result
     let tx = std::sync::Mutex::new(Some(tx));
     let cb_id_for_listener = callback_id.clone();
     app_handle.once(&cb_id_for_listener, move |event| {
-        if let Some(sender) = tx.lock().unwrap().take() {
+        if let Some(sender) = tx.lock().ok().and_then(|mut g| g.take()) {
             let _ = sender.send(event.payload().to_string());
         }
     });
@@ -649,11 +673,12 @@ async fn eval_js(app_handle: &AppHandle, window_label: &str, js: &str) -> Result
     let eval_script = format!(
         r#"(async function() {{
             const __cbId = '{escaped_cb}';
-            const __emit = window.__TAURI__ && window.__TAURI__.event && window.__TAURI__.event.emit;
-            if (!__emit) {{
-                console.error('[rift-mcp] window.__TAURI__.event.emit unavailable — withGlobalTauri may be disabled');
+            const __internals = window.__TAURI_INTERNALS__;
+            if (!__internals || !__internals.invoke) {{
+                console.error('[rift-mcp] __TAURI_INTERNALS__ unavailable');
                 return;
             }}
+            const __emit = (evt, payload) => __internals.invoke('plugin:event|emit', {{ event: evt, payload }});
             try {{
                 const __result = await (async function() {{ {js} }})();
                 const __serialized = (typeof __result === 'string') ? __result : JSON.stringify(__result);
@@ -737,7 +762,7 @@ async fn tool_js_eval(app_handle: &AppHandle, payload: &Value) -> Result<Value, 
     let trimmed = code.trim();
     let wrapper = if trimmed.contains("return ") || trimmed.contains("return\n") {
         trimmed.to_string()
-    } else if let Some(last_sep) = trimmed.rfind(|c: char| c == ';' || c == '\n') {
+    } else if let Some(last_sep) = trimmed.rfind([';', '\n']) {
         let (head, tail) = trimmed.split_at(last_sep + 1);
         let tail = tail.trim();
         if tail.is_empty() {
