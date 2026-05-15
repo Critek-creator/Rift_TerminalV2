@@ -76,10 +76,8 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Updater signing — workflow runs unsigned if secrets are absent.
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          # Windows code-signing — unsigned MSI ships if these are absent.
           WINDOWS_CERTIFICATE_BASE64: ${{ secrets.WINDOWS_CERTIFICATE_BASE64 }}
           WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
         with:
@@ -89,3 +87,89 @@ jobs:
           releaseDraft: true
           prerelease: false
           includeUpdaterJson: true
+
+      # tauri-action@v0 generates .sig files but fails to upload them or
+      # latest.json ("Signature not found for the updater JSON"). Work around
+      # by uploading .sig files manually — the action's includeUpdaterJson
+      # should then find them on a future fix, but we also generate
+      # latest.json in a separate job below as a belt-and-suspenders.
+      - name: Upload .sig files to release
+        if: always()
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          for sig in $(find target/release/bundle -name '*.sig' -type f 2>/dev/null); do
+            name=$(basename "$sig")
+            echo "Uploading $name..."
+            gh release upload "$tag" "$sig" --repo "$GITHUB_REPOSITORY" --clobber || true
+          done
+
+  updater-json:
+    needs: release
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Generate and upload latest.json
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          version="${tag#v}"
+          repo="${GITHUB_REPOSITORY}"
+          base="https://github.com/${repo}/releases/download/${tag}"
+
+          # Wait briefly for all assets to be available
+          sleep 10
+
+          # Collect asset list from the release
+          assets=$(gh release view "$tag" --repo "$repo" --json assets --jq '.assets[].name')
+
+          # Build platform entries for latest.json
+          platforms="{}"
+
+          # Windows NSIS (.exe + .sig)
+          if echo "$assets" | grep -q '\.exe$'; then
+            exe=$(echo "$assets" | grep '\.exe$' | head -1)
+            sig_name="${exe}.sig"
+            if echo "$assets" | grep -q "^${sig_name}$"; then
+              sig=$(gh release download "$tag" --repo "$repo" --pattern "$sig_name" --output - 2>/dev/null || echo "")
+              if [ -n "$sig" ]; then
+                platforms=$(echo "$platforms" | jq --arg url "${base}/${exe}" --arg sig "$sig" '. + {"windows-x86_64": {"url": $url, "signature": $sig}}')
+              fi
+            fi
+          fi
+
+          # Linux AppImage (.AppImage + .sig)
+          if echo "$assets" | grep -q '\.AppImage$'; then
+            appimage=$(echo "$assets" | grep '\.AppImage$' | head -1)
+            sig_name="${appimage}.sig"
+            if echo "$assets" | grep -q "^${sig_name}$"; then
+              sig=$(gh release download "$tag" --repo "$repo" --pattern "$sig_name" --output - 2>/dev/null || echo "")
+              if [ -n "$sig" ]; then
+                platforms=$(echo "$platforms" | jq --arg url "${base}/${appimage}" --arg sig "$sig" '. + {"linux-x86_64": {"url": $url, "signature": $sig}}')
+              fi
+            fi
+          fi
+
+          # Only upload if we have at least one platform with signatures
+          count=$(echo "$platforms" | jq 'length')
+          if [ "$count" -gt 0 ]; then
+            now=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+            jq -n \
+              --arg version "$version" \
+              --arg pub_date "$now" \
+              --argjson platforms "$platforms" \
+              '{version: $version, notes: "See CHANGELOG.md for release notes.", pub_date: $pub_date, platforms: $platforms}' \
+              > latest.json
+            echo "Generated latest.json:"
+            cat latest.json
+            gh release upload "$tag" latest.json --repo "$repo" --clobber
+            echo "latest.json uploaded successfully"
+          else
+            echo "No .sig files found on release — cannot generate latest.json"
+            echo "Available assets:"
+            echo "$assets"
+          fi
