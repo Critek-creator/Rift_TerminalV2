@@ -88,32 +88,24 @@ jobs:
           prerelease: false
           includeUpdaterJson: true
 
-      # tauri-action@v0 generates .sig files but fails to upload them or
-      # latest.json ("Signature not found for the updater JSON"). Work around
-      # by uploading .sig files manually — the action's includeUpdaterJson
-      # should then find them on a future fix, but we also generate
-      # latest.json in a separate job below as a belt-and-suspenders.
-      - name: Upload .sig files to release
-        if: always()
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        shell: bash
-        run: |
-          tag="${GITHUB_REF_NAME}"
-          for sig in $(find target/release/bundle -name '*.sig' -type f 2>/dev/null); do
-            name=$(basename "$sig")
-            echo "Uploading $name..."
-            gh release upload "$tag" "$sig" --repo "$GITHUB_REPOSITORY" --clobber || true
-          done
-
+  # tauri-action@v0 generates .sig files but cleans them up before
+  # subsequent steps can access them. This dedicated job downloads the
+  # release binaries, signs them fresh using the Tauri CLI, and uploads
+  # latest.json with embedded signatures.
   updater-json:
     needs: release
     runs-on: ubuntu-latest
-    if: always()
     steps:
-      - name: Generate and upload latest.json
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Sign release artifacts and generate latest.json
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         shell: bash
         run: |
           tag="${GITHUB_REF_NAME}"
@@ -121,55 +113,46 @@ jobs:
           repo="${GITHUB_REPOSITORY}"
           base="https://github.com/${repo}/releases/download/${tag}"
 
-          # Wait briefly for all assets to be available
-          sleep 10
-
-          # Collect asset list from the release
-          assets=$(gh release view "$tag" --repo "$repo" --json assets --jq '.assets[].name')
-
-          # Build platform entries for latest.json
+          mkdir -p /tmp/rift-sign
           platforms="{}"
 
-          # Windows NSIS (.exe + .sig)
-          if echo "$assets" | grep -q '\.exe$'; then
-            exe=$(echo "$assets" | grep '\.exe$' | head -1)
-            sig_name="${exe}.sig"
-            if echo "$assets" | grep -q "^${sig_name}$"; then
-              sig=$(gh release download "$tag" --repo "$repo" --pattern "$sig_name" --output - 2>/dev/null || echo "")
-              if [ -n "$sig" ]; then
-                platforms=$(echo "$platforms" | jq --arg url "${base}/${exe}" --arg sig "$sig" '. + {"windows-x86_64": {"url": $url, "signature": $sig}}')
-              fi
-            fi
+          # Windows NSIS (.exe)
+          exe_name=$(gh release view "$tag" --repo "$repo" --json assets \
+            --jq '[.assets[] | select(.name | endswith("-setup.exe"))][0].name')
+          if [ -n "$exe_name" ] && [ "$exe_name" != "null" ]; then
+            echo "Signing $exe_name..."
+            gh release download "$tag" --repo "$repo" --pattern "$exe_name" --dir /tmp/rift-sign
+            npx --yes @tauri-apps/cli@latest signer sign "/tmp/rift-sign/$exe_name"
+            win_sig=$(cat "/tmp/rift-sign/${exe_name}.sig")
+            platforms=$(echo "$platforms" | jq \
+              --arg url "$base/$exe_name" --arg sig "$win_sig" \
+              '. + {"windows-x86_64": {"url": $url, "signature": $sig}}')
           fi
 
-          # Linux AppImage (.AppImage + .sig)
-          if echo "$assets" | grep -q '\.AppImage$'; then
-            appimage=$(echo "$assets" | grep '\.AppImage$' | head -1)
-            sig_name="${appimage}.sig"
-            if echo "$assets" | grep -q "^${sig_name}$"; then
-              sig=$(gh release download "$tag" --repo "$repo" --pattern "$sig_name" --output - 2>/dev/null || echo "")
-              if [ -n "$sig" ]; then
-                platforms=$(echo "$platforms" | jq --arg url "${base}/${appimage}" --arg sig "$sig" '. + {"linux-x86_64": {"url": $url, "signature": $sig}}')
-              fi
-            fi
+          # Linux AppImage
+          appimage_name=$(gh release view "$tag" --repo "$repo" --json assets \
+            --jq '[.assets[] | select(.name | endswith(".AppImage"))][0].name')
+          if [ -n "$appimage_name" ] && [ "$appimage_name" != "null" ]; then
+            echo "Signing $appimage_name..."
+            gh release download "$tag" --repo "$repo" --pattern "$appimage_name" --dir /tmp/rift-sign
+            npx --yes @tauri-apps/cli@latest signer sign "/tmp/rift-sign/$appimage_name"
+            linux_sig=$(cat "/tmp/rift-sign/${appimage_name}.sig")
+            platforms=$(echo "$platforms" | jq \
+              --arg url "$base/$appimage_name" --arg sig "$linux_sig" \
+              '. + {"linux-x86_64": {"url": $url, "signature": $sig}}')
           fi
 
-          # Only upload if we have at least one platform with signatures
           count=$(echo "$platforms" | jq 'length')
           if [ "$count" -gt 0 ]; then
             now=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-            jq -n \
-              --arg version "$version" \
-              --arg pub_date "$now" \
-              --argjson platforms "$platforms" \
-              '{version: $version, notes: "See CHANGELOG.md for release notes.", pub_date: $pub_date, platforms: $platforms}' \
-              > latest.json
+            jq -n --arg v "$version" --arg d "$now" --argjson p "$platforms" \
+              '{version: $v, notes: "See CHANGELOG.md for release notes.", pub_date: $d, platforms: $p}' \
+              > /tmp/rift-sign/latest.json
             echo "Generated latest.json:"
-            cat latest.json
-            gh release upload "$tag" latest.json --repo "$repo" --clobber
+            cat /tmp/rift-sign/latest.json
+            gh release upload "$tag" /tmp/rift-sign/latest.json --repo "$repo" --clobber
             echo "latest.json uploaded successfully"
           else
-            echo "No .sig files found on release — cannot generate latest.json"
-            echo "Available assets:"
-            echo "$assets"
+            echo "::error::No signable artifacts found on release"
+            exit 1
           fi
