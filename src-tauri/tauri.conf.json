@@ -55,7 +55,7 @@
   "plugins": {
     "updater": {
       "active": true,
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDJBODAwNDE4RDJGQ0EyQkIKUldTN292elNHQVNBS3FrNnpEZjVBei9Ca0dSSHZIQTVIUGhlUjRMcE1DYysxSFlKUVNmME9nQVUK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDg1QjUyNEE3RTJCMjJFODMKUldTRExyTGlweVMxaFN2TXVFRDVXMk9vUGw5cFczTHRSOVdWVFYrZVVnY0ZlUU9BM3RkT0Z0OUYK",
       "endpoints": [
         "https://github.com/Critek-creator/Rift_TerminalV2/releases/latest/download/latest.json"
       ]
