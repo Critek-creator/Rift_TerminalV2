@@ -30,6 +30,8 @@ jobs:
 
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.95.0
 
       - name: Cache Cargo
         uses: Swatinem/rust-cache@v2
@@ -93,3 +95,35 @@ jobs:
       # separate audit item (H12) out of scope for B3.
       - name: Translator boundary check (§9)
         run: bash tools/check-translator-boundary.sh
+
+      # L7 — Detect unused dependencies. Runs after build so compiled
+      # metadata is available. False positives suppressed via
+      # [package.metadata.cargo-machete] in per-crate Cargo.toml.
+      - name: cargo machete (unused deps)
+        run: |
+          cargo install cargo-machete --locked
+          cargo machete
+
+      # L8 — License + advisory audit. deny.toml lives in workspace root.
+      # Checks licenses against allowlist and crates against RustSec DB.
+      # --warn unmaintained: transitive unmaintained deps (GTK3 bindings,
+      # proc-macro-error, unic-*) are Tauri's concern, not ours — warn
+      # but don't block. Actual vulnerabilities still fail the gate.
+      - name: cargo deny (license + advisory)
+        uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          arguments: --warn unmaintained
+
+      # M13 — Verify public clones can build without the private aegis
+      # feature. rift-aegis is in workspace members (stub tracked in git)
+      # but the aegis feature on src-tauri is off by default, so the
+      # private_modules code never compiles. This step ensures the
+      # default-features path stays green for forks / public CI.
+      - name: Public-clone build verification (M13)
+        run: |
+          echo "::group::workspace build (no aegis feature)"
+          cargo build --workspace --locked
+          echo "::endgroup::"
+          echo "::group::src-tauri build (no aegis feature)"
+          cd src-tauri && cargo build --locked
+          echo "::endgroup::"

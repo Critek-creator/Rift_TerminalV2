@@ -6,6 +6,7 @@ authors.workspace = true
 license.workspace = true
 description = "Rift core — PTY layer + shell resolution"
 rust-version.workspace = true
+publish = false
 
 [dependencies]
 portable-pty = { workspace = true }
@@ -16,3 +17,9 @@ tracing = { workspace = true }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { workspace = true, features = ["Win32_System_Diagnostics_ToolHelp", "Win32_Foundation"] }
+
+# cargo-machete suppression:
+# - windows-sys: cfg(windows)-only, invisible on Linux CI runners
+# - tracing: genuinely unused today — remove dep when ready (L7-NOTICED)
+[package.metadata.cargo-machete]
+ignored = ["windows-sys", "tracing"]

@@ -202,6 +202,64 @@
   }
 
   // ---------------------------------------------------------------------------
+  // Aggregate memoization (M1 perf fix)
+  //
+  // Problem: treeActivity.snapshot ticks every rAF while glow decays,
+  // causing the layout $derived to re-run computeAggregate recursively
+  // on every collapsed directory per frame (up to 6 levels deep each).
+  //
+  // Solution: cache aggregate results keyed on dirPath. Invalidate the
+  // entire cache only when the snapshot Map REFERENCE changes (structural
+  // mutation — mark/cycle/dismiss/clear all assign a new Map). Pure glow
+  // decay within a single rAF tick does NOT change which children are
+  // active/recent/ambient — it only adjusts glowIntensity — so the
+  // aggregate state (which only cares about max-glow > 0 and has-pinned)
+  // is stable across decay frames within the same generation.
+  //
+  // The generation counter bumps when the entries Map reference changes
+  // (checked via object identity). Decay ticks that produce a new Map
+  // (decayTick assigns `entries = next` when mutated) DO bump the
+  // generation, but that happens at most once per rAF — not per-node.
+  // ---------------------------------------------------------------------------
+
+  interface AggregateCache {
+    generation: number;
+    snapshotRef: Map<string, import('./treeActivity.svelte').ActivityEntry> | null;
+    results: Map<string, { aggregateGlow: number; hasPinnedDesc: boolean }>;
+  }
+
+  const aggCache: AggregateCache = {
+    generation: 0,
+    snapshotRef: null,
+    results: new Map(),
+  };
+
+  /**
+   * Memoized wrapper around computeAggregate. Returns cached result when
+   * the snapshot Map reference hasn't changed since the last call for
+   * this directory path.
+   */
+  function computeAggregateMemo(
+    node: TreeNode,
+    depthRemaining: number,
+  ): { aggregateGlow: number; hasPinnedDesc: boolean } {
+    const currentSnapshot = treeActivity.snapshot;
+    if (currentSnapshot !== aggCache.snapshotRef) {
+      // Snapshot reference changed — new generation, clear all cached results.
+      aggCache.generation++;
+      aggCache.snapshotRef = currentSnapshot;
+      aggCache.results.clear();
+    }
+
+    const cached = aggCache.results.get(node.path);
+    if (cached) return cached;
+
+    const result = computeAggregate(node, depthRemaining);
+    aggCache.results.set(node.path, result);
+    return result;
+  }
+
+  // ---------------------------------------------------------------------------
   // Flat layout — computed reactively from treeRoot + treeActivity.snapshot
   //               + collapsedDirs (design calls B, C)
   // ---------------------------------------------------------------------------
@@ -242,7 +300,9 @@
 
       if (isCollapsed) {
         // Pre-compute aggregate so render doesn't re-walk on every paint.
-        const agg = computeAggregate(node, MAX_BUBBLE_DEPTH);
+        // Uses memoized wrapper (M1 perf fix) — avoids recursive re-walk
+        // when only glow decay is ticking the snapshot.
+        const agg = computeAggregateMemo(node, MAX_BUBBLE_DEPTH);
         aggregateGlow = agg.aggregateGlow;
         aggState = aggregateStateFromGlow(agg.aggregateGlow, agg.hasPinnedDesc);
       }

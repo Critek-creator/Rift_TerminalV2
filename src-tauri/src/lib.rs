@@ -1017,6 +1017,17 @@ async fn aegis_open_settings() -> Result<(), String> {
     open_in_os_editor(".claude/settings.json")
 }
 
+/// Open `~/.claude/abyssal-index/` in the OS file manager.
+///
+/// Same mechanics as `aegis_open_lessons` — see its doc for invariants.
+/// `open_in_os_editor` works for directories too: `cmd /C start` (Windows),
+/// `open` (macOS), and `xdg-open` (Linux) all handle directory paths by
+/// opening the platform file manager.
+#[tauri::command]
+async fn index_open_vault_root() -> Result<(), String> {
+    open_in_os_editor(".claude/abyssal-index")
+}
+
 /// Phase 8.7i — TODO/FIXME/XXX/HACK scan over the active project root.
 ///
 /// Synchronous best-effort scan with hard caps (1000 results, 1 MiB/file,
@@ -1702,6 +1713,7 @@ pub fn run() {
             cockpit_window::cockpit_status,
             aegis_open_lessons,
             aegis_open_settings,
+            index_open_vault_root,
             todo_scan_command,
             git_status_command,
             git_action_command,

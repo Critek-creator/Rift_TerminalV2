@@ -6,6 +6,7 @@ authors.workspace = true
 license.workspace = true
 description = "Rift MCP server — exposes a running Rift host via Model Context Protocol over stdio JSON-RPC"
 rust-version.workspace = true
+publish = false
 
 [[bin]]
 name = "rift-mcp"
@@ -24,3 +25,9 @@ uuid = { version = "1", features = ["v4"] }
 
 [dev-dependencies]
 tokio = { workspace = true }
+
+# cargo-machete suppression:
+# - tracing: subscriber init stub exists but doesn't import the crate yet —
+#   will be used when tracing is wired up (L7-NOTICED: remove suppression then)
+[package.metadata.cargo-machete]
+ignored = ["tracing"]

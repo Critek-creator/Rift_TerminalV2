@@ -14,6 +14,7 @@
   // pr003 svelte5-async-cleanup-via-sync-shell-iife: the cleanup returned from
   // $effect must be SYNC. Async teardown (bus unsubscribe) is wrapped in IIFE.
 
+  import { invoke } from '@tauri-apps/api/core';
   import { subscribe, type Envelope } from './bus';
   import IndexTabRenderer from './IndexTabRenderer.svelte';
   import { NOTIF_TAB_MIME } from './dragMime';
@@ -34,6 +35,13 @@
 
   let entries = $state<Envelope[]>([]);
   let lastTickTs = $state<number>(Date.now());
+
+  // §10.14: search/filter bar — filters recent events by kind or payload text.
+  let searchTerm = $state('');
+
+  // Vault-root quick-link error state (mirrors AegisTabContent quick-action pattern).
+  let vaultRootError = $state<string | null>(null);
+  let vaultRootTimer: ReturnType<typeof setTimeout> | undefined;
 
   // ---------------------------------------------------------------------------
   // Derived views (§10.8 sections)
@@ -79,6 +87,22 @@
     if (ageMs < 60_000) return `${Math.floor(ageMs / 1000)}s ago`;
     if (ageMs < 3_600_000) return `${Math.floor(ageMs / 60_000)}m ago`;
     return `${Math.floor(ageMs / 3_600_000)}h ago`;
+  });
+
+  // Section 3 — search-filtered recent events (§10.14 search bar).
+  const filteredRecentEntries = $derived.by(() => {
+    const term = searchTerm.trim().toLowerCase();
+    if (!term) return recentEntries;
+    return recentEntries.filter((e) => {
+      if (e.kind.toLowerCase().includes(term)) return true;
+      if (e.payload) {
+        const p = e.payload as Record<string, unknown>;
+        for (const v of Object.values(p)) {
+          if (typeof v === 'string' && v.toLowerCase().includes(term)) return true;
+        }
+      }
+      return false;
+    });
   });
 
   // Section 1 — status header label.
@@ -130,6 +154,30 @@
       })();
     };
   });
+
+  // ---------------------------------------------------------------------------
+  // §10.14: vault-root quick link — open ~/.claude/abyssal-index/ in OS
+  // file manager. Uses the same pattern as AegisTabContent quick-actions.
+  // ---------------------------------------------------------------------------
+
+  function clearVaultRootErrorAfterDelay() {
+    if (vaultRootTimer) clearTimeout(vaultRootTimer);
+    vaultRootTimer = setTimeout(() => {
+      vaultRootError = null;
+      vaultRootTimer = undefined;
+    }, 3000);
+  }
+
+  function openVaultRoot() {
+    void (async () => {
+      try {
+        await invoke('index_open_vault_root');
+      } catch (err) {
+        vaultRootError = err instanceof Error ? err.message : String(err);
+        clearVaultRootErrorAfterDelay();
+      }
+    })();
+  }
 
   // ---------------------------------------------------------------------------
   // Drag-handle (Phase 3.5a promoted-pane)
@@ -191,6 +239,25 @@
       </span>
     </header>
 
+    <!-- §10.14: search/filter bar + vault-root quick link -->
+    <div class="search-bar">
+      <input
+        class="search-input"
+        type="text"
+        placeholder="filter events…"
+        bind:value={searchTerm}
+        aria-label="Filter index events"
+      />
+      <button
+        class="vault-root-btn"
+        onclick={openVaultRoot}
+        title="Open vault root (~/.claude/abyssal-index/) in file manager"
+      >VAULT ROOT ↗</button>
+    </div>
+    {#if vaultRootError}
+      <div class="vault-root-error">{vaultRootError}</div>
+    {/if}
+
     <!-- Section 2: Live activity strip -->
     <div class="strip">
       <span class="strip-label">LIVE</span>
@@ -205,14 +272,16 @@
       {/if}
     </div>
 
-    <!-- Section 3: Recent events log -->
+    <!-- Section 3: Recent events log (filtered by search bar) -->
     <div class="log">
-      <div class="log-header">RECENT EVENTS</div>
+      <div class="log-header">RECENT EVENTS{searchTerm.trim() ? ` (${filteredRecentEntries.length}/${recentEntries.length})` : ''}</div>
       <div class="log-body">
         {#if recentEntries.length === 0}
           <div class="empty">subscribed to <span class="cat">index</span> — no events received yet</div>
+        {:else if filteredRecentEntries.length === 0}
+          <div class="empty">no events matching "<span class="cat">{searchTerm.trim()}</span>"</div>
         {:else}
-          {#each recentEntries as e, i (e.ts + ':' + e.kind + ':' + i)}
+          {#each filteredRecentEntries as e, i (e.ts + ':' + e.kind + ':' + i)}
             <IndexTabRenderer
               entry={{
                 ts: e.ts,
@@ -528,5 +597,61 @@
   .vk-count {
     color: var(--amber-warm);
     font-weight: 700;
+  }
+
+  /* §10.14: search/filter bar + vault-root quick link */
+  .search-bar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 14px;
+    border-bottom: 1px solid var(--border-subtle);
+    background: var(--bg-surface);
+    flex-shrink: 0;
+  }
+  .search-input {
+    flex: 1;
+    background: var(--bg-primary, var(--bg-base));
+    border: 1px solid var(--amber-faint);
+    color: var(--term-white);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    padding: 3px 8px;
+    letter-spacing: 0.04em;
+    outline: none;
+  }
+  .search-input::placeholder {
+    color: var(--amber-faint);
+    font-style: italic;
+  }
+  .search-input:focus {
+    border-color: var(--accent);
+  }
+  .vault-root-btn {
+    padding: 2px 8px;
+    border: 1px solid var(--accent);
+    color: var(--accent);
+    background: rgba(74, 212, 212, 0.06);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background 0.1s;
+  }
+  .vault-root-btn:hover {
+    background: rgba(74, 212, 212, 0.14);
+  }
+  .vault-root-btn:active {
+    background: rgba(74, 212, 212, 0.22);
+  }
+  .vault-root-error {
+    padding: 2px 14px;
+    color: var(--term-red);
+    font-size: 9px;
+    font-style: italic;
+    letter-spacing: 0.04em;
+    word-break: break-all;
   }
 </style>

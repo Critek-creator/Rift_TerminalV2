@@ -277,6 +277,14 @@
         <span class="k">invocations</span>
         <span class="v">{invocationCount}</span>
       </div>
+      <!-- §10.13: active enforcement modes — placeholder until rift-aegis
+           emits enforcement_modes in its aegis.context snapshot payload.
+           NEEDS-INFO: Rust-side rift-aegis needs to emit enforcement_modes
+           in its snapshot payload for this segment to show real data. -->
+      <div class="row k-row">
+        <span class="k">enforcement</span>
+        <span class="v enforcement-placeholder">&mdash;</span>
+      </div>
 
       <!-- Rule source tags (hook_events) -->
       {#if contextPayload?.hook_events && contextPayload.hook_events.length > 0}
@@ -503,6 +511,7 @@
   }
   .k-row .k { color: var(--amber-dim); }
   .k-row .v { color: var(--amber-warm); font-weight: 600; }
+  .k-row .v.enforcement-placeholder { color: var(--amber-faint); font-style: italic; }
 
   /* Rule source tags */
   .rule-sources {

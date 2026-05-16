@@ -6,6 +6,7 @@ authors.workspace = true
 license.workspace = true
 description = "Rift Terminal v2 — standalone terminal + GUI cockpit"
 rust-version.workspace = true
+publish = false
 
 [[bin]]
 name = "rift-app"
@@ -59,3 +60,10 @@ custom-protocol = ["tauri/custom-protocol"]
 # latter activates the real impl in the gitignored sibling files
 # alongside the tracked stub lib.rs). See DEFERRED.md C-014.
 aegis = ["dep:rift-aegis", "rift-aegis/private_modules"]
+
+# cargo-machete false-positive suppression:
+# - windows-sys: cfg(windows)-only, invisible on Linux runners
+# - rift-aegis: optional dep behind `aegis` feature, never compiled in default CI
+# - png/base64: used in screenshot capture paths that machete can't trace through Tauri codegen
+[package.metadata.cargo-machete]
+ignored = ["windows-sys", "rift-aegis", "png", "base64"]
