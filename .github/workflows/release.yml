@@ -157,3 +157,12 @@ jobs:
             echo "::error::No signable artifacts found on release"
             exit 1
           fi
+
+  publish:
+    needs: updater-json
+    runs-on: ubuntu-latest
+    steps:
+      - name: Publish release (remove draft flag)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release edit "${{ github.ref_name }}" --repo "${{ github.repository }}" --draft=false
