@@ -1133,6 +1133,9 @@ fn git_action_command(
 ///   - macOS    → `open "<path>"`
 ///   - Linux    → `xdg-open "<path>"`
 ///
+// Maintenance note: if Aegis skill path changes, update this const.
+const AEGIS_SKILL_RELATIVE: &str = ".claude/skills/aegis/SKILL.md";
+
 /// Lightweight Aegis detection probe (non-gated — runs in every build).
 ///
 /// Checks `~/.claude/skills/aegis/SKILL.md` existence and publishes
@@ -1141,12 +1144,7 @@ fn git_action_command(
 /// log tail on top of this when compiled in.
 async fn aegis_detect_lightweight(bus: RiftBus) {
     let path = match directories::BaseDirs::new() {
-        Some(b) => b
-            .home_dir()
-            .join(".claude")
-            .join("skills")
-            .join("aegis")
-            .join("SKILL.md"),
+        Some(b) => b.home_dir().join(AEGIS_SKILL_RELATIVE),
         None => {
             tracing::warn!("aegis_detect: could not resolve home directory");
             return;
@@ -1178,6 +1176,11 @@ async fn aegis_detect_lightweight(bus: RiftBus) {
 ///   - `BaseDirs::new()` fails (very rare: no home dir).
 ///   - The resolved file does not exist on disk.
 ///   - The spawned process exits with a non-zero status.
+///
+/// Security: `rel_to_home` is always a hardcoded string from Tauri command
+/// handlers (e.g. `"anti-claude-lessons.md"`, `"settings.json"`) — never
+/// user-controlled input. The `cmd /C start` invocation is safe because the
+/// path is resolved from `BaseDirs::home_dir()` and verified to exist.
 fn open_in_os_editor(rel_to_home: &str) -> Result<(), String> {
     use directories::BaseDirs;
 
@@ -1282,6 +1285,7 @@ fn project_swap(
     bus: State<'_, RiftBus>,
     watcher_reg: State<'_, WatcherRegistry>,
     project_root: State<'_, ProjectRoot>,
+    cached_config: State<'_, CachedConfig>,
     path: String,
 ) -> Result<(), String> {
     // Step 1: Canonicalize via dunce (avoids Windows \\?\ UNC prefix issues).
@@ -1296,8 +1300,8 @@ fn project_swap(
         ));
     }
 
-    // Read config to get the ignore globs for the new watcher.
-    let mut cfg = load_config().unwrap_or_default();
+    // Read config from cache (audit fix T2 — avoids stale disk read).
+    let mut cfg = cached_config.get();
     let ignore_globs = cfg.fs.ignore_globs.clone();
 
     // Step 3: Drop the old watcher cleanly BEFORE spawning the new one.
@@ -1361,6 +1365,8 @@ fn project_swap(
             e.to_string(),
             None,
         );
+    } else {
+        cached_config.set(cfg);
     }
 
     // Step 8: Publish project.changed so Tree.svelte re-fetches + clears activity.

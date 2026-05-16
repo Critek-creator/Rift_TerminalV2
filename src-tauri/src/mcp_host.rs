@@ -98,8 +98,10 @@ async fn run_subscriber(
     app_handle: AppHandle,
 ) {
     let (snapshot, mut sub) = bus.subscribe(SubscribeFilter::Category(Category::Mcp));
-    let bus_tail_handle: std::sync::Mutex<Option<tauri::async_runtime::JoinHandle<()>>> =
-        std::sync::Mutex::new(None);
+    // Only one bus_tail stream can be active at a time (v1 limitation).
+    // A new bus_tail request aborts the previous stream.
+    let bus_tail_handle: tokio::sync::Mutex<Option<tauri::async_runtime::JoinHandle<()>>> =
+        tokio::sync::Mutex::new(None);
 
     for env in snapshot {
         handle_envelope(
@@ -147,7 +149,7 @@ async fn handle_envelope(
     pty_registry: &PtyRegistry,
     app_handle: &AppHandle,
     env: &Envelope,
-    bus_tail_handle: &std::sync::Mutex<Option<tauri::async_runtime::JoinHandle<()>>>,
+    bus_tail_handle: &tokio::sync::Mutex<Option<tauri::async_runtime::JoinHandle<()>>>,
 ) {
     // Ignore our own outbound envelopes (responses, audit, errors). The
     // subscriber sees everything in Category::Mcp, including what we publish.
@@ -186,7 +188,8 @@ async fn handle_envelope(
         // and return a start-ack synchronously. Subsequent envelopes flow
         // back as `mcp.notify.{tool}` rather than a single `mcp.response`.
         if tool_name == "bus_tail" {
-            if let Ok(mut prev) = bus_tail_handle.lock() {
+            {
+                let mut prev = bus_tail_handle.lock().await;
                 if let Some(h) = prev.take() {
                     h.abort();
                 }
@@ -196,7 +199,8 @@ async fn handle_envelope(
                 request_id.clone(),
                 &env.payload,
                 bus_tail_handle,
-            );
+            )
+            .await;
             publish_response(bus, tool_name, request_id, result);
             return;
         }
@@ -373,11 +377,11 @@ async fn dispatch_tool(
 /// notifications are dropped on the floor by the broadcast channel. The
 /// task itself exits when the bus closes (process shutdown) or when the
 /// subscribe channel returns `Closed`.
-fn start_bus_tail(
+async fn start_bus_tail(
     bus: RiftBus,
     request_id: Value,
     payload: &Value,
-    bus_tail_handle: &std::sync::Mutex<Option<tauri::async_runtime::JoinHandle<()>>>,
+    bus_tail_handle: &tokio::sync::Mutex<Option<tauri::async_runtime::JoinHandle<()>>>,
 ) -> Result<Value, String> {
     // Parse filter args. Both optional; absent = match all.
     let category_filter = payload
@@ -409,7 +413,8 @@ fn start_bus_tail(
         )
         .await;
     });
-    if let Ok(mut prev) = bus_tail_handle.lock() {
+    {
+        let mut prev = bus_tail_handle.lock().await;
         *prev = Some(handle);
     }
 
@@ -540,6 +545,8 @@ fn tool_fs_tree(project_root: &Path, payload: &Value) -> Result<Value, String> {
         .map(|n| n.min(64) as u32)
         .unwrap_or(rift_bus::FS_TREE_DEFAULT_MAX_DEPTH);
 
+    // TODO: when spawn_mcp_host accepts Arc<CachedConfig>, read from cache
+    // instead of hitting disk per MCP request (audit finding T3).
     let ignore_patterns: Vec<String> =
         load_config()
             .map(|cfg| cfg.fs.ignore_globs)
@@ -569,6 +576,8 @@ fn tool_fs_tree(project_root: &Path, payload: &Value) -> Result<Value, String> {
 /// Same payload shape as the TODO notif tab. Ignore globs are loaded from
 /// [`RiftConfig`] (matching the public `todo_scan_command`).
 fn tool_todo_scan(project_root: &Path) -> Result<Value, String> {
+    // TODO: when spawn_mcp_host accepts Arc<CachedConfig>, read from cache
+    // instead of hitting disk per MCP request (audit finding T3).
     let ignore_patterns: Vec<String> =
         load_config()
             .map(|cfg| cfg.fs.ignore_globs)
@@ -909,12 +918,31 @@ fn tool_git_action(project_root: &Path, payload: &Value) -> Result<Value, String
     serde_json::to_value(result).map_err(|e| format!("git_action: serialize failed: {e}"))
 }
 
+/// Escape a string for safe interpolation into a JavaScript single-quoted literal.
+/// Handles backslash, quotes, backticks, newlines, carriage returns, and null bytes.
+fn escape_js_string(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 8);
+    for ch in s.chars() {
+        match ch {
+            '\\' => out.push_str("\\\\"),
+            '\'' => out.push_str("\\'"),
+            '"' => out.push_str("\\\""),
+            '`' => out.push_str("\\`"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\0' => out.push_str("\\0"),
+            other => out.push(other),
+        }
+    }
+    out
+}
+
 /// `simulate_click` — dispatch a synthetic click event at coordinates or a CSS selector.
 async fn tool_simulate_click(app_handle: &AppHandle, payload: &Value) -> Result<Value, String> {
     let window = resolve_window_label(payload);
 
     let target_js = if let Some(selector) = payload.get("selector").and_then(|v| v.as_str()) {
-        let escaped = selector.replace('\\', "\\\\").replace('\'', "\\'");
+        let escaped = escape_js_string(selector);
         format!(
             "const el = document.querySelector('{escaped}'); \
              if (!el) return {{ error: 'selector not found: {escaped}' }}; \
@@ -960,7 +988,7 @@ async fn tool_simulate_drag(app_handle: &AppHandle, payload: &Value) -> Result<V
     let window = resolve_window_label(payload);
 
     let from_js = if let Some(selector) = payload.get("from_selector").and_then(|v| v.as_str()) {
-        let escaped = selector.replace('\\', "\\\\").replace('\'', "\\'");
+        let escaped = escape_js_string(selector);
         format!(
             "const fromEl = document.querySelector('{escaped}'); \
                  if (!fromEl) return {{ error: 'from_selector not found: {escaped}' }}; \
@@ -983,7 +1011,7 @@ async fn tool_simulate_drag(app_handle: &AppHandle, payload: &Value) -> Result<V
     };
 
     let to_js = if let Some(selector) = payload.get("to_selector").and_then(|v| v.as_str()) {
-        let escaped = selector.replace('\\', "\\\\").replace('\'', "\\'");
+        let escaped = escape_js_string(selector);
         format!(
             "const toEl = document.querySelector('{escaped}'); \
              if (!toEl) return {{ error: 'to_selector not found: {escaped}' }}; \
@@ -1077,12 +1105,11 @@ fn publish_notify_raw(bus: &RiftBus, tool: &str, payload: Value) {
 }
 
 /// Constant-time byte comparison to defeat timing-based token leakage.
-/// Returns false on length mismatch without scanning further.
+/// The XOR loop always runs for `min(a.len(), b.len())` iterations regardless
+/// of where the first mismatch occurs, and length inequality is folded into
+/// the accumulator rather than early-returned.
 fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
-    if a.len() != b.len() {
-        return false;
-    }
-    let mut diff: u8 = 0;
+    let mut diff = (a.len() != b.len()) as u8;
     for (x, y) in a.iter().zip(b.iter()) {
         diff |= x ^ y;
     }

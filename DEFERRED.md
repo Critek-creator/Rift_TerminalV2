@@ -89,6 +89,14 @@ WebSocket transport) remain in the locked plan as ongoing v1.x work.
 - Curator rationale: all 5 reasons substantively evidenced with codebase + spec §11 citations, vision-spec-aligned ambient visualization extension; occurrence_count=1 at default Medium landing — design-iteration risk (color ramp + intensity tuning + glow interaction) warrants evidence accumulation before elevating.
 - **Unblocking event**: user decides to build it, or a second Feature Agent run independently surfaces the same idea (which would bump occurrence_count and likely tier to High). Design decisions needed: color ramp palette (amber→red or separate heatmap palette?), interaction with existing glow states, whether the heatmap is always-on or toggle-able.
 
+### D-021 — Section Catalog Self-Discovery (§10.16, opened 2026-05-16)
+
+- Spec §10.10 describes an extensible self-discovering catalog where integrations register new section types automatically. §10.16 defers the brainstorm pass.
+- Current state: tab sections are hardcoded 4-section anatomy in `NotificationPane.svelte`. No registration mechanism exists — new tabs are added by manual implementation.
+- The hardcoded approach works for v1 (all tab types are first-party), but the extensibility promise of §10.10 is aspirational, not implemented.
+- **Unblocking event**: v1.x when third-party or dynamically-loaded integrations need to register custom section types without modifying NotificationPane source.
+- Opened by pre-release audit (2026-05-16) identifying gap between spec promise and implementation.
+
 ---
 
 ## Closed deferrals

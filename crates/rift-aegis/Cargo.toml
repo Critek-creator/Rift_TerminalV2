@@ -1,10 +1,11 @@
 [package]
 name = "rift-aegis"
-version = "0.1.0"
-edition = "2021"
-authors = ["Abyssal Arts"]
-license = "Proprietary"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
 description = "Rift ↔ Aegis private translator (Phase 7 — public stub + cfg-gated private impl)"
+rust-version.workspace = true
 publish = false
 
 [features]

@@ -12,6 +12,40 @@ Pre-v1.0 work-in-progress. Items move into a numbered release section once tagge
 
 ---
 
+## [0.1.3] — 2026-05-15
+
+### Fixed
+
+- Regenerated updater signing keypair (password-less) to resolve silent CI failures
+- Rewritten release.yml with dedicated `updater-json` signing job (works around tauri-action@v0 .sig cleanup bug)
+- Made repository public
+- Cleaned stale draft releases blocking updater endpoint
+
+---
+
+## [0.1.2] — 2026-05-15
+
+### Security
+
+- CSP enabled (Content Security Policy hardening)
+- `withGlobalTauri` disabled — no longer exposes Tauri internals to webview scripts
+
+### Fixed
+
+- Async-safe git polling — removed blocking calls from the status translator
+- MCP spec fixes: null-id crash, notification skip, ready gate, improved reconnect logic
+- `bus_tail` subscription leak fix (listener now properly cleaned up on disconnect)
+- FitAddon disposal on terminal cleanup (prevents xterm.js memory leak)
+- Linux build fix: `#[cfg(windows)]` gate on `.hwnd()` call that broke non-Windows CI
+
+### Changed
+
+- Full 6-domain codebase audit — 10 HIGH severity findings resolved
+- CSS variable consistency pass (stale hex values replaced with theme vars)
+- Binary release artifacts for Windows (.exe) and Linux (AppImage)
+
+---
+
 ## [0.1.1] — D-014 Phase A end-to-end + Windows polish
 
 Patch release. Makes the Phase A MCP plugin actually work end-to-end and
@@ -226,5 +260,7 @@ See `DEFERRED.md` for the full deferral log including unblocking events.
 
 ---
 
+[0.1.3]: https://github.com/Critek-creator/Rift_TerminalV2/releases/tag/v0.1.3
+[0.1.2]: https://github.com/Critek-creator/Rift_TerminalV2/releases/tag/v0.1.2
 [0.1.1]: https://github.com/Critek-creator/Rift_TerminalV2/releases/tag/v0.1.1
 [0.1.0]: https://github.com/Critek-creator/Rift_TerminalV2/releases/tag/v0.1.0

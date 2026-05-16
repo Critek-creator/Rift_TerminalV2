@@ -1,7 +1,8 @@
 // Notification severity filtering — derives severity from Envelope.kind
 // strings and gates events against a per-tab threshold.
 
-export type SeverityLevel = 'debug' | 'info' | 'warn' | 'error';
+import type { SeverityLevel } from './riftConfig';
+export type { SeverityLevel };
 
 const SEVERITY_RANK: Record<SeverityLevel, number> = {
   debug: 0,

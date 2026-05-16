@@ -449,12 +449,12 @@
     gap: 8px;
     padding: 10px 16px;
     background: rgba(204, 51, 51, 0.06);
-    border-bottom: 1px solid var(--term-red, #CC3333);
+    border-bottom: 1px solid var(--term-red, #FF4848);
     font-size: 10px;
   }
   .picker-error-glyph {
     flex-shrink: 0;
-    color: var(--term-red, #CC3333);
+    color: var(--term-red, #FF4848);
   }
   .picker-error-msg {
     color: var(--amber-dim);

@@ -113,6 +113,7 @@
   let collapsedKinds = $state<Set<VaultKind>>(new Set());
   let selectedId = $state<string | null>(null);
   let hoveredId = $state<string | null>(null);
+  let searchInput: HTMLInputElement | undefined;
 
   function toggleKind(kind: VaultKind): void {
     const next = new Set(collapsedKinds);
@@ -209,6 +210,14 @@
     let cancelled = false;
     let unsub: (() => Promise<void>) | undefined;
 
+    function onKeyDown(e: KeyboardEvent): void {
+      if (e.key === '/' && document.activeElement?.tagName !== 'INPUT') {
+        e.preventDefault();
+        searchInput?.focus();
+      }
+    }
+    document.addEventListener('keydown', onKeyDown);
+
     const pendingUpdates = new Map<string, VaultNode>();
     const pendingDeletes = new Set<string>();
     let flushTimer: number | null = null;
@@ -275,6 +284,7 @@
 
     return () => {
       cancelled = true;
+      document.removeEventListener('keydown', onKeyDown);
       if (flushTimer !== null) {
         window.clearTimeout(flushTimer);
         flushTimer = null;
@@ -310,7 +320,6 @@
     dragActive = false;
     document.addEventListener('mousemove', onDocMouseMove);
     document.addEventListener('mouseup', onDocMouseUp);
-    e.preventDefault();
   }
 
   function onDocMouseMove(e: MouseEvent): void {
@@ -370,8 +379,9 @@
     <input
       class="browser-search"
       type="text"
-      placeholder="filter vaults…"
+      placeholder="filter vaults… ( / )"
       bind:value={searchQuery}
+      bind:this={searchInput}
     />
   </div>
 

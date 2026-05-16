@@ -51,6 +51,7 @@
   const RUNNING_INACTIVITY_HINT_MS = 30_000; // > 30s with no activity = "stuck?" hint
 
   // Live registry — keyed by agent id. Reactive map via reassignment.
+  let connected = $state(false);
   let agents = $state<Record<string, AgentState>>({});
   // Archive of finished agents, newest first.
   let archive = $state<AgentState[]>([]);
@@ -193,6 +194,7 @@
         void u().catch(() => {});
       } else {
         unsubscribe = u;
+        connected = true;
       }
     } catch (err) {
       console.error('[AgentsTab] bus_subscribe failed', err);
@@ -230,7 +232,7 @@
   }
 
   function archiveStatusColor(status: AgentStatus): string {
-    if (status === 'completed') return 'var(--term-green, #33CC33)';
+    if (status === 'completed') return 'var(--term-green, #4FE855)';
     if (status === 'cancelled') return 'var(--amber-faint)';
     if (status === 'error') return 'var(--term-red)';
     return 'var(--amber-warm)';
@@ -261,6 +263,9 @@
     </div>
   {/if}
 
+  {#if !connected}
+    <div class="connecting-state">Connecting…</div>
+  {:else}
   <header class="status">
     <span class="title"><span class="icon">◊</span>AGENTS</span>
     <span class="state">
@@ -392,9 +397,17 @@
       {/if}
     </div>
   </footer>
+  {/if}
 </section>
 
 <style>
+  .connecting-state {
+    color: var(--amber-faint);
+    padding: 1rem 14px;
+    font-style: italic;
+    font-size: 11px;
+    letter-spacing: 0.04em;
+  }
   .pane {
     flex: 1;
     display: flex;
@@ -637,7 +650,7 @@
     border: 1px solid currentColor;
   }
   .card-running {
-    color: var(--term-green, #33CC33);
+    color: var(--term-green, #4FE855);
   }
   .card-inactive {
     color: var(--amber-faint);

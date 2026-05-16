@@ -214,6 +214,9 @@ where
     W: AsyncWriteExt + Unpin,
 {
     let body = serde_json::to_vec(env)?;
+    if body.len() > MAX_FRAME_BYTES as usize {
+        return Err(IpcError::FrameTooLarge(body.len() as u32));
+    }
     let len = body.len() as u32;
     writer.write_all(&len.to_le_bytes()).await?;
     writer.write_all(&body).await?;

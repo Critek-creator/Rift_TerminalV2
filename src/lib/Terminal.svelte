@@ -224,7 +224,8 @@
 
     term.open(host);
 
-    // Expose the xterm instance for MCP pty_read tool (D-014 Phase D).
+    // Exposed for MCP pty_read tool — do not remove without updating mcp_host.rs tool_pty_read
+    // Exposed for MCP pty_read tool — do not remove without updating mcp_host.rs tool_pty_read
     (window as any).__RIFT_TERM__ = term;
 
     // Phase 8.7g — Ctrl+C / Ctrl+V clipboard shortcuts.
@@ -438,6 +439,7 @@
     host?.removeEventListener(RIFT_VAULT_DROP_EVENT, onTermVaultDrop);
     fit?.dispose();
     term?.dispose();
+    delete (window as any).__RIFT_TERM__;
   });
 </script>
 

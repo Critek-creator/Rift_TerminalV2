@@ -103,6 +103,7 @@
   // pr003 svelte5-async-cleanup-via-sync-shell-iife
   // ---------------------------------------------------------------------------
 
+  let connected = $state(false);
   let tickTimer: ReturnType<typeof setInterval> | undefined;
   let unsubscribeFn: (() => Promise<void>) | undefined;
 
@@ -111,6 +112,7 @@
     void (async () => {
       try {
         unsubscribeFn = await subscribe({ category: 'aegis' }, handleEnvelope);
+        connected = true;
       } catch (err) {
         console.error('[AegisTabContent] bus subscribe failed', err);
       }
@@ -198,6 +200,9 @@
     </div>
   {/if}
 
+  {#if !connected}
+    <div class="connecting-state">Connecting…</div>
+  {:else}
   <!-- Section 1: Status header -->
   <header class="status">
     <span class="title"><span class="icon">◉</span>{statusLabel}</span>
@@ -303,9 +308,17 @@
       {/if}
     </div>
   </footer>
+  {/if}
 </section>
 
 <style>
+  .connecting-state {
+    color: var(--amber-faint);
+    padding: 1rem 14px;
+    font-style: italic;
+    font-size: 11px;
+    letter-spacing: 0.04em;
+  }
   .pane {
     flex: 1;
     display: flex;
@@ -315,7 +328,7 @@
     color: var(--amber-primary);
     font-family: 'JetBrains Mono', monospace;
     font-size: 12px;
-    --accent: var(--amber-primary, #d4890a);
+    --accent: var(--amber-primary, #FFA826);
   }
 
   /* Phase 3.5a drag handle */
@@ -574,7 +587,7 @@
   /* Error text — §10.1 terminal red lane */
   .qa-error {
     margin-top: 4px;
-    color: #cc3333;
+    color: var(--term-red);
     font-size: 9px;
     font-style: italic;
     letter-spacing: 0.04em;

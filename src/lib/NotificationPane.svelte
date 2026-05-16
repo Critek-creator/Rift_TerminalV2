@@ -69,7 +69,7 @@
     if (paused) return;
     if (!shouldShow(env.kind, severityThreshold)) return;
     events = [...events, env];
-    if (events.length > RECENT_LOG_LIMIT * 2) {
+    if (events.length > RECENT_LOG_LIMIT + 20) {
       // Trim the underlying buffer so we never grow unbounded.
       events = events.slice(-RECENT_LOG_LIMIT);
     }

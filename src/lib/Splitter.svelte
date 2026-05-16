@@ -140,7 +140,7 @@
   }
   .splitter:hover,
   .splitter.dragging {
-    background: var(--amber-primary, #D4890A);
+    background: var(--amber-primary, #FFA826);
   }
   .splitter-horizontal {
     height: 4px;

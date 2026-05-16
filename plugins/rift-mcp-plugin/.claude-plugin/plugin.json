@@ -1,6 +1,6 @@
 {
   "name": "rift-mcp",
-  "version": "0.1.0",
+  "version": "0.1.3",
   "description": "Connect Claude Code to a running Rift terminal — observe the bus, inspect git/aegis state, drive the cockpit.",
   "author": {
     "name": "Abyssal Arts",

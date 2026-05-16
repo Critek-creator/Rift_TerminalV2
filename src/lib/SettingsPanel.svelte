@@ -1202,8 +1202,8 @@
     background: var(--bg-panel, #0c0c0a);
   }
   .banner-ok {
-    border-color: var(--term-green, #33CC33);
-    color: var(--term-green, #33CC33);
+    border-color: var(--term-green, #4FE855);
+    color: var(--term-green, #4FE855);
     background: rgba(51, 204, 51, 0.05);
   }
   .banner-info {
@@ -1212,8 +1212,8 @@
     background: rgba(255, 200, 64, 0.05);
   }
   .banner-fail {
-    border-color: var(--term-red, #CC3333);
-    color: var(--term-red, #CC3333);
+    border-color: var(--term-red, #FF4848);
+    color: var(--term-red, #FF4848);
     background: rgba(204, 51, 51, 0.05);
   }
   .banner-title {
@@ -1240,18 +1240,18 @@
     align-items: center;
     height: 32px;
     padding: 0 10px;
-    border: 1px solid var(--term-green, #33CC33);
+    border: 1px solid var(--term-green, #4FE855);
     background: rgba(51, 204, 51, 0.07);
-    color: var(--term-green, #33CC33);
+    color: var(--term-green, #4FE855);
     font-size: 9px;
     letter-spacing: 0.06em;
     text-transform: uppercase;
     font-weight: 700;
   }
   .banner-inline.fail {
-    border-color: var(--term-red, #CC3333);
+    border-color: var(--term-red, #FF4848);
     background: rgba(204, 51, 51, 0.07);
-    color: var(--term-red, #CC3333);
+    color: var(--term-red, #FF4848);
   }
 
   /* ─── Form fields ────────────────────────────────────────────────────── */

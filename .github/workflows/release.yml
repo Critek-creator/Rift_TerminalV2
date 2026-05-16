@@ -73,7 +73,8 @@ jobs:
           Write-Host "Certificate decoded to $certPath"
 
       - name: Build and publish Tauri release
-        uses: tauri-apps/tauri-action@v0
+        # Pinned — verify compatibility before bumping
+        uses: tauri-apps/tauri-action@v0.5
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}

@@ -117,9 +117,9 @@ cargo build --workspace --locked
 cargo test --workspace --locked
 npm run check
 bash tools/check-translator-boundary.sh
-cargo build -p rift --features aegis --locked
+cargo build -p rift-app --features aegis --locked
 cargo test -p rift-aegis --features private_modules --locked
-cargo clippy -p rift --features aegis --locked
+cargo clippy -p rift-app --features aegis --locked
 cargo build -p rift-mcp --locked && cargo test -p rift-mcp --locked  # D-014
 
 # 4. Local bundle smoke test — produces an MSI under target/release/bundle/.

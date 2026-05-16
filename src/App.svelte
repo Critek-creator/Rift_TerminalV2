@@ -79,7 +79,7 @@
     // translator (Aegis today, Sentinel post-D-010) is what fulfills it.
     { id: 'agents',   title: 'agents',   icon: '◊', enabled: true, detected: false, unreadCount: 0, lastActivityTs: null },
     // Filesystem watcher — always-on since the fs watcher runs in core.
-    { id: 'filesystem', title: 'files', icon: '📂', enabled: true, detected: true, unreadCount: 0, lastActivityTs: null },
+    { id: 'filesystem', title: 'files', icon: '⊞', enabled: true, detected: true, unreadCount: 0, lastActivityTs: null },
     // MCP traffic — detected:false, flips on first Category::Mcp envelope
     // (MCP server may or may not be connected).
     { id: 'mcp',    title: 'mcp',    icon: '⬡', enabled: true, detected: false, unreadCount: 0, lastActivityTs: null },
@@ -109,8 +109,8 @@
         }
       }
       notifFilterPerTab = pt;
-    } catch {
-      // Silent fallback to defaults on error.
+    } catch (err) {
+      console.warn('Failed to load notification filters:', err);
     }
   }
 
@@ -301,11 +301,6 @@
     if (id === 'errors') return 'red';
     return 'amber';
   }
-  const activeNotifTab = $derived.by(() => {
-    const a = active;
-    if (a.kind !== 'notification') return undefined;
-    return notifs.find((n) => n.id === a.id);
-  });
   // The promoted tab's data — looked up fresh from `notifs` so its
   // enabled/title/icon stay reactive with toggles.
   const promotedTab = $derived.by(() => {
@@ -786,42 +781,6 @@
           </div>
         {/each}
 
-        <!-- notification pane — only mount when a notif tab is active.
-             Re-key on the tab id so switching tabs gives the pane a fresh
-             subscription rather than reusing one tied to the previous tab.
-             Phase 7.2: aegis tab routes to AegisTabContent; all others
-             continue to use the generic NotificationPane. -->
-        {#if activeNotifTab}
-          {#key activeNotifTab.id}
-            <div class="surface visible">
-              {#if activeNotifTab.id === 'aegis'}
-                <AegisTabContent severityThreshold={thresholdFor('aegis')} />
-              {:else if activeNotifTab.id === 'index'}
-                <IndexTabContent />
-              {:else if activeNotifTab.id === 'bustail'}
-                <BusTailTabContent severityThreshold={thresholdFor('bustail')} />
-              {:else if activeNotifTab.id === 'todo'}
-                <TodoTabContent />
-              {:else if activeNotifTab.id === 'git'}
-                <GitTabContent />
-              {:else if activeNotifTab.id === 'agents'}
-                <AgentsTabContent severityThreshold={thresholdFor('agents')} />
-              {:else if activeNotifTab.id === 'filesystem'}
-                <FsTabContent severityThreshold={thresholdFor('filesystem')} />
-              {:else if activeNotifTab.id === 'mcp'}
-                <McpTabContent severityThreshold={thresholdFor('mcp')} />
-              {:else}
-                <NotificationPane
-                  title={activeNotifTab.title}
-                  icon={activeNotifTab.icon}
-                  accent={notifAccent(activeNotifTab.id)}
-                  categoryFilter={CATEGORY_BY_NOTIF[activeNotifTab.id]}
-                  severityThreshold={thresholdFor(activeNotifTab.id)}
-                />
-              {/if}
-            </div>
-          {/key}
-        {/if}
 
         <!-- empty state — no tabs open -->
         {#if active.kind === 'empty'}

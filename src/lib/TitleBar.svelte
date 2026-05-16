@@ -85,7 +85,7 @@
       class="btn project"
       aria-label="switch project"
       onclick={openProjectPicker}
-      title="switch project (Ctrl+P later — Phase 6.x)"
+      title="Switch project"
     >
       ▦ PROJECT
     </button>

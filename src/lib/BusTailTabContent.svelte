@@ -35,17 +35,17 @@
 
   // §10.1 lane palette → category accent colour
   const CAT_COLOR: Record<Category, string> = {
-    pty:    'var(--off-white, #d8d4c8)',
+    pty:    'var(--term-white)',
     hook:   'var(--term-cyan)',
     agent:  'var(--term-purple)',
     fs:     'var(--amber-faint)',
-    index:  'var(--status-blue-bright, #4a9eff)',
+    index:  'var(--status-blue-bright, #6CB6FF)',
     aegis:  'var(--amber-primary)',
     status: 'var(--amber-bright)',
     system: 'var(--term-red)',
     // D-014: MCP traffic — neutral lane to keep audit trail visible without
     // colliding with hook (cyan) or aegis (amber).
-    mcp:    'var(--term-purple, #b078e8)',
+    mcp:    'var(--term-purple, #C58FFF)',
   };
 
   let events = $state<Envelope[]>([]);

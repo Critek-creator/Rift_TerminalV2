@@ -38,6 +38,7 @@ toml = "0.8"
 directories = "5"
 serde_yaml = "0.9"
 getrandom = "0.2"
+windows-sys = { version = "0.59" }
 
 [profile.release]
 codegen-units = 1

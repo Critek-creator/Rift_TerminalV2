@@ -14,6 +14,7 @@
   const LOG_LIMIT = 200;
   const LIVE_WINDOW_MS = 4000;
 
+  let connected = $state(false);
   let events = $state<Envelope[]>([]);
   let toolHistogram = $state<Record<string, number>>({});
   let methodHistogram = $state<Record<string, number>>({});
@@ -93,6 +94,7 @@
         void u().catch(() => {});
       } else {
         unsubscribe = u;
+        connected = true;
       }
     } catch (err) {
       console.error('[McpTab] bus_subscribe failed', err);
@@ -147,6 +149,9 @@
     </div>
   {/if}
 
+  {#if !connected}
+    <div class="connecting-state">Connecting…</div>
+  {:else}
   <header class="status">
     <span class="title"><span class="icon">⬡</span>MCP</span>
     <span class="state">
@@ -227,9 +232,17 @@
       {/if}
     </div>
   </footer>
+  {/if}
 </section>
 
 <style>
+  .connecting-state {
+    color: var(--amber-faint);
+    padding: 1rem 14px;
+    font-style: italic;
+    font-size: 11px;
+    letter-spacing: 0.04em;
+  }
   .pane {
     flex: 1;
     display: flex;

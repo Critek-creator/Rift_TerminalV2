@@ -199,10 +199,12 @@ pub async fn spawn_session_logger(bus: RiftBus, cfg: SessionConfig, shutdown: Ar
                 );
                 break;
             }
-            if writer.write_all(line.as_bytes()).await.is_err() {
+            if let Err(e) = writer.write_all(line.as_bytes()).await {
+                tracing::warn!("session_logger: replay write failed, stopping: {e}");
                 break;
             }
-            if writer.write_all(b"\n").await.is_err() {
+            if let Err(e) = writer.write_all(b"\n").await {
+                tracing::warn!("session_logger: replay write failed, stopping: {e}");
                 break;
             }
             written_bytes += line_bytes;
@@ -231,10 +233,12 @@ pub async fn spawn_session_logger(bus: RiftBus, cfg: SessionConfig, shutdown: Ar
                             );
                             continue;
                         }
-                        if writer.write_all(line.as_bytes()).await.is_err() {
+                        if let Err(e) = writer.write_all(line.as_bytes()).await {
+                            tracing::warn!("session_logger: write failed, stopping: {e}");
                             break;
                         }
-                        if writer.write_all(b"\n").await.is_err() {
+                        if let Err(e) = writer.write_all(b"\n").await {
+                            tracing::warn!("session_logger: write failed, stopping: {e}");
                             break;
                         }
                         written_bytes += line_bytes;

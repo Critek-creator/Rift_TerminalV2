@@ -94,6 +94,19 @@
   let treeRoot = $state<TreeNode | null>(null);
   let fetchError = $state<string | null>(null);
 
+  /** O(1) path→node lookup for tree mutation hot paths. Rebuilt on full tree load,
+   *  updated incrementally on insert/remove. */
+  let pathMap = new Map<string, TreeNode>();
+
+  function rebuildPathMap(root: TreeNode): void {
+    pathMap.clear();
+    function walk(node: TreeNode): void {
+      pathMap.set(node.path, node);
+      for (const child of node.children) walk(child);
+    }
+    walk(root);
+  }
+
   /**
    * Set of directory paths currently collapsed by the user.
    * Empty by default (all dirs expanded). Svelte 5 Set reactivity requires
@@ -279,6 +292,9 @@
     if (segments.length <= 1) return root;
     const parentPath = segments.slice(0, -1).join('/');
 
+    const cached = pathMap.get(parentPath);
+    if (cached) return cached;
+
     function search(node: TreeNode): TreeNode | null {
       if (node.path === parentPath) return node;
       for (const child of node.children) {
@@ -291,6 +307,7 @@
   }
 
   function removeNode(root: TreeNode, path: string): TreeNode {
+    pathMap.delete(path);
     return {
       ...root,
       children: root.children
@@ -309,15 +326,20 @@
       updated[existingIdx] = newNode;
     } else {
       updated.push(newNode);
-      // Re-sort: dirs first, then files, alphabetical.
       updated.sort((a, b) => {
         if (a.isDir !== b.isDir) return a.isDir ? -1 : 1;
         return a.name.toLowerCase().localeCompare(b.name.toLowerCase());
       });
     }
 
+    pathMap.set(newNode.path, newNode);
+
     function rebuild(node: TreeNode): TreeNode {
-      if (node.path === parent!.path) return { ...node, children: updated };
+      if (node.path === parent!.path) {
+        const rebuilt = { ...node, children: updated };
+        pathMap.set(rebuilt.path, rebuilt);
+        return rebuilt;
+      }
       return { ...node, children: node.children.map(rebuild) };
     }
     return rebuild(root);
@@ -364,16 +386,7 @@
         if (!from || !to) break;
         treeActivity.mark(to, 'rename');
         if (treeRoot) {
-          // Find the old node to preserve its isDir flag, then remove and re-insert.
-          function findNode(root: TreeNode, path: string): TreeNode | null {
-            if (root.path === path) return root;
-            for (const c of root.children) {
-              const f = findNode(c, path);
-              if (f) return f;
-            }
-            return null;
-          }
-          const old = findNode(treeRoot, from);
+          const old = pathMap.get(from) ?? null;
           const toName = to.split('/').at(-1) ?? to;
           const newNode: TreeNode = {
             path: to,
@@ -400,7 +413,10 @@
     // Fetch initial tree snapshot.
     invoke<TreeNode>('fs_tree', {})
       .then((root) => {
-        if (mounted) treeRoot = root;
+        if (mounted) {
+          treeRoot = root;
+          rebuildPathMap(root);
+        }
       })
       .catch((err: unknown) => {
         if (mounted) {
@@ -435,6 +451,7 @@
             .then((root) => {
               if (mounted) {
                 treeRoot = root;
+                rebuildPathMap(root);
                 fetchError = null;
               }
             })
@@ -633,6 +650,7 @@
       width={SVG_WIDTH}
       viewBox="0 0 {SVG_WIDTH} {svgHeight}"
       style="height: {svgHeight}px;"
+      role="tree"
       aria-label="filesystem tree"
     >
       <!-- Edges — rendered below nodes so nodes paint on top -->
@@ -668,6 +686,11 @@
         -->
         <g
           class="tree-node"
+          role="treeitem"
+          aria-selected="false"
+          tabindex="-1"
+          aria-expanded={item.node.isDir ? !collapsedDirs.has(item.node.path) : undefined}
+          aria-label={item.node.name}
           onmousedown={(e) => onTreeNodeMouseDown(e, item.node)}
           onclick={() => handleNodeClick(item.node)}
           ondblclick={() => handleNodeDblClick(item.node)}
@@ -924,7 +947,7 @@
     cursor: default;
   }
   :global(.enrichment-tooltip) {
-    background: #0a0908;
+    background: var(--bg-base);
     border: 1px solid var(--amber-faint);
     border-radius: 3px;
     padding: 4px 7px;

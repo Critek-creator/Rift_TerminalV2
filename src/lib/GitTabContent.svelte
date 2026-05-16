@@ -196,7 +196,7 @@
   function statusColor(s: string): string {
     switch (s) {
       case 'M': return 'var(--amber-bright)';
-      case 'A': return 'var(--term-green, #33CC33)';
+      case 'A': return 'var(--term-green, #4FE855)';
       case 'D': return 'var(--term-red)';
       case 'R': return 'var(--term-purple)';
       case 'C': return 'var(--term-cyan)';
@@ -557,8 +557,8 @@
     align-items: center;
     gap: 8px;
     padding: 2px 8px;
-    border: 1px solid var(--term-green, #33CC33);
-    color: var(--term-green, #33CC33);
+    border: 1px solid var(--term-green, #4FE855);
+    color: var(--term-green, #4FE855);
     font-size: 9px;
     letter-spacing: 0.06em;
     text-transform: uppercase;
@@ -633,10 +633,10 @@
   .chip-ahead { border-color: var(--term-cyan); color: var(--term-cyan); }
   .chip-behind { border-color: var(--term-red); color: var(--term-red); }
   .chip-clean {
-    border-color: var(--term-green, #33CC33);
-    color: var(--term-green, #33CC33);
+    border-color: var(--term-green, #4FE855);
+    color: var(--term-green, #4FE855);
   }
-  .chip-staged { border-color: var(--term-green, #33CC33); color: var(--term-green, #33CC33); }
+  .chip-staged { border-color: var(--term-green, #4FE855); color: var(--term-green, #4FE855); }
   .chip-modified { border-color: var(--amber-bright); color: var(--amber-bright); }
   .chip-untracked { border-color: var(--amber-faint); color: var(--amber-faint); }
 

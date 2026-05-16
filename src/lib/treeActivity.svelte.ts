@@ -43,10 +43,28 @@ const AMBIENT_DEFAULT: ActivityEntry = {
 let entries = $state(new Map<string, ActivityEntry>());
 
 // ---------------------------------------------------------------------------
-// Decay loop — one rAF loop for the lifetime of the module.
+// Decay loop — rAF loop that only runs while entries are decaying.
 // ---------------------------------------------------------------------------
 
 let lastFrameTs = 0;
+let animating = false;
+let rafId: number | null = null;
+
+function startDecayLoop(): void {
+  if (animating) return;
+  animating = true;
+  lastFrameTs = 0;
+  rafId = requestAnimationFrame(loop);
+}
+
+function stopDecayLoop(): void {
+  if (!animating) return;
+  animating = false;
+  if (rafId !== null) {
+    cancelAnimationFrame(rafId);
+    rafId = null;
+  }
+}
 
 function decayTick(nowMs: number): void {
   if (lastFrameTs === 0) {
@@ -58,9 +76,9 @@ function decayTick(nowMs: number): void {
 
   let mutated = false;
   const next = new Map(entries);
+  let stillDecaying = false;
 
   for (const [path, entry] of next) {
-    // Only `recent` entries decay. `active` (pinned) and `background` are stable.
     if (entry.state !== 'recent') continue;
 
     const newIntensity = Math.max(0, entry.glowIntensity - deltaMs / DECAY_MS);
@@ -68,32 +86,33 @@ function decayTick(nowMs: number): void {
 
     mutated = true;
     if (newIntensity <= 0) {
-      // Fully decayed → transition to ambient. Keep the entry so `cycle` still
-      // works on user click; `getEntry` returns it correctly.
       next.set(path, { ...entry, state: 'ambient', glowIntensity: 0 });
     } else {
       next.set(path, { ...entry, glowIntensity: newIntensity });
+      stillDecaying = true;
     }
   }
 
   if (mutated) {
     entries = next;
   }
+
+  if (!stillDecaying) {
+    stopDecayLoop();
+  }
 }
 
-// Module-level singleton effect — runs once, survives the component lifecycle.
-$effect.root(() => {
-  let rafId: number;
-
-  function loop(ts: number) {
-    decayTick(ts);
+function loop(ts: number): void {
+  decayTick(ts);
+  if (animating) {
     rafId = requestAnimationFrame(loop);
   }
+}
 
-  rafId = requestAnimationFrame(loop);
-
+// Module-level singleton effect — cleanup on module unload.
+$effect.root(() => {
   return () => {
-    cancelAnimationFrame(rafId);
+    stopDecayLoop();
   };
 });
 
@@ -112,6 +131,8 @@ function mark(path: string, _kind: 'create' | 'write' | 'delete' | 'rename'): vo
     glowIntensity: 1.0,
     lastTouchMs: Date.now(),
   });
+
+  startDecayLoop();
 }
 
 /**

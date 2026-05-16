@@ -307,8 +307,8 @@
   }
 
   .btn.dock:hover {
-    color: var(--blue-claude);
-    border-color: var(--blue-claude);
+    color: var(--blue-claude, #6CB6FF);
+    border-color: var(--blue-claude, #6CB6FF);
   }
 
   /* ---- graph + tree split — Phase 8.7d (mirrors App.svelte cockpit-right);
