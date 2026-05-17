@@ -15,6 +15,10 @@
   import { RIFT_VAULT_DROP_EVENT, type RiftVaultDropDetail } from './dragMime';
   import { crossRefHighlight } from './crossRefHighlight.svelte';
   import { enrichmentStore } from './enrichmentStore.svelte';
+  import IndexContentBrowser from './IndexContentBrowser.svelte';
+
+  type ViewMode = 'vaults' | 'content';
+  let viewMode = $state<ViewMode>('vaults');
 
   type VaultKind = 'p' | 'pr' | 'r' | 's' | 'lore' | 'agt' | 'h';
   type NodeState = 'active' | 'recent' | 'ambient' | 'background';
@@ -372,19 +376,35 @@
 </script>
 
 <div class="index-browser">
-  <!-- Search -->
+  <!-- Mode toggle + header -->
   <div class="browser-header">
-    <span class="browser-title">INDEX</span>
-    <span class="browser-count">{totalCount}</span>
-    <input
-      class="browser-search"
-      type="text"
-      placeholder="filter vaults… ( / )"
-      bind:value={searchQuery}
-      bind:this={searchInput}
-    />
+    <div class="mode-toggle">
+      <button
+        class="mode-btn"
+        class:active={viewMode === 'vaults'}
+        onclick={() => { viewMode = 'vaults'; }}
+      >VAULTS</button>
+      <button
+        class="mode-btn"
+        class:active={viewMode === 'content'}
+        onclick={() => { viewMode = 'content'; }}
+      >CONTENT</button>
+    </div>
+    {#if viewMode === 'vaults'}
+      <span class="browser-count">{totalCount}</span>
+      <input
+        class="browser-search"
+        type="text"
+        placeholder="filter vaults… ( / )"
+        bind:value={searchQuery}
+        bind:this={searchInput}
+      />
+    {/if}
   </div>
 
+  {#if viewMode === 'content'}
+    <IndexContentBrowser />
+  {:else}
   <!-- Vault list -->
   <div class="browser-body">
     {#if activeNodes.length === 0 && !walkComplete}
@@ -483,6 +503,7 @@
       {/each}
     {/if}
   </div>
+  {/if}
 </div>
 
 <!-- Drag ghost -->
@@ -508,7 +529,7 @@
     user-select: none;
   }
 
-  /* Header: title + count + search */
+  /* Header: mode toggle + count + search */
   .browser-header {
     display: flex;
     align-items: center;
@@ -517,6 +538,32 @@
     background: var(--bg-surface);
     border-bottom: 1px solid var(--border-subtle);
     flex-shrink: 0;
+  }
+  .mode-toggle {
+    display: flex;
+    gap: 0;
+  }
+  .mode-btn {
+    padding: 2px 8px;
+    border: 1px solid var(--border-subtle);
+    background: transparent;
+    color: var(--amber-faint);
+    font-family: inherit;
+    font-size: 8px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    cursor: pointer;
+    transition: all 0.12s;
+  }
+  .mode-btn:first-child { border-right: none; }
+  .mode-btn.active {
+    color: var(--term-cyan, #4ad4d4);
+    border-color: var(--term-cyan, #4ad4d4);
+    background: rgba(74, 212, 212, 0.08);
+  }
+  .mode-btn:hover:not(.active) {
+    color: var(--amber-dim);
+    border-color: var(--amber-dim);
   }
   .browser-title {
     font-size: 9px;
