@@ -89,6 +89,8 @@ pub struct RiftConfig {
     /// Notification tab filter rules. Per-tab severity thresholds control
     /// which events render in notification tabs. Default: info.
     pub notif_filters: NotifFilterConfig,
+    /// Filesystem tree display settings (D-020 heatmap groundwork).
+    pub tree: TreeConfig,
 }
 
 /// A recently-used project entry stored in the config.
@@ -449,6 +451,36 @@ pub fn clear_mcp_socket() -> Result<(), ConfigError> {
 }
 
 // ---------------------------------------------------------------------------
+// TreeConfig (D-020 — temporal activity heatmap)
+// ---------------------------------------------------------------------------
+
+/// Filesystem tree display configuration (D-020 heatmap groundwork).
+///
+/// Controls the activity heatmap overlay that color-codes filesystem tree
+/// nodes by touch frequency. Off by default — no visual change until the
+/// user opts in via Settings → Tree.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(default)]
+pub struct TreeConfig {
+    /// Master switch for the activity heatmap overlay on the filesystem tree.
+    /// When `false`, tree nodes render without frequency-based coloring.
+    pub heatmap_enabled: bool,
+    /// Sliding window (in minutes) over which touch frequency is aggregated.
+    /// Supported values: 5, 15, 60. Out-of-range values are clamped at the
+    /// frontend; the backend stores whatever the frontend sends.
+    pub heatmap_window_minutes: u32,
+}
+
+impl Default for TreeConfig {
+    fn default() -> Self {
+        Self {
+            heatmap_enabled: false,
+            heatmap_window_minutes: 15,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // TerminalConfig (D-018 groundwork — shell preference + font + lanes)
 // ---------------------------------------------------------------------------
 
@@ -713,6 +745,9 @@ mod tests {
         assert!((back.terminal.line_height - TERMINAL_DEFAULT_LINE_HEIGHT).abs() < f32::EPSILON);
         assert_eq!(back.terminal.scrollback, TERMINAL_DEFAULT_SCROLLBACK);
         assert!(back.terminal.lanes_enabled);
+        // D-020 — TreeConfig defaults round-trip.
+        assert!(!back.tree.heatmap_enabled);
+        assert_eq!(back.tree.heatmap_window_minutes, 15);
     }
 
     // D-018 groundwork — ShellPref Custom variant round-trips through both
@@ -1060,5 +1095,40 @@ default_threshold = "future_level_xyz"
         let cfg: RiftConfig =
             toml::from_str(toml_str).expect("parse must not error on unknown variant");
         assert_eq!(cfg.notif_filters.default_threshold, SeverityLevel::Unknown);
+    }
+
+    // T30 — parse_config_without_tree_section_uses_defaults
+    //
+    // A config TOML with no [tree] section must parse successfully and
+    // produce TreeConfig::default(). Validates the additive-versioning
+    // invariant: existing configs without [tree] do not break.
+    #[test]
+    fn parse_config_without_tree_section_uses_defaults() {
+        let toml_str = r#"
+[fs]
+max_depth = 4
+"#;
+        let cfg: RiftConfig = toml::from_str(toml_str).expect("parse should succeed");
+        assert!(
+            !cfg.tree.heatmap_enabled,
+            "tree.heatmap_enabled should default to false"
+        );
+        assert_eq!(
+            cfg.tree.heatmap_window_minutes, 15,
+            "tree.heatmap_window_minutes should default to 15"
+        );
+    }
+
+    // T31 — tree_config_round_trips
+    #[test]
+    fn tree_config_round_trips() {
+        let original = TreeConfig {
+            heatmap_enabled: true,
+            heatmap_window_minutes: 60,
+        };
+        let toml_str = toml::to_string_pretty(&original).expect("serialize");
+        let back: TreeConfig = toml::from_str(&toml_str).expect("deserialize");
+        assert!(back.heatmap_enabled);
+        assert_eq!(back.heatmap_window_minutes, 60);
     }
 }

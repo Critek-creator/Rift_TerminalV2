@@ -28,7 +28,7 @@
 
   let { popoutId }: Props = $props();
 
-  type SettingsTab = 'general' | 'terminal' | 'index' | 'mcp';
+  type SettingsTab = 'general' | 'terminal' | 'index' | 'tree' | 'mcp';
   let activeTab = $state<SettingsTab>('general');
 
   // ---------------------------------------------------------------------
@@ -106,8 +106,9 @@
   let savingIndex = $state(false);
   let savingMcp = $state(false);
   let savingTerminal = $state(false);
+  let savingTree = $state(false);
   let saveBanner = $state<{
-    section: 'fs' | 'index' | 'mcp' | 'terminal' | 'notif';
+    section: 'fs' | 'index' | 'mcp' | 'terminal' | 'notif' | 'tree';
     ok: boolean;
     msg: string;
   } | null>(null);
@@ -119,6 +120,47 @@
   let termLineHeight = $state(1.55);
   let termScrollback = $state(1000);
   let termLanesEnabled = $state(true);
+
+  // Tree — D-020 heatmap groundwork.
+  let treeHeatmapEnabled = $state(false);
+  let treeHeatmapWindow = $state(15);
+
+  const HEATMAP_WINDOW_OPTIONS = [
+    { value: 5, label: '5 min' },
+    { value: 15, label: '15 min' },
+    { value: 60, label: '1 hour' },
+  ];
+
+  const treeDirty = $derived(
+    config !== null
+    && (
+      treeHeatmapEnabled !== (config.tree?.heatmap_enabled ?? false)
+      || treeHeatmapWindow !== (config.tree?.heatmap_window_minutes ?? 15)
+    )
+  );
+
+  async function saveTreeConfig() {
+    if (!config) return;
+    savingTree = true;
+    saveBanner = null;
+    try {
+      const next: RiftConfig = {
+        ...config,
+        tree: {
+          heatmap_enabled: treeHeatmapEnabled,
+          heatmap_window_minutes: treeHeatmapWindow,
+        },
+      };
+      await invoke('config_save', { cfg: next });
+      config = next;
+      broadcastConfigChanged();
+      saveBanner = { section: 'tree', ok: true, msg: 'tree settings saved' };
+    } catch (err) {
+      saveBanner = { section: 'tree', ok: false, msg: String(err) };
+    } finally {
+      savingTree = false;
+    }
+  }
 
   // Notification filters
   const SEVERITY_OPTIONS: SeverityLevel[] = ['debug', 'info', 'warn', 'error'];
@@ -321,6 +363,11 @@
     termLineHeight = c.terminal.line_height;
     termScrollback = c.terminal.scrollback;
     termLanesEnabled = c.terminal.lanes_enabled;
+    // Tree snapshot — defaults for old configs are filled by serde-side
+    // #[serde(default)], so c.tree is always present at runtime.
+    const tree = c.tree ?? { heatmap_enabled: false, heatmap_window_minutes: 15 };
+    treeHeatmapEnabled = tree.heatmap_enabled;
+    treeHeatmapWindow = tree.heatmap_window_minutes;
     // Notification filters snapshot.
     const nf = c.notif_filters ?? { default_threshold: 'info', per_tab: {} };
     notifDefaultThreshold = (['debug', 'info', 'warn', 'error'].includes(nf.default_threshold)
@@ -480,6 +527,7 @@
       { id: 'general',  label: 'GENERAL' },
       { id: 'terminal', label: 'TERMINAL' },
       { id: 'index',    label: 'INDEX' },
+      { id: 'tree',     label: 'TREE' },
       { id: 'mcp',      label: 'MCP' },
     ] as tab (tab.id)}
       <button
@@ -861,6 +909,68 @@
             {savingIndex ? 'saving…' : 'save index'}
           </button>
           {#if saveBanner && saveBanner.section === 'index'}
+            <span class="banner-inline" class:fail={!saveBanner.ok}>
+              {saveBanner.msg}
+            </span>
+          {/if}
+        </div>
+      </section>
+    {:else}
+      <div class="hint">loading config…</div>
+    {/if}
+    {/if}
+
+    {#if activeTab === 'tree'}
+    <!-- TREE — D-020 heatmap groundwork -->
+    {#if config}
+      <section class="section">
+        <div class="section-label">Tree</div>
+        <div class="hint">
+          activity heatmap overlays filesystem tree nodes with frequency-based
+          coloring. touch events within the sliding window are aggregated to
+          determine intensity.
+        </div>
+
+        <div class="row">
+          <label class="kv-toggle">
+            <input
+              type="checkbox"
+              bind:checked={treeHeatmapEnabled}
+              disabled={savingTree}
+            />
+            <span>activity heatmap</span>
+          </label>
+        </div>
+        <div class="hint" style="margin-top: 2px; margin-bottom: 10px;">
+          color-code files by touch frequency over time
+        </div>
+
+        {#if treeHeatmapEnabled}
+          <label class="field">
+            <span class="field-label">aggregation window</span>
+            <select
+              class="select"
+              value={treeHeatmapWindow}
+              onchange={(e) => { treeHeatmapWindow = Number((e.target as HTMLSelectElement).value); }}
+              disabled={savingTree}
+            >
+              {#each HEATMAP_WINDOW_OPTIONS as opt (opt.value)}
+                <option value={opt.value}>{opt.label}</option>
+              {/each}
+            </select>
+          </label>
+        {/if}
+
+        <div class="row">
+          <button
+            type="button"
+            class="btn primary"
+            disabled={!treeDirty || savingTree}
+            onclick={saveTreeConfig}
+          >
+            {savingTree ? 'saving…' : 'save tree'}
+          </button>
+          {#if saveBanner && saveBanner.section === 'tree'}
             <span class="banner-inline" class:fail={!saveBanner.ok}>
               {saveBanner.msg}
             </span>

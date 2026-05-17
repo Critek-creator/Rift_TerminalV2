@@ -81,13 +81,7 @@ WebSocket transport) remain in the locked plan as ongoing v1.x work.
 - Created during Phase 7.0 architecture lock (this commit). No code change required to open this deferral — pure spec deferral. Phase 7.5 will write the placeholder card and reference this entry inline.
 - Phase 7.5 placeholder card landed in `src/lib/NotificationPane.svelte` (persistent-state section, bottom of the state-panel footer).
 
-### D-020 — Temporal activity heatmap for the filesystem tree (post-v1, opened 2026-05-14)
-
-- Feature Agent candidate `2026-05-14-activity-filesystem-heatmap-temporal-tree-928` (Curator tier: Medium).
-- An accumulated-activity heatmap layer on the fs tree that color-codes nodes by touch frequency over a configurable time window (5m/15m/1h), making hotspot patterns (thrashing files, build-output concentration, edit clusters) visible that instantaneous glow cannot reveal.
-- Infrastructure exists: `treeActivity.svelte.ts` (instantaneous state), `Tree.svelte` (hierarchical bubble-up), `enrichmentStore.svelte.ts` (data-joining pattern), `[tree]` config section. The feature adds a `HeatAccumulator` + config fields (`heatmap_enabled`, `heatmap_window_minutes`, `heatmap_intensity_threshold`).
-- Curator rationale: all 5 reasons substantively evidenced with codebase + spec §11 citations, vision-spec-aligned ambient visualization extension; occurrence_count=1 at default Medium landing — design-iteration risk (color ramp + intensity tuning + glow interaction) warrants evidence accumulation before elevating.
-- **Unblocking event**: user decides to build it, or a second Feature Agent run independently surfaces the same idea (which would bump occurrence_count and likely tier to High). Design decisions needed: color ramp palette (amber→red or separate heatmap palette?), interaction with existing glow states, whether the heatmap is always-on or toggle-able.
+<!-- D-020 closed 2026-05-16 — see C-025 below. -->
 
 ### D-021 — Section Catalog Self-Discovery (§10.16, opened 2026-05-16)
 
@@ -100,6 +94,21 @@ WebSocket transport) remain in the locked plan as ongoing v1.x work.
 ---
 
 ## Closed deferrals
+
+### C-025 — D-020 Temporal activity heatmap (closed 2026-05-16)
+
+Implemented full sliding-window heatmap for the filesystem tree. Nodes
+color-code by touch frequency (amber→red ramp) over a configurable
+time window (5/15/60 min). Design decisions resolved: amber→red color
+ramp using existing §10.1 palette, additive with instantaneous glow
+(heat = frequency, glow = recency), config toggle (off by default).
+
+Files: `treeActivity.svelte.ts` (HeatAccumulator: heatLog Map + getHeat +
+heatSnapshot + 500-entry memory guard), `config.rs` (TreeConfig struct),
+`riftConfig.ts` (frontend mirror), `Tree.svelte` (layout integration +
+percentile normalization + heat stroke rendering + bubble-up for collapsed
+dirs), `SettingsPanel.svelte` (Tree tab with enable toggle + window
+dropdown), `styles.css` (heat CSS vars).
 
 ### C-024 — D-019 IndexGraph cluster collapse + state decay timer (closed 2026-05-14)
 

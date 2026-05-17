@@ -64,6 +64,11 @@ export interface SessionConfig {
   max_file_size_mb: number;
 }
 
+export interface TreeConfig {
+  heatmap_enabled: boolean;
+  heatmap_window_minutes: number;
+}
+
 export interface RiftConfig {
   projects: ProjectEntry[];
   fs: FsConfig;
@@ -73,4 +78,5 @@ export interface RiftConfig {
   terminal: TerminalConfig;
   session: SessionConfig;
   notif_filters: NotifFilterConfig;
+  tree: TreeConfig;
 }

@@ -42,6 +42,13 @@ const AMBIENT_DEFAULT: ActivityEntry = {
 
 let entries = $state(new Map<string, ActivityEntry>());
 
+/**
+ * Per-path array of touch timestamps (ms epoch). Used by the D-020 temporal
+ * activity heatmap to track HOW OFTEN a file gets touched over a sliding
+ * window, as opposed to the glow which tracks WHETHER it was just touched.
+ */
+let heatLog = $state(new Map<string, number[]>());
+
 // ---------------------------------------------------------------------------
 // Decay loop — rAF loop that only runs while entries are decaying.
 // ---------------------------------------------------------------------------
@@ -132,6 +139,14 @@ function mark(path: string, _kind: 'create' | 'write' | 'delete' | 'rename'): vo
     lastTouchMs: Date.now(),
   });
 
+  // D-020 heatmap — record the touch timestamp.
+  const now = Date.now();
+  const stamps = heatLog.get(path) ?? [];
+  stamps.push(now);
+  // Memory guard: cap at 500 timestamps per path.
+  if (stamps.length > 500) stamps.shift();
+  heatLog = new Map(heatLog).set(path, stamps);
+
   startDecayLoop();
 }
 
@@ -180,6 +195,56 @@ function getEntry(path: string): ActivityEntry {
  */
 function clear(): void {
   entries = new Map();
+  heatLog = new Map();
+}
+
+/**
+ * Count how many touch events for `path` fall within the last `windowMs`
+ * milliseconds. Returns the raw count — normalization (0–1 mapping) happens
+ * at render time in Tree.svelte.
+ */
+function getHeat(path: string, windowMs: number): number {
+  const stamps = heatLog.get(path);
+  if (!stamps || stamps.length === 0) return 0;
+  const cutoff = Date.now() - windowMs;
+  let count = 0;
+  for (let i = stamps.length - 1; i >= 0; i--) {
+    if (stamps[i] >= cutoff) count++;
+    else break; // timestamps are insertion-ordered (oldest first)
+  }
+  return count;
+}
+
+/**
+ * Build a snapshot of heat counts across all tracked paths for a given
+ * window. Also prunes timestamps older than `windowMs` from `heatLog`
+ * and removes entries with empty arrays (garbage collection).
+ *
+ * Returns a new Map of path → count for entries with count > 0.
+ */
+function heatSnapshot(windowMs: number): Map<string, number> {
+  const cutoff = Date.now() - windowMs;
+  const result = new Map<string, number>();
+  const pruned = new Map<string, number[]>();
+
+  for (const [path, stamps] of heatLog) {
+    // Binary-ish prune: find first index >= cutoff. Stamps are ordered.
+    let firstValid = -1;
+    for (let i = 0; i < stamps.length; i++) {
+      if (stamps[i] >= cutoff) {
+        firstValid = i;
+        break;
+      }
+    }
+    if (firstValid === -1) continue; // all expired — drop entry
+    const kept = firstValid === 0 ? stamps : stamps.slice(firstValid);
+    pruned.set(path, kept);
+    result.set(path, kept.length);
+  }
+
+  // Assign-replace for reactivity.
+  heatLog = pruned;
+  return result;
 }
 
 /**
@@ -216,10 +281,17 @@ export const treeActivity = {
   cycle,
   dismiss,
   getEntry,
+  getHeat,
+  heatSnapshot,
   clear,
   /** Reactive snapshot of all tracked entries. Consumers bind `$derived`
    *  on this for reactivity. */
   get snapshot(): Map<string, ActivityEntry> {
     return entries;
+  },
+  /** Reactive reference to the raw heat log. Consumers bind `$derived`
+   *  on this for reactivity. */
+  get heatLog(): Map<string, number[]> {
+    return heatLog;
   },
 };

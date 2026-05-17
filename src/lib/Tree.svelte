@@ -47,6 +47,7 @@
   import { RIFT_VAULT_DROP_EVENT, type RiftVaultDropDetail } from './dragMime';
   import { fileColor } from './fileColors';
   import { crossRefHighlight } from './crossRefHighlight.svelte';
+  import type { RiftConfig } from './riftConfig';
 
   // ---------------------------------------------------------------------------
   // Layout constants
@@ -93,6 +94,10 @@
 
   let treeRoot = $state<TreeNode | null>(null);
   let fetchError = $state<string | null>(null);
+
+  // D-020 heatmap config — loaded on mount, refreshed on config.changed.
+  let heatmapEnabled = $state(false);
+  let heatmapWindowMs = $state(15 * 60_000); // default 15 min in ms
 
   /** O(1) path→node lookup for tree mutation hot paths. Rebuilt on full tree load,
    *  updated incrementally on insert/remove. */
@@ -274,14 +279,24 @@
     aggregateGlow: number | null;
     /** Non-null only for collapsed dirs: synthetic state driven by descendants. */
     aggregateState: ActivityState | null;
+    /** D-020: normalized heat value 0–1 (0 = cold, 1 = hottest in view). */
+    heatValue: number;
   }
 
   const layout = $derived.by((): LayoutNode[] => {
     // Read snapshot + collapsedDirs so this derived re-runs when either changes.
     void treeActivity.snapshot;
     void collapsedDirs;
+    // D-020: also re-run when heatLog changes (new touches recorded).
+    void treeActivity.heatLog;
 
     if (!treeRoot) return [];
+
+    // D-020: build heat snapshot once per layout pass when enabled.
+    const heatCounts = heatmapEnabled
+      ? treeActivity.heatSnapshot(heatmapWindowMs)
+      : null;
+
     const rows: LayoutNode[] = [];
     let row = 0;
 
@@ -299,18 +314,20 @@
       let aggState: ActivityState | null = null;
 
       if (isCollapsed) {
-        // Pre-compute aggregate so render doesn't re-walk on every paint.
-        // Uses memoized wrapper (M1 perf fix) — avoids recursive re-walk
-        // when only glow decay is ticking the snapshot.
         const agg = computeAggregateMemo(node, MAX_BUBBLE_DEPTH);
         aggregateGlow = agg.aggregateGlow;
         aggState = aggregateStateFromGlow(agg.aggregateGlow, agg.hasPinnedDesc);
       }
 
-      rows.push({ node, x, y, parentX, parentY, aggregateGlow, aggregateState: aggState });
+      // D-020: raw heat count for this node (dirs sum children below).
+      const rawHeat = heatCounts?.get(node.path) ?? 0;
+
+      rows.push({
+        node, x, y, parentX, parentY, aggregateGlow, aggregateState: aggState,
+        heatValue: rawHeat, // temporarily raw — normalized after walk
+      });
       row++;
 
-      // Skip children of collapsed dirs (design call B).
       if (!isCollapsed) {
         for (const child of node.children) {
           walk(child, depth + 1, x, y);
@@ -319,6 +336,37 @@
     }
 
     walk(treeRoot, 0, null, null);
+
+    // D-020: bubble up heat for collapsed dirs + normalize to 0–1.
+    if (heatCounts && rows.length > 0) {
+      const hc = heatCounts; // narrow for closure
+      // Bubble up: for collapsed dirs, sum heat of all descendants.
+      for (const item of rows) {
+        if (item.node.isDir && collapsedDirs.has(item.node.path)) {
+          let sum = item.heatValue;
+          function sumChildren(n: TreeNode): void {
+            for (const child of n.children) {
+              sum += hc.get(child.path) ?? 0;
+              if (child.isDir) sumChildren(child);
+            }
+          }
+          sumChildren(item.node);
+          item.heatValue = sum;
+        }
+      }
+
+      // Percentile normalization: divide by max so the hottest node = 1.0.
+      let maxHeat = 0;
+      for (const item of rows) {
+        if (item.heatValue > maxHeat) maxHeat = item.heatValue;
+      }
+      if (maxHeat > 0) {
+        for (const item of rows) {
+          item.heatValue = item.heatValue / maxHeat;
+        }
+      }
+    }
+
     return rows;
   });
 
@@ -484,6 +532,16 @@
         }
       });
 
+    // D-020: load heatmap config.
+    invoke<RiftConfig>('config_get')
+      .then((cfg) => {
+        if (mounted) {
+          heatmapEnabled = cfg.tree.heatmap_enabled;
+          heatmapWindowMs = cfg.tree.heatmap_window_minutes * 60_000;
+        }
+      })
+      .catch(() => {});
+
     // Subscribe to live fs events.
     subscribe({ category: 'fs' }, onEnvelope)
       .then((unsub) => {
@@ -539,6 +597,25 @@
   // ---------------------------------------------------------------------------
   // Helpers for per-node rendering (design calls D, E, G)
   // ---------------------------------------------------------------------------
+
+  /**
+   * D-020: interpolate heat value (0–1) to an RGB color on the ramp
+   * amber-faint (#A87830) → amber-primary (#FFA826) → term-red (#FF4848).
+   */
+  function heatColor(t: number): string {
+    if (t <= 0.5) {
+      const s = t * 2; // 0–1 within first half
+      const r = Math.round(168 + (255 - 168) * s);
+      const g = Math.round(120 + (168 - 120) * s);
+      const b = Math.round(48 + (38 - 48) * s);
+      return `rgb(${r},${g},${b})`;
+    }
+    const s = (t - 0.5) * 2; // 0–1 within second half
+    const r = Math.round(255 + (255 - 255) * s);
+    const g = Math.round(168 + (72 - 168) * s);
+    const b = Math.round(38 + (72 - 38) * s);
+    return `rgb(${r},${g},${b})`;
+  }
 
   /**
    * State class for files and expanded dirs — reads the node's OWN activity entry.
@@ -735,6 +812,7 @@
         {@const enrichments = enrichmentStore.get(item.node.path)}
         {@const nodeColor = item.node.isDir ? null : fileColor(item.node.name)}
         {@const isCrossRef = vaultHighlightedPaths.has(item.node.path)}
+        {@const heat = item.heatValue}
         <!-- svelte-ignore a11y_click_events_have_key_events -->
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <!--
@@ -768,11 +846,12 @@
               height={DIR_H}
               rx={DIR_RX}
               ry={DIR_RX}
-              style={isCrossRef
+              style={(isCrossRef
                 ? `filter: drop-shadow(0 0 8px rgba(74,212,212,0.65));`
                 : sc === 'recent' && glow > 0
                   ? `filter: drop-shadow(0 0 ${4 + glow * 8}px rgba(212,137,10,${0.3 + glow * 0.45}));`
-                  : ''}
+                  : '')
+                + (heat > 0.1 && !isCrossRef ? ` stroke: ${heatColor(heat)}; stroke-width: ${1 + heat};` : '')}
             />
             <!-- Folder glyph: ▶ when collapsed, ▾ when expanded (design call D).
                  Glyph state class tracks the same sc as the dir bg. -->
@@ -793,7 +872,7 @@
               r={FILE_R}
               style="{isCrossRef
                 ? `stroke: var(--term-cyan); filter: drop-shadow(0 0 8px rgba(111,224,224,0.65));`
-                : (sc !== 'background' && nodeColor ? `stroke: ${nodeColor};` : '') + (sc === 'recent' && glow > 0
+                : (heat > 0.1 ? `stroke: ${heatColor(heat)}; stroke-width: ${1 + heat};` : sc !== 'background' && nodeColor ? `stroke: ${nodeColor};` : '') + (sc === 'recent' && glow > 0
                   ? `filter: drop-shadow(0 0 ${3 + glow * 6}px rgba(255,168,38,${0.25 + glow * 0.45}));`
                   : '')}"
             />

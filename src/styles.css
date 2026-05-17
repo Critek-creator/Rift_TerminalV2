@@ -48,6 +48,11 @@
   --glow-amber-strong: 0 0 14px rgba(255, 200, 64, 0.85);
   --glow-amber-faint:  0 0 4px rgba(255, 168, 38, 0.35);
 
+  /* D-020 temporal activity heatmap — 3-tier heat ramp. */
+  --heat-low:  #A87830;
+  --heat-mid:  #FFA826;
+  --heat-high: #FF4848;
+
   /* Depth system — CRT bezel shadows for layered panel aesthetic. */
   --depth-inset:       inset 0 3px 10px rgba(0, 0, 0, 0.55);
   --depth-lift:        0 -3px 12px rgba(0, 0, 0, 0.5);

@@ -1,6 +1,7 @@
 mod capture;
 mod cockpit_window;
 mod git_status;
+mod index_bridge;
 mod mcp_host;
 mod todo_scan;
 
@@ -1720,6 +1721,11 @@ pub fn run() {
             mcp_status,
             mcp_token_get,
             mcp_token_regenerate,
+            index_bridge::index_list_nodes,
+            index_bridge::index_search_nodes,
+            index_bridge::index_get_node,
+            index_bridge::index_get_connections,
+            index_bridge::index_get_stats,
         ])
         .build(tauri::generate_context!())
         .expect("rift: tauri runtime failed to start")
