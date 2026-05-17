@@ -30,60 +30,40 @@
   import { enrichmentStore } from './lib/enrichmentStore.svelte';
   import { parseSeverity, type SeverityLevel } from './lib/notifFilter';
   import type { RiftConfig as RiftConfigType } from './lib/riftConfig';
+  import { sectionCatalog } from './lib/sectionCatalog.svelte';
 
-  // Tab id → bus category. `undefined` = no integration registered yet,
-  // so the pane stays in placeholder mode until a translator lights it up.
-  const CATEGORY_BY_NOTIF: Record<string, Category | undefined> = {
-    hooks: 'hook',
-    errors: 'system',     // v1: all Category::System envelopes are errors (kind="error" is the only System kind emitted); kind-filter is a future enhancement
-    commands: 'pty',      // v1: all Category::Pty envelopes; only kind emitted is "command.submitted"; kind-filter deferred
-    aegis: 'aegis',       // Phase 7.2 — Aegis integration tab (private translator, feature-gated)
-    index: 'index',       // Phase 8.2 — Index integration tab (vault-walker source wires in Phase 8.5)
-    agents: 'agent',      // Phase 8.7k — Agents tracker (§10.11 display layer; Sentinel detection deferred via D-010)
-    filesystem: 'fs',     // Filesystem watcher events (read/write/create/delete)
-    mcp: 'mcp',           // MCP server traffic (tool invocations, handshakes, request/response)
-  };
+  // D-021: Tab→category mapping is now derived from the section catalog.
+  // `sectionCatalog.categoryMap` builds the reverse map dynamically.
+  // Legacy accessor for code that still references CATEGORY_BY_NOTIF:
+  const CATEGORY_BY_NOTIF: Record<string, Category | undefined> = $derived.by(() => {
+    const result: Record<string, Category | undefined> = {};
+    for (const desc of sectionCatalog.allTabs) {
+      if (desc.category) result[desc.id] = desc.category;
+    }
+    return result;
+  });
 
   // ----- session tabs -----
   let nextSessionId = 1;
   let sessions = $state<SessionTab[]>([{ id: 0, title: 'rift' }]);
 
-  // ----- notification tabs (default set per §10.7) -----
-  // Capability-gating (§10.7): base set (errors / hooks / commands) is
-  // always present; integration tabs (aegis, index, …) appear only after
-  // the integration declares itself via an envelope on its category.
-  // - `aegis` → flips on `aegis.detected` from rift-aegis startup probe (Phase 7.1).
-  // - `index` → CURRENTLY initialized detected=true because the Index translator
-  //   is wired (Phase 8.1) but doesn't emit a startup-ready envelope yet.
-  //   TODO(8.5): tighten to envelope-driven once vault-walker publishes — then
-  //   change this back to `detected: false` and let the master subscription flip it.
-  // unreadCount + lastActivityTs drive the §10.9 badge counter and live border.
-  let notifs = $state<NotifTab[]>([
-    { id: 'errors',   title: 'errors',   icon: '⚡', enabled: true, detected: true,  unreadCount: 0, lastActivityTs: null },
-    { id: 'hooks',    title: 'hooks',    icon: '⚓', enabled: true, detected: true,  unreadCount: 0, lastActivityTs: null },
-    { id: 'commands', title: 'commands', icon: '⌘', enabled: true, detected: true,  unreadCount: 0, lastActivityTs: null },
-    { id: 'aegis',    title: 'aegis',    icon: '◉', enabled: true, detected: false, unreadCount: 0, lastActivityTs: null },
-    { id: 'index',    title: 'index',    icon: '◈', enabled: true, detected: true,  unreadCount: 0, lastActivityTs: null },
-    // Phase 8.7i — bus tail (firehose dev visibility). detected:true since
-    // it's a Rift-internal surface, not capability-gated on any translator.
-    { id: 'bustail',  title: 'bus tail', icon: '⌁', enabled: true, detected: true,  unreadCount: 0, lastActivityTs: null },
-    // Phase 8.7i — TODO scraper across project source. detected:true since
-    // it's a pure frontend feature backed by a synchronous Tauri command.
-    { id: 'todo',     title: 'todo',     icon: '⊜', enabled: true, detected: true,  unreadCount: 0, lastActivityTs: null },
-    // Phase 8.7i — git status (branch, ahead/behind, working tree).
-    // Shells out to `git`; renders not-a-repo empty state when applicable.
-    { id: 'git',      title: 'git',      icon: '⎇', enabled: true, detected: true,  unreadCount: 0, lastActivityTs: null },
-    // Phase 8.7k — Agents tracker. Capability-gated: detected:false until
-    // any Category::Agent envelope arrives (master sub flips it). Cancel
-    // button in the tab publishes agent.cancel back to the bus per §9 — a
-    // translator (Aegis today, Sentinel post-D-010) is what fulfills it.
-    { id: 'agents',   title: 'agents',   icon: '◊', enabled: true, detected: false, unreadCount: 0, lastActivityTs: null },
-    // Filesystem watcher — always-on since the fs watcher runs in core.
-    { id: 'filesystem', title: 'files', icon: '⊞', enabled: true, detected: true, unreadCount: 0, lastActivityTs: null },
-    // MCP traffic — detected:false, flips on first Category::Mcp envelope
-    // (MCP server may or may not be connected).
-    { id: 'mcp',    title: 'mcp',    icon: '⬡', enabled: true, detected: false, unreadCount: 0, lastActivityTs: null },
-  ]);
+  // ----- notification tabs (§10.7 + §10.16 catalog-driven) -----
+  // D-021: Tab strip is initialized from the section catalog registry.
+  // Capability-gating (§10.7): `detectedByDefault` in the catalog drives
+  // the initial `detected` flag. Runtime detection flips on first envelope.
+  // The catalog is the source of truth for which tabs exist and their metadata;
+  // the `notifs` array holds runtime state (unreadCount, lastActivityTs, detected).
+  let notifs = $state<NotifTab[]>(
+    sectionCatalog.allTabs.map((desc) => ({
+      id: desc.id,
+      title: desc.title,
+      icon: desc.icon,
+      enabled: true,
+      detected: desc.detectedByDefault,
+      unreadCount: 0,
+      lastActivityTs: null,
+    }))
+  );
 
   // ----- notification filter thresholds -----
   // Loaded from RiftConfig.notif_filters on mount + rift:config-changed.

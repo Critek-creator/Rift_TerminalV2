@@ -83,17 +83,23 @@ WebSocket transport) remain in the locked plan as ongoing v1.x work.
 
 <!-- D-020 closed 2026-05-16 — see C-025 below. -->
 
-### D-021 — Section Catalog Self-Discovery (§10.16, opened 2026-05-16)
-
-- Spec §10.10 describes an extensible self-discovering catalog where integrations register new section types automatically. §10.16 defers the brainstorm pass.
-- Current state: tab sections are hardcoded 4-section anatomy in `NotificationPane.svelte`. No registration mechanism exists — new tabs are added by manual implementation.
-- The hardcoded approach works for v1 (all tab types are first-party), but the extensibility promise of §10.10 is aspirational, not implemented.
-- **Unblocking event**: v1.x when third-party or dynamically-loaded integrations need to register custom section types without modifying NotificationPane source.
-- Opened by pre-release audit (2026-05-16) identifying gap between spec promise and implementation.
+<!-- D-021 closed 2026-05-16 — see C-026 below. -->
 
 ---
 
 ## Closed deferrals
+
+### C-026 — D-021 Section Catalog Self-Discovery (closed 2026-05-16)
+
+Full registry pattern per §10.16. `sectionCatalog.svelte.ts` provides
+a typed `TabDescriptor` + `SectionDescriptor` registry with reactive
+state, register/unregister API (including `unregisterBySource` for
+integration cleanup), category→tab reverse map, and standard 4-section
+anatomy template. All 11 built-in tabs pre-registered on module load.
+
+App.svelte now derives its tab strip and category map from the catalog
+instead of hardcoded arrays — adding a new tab requires only a
+`sectionCatalog.register()` call, no App.svelte modification.
 
 ### C-025 — D-020 Temporal activity heatmap (closed 2026-05-16)
 
