@@ -1,7 +1,35 @@
 mod capture;
 mod cockpit_window;
 mod git_status;
+#[cfg(feature = "index")]
 mod index_bridge;
+#[cfg(not(feature = "index"))]
+mod index_bridge {
+    #[tauri::command]
+    pub fn index_list_nodes(
+        _domain: Option<String>,
+        _floor: Option<String>,
+        _tags: Option<String>,
+    ) -> Result<(), String> {
+        Err("Index integration not available (built without 'index' feature)".into())
+    }
+    #[tauri::command]
+    pub fn index_search_nodes(_query: String, _limit: Option<usize>) -> Result<(), String> {
+        Err("Index integration not available (built without 'index' feature)".into())
+    }
+    #[tauri::command]
+    pub fn index_get_node(_id: String) -> Result<(), String> {
+        Err("Index integration not available (built without 'index' feature)".into())
+    }
+    #[tauri::command]
+    pub fn index_get_connections(_id: String, _depth: Option<u32>) -> Result<(), String> {
+        Err("Index integration not available (built without 'index' feature)".into())
+    }
+    #[tauri::command]
+    pub fn index_get_stats() -> Result<(), String> {
+        Err("Index integration not available (built without 'index' feature)".into())
+    }
+}
 mod mcp_host;
 mod todo_scan;
 

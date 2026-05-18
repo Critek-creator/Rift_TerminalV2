@@ -30,7 +30,7 @@ tracing = { workspace = true }
 uuid = { version = "1", features = ["v4"] }
 rift-bus = { path = "../crates/rift-bus" }
 rift-core = { path = "../crates/rift-core" }
-index-core = { workspace = true }
+index-core = { path = "../../abyssal-index/crates/index-core", optional = true }
 # Phase 7 — Aegis private translator (feature-gated optional path dep).
 # Public clones see the empty `rift-aegis` stub (Cargo.toml + src/lib.rs
 # tracked). Real implementation lives in gitignored sibling files
@@ -61,10 +61,11 @@ custom-protocol = ["tauri/custom-protocol"]
 # latter activates the real impl in the gitignored sibling files
 # alongside the tracked stub lib.rs). See DEFERRED.md C-014.
 aegis = ["dep:rift-aegis", "rift-aegis/private_modules"]
+index = ["dep:index-core"]
 
 # cargo-machete false-positive suppression:
 # - windows-sys: cfg(windows)-only, invisible on Linux runners
 # - rift-aegis: optional dep behind `aegis` feature, never compiled in default CI
 # - png/base64: used in screenshot capture paths that machete can't trace through Tauri codegen
 [package.metadata.cargo-machete]
-ignored = ["windows-sys", "rift-aegis", "png", "base64"]
+ignored = ["windows-sys", "rift-aegis", "index-core", "png", "base64"]
