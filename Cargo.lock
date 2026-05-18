@@ -3233,7 +3233,7 @@ dependencies = [
 
 [[package]]
 name = "rift-aegis"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "directories",
  "notify",
@@ -3246,7 +3246,7 @@ dependencies = [
 
 [[package]]
 name = "rift-app"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "base64 0.22.1",
  "directories",
@@ -3271,7 +3271,7 @@ dependencies = [
 
 [[package]]
 name = "rift-bus"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "directories",
  "dunce",
@@ -3291,7 +3291,7 @@ dependencies = [
 
 [[package]]
 name = "rift-cli"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "anyhow",
  "clap",
@@ -3302,7 +3302,7 @@ dependencies = [
 
 [[package]]
 name = "rift-core"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "portable-pty",
  "serde",
@@ -3314,7 +3314,7 @@ dependencies = [
 
 [[package]]
 name = "rift-mcp"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "anyhow",
  "clap",
