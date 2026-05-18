@@ -145,6 +145,9 @@ pub use translators::status::spawn_status_translator;
 /// Convenience re-export; full path: `rift_bus::translators::vault_walker::spawn_vault_walker(...)`.
 pub use translators::vault_walker::spawn_vault_walker;
 
+/// Convenience re-export; full path: `rift_bus::translators::sentinel::spawn_sentinel_translator(...)`.
+pub use translators::sentinel::spawn_sentinel_translator;
+
 // ---------------------------------------------------------------------------
 // config re-exports (Phase 6.7)
 // ---------------------------------------------------------------------------

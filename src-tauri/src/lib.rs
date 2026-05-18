@@ -1612,6 +1612,18 @@ pub fn run() {
                 });
             }
 
+            // S-3 — Sentinel translator (watches ~/.sentinel/events.jsonl).
+            // Publishes sentinel.* envelopes on Category::Agent so the Agents
+            // tab can display violations. No-op if ~/.sentinel/ doesn't exist.
+            {
+                let sentinel_bus = app.state::<RiftBus>().inner().clone();
+                let sentinel_shutdown = app.state::<ShutdownNotify>().handle();
+                tauri::async_runtime::spawn(async move {
+                    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                    rift_bus::spawn_sentinel_translator(sentinel_bus, sentinel_shutdown).await;
+                });
+            }
+
             // D-014 Phase A — MCP host subscriber (off by default).
             //
             // Reads RiftConfig.mcp; if disabled, the spawn is a no-op and no

@@ -10,5 +10,6 @@ pub mod errors;
 pub mod fs;
 pub mod index;
 pub mod lane;
+pub mod sentinel;
 pub mod status;
 pub mod vault_walker;
