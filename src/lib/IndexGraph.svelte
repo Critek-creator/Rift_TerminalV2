@@ -117,7 +117,7 @@
   let collapsedKinds = $state<Set<VaultKind>>(new Set());
   let selectedId = $state<string | null>(null);
   let hoveredId = $state<string | null>(null);
-  let searchInput: HTMLInputElement | undefined;
+  let searchInput = $state<HTMLInputElement | undefined>(undefined);
 
   function toggleKind(kind: VaultKind): void {
     const next = new Set(collapsedKinds);

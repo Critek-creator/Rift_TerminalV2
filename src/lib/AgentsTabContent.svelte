@@ -52,6 +52,7 @@
 
   // Live registry — keyed by agent id. Reactive map via reassignment.
   let connected = $state(false);
+  let connectError = $state<string | null>(null);
   let agents = $state<Record<string, AgentState>>({});
   // Archive of finished agents, newest first.
   let archive = $state<AgentState[]>([]);
@@ -198,6 +199,7 @@
       }
     } catch (err) {
       console.error('[AgentsTab] bus_subscribe failed', err);
+      connectError = err instanceof Error ? err.message : String(err);
     }
     tickTimer = setInterval(() => {
       lastTickTs = Date.now();
@@ -263,7 +265,9 @@
     </div>
   {/if}
 
-  {#if !connected}
+  {#if connectError}
+    <div class="connect-error">{connectError}</div>
+  {:else if !connected}
     <div class="connecting-state">Connecting…</div>
   {:else}
   <header class="status">
@@ -408,6 +412,14 @@
     font-size: 11px;
     letter-spacing: 0.04em;
   }
+  .connect-error {
+    color: var(--term-red);
+    padding: 8px 14px;
+    font-style: italic;
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    opacity: 0.9;
+  }
   .pane {
     flex: 1;
     display: flex;
@@ -433,6 +445,7 @@
     font-size: 10px;
     letter-spacing: 0.1em;
     font-weight: 700;
+    transition: background 0.12s ease-out;
   }
   .drag-handle:active { cursor: grabbing; }
   .drag-handle:hover { background: var(--bg-hover); }
@@ -667,6 +680,7 @@
     line-height: 1;
     padding: 0 6px;
     cursor: pointer;
+    transition: background 0.12s ease-out, color 0.12s ease-out;
   }
   .card-cancel:hover:not(:disabled) {
     background: var(--term-red);
@@ -743,6 +757,7 @@
     text-transform: uppercase;
     cursor: pointer;
     padding: 0;
+    transition: color 0.12s ease-out;
   }
   .archive-clear:hover { color: var(--term-red); }
   .state-body {
@@ -758,6 +773,7 @@
     align-items: baseline;
     font-size: 10px;
     padding: 1px 0;
+    transition: background 0.12s ease-out;
   }
   .archive-row:hover { background: rgba(212, 137, 10, 0.04); }
   .archive-status {

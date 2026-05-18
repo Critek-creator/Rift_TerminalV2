@@ -459,6 +459,7 @@
     font-size: 10px;
     letter-spacing: 0.1em;
     font-weight: 700;
+    transition: background 0.12s ease-out;
   }
   .drag-handle:active { cursor: grabbing; }
   .drag-handle:hover { background: var(--bg-hover); }
@@ -523,6 +524,7 @@
     padding: 2px 8px;
     cursor: pointer;
     text-transform: uppercase;
+    transition: color 0.12s ease-out, background 0.12s ease-out, border-color 0.12s ease-out, box-shadow 0.12s ease-out, opacity 0.12s ease-out;
   }
   .ctl-btn:hover:not(:disabled) {
     border-color: var(--amber-bright);
@@ -588,6 +590,7 @@
     line-height: 1;
     cursor: pointer;
     padding: 0 2px;
+    transition: color 0.12s ease-out, opacity 0.12s ease-out;
   }
 
   .commit-form {
@@ -718,6 +721,7 @@
     text-align: left;
     cursor: pointer;
     width: 100%;
+    transition: background 0.12s ease-out, border-left-color 0.12s ease-out;
   }
   .row:hover {
     background: rgba(212, 137, 10, 0.06);

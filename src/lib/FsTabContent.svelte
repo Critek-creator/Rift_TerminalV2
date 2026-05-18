@@ -15,6 +15,7 @@
   const LIVE_WINDOW_MS = 4000;
 
   let connected = $state(false);
+  let error = $state('');
   let events = $state<Envelope[]>([]);
   let opHistogram = $state<Record<string, number>>({});
   let dirHistogram = $state<Record<string, number>>({});
@@ -107,6 +108,7 @@
       }
     } catch (err) {
       console.error('[FsTab] bus_subscribe failed', err);
+      error = (err as Error).message || 'Connection failed';
     }
     tickTimer = setInterval(() => { lastTickTs = Date.now(); }, 1000);
   });
@@ -152,7 +154,9 @@
     </div>
   {/if}
 
-  {#if !connected}
+  {#if error}
+    <div class="error-state">⚠ Bus connection failed: {error}</div>
+  {:else if !connected}
     <div class="connecting-state">Connecting…</div>
   {:else}
   <header class="status">
@@ -190,7 +194,10 @@
     <div class="log-header">RECENT EVENTS</div>
     <div class="log-body">
       {#if recentEvents.length === 0}
-        <div class="empty">subscribed to <span class="cat">fs</span> — waiting for filesystem events</div>
+        <div class="empty-card">
+          <div class="empty-title">Waiting for filesystem events</div>
+          <div class="empty-desc">Activity appears when files are read, written, created, or deleted in the project directory.</div>
+        </div>
       {:else}
         {#each recentEvents as e, i (e.ts + ':' + e.kind + ':' + i)}
           {@const op = extractOp(e.kind)}
@@ -276,6 +283,7 @@
     letter-spacing: 0.1em;
     font-weight: 700;
   }
+  .drag-handle { transition: background 0.12s ease-out; }
   .drag-handle:active { cursor: grabbing; }
   .drag-handle:hover { background: var(--bg-hover); }
   .drag-handle .handle-glyph {
@@ -365,8 +373,34 @@
   }
   .log-body::-webkit-scrollbar { width: 5px; }
   .log-body::-webkit-scrollbar-thumb { background: var(--amber-faint); }
-  .empty { color: var(--amber-faint); font-style: italic; }
-  .empty .cat { color: var(--term-cyan); font-style: normal; font-weight: 600; }
+  .error-state {
+    color: var(--term-red);
+    padding: 12px 14px;
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    border-bottom: 1px solid rgba(255, 72, 72, 0.2);
+    background: rgba(255, 72, 72, 0.04);
+  }
+  .empty-card {
+    border: 1px dashed var(--border-subtle);
+    padding: 12px 14px;
+    background: rgba(111, 224, 224, 0.03);
+    color: var(--amber-warm);
+    font-size: 11px;
+    line-height: 1.55;
+  }
+  .empty-title {
+    color: var(--term-cyan);
+    font-weight: 700;
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    margin-bottom: 6px;
+  }
+  .empty-desc {
+    color: var(--amber-dim);
+    font-size: 10px;
+  }
 
   .log-body .row {
     display: grid;
@@ -375,6 +409,7 @@
     align-items: baseline;
     padding: 1px 0;
     white-space: nowrap;
+    transition: background 0.12s ease-out;
   }
   .log-body .row:hover { background: rgba(111, 224, 224, 0.04); }
   .ts { color: var(--amber-faint); font-variant-numeric: tabular-nums; font-size: 10px; }
@@ -455,6 +490,7 @@
     cursor: pointer;
     border-radius: 3px;
     line-height: 1;
+    transition: color 0.12s ease-out, border-color 0.12s ease-out, background 0.12s ease-out;
   }
   .ctrl-btn:hover { color: var(--term-cyan); border-color: var(--term-cyan); }
   .ctrl-btn.active { color: var(--term-green); border-color: var(--term-green); }

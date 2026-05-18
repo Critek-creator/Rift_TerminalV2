@@ -573,6 +573,7 @@
     cursor: pointer;
     padding: 2px 8px;
     border-radius: 0;
+    transition: color 0.12s ease-out, background 0.12s ease-out, border-color 0.12s ease-out, box-shadow 0.12s ease-out, opacity 0.12s ease-out;
   }
 
   .viewer-btn-edit {

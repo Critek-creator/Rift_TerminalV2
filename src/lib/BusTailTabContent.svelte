@@ -48,6 +48,8 @@
     mcp:    'var(--term-purple, #C58FFF)',
   };
 
+  let connected = $state(false);
+  let error = $state('');
   let events = $state<Envelope[]>([]);
   let paused = $state(false);
   let mutedCats = $state<Set<Category>>(new Set());
@@ -101,9 +103,11 @@
         void u().catch(() => {});
       } else {
         unsubscribe = u;
+        connected = true;
       }
     } catch (err) {
       console.error('[BusTail] bus_subscribe failed', err);
+      error = (err as Error).message || 'Connection failed';
     }
     tickTimer = setInterval(() => {
       lastTickTs = Date.now();
@@ -176,6 +180,12 @@
     </div>
   {/if}
 
+  {#if error}
+    <div class="error-state">⚠ Bus connection failed: {error}</div>
+  {:else if !connected}
+    <div class="connecting-state">Connecting…</div>
+  {/if}
+
   <header class="status">
     <span class="title"><span class="icon">⌁</span>BUS TAIL</span>
     <span class="state">
@@ -210,10 +220,14 @@
     <div class="log-header">RECENT EVENTS</div>
     <div class="log-body">
       {#if recentEvents.length === 0}
-        <div class="empty">
-          {paused
-            ? 'paused — click LIVE to resume'
-            : 'subscribed to all categories — no events received yet'}
+        <div class="empty-card">
+          {#if paused}
+            <div class="empty-title">Paused</div>
+            <div class="empty-desc">Click LIVE to resume the event stream.</div>
+          {:else}
+            <div class="empty-title">No events received yet</div>
+            <div class="empty-desc">This firehose subscribes to all bus categories. Events appear as integrations publish to the Rift event bus.</div>
+          {/if}
         </div>
       {:else}
         {#each recentEvents as e, i (e.ts + ':' + e.category + ':' + e.kind + ':' + i)}
@@ -302,6 +316,7 @@
     letter-spacing: 0.1em;
     font-weight: 700;
   }
+  .drag-handle { transition: background 0.12s ease-out; }
   .drag-handle:active { cursor: grabbing; }
   .drag-handle:hover { background: var(--bg-hover); }
   .drag-handle .handle-glyph {
@@ -349,6 +364,7 @@
     padding: 2px 8px;
     cursor: pointer;
     text-transform: uppercase;
+    transition: color 0.12s ease-out, background 0.12s ease-out, border-color 0.12s ease-out, opacity 0.12s ease-out;
   }
   .ctl-btn:hover:not(:disabled) {
     border-color: var(--amber-bright);
@@ -424,9 +440,40 @@
   }
   .log-body::-webkit-scrollbar { width: 5px; }
   .log-body::-webkit-scrollbar-thumb { background: var(--amber-faint); }
-  .empty {
+  .connecting-state {
     color: var(--amber-faint);
+    padding: 1rem 14px;
     font-style: italic;
+    font-size: 11px;
+    letter-spacing: 0.04em;
+  }
+  .error-state {
+    color: var(--term-red);
+    padding: 12px 14px;
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    border-bottom: 1px solid rgba(255, 72, 72, 0.2);
+    background: rgba(255, 72, 72, 0.04);
+  }
+  .empty-card {
+    border: 1px dashed var(--border-subtle);
+    padding: 12px 14px;
+    background: rgba(212, 137, 10, 0.03);
+    color: var(--amber-warm);
+    font-size: 11px;
+    line-height: 1.55;
+  }
+  .empty-title {
+    color: var(--amber-bright);
+    font-weight: 700;
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    margin-bottom: 6px;
+  }
+  .empty-desc {
+    color: var(--amber-dim);
+    font-size: 10px;
   }
 
   .log-body .row {
@@ -438,6 +485,7 @@
     white-space: nowrap;
     cursor: pointer;
     user-select: text;
+    transition: background 0.12s ease-out;
   }
   .log-body .row:hover { background: rgba(212, 137, 10, 0.04); }
   .log-body .row.expanded {
@@ -535,6 +583,7 @@
     user-select: none;
     font-size: 10px;
     letter-spacing: 0.04em;
+    transition: opacity 0.12s ease-out;
   }
   .cat-row.muted .cat-name,
   .cat-row.muted .cat-count {

@@ -135,12 +135,9 @@ const BUILTIN_TABS: TabDescriptor[] = [
 // Reactive registry state
 // ---------------------------------------------------------------------------
 
-let registry = $state(new Map<string, TabDescriptor>());
-
-// Pre-register all built-in tabs.
-for (const tab of BUILTIN_TABS) {
-  registry.set(tab.id, tab);
-}
+let registry = $state(new Map<string, TabDescriptor>(
+  BUILTIN_TABS.map((tab) => [tab.id, tab] as const),
+));
 
 // ---------------------------------------------------------------------------
 // Public API

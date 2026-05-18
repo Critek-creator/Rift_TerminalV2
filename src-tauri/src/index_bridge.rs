@@ -64,12 +64,6 @@ pub struct IndexNodeFull {
 }
 
 #[derive(Serialize)]
-pub struct IndexConnection {
-    pub source: String,
-    pub target: String,
-}
-
-#[derive(Serialize)]
 pub struct IndexStats {
     pub total_nodes: usize,
     pub total_links: usize,

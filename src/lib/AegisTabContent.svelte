@@ -104,6 +104,7 @@
   // ---------------------------------------------------------------------------
 
   let connected = $state(false);
+  let connectError = $state<string | null>(null);
   let tickTimer: ReturnType<typeof setInterval> | undefined;
   let unsubscribeFn: (() => Promise<void>) | undefined;
 
@@ -115,6 +116,7 @@
         connected = true;
       } catch (err) {
         console.error('[AegisTabContent] bus subscribe failed', err);
+        connectError = err instanceof Error ? err.message : String(err);
       }
     })();
 
@@ -200,7 +202,9 @@
     </div>
   {/if}
 
-  {#if !connected}
+  {#if connectError}
+    <div class="connect-error">{connectError}</div>
+  {:else if !connected}
     <div class="connecting-state">Connecting…</div>
   {:else}
   <!-- Section 1: Status header -->
@@ -327,6 +331,14 @@
     font-size: 11px;
     letter-spacing: 0.04em;
   }
+  .connect-error {
+    color: var(--term-red);
+    padding: 8px 14px;
+    font-style: italic;
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    opacity: 0.9;
+  }
   .pane {
     flex: 1;
     display: flex;
@@ -354,6 +366,7 @@
     font-size: 10px;
     letter-spacing: 0.1em;
     font-weight: 700;
+    transition: background 0.12s ease-out;
   }
   .drag-handle:active { cursor: grabbing; }
   .drag-handle:hover { background: var(--bg-hover); }

@@ -983,6 +983,11 @@
     flex-shrink: 0;
   }
 
+  :global(.tree-node:focus-visible) {
+    outline: 1px solid var(--amber-warm);
+    outline-offset: -1px;
+  }
+
   /* Node shapes */
   :global(.node-bg) {
     transition: filter 0.15s ease;

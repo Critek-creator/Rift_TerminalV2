@@ -1680,14 +1680,15 @@ pub fn run() {
 
             cockpit_builder.build()?;
 
-            // Force-center the main window to override any stale WebView2
-            // cached position. EBWebView persists window state across runs
-            // and can restore to off-screen coordinates (e.g. after a
-            // monitor disconnect or resolution change), making the window
-            // invisible on launch.
+            // Force-center and unminimize the main window to override stale
+            // WebView2 cached state. EBWebView persists window geometry AND
+            // minimized/maximized state across runs — a previous minimized
+            // session restores as minimized even after show().
             if let Some(main_win) = app.get_webview_window("main") {
+                let _ = main_win.unminimize();
                 let _ = main_win.center();
                 let _ = main_win.show();
+                let _ = main_win.set_focus();
             }
 
             Ok(())

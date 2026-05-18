@@ -128,6 +128,8 @@
   // pr003 svelte5-async-cleanup-via-sync-shell-iife
   // ---------------------------------------------------------------------------
 
+  let connected = $state(false);
+  let connectError = $state<string | null>(null);
   let tickTimer: ReturnType<typeof setInterval> | undefined;
   let unsubscribeFn: (() => Promise<void>) | undefined;
 
@@ -136,8 +138,10 @@
     void (async () => {
       try {
         unsubscribeFn = await subscribe({ category: 'index' }, handleEnvelope);
+        connected = true;
       } catch (err) {
         console.error('[IndexTabContent] bus subscribe failed', err);
+        connectError = err instanceof Error ? err.message : String(err);
       }
     })();
 
@@ -210,7 +214,11 @@
     </div>
   {/if}
 
-  {#if !hasIndexData}
+  {#if connectError}
+    <div class="connect-error">{connectError}</div>
+  {:else if !connected}
+    <div class="connecting-state">Connecting…</div>
+  {:else if !hasIndexData}
     <!-- Capability-driven empty state (§10.7, Phase 8.2).
          Renders until Phase 8.5 vault-walker publishes the first Index envelope. -->
     <div class="empty-state-wrap">
@@ -333,6 +341,21 @@
 </section>
 
 <style>
+  .connecting-state {
+    color: var(--amber-faint);
+    padding: 1rem 14px;
+    font-style: italic;
+    font-size: 11px;
+    letter-spacing: 0.04em;
+  }
+  .connect-error {
+    color: var(--term-red);
+    padding: 8px 14px;
+    font-style: italic;
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    opacity: 0.9;
+  }
   .pane {
     flex: 1;
     display: flex;
@@ -360,6 +383,7 @@
     font-size: 10px;
     letter-spacing: 0.1em;
     font-weight: 700;
+    transition: background 0.12s ease-out;
   }
   .drag-handle:active { cursor: grabbing; }
   .drag-handle:hover { background: var(--bg-hover); }
@@ -619,6 +643,7 @@
     padding: 3px 8px;
     letter-spacing: 0.04em;
     outline: none;
+    transition: border-color 0.12s ease-out;
   }
   .search-input::placeholder {
     color: var(--amber-faint);

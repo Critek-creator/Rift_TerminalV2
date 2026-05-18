@@ -226,7 +226,7 @@
   ondragleave={onStripDragLeave}
   ondrop={onStripDrop}
 >
-  <div class="group">
+  <div class="group" role="tablist">
     {#each sessions as tab (tab.id)}
       <div
         class="tab session"
@@ -355,6 +355,10 @@
     background: var(--amber-bright);
     opacity: 0.45;
   }
+  .tab:focus-visible {
+    outline: 1px solid var(--amber-warm);
+    outline-offset: -2px;
+  }
   /* Active state: 3px top bar + glow below it + subtle bottom fill */
   .tab.active {
     color: var(--amber-bright);
@@ -455,6 +459,10 @@
     font-family: inherit;
   }
   .add:hover { color: var(--amber-bright); background: var(--bg-hover); }
+  .add:focus-visible, .manage:focus-visible {
+    outline: 1px solid var(--amber-warm);
+    outline-offset: -2px;
+  }
 
   /* Phase 8.7h — manage button (notif strip tail) */
   .manage {

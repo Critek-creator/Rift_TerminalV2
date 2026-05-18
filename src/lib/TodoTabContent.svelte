@@ -337,6 +337,7 @@
     font-size: 10px;
     letter-spacing: 0.1em;
     font-weight: 700;
+    transition: background 0.12s ease-out;
   }
   .drag-handle:active { cursor: grabbing; }
   .drag-handle:hover { background: var(--bg-hover); }
@@ -385,6 +386,7 @@
     padding: 2px 8px;
     cursor: pointer;
     text-transform: uppercase;
+    transition: color 0.12s ease-out, background 0.12s ease-out, border-color 0.12s ease-out, opacity 0.12s ease-out;
   }
   .ctl-btn:hover:not(:disabled) {
     border-color: var(--amber-bright);
@@ -430,6 +432,7 @@
     font-weight: 700;
     cursor: pointer;
     text-transform: uppercase;
+    transition: background 0.12s ease-out, color 0.12s ease-out;
   }
   .chip:hover { background: rgba(212, 137, 10, 0.06); }
   .chip.active {
@@ -484,6 +487,7 @@
     align-items: stretch;
     border-left: 2px solid transparent;
     width: 100%;
+    transition: background 0.12s ease-out, border-left-color 0.12s ease-out;
   }
   .row:hover {
     background: rgba(212, 137, 10, 0.06);
@@ -517,6 +521,7 @@
     border: none;
     color: var(--amber-faint);
     font-family: inherit;
+    transition: color 0.12s ease-out;
     font-size: 14px;
     line-height: 1;
     padding: 0 8px;
@@ -537,6 +542,7 @@
     cursor: pointer;
     margin-left: 8px;
     padding: 0;
+    transition: color 0.12s ease-out;
   }
   .inline-clear:hover { color: var(--term-red); }
   .marker {

@@ -28,13 +28,13 @@
   }
 
   const DOMAIN_COLORS: Record<string, string> = {
-    theories: '#a78bfa',
-    projects: '#fbbf24',
-    research: '#4ad4d4',
-    personal: '#f472b6',
-    creative: '#34d399',
-    systems: '#60a5fa',
-    reference: '#94a3b8',
+    theories: 'var(--domain-theories)',
+    projects: 'var(--domain-projects)',
+    research: 'var(--domain-research)',
+    personal: 'var(--domain-personal)',
+    creative: 'var(--domain-creative)',
+    systems: 'var(--domain-systems)',
+    reference: 'var(--domain-reference)',
   };
 
   const FLOOR_LABELS: Record<string, string> = {
@@ -138,7 +138,7 @@
   }
 
   function domainColor(domain: string): string {
-    return DOMAIN_COLORS[domain] ?? '#666';
+    return DOMAIN_COLORS[domain] ?? 'var(--amber-faint)';
   }
 
   onMount(() => {
