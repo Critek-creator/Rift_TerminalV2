@@ -36,7 +36,7 @@ pub async fn spawn_sentinel_translator(bus: RiftBus, shutdown: Arc<Notify>) {
         }
     };
 
-    if !events_path.parent().map_or(false, |p| p.exists()) {
+    if !events_path.parent().is_some_and(|p| p.exists()) {
         tracing::info!(
             "sentinel_translator: '{}' directory does not exist — sentinel not installed, skipping",
             events_path.parent().unwrap().display()
