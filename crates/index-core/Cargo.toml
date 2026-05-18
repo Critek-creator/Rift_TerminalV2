@@ -1,0 +1,6 @@
+[package]
+name = "index-core"
+version = "0.1.0"
+edition = "2021"
+description = "Stub crate — real impl lives in ../abyssal-index. See .cargo/config.toml."
+publish = false

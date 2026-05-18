@@ -30,7 +30,7 @@ tracing = { workspace = true }
 uuid = { version = "1", features = ["v4"] }
 rift-bus = { path = "../crates/rift-bus" }
 rift-core = { path = "../crates/rift-core" }
-index-core = { path = "../../abyssal-index/crates/index-core", optional = true }
+index-core = { path = "../crates/index-core", optional = true }
 # Phase 7 — Aegis private translator (feature-gated optional path dep).
 # Public clones see the empty `rift-aegis` stub (Cargo.toml + src/lib.rs
 # tracked). Real implementation lives in gitignored sibling files
