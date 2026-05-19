@@ -1,7 +1,9 @@
 export type FileColorCategory = 'rust' | 'script' | 'frontend' | 'config' | 'docs' | 'media' | 'default';
 
 const EXT_MAP: Record<string, FileColorCategory> = {
+  // Rust
   '.rs': 'rust',
+  // Script / source code
   '.ts': 'script',
   '.js': 'script',
   '.mjs': 'script',
@@ -11,11 +13,35 @@ const EXT_MAP: Record<string, FileColorCategory> = {
   '.kt': 'script',
   '.java': 'script',
   '.py': 'script',
+  '.rb': 'script',
+  '.go': 'script',
+  '.c': 'script',
+  '.cpp': 'script',
+  '.h': 'script',
+  '.hpp': 'script',
+  '.cs': 'script',
+  '.swift': 'script',
+  '.lua': 'script',
+  '.dart': 'script',
+  '.php': 'script',
+  '.r': 'script',
+  '.sh': 'script',
+  '.bash': 'script',
+  '.zsh': 'script',
+  '.ps1': 'script',
+  '.bat': 'script',
+  '.cmd': 'script',
+  // Frontend / markup
   '.svelte': 'frontend',
   '.html': 'frontend',
   '.css': 'frontend',
   '.scss': 'frontend',
+  '.sass': 'frontend',
+  '.less': 'frontend',
   '.vue': 'frontend',
+  '.astro': 'frontend',
+  '.hbs': 'frontend',
+  // Config
   '.json': 'config',
   '.toml': 'config',
   '.yaml': 'config',
@@ -28,12 +54,16 @@ const EXT_MAP: Record<string, FileColorCategory> = {
   '.kts': 'config',
   '.pro': 'config',
   '.properties': 'config',
+  '.cfg': 'config',
+  '.conf': 'config',
+  '.editorconfig': 'config',
+  // Docs
   '.md': 'docs',
   '.txt': 'docs',
-  '.sh': 'docs',
-  '.ps1': 'docs',
-  '.bat': 'docs',
-  '.cmd': 'docs',
+  '.rst': 'docs',
+  '.adoc': 'docs',
+  '.log': 'docs',
+  // Media / binary
   '.png': 'media',
   '.jpg': 'media',
   '.jpeg': 'media',
@@ -45,11 +75,26 @@ const EXT_MAP: Record<string, FileColorCategory> = {
   '.mp3': 'media',
   '.wav': 'media',
   '.ogg': 'media',
+  '.flac': 'media',
   '.mp4': 'media',
+  '.avi': 'media',
+  '.mov': 'media',
   '.ttf': 'media',
   '.otf': 'media',
   '.woff': 'media',
   '.woff2': 'media',
+  '.bin': 'media',
+  '.jar': 'media',
+  '.aar': 'media',
+  '.apk': 'media',
+  '.dex': 'media',
+  '.so': 'media',
+  '.dll': 'media',
+  '.exe': 'media',
+  '.wasm': 'media',
+  '.zip': 'media',
+  '.tar': 'media',
+  '.gz': 'media',
 };
 
 const CATEGORY_CSS: Record<FileColorCategory, string> = {
@@ -59,7 +104,7 @@ const CATEGORY_CSS: Record<FileColorCategory, string> = {
   config: 'var(--term-purple)',
   docs: 'var(--term-green)',
   media: 'var(--term-white)',
-  default: 'var(--amber-dim)',
+  default: 'var(--amber-faint)',
 };
 
 export function fileColor(name: string): string {

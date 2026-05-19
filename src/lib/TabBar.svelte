@@ -356,19 +356,20 @@
   .tabbar {
     height: 36px;
     background: var(--bg-surface);
-    border-bottom: 1px solid var(--border-subtle);
+    border-bottom: 1px solid var(--border-active);
+    box-shadow: 0 1px 6px rgba(0, 0, 0, 0.4);
     display: flex;
     align-items: stretch;
     flex-shrink: 0;
   }
   .tabbar.drop-active {
-    box-shadow: inset 0 0 0 1px var(--amber-bright);
+    box-shadow: inset 0 0 0 1px var(--amber-bright), 0 1px 6px rgba(0, 0, 0, 0.4);
   }
   .group { display: flex; align-items: stretch; }
-  /* Slightly brighter divider between session and notification groups */
   .group.right {
     margin-left: auto;
-    border-left: 1px solid var(--border-active);
+    border-left: 2px solid var(--border-active);
+    box-shadow: inset 1px 0 8px rgba(0, 0, 0, 0.3);
   }
 
   /* Phase 8.7g.3 — tab text lifted: inactive amber-dim → amber-warm,
@@ -388,48 +389,45 @@
     font-size: 12px;
     cursor: pointer;
     position: relative;
-    transition: color 0.15s, background 0.15s;
+    transition: color 0.15s, background 0.15s, box-shadow 0.15s;
     user-select: none;
   }
-  /* Hover: preview the active-state top border at 1px, fading in */
   .tab:hover {
     color: var(--amber-bright);
-    background: var(--bg-hover);
+    background: rgba(255, 168, 38, 0.08);
   }
   .tab:hover::before {
     content: '';
     position: absolute;
     inset: 0 0 auto 0;
-    height: 1px;
-    background: var(--amber-bright);
-    opacity: 0.45;
+    height: 2px;
+    background: var(--amber-dim);
+    opacity: 0.7;
   }
   .tab:focus-visible {
     outline: 1px solid var(--amber-warm);
     outline-offset: -2px;
   }
-  /* Active state: 3px top bar + glow below it + subtle bottom fill */
   .tab.active {
     color: var(--amber-bright);
-    background: var(--bg-base);
+    background: rgba(255, 168, 38, 0.10);
     text-shadow: var(--glow-amber-strong);
+    border-right-color: var(--border-active);
   }
   .tab.active::before {
     content: '';
     position: absolute;
     inset: 0 0 auto 0;
-    height: 3px;
+    height: 2px;
     background: var(--amber-bright);
-    box-shadow: 0 2px 8px rgba(255, 200, 64, 0.55), 0 0 4px rgba(255, 200, 64, 0.35);
-    opacity: 1;
+    box-shadow: 0 2px 12px rgba(255, 200, 64, 0.6), 0 0 6px rgba(255, 200, 64, 0.4);
   }
-  /* Bottom highlight: thin amber line at base of active tab for "selected tray" effect */
   .tab.active::after {
     content: '';
     position: absolute;
     inset: auto 0 0 0;
     height: 1px;
-    background: linear-gradient(90deg, transparent, rgba(255, 200, 64, 0.28), transparent);
+    background: rgba(255, 200, 64, 0.25);
     pointer-events: none;
   }
   /* Disabled tabs — visually distinct from hover, not just low opacity */
@@ -507,7 +505,8 @@
     background: rgba(108, 182, 255, 0.08);
   }
 
-  .icon { font-size: 11px; opacity: 0.85; }
+  .icon { font-size: 11px; opacity: 0.85; transition: opacity 0.12s; }
+  .tab.active .icon { opacity: 1; color: var(--amber-bright); }
 
   /* Close button — 18×18 click target, smooth red transition */
   .close {
@@ -537,8 +536,14 @@
     cursor: pointer;
     font-size: 14px;
     font-family: inherit;
+    transition: color 0.12s, background 0.12s, text-shadow 0.12s;
   }
-  .add:hover { color: var(--amber-bright); background: var(--bg-hover); }
+  .add:hover {
+    color: var(--amber-bright);
+    background: var(--bg-hover);
+    text-shadow: 0 0 8px rgba(255, 200, 64, 0.5);
+  }
+  .add:active { transform: scale(0.92); }
   .add:focus-visible, .manage:focus-visible {
     outline: 1px solid var(--amber-warm);
     outline-offset: -2px;
@@ -561,7 +566,6 @@
     background: var(--bg-hover);
   }
 
-  /* Badge — crisp 9px text, gentle pulse when count > 0 */
   .badge {
     background: var(--amber-bright);
     color: var(--bg-base);
@@ -573,6 +577,8 @@
     text-align: center;
     letter-spacing: 0.04em;
     line-height: 14px;
+    border-radius: 8px;
+    box-shadow: 0 0 6px rgba(255, 200, 64, 0.4);
     animation: badge-pulse 2s ease-in-out infinite;
   }
   @keyframes badge-pulse {

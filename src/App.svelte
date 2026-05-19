@@ -29,7 +29,7 @@
   import { subscribe, publish, signalBusReady, type Category } from './lib/bus';
   import { enrichmentStore } from './lib/enrichmentStore.svelte';
   import { parseSeverity, type SeverityLevel } from './lib/notifFilter';
-  import type { RiftConfig as RiftConfigType } from './lib/riftConfig';
+  import type { RiftConfig as RiftConfigType, StatusLineConfig } from './lib/riftConfig';
   import { sectionCatalog } from './lib/sectionCatalog.svelte';
 
   // D-021: Tab→category mapping is now derived from the section catalog.
@@ -92,6 +92,19 @@
       notifFilterPerTab = pt;
     } catch (err) {
       console.warn('Failed to load notification filters:', err);
+    }
+  }
+
+  async function loadAppearanceConfig() {
+    try {
+      const cfg = await invoke<RiftConfigType>('config_get');
+      statuslineConfig = cfg?.statusline;
+      const family = cfg?.terminal?.font_family;
+      if (family) {
+        document.documentElement.style.setProperty('--font-family', family);
+      }
+    } catch (err) {
+      console.warn('Failed to load appearance config:', err);
     }
   }
 
@@ -188,13 +201,21 @@
 
 
   let lastSwappedPath: string | null = null;
+  let swapTimer: ReturnType<typeof setTimeout> | undefined;
   $effect(() => {
     const path = activeProjectPath;
     if (!path || path === lastSwappedPath) return;
     lastSwappedPath = path;
-    invoke('project_swap', { path }).catch((err: unknown) =>
-      console.warn('[rift] tab-switch project_swap failed:', err),
-    );
+    // Debounce: let Terminal.onMount's pty_start complete before project_swap
+    // restarts the fs watcher and floods the bus. 100ms is enough for the
+    // Terminal to call pty_start; project_swap's watcher restart then happens
+    // after the PTY is already draining output. Also collapses rapid tab switches.
+    clearTimeout(swapTimer);
+    swapTimer = setTimeout(() => {
+      invoke('project_swap', { path }).catch((err: unknown) =>
+        console.warn('[rift] tab-switch project_swap failed:', err),
+      );
+    }, 100);
   });
 
   function toggleNotif(id: string) {
@@ -498,13 +519,18 @@
     };
   });
 
-  // D-012 unblocked slice — live DIR / GIT / REPO segments.
+  // D-012 — live StatusLine segments.
   // Subscribes to Category::Status at App level so the StatusLine updates
   // regardless of which tab is active. Same svelte5-async-cleanup-via-sync-
   // shell-iife + cancelled-flag pattern as the SKILL subscription below.
   let statusDir = $state('');
   let statusGit = $state('');
   let statusRepo = $state('');
+  let statusModel = $state('');
+  let statusCtx = $state('');
+  let statusSessionUse = $state('');
+  let statusWeek = $state('');
+  let statuslineConfig = $state<StatusLineConfig | undefined>(undefined);
 
   $effect(() => {
     let cancelled = false;
@@ -514,10 +540,17 @@
       try {
         const u = await subscribe({ category: 'status' }, (env) => {
           if (env.kind === 'usage') {
-            const p = env.payload as { dir?: string; git?: string; repo?: string };
+            const p = env.payload as {
+              dir?: string; git?: string; repo?: string;
+              model?: string; ctx_pct?: number; session_use_pct?: number; week_pct?: number;
+            };
             if (p.dir  !== undefined) statusDir  = p.dir;
             if (p.git  !== undefined) statusGit  = p.git;
             if (p.repo !== undefined) statusRepo = p.repo;
+            if (p.model !== undefined) statusModel = p.model;
+            if (p.ctx_pct !== undefined) statusCtx = `${p.ctx_pct}%`;
+            if (p.session_use_pct !== undefined) statusSessionUse = `${p.session_use_pct}%`;
+            if (p.week_pct !== undefined) statusWeek = `${p.week_pct}%`;
           }
         });
         if (cancelled) {
@@ -696,8 +729,14 @@
     // Load notification filter thresholds from config on mount.
     void loadNotifFilters();
 
-    // Re-read filters when Settings saves (rift:config-changed broadcast).
-    const onConfigChanged = () => { void loadNotifFilters(); };
+    // Load font_family + statusline config on mount.
+    void loadAppearanceConfig();
+
+    // Re-read filters + appearance when Settings saves (rift:config-changed broadcast).
+    const onConfigChanged = () => {
+      void loadNotifFilters();
+      void loadAppearanceConfig();
+    };
     window.addEventListener('rift:config-changed', onConfigChanged);
 
     void (async () => {
@@ -990,10 +1029,15 @@
 
   <StatusLine
     dir={statusDir || '—'}
+    model={statusModel || '—'}
+    ctx={statusCtx || '—'}
     repo={statusRepo || '—'}
     git={statusGit || '—'}
     skill={aegisSkillName || '—'}
     effort={aegisEffort || '—'}
+    sessionUse={statusSessionUse || '—'}
+    week={statusWeek || '—'}
+    visibility={statuslineConfig}
   />
 
   <!-- Phase 3.5b — pop-out stack (§10.5). Renders one overlay per entry
@@ -1022,14 +1066,13 @@
     overflow: hidden;
   }
 
-  /* Left half — holds the terminal/notif/empty area + optional promoted pane. */
   .cockpit-left {
     flex: 1;
     display: flex;
     flex-direction: column;
     min-width: 0;
     min-height: 0;
-    border-right: 1px solid var(--border-subtle);
+    border-right: 2px solid var(--amber-faint);
   }
   /* When a notif tab is promoted, the left column switches to row layout so
      the promoted pane sits alongside the main terminal area. */
@@ -1050,13 +1093,10 @@
     display: flex;
     flex-direction: column;
     min-height: 0;
-    /* Phase 8.7q.3 — min-width: 0 + overflow: hidden enforce the 420px
-       basis as a hard cap. Without these, intrinsic min-content of the
-       inner pane (long unbroken JSON in a notif row) overrides flex-basis
-       and pushes .main-left (the terminal) out of the viewport. */
     min-width: 0;
     overflow: hidden;
-    border-left: 1px solid var(--border-subtle);
+    border-left: 2px solid var(--amber-faint);
+    box-shadow: inset 2px 0 10px rgba(0, 0, 0, 0.4);
     background: var(--bg-base);
   }
 
@@ -1070,14 +1110,14 @@
     min-width: 0;
   }
 
-  /* Phase 8.4 — Graph pane (top slot). flex-basis set inline via
-     graphHeightPct state (Phase 8.7e Splitter-controlled). */
   .graph-pane {
     display: flex;
     flex-direction: column;
     min-height: 0;
     overflow: hidden;
     background: var(--bg-base);
+    border-bottom: 2px solid var(--amber-faint);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
   }
 
   /* Graph body — fills the remaining height below graph pane-header.
@@ -1106,25 +1146,25 @@
     background: var(--bg-base);
   }
 
-  /* Pane header — FILE TREE / INDEX title + meta. Shared vocabulary with NotificationPane. */
   .pane-header {
-    height: 24px;
-    padding: 0 10px;
-    background: var(--bg-elevated);
-    border-bottom: 1px solid var(--border-subtle);
+    height: 32px;
+    padding: 0 14px;
+    background: rgba(255, 168, 38, 0.05);
+    border-bottom: 1px solid var(--amber-faint);
+    box-shadow: 0 1px 6px rgba(0, 0, 0, 0.5);
     display: flex;
     align-items: center;
     justify-content: space-between;
-    color: var(--amber-warm);
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 9px;
+    color: var(--amber-bright);
+    font-family: var(--font-family);
+    font-size: 10px;
     font-weight: 700;
-    letter-spacing: 0.12em;
+    letter-spacing: 0.16em;
     flex-shrink: 0;
     user-select: none;
   }
   .pane-header .meta {
-    color: var(--amber-faint);
+    color: var(--amber-dim);
     font-weight: 400;
     font-size: 9px;
     letter-spacing: 0.04em;
@@ -1201,7 +1241,7 @@
     background: var(--bg-elevated);
     border-bottom: 1px solid var(--amber-primary);
     color: var(--amber-warm);
-    font-family: 'JetBrains Mono', monospace;
+    font-family: var(--font-family);
     font-size: 11px;
     user-select: none;
   }

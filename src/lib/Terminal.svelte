@@ -30,6 +30,7 @@
   let fit: FitAddon | undefined;
   let resizeObs: ResizeObserver | undefined;
   let unlistenExited: UnlistenFn | undefined;
+  let recoveryTimer: ReturnType<typeof setInterval> | undefined;
   let sessionId: number | null = null;
   let alive = false;
 
@@ -392,22 +393,43 @@
         cwd: projectPath ?? undefined,
       });
       alive = true;
+      invoke('terminal_mounted').catch(() => {});
     } catch (err) {
       term.writeln(`\r\n${laneFormatGated('ERR', `pty_start failed: ${err}`, lanesEnabled)}`);
       return;
     }
 
-    // Safety re-fit: xterm's canvas can fail to paint on first mount
-    // when the parent flex layout settles in a later frame than
-    // deferredFit measured. One extra rAF + fit + refresh is cheap
-    // when redundant and fixes the blank-terminal-on-cold-start race.
-    requestAnimationFrame(() => {
+    // Immediate post-start focus — xterm won't render cursor without it.
+    term.focus();
+
+    let lastResizeRows = 0;
+    let lastResizeCols = 0;
+    const refitAndResize = () => {
       try { fit?.fit(); } catch { /* best-effort */ }
       if (term) {
         term.refresh(0, term.rows - 1);
         term.scrollToBottom();
+        term.focus();
+        if (sessionId !== null && alive && term.rows > 1 && term.cols > 1) {
+          if (term.rows !== lastResizeRows || term.cols !== lastResizeCols) {
+            lastResizeRows = term.rows;
+            lastResizeCols = term.cols;
+            invoke('pty_resize', { id: sessionId, rows: term.rows, cols: term.cols }).catch(() => {});
+          }
+        }
       }
-    });
+    };
+    requestAnimationFrame(refitAndResize);
+
+    let recoveryAttempts = 0;
+    recoveryTimer = setInterval(() => {
+      recoveryAttempts++;
+      refitAndResize();
+      if ((term && term.rows > 1 && term.cols > 1) || recoveryAttempts >= 15) {
+        clearInterval(recoveryTimer);
+        recoveryTimer = undefined;
+      }
+    }, 200);
 
     term.onData((data) => {
       if (sessionId === null || !alive) return;
@@ -475,6 +497,7 @@
     }
     unlistenExited?.();
     unsubscribeLane?.().catch(() => {});
+    if (recoveryTimer) clearInterval(recoveryTimer);
     resizeObs?.disconnect();
     host?.removeEventListener(RIFT_VAULT_DROP_EVENT, onTermVaultDrop);
     fit?.dispose();
