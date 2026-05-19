@@ -160,6 +160,11 @@
 
   // ---- window controls ----
 
+  function onTitlebarMouseDown(e: MouseEvent): void {
+    if ((e.target as HTMLElement).closest('button')) return;
+    appWindow?.startDragging().catch(() => {});
+  }
+
   async function dock(): Promise<void> {
     try {
       await invoke('cockpit_reattach');
@@ -178,7 +183,7 @@
 
 <div class="detached-shell" data-tauri-drag-region>
   <!-- Local titlebar (design F — minimal brand + DOCK + close) -->
-  <header class="titlebar" data-tauri-drag-region>
+  <header class="titlebar" role="toolbar" tabindex={-1} data-tauri-drag-region onmousedown={onTitlebarMouseDown}>
     <span class="brand"><span class="glyph">◆</span>RIFT <span class="sub">COCKPIT</span></span>
     <span class="spacer" data-tauri-drag-region></span>
     <div class="controls">
@@ -345,7 +350,7 @@
     align-items: center;
     justify-content: space-between;
     color: var(--amber-warm);
-    font-family: 'JetBrains Mono', monospace;
+    font-family: var(--font-family);
     font-size: 9px;
     font-weight: 700;
     letter-spacing: 0.12em;

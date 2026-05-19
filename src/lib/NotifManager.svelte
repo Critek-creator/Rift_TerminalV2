@@ -97,7 +97,7 @@
     display: flex;
     flex-direction: column;
     min-height: 0;
-    font-family: 'JetBrains Mono', monospace;
+    font-family: var(--font-family);
     color: var(--amber-warm);
   }
 
@@ -140,7 +140,7 @@
   }
   .manager-row:hover {
     border-color: var(--amber-faint);
-    background: rgba(255, 168, 38, 0.04);
+    background: rgba(255, 168, 38, 0.06);
   }
   .manager-row.disabled .manager-title {
     color: var(--amber-faint);

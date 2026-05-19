@@ -19,15 +19,8 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 anyhow = { workspace = true }
 clap = { workspace = true }
-tracing = { workspace = true }
 thiserror = { workspace = true }
 uuid = { version = "1", features = ["v4"] }
 
 [dev-dependencies]
 tokio = { workspace = true }
-
-# cargo-machete suppression:
-# - tracing: subscriber init stub exists but doesn't import the crate yet —
-#   will be used when tracing is wired up (L7-NOTICED: remove suppression then)
-[package.metadata.cargo-machete]
-ignored = ["tracing"]

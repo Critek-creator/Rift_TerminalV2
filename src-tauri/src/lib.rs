@@ -124,6 +124,12 @@ impl ShutdownNotify {
     }
 }
 
+/// Signal from the frontend that the first terminal has mounted and started
+/// its PTY. The vault walker awaits this instead of a fixed sleep, eliminating
+/// the timing race that caused blank terminals when WebView2 setup was slow.
+#[derive(Clone, Default)]
+struct TerminalReady(Arc<Notify>);
+
 // ---------------------------------------------------------------------------
 // PTY registry (Phase 1)
 // ---------------------------------------------------------------------------
@@ -937,6 +943,14 @@ fn bus_unsubscribe(state: State<'_, BusSubscriptionRegistry>, id: u64) {
     state.remove(id);
 }
 
+/// Signal from Terminal.svelte that the first PTY has started and the
+/// terminal canvas is live. Unblocks the vault walker (which waits on
+/// `TerminalReady` instead of a fixed sleep).
+#[tauri::command]
+fn terminal_mounted(ready: State<'_, TerminalReady>) {
+    ready.0.notify_waiters();
+}
+
 /// Phase 8.7q.4 — page-load cleanup hook.
 ///
 /// Called on every WebView mount (App.svelte `onMount`) to drain orphan
@@ -1503,6 +1517,7 @@ pub fn run() {
         .manage(cockpit_window::CockpitWindowState::default())
         .manage(notif_window::NotifWindowState::default())
         .manage(ShutdownNotify::default())
+        .manage(TerminalReady::default())
         .setup(|app| {
             // Bus is always present; the IPC server is best-effort and may
             // fail to bind (e.g. if the socket name is taken). Frontend can
@@ -1583,8 +1598,20 @@ pub fn run() {
                             // to satisfy spawn_vault_walker's Option<PathBuf> parameter.
                             let project_root_for_walker =
                                 Some(app.state::<ProjectRoot>().inner().get());
+                            let terminal_notify =
+                                app.state::<TerminalReady>().inner().0.clone();
                             tauri::async_runtime::spawn(async move {
-                                tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+                                // Wait for the frontend's first Terminal to signal
+                                // it has mounted + started its PTY, OR 5s timeout
+                                // (covers edge cases where no terminal tab opens).
+                                // This replaces the fragile 250ms/750ms fixed sleep
+                                // that broke whenever setup overhead changed.
+                                tokio::select! {
+                                    _ = terminal_notify.notified() => {},
+                                    _ = tokio::time::sleep(std::time::Duration::from_secs(5)) => {
+                                        tracing::info!("vault_walker: terminal_mounted signal not received within 5s — proceeding anyway");
+                                    },
+                                }
                                 spawn_vault_walker(
                                     bus_for_walker,
                                     vault_root,
@@ -1770,12 +1797,13 @@ pub fn run() {
             cockpit_builder.build()?;
 
             // Notification tab detach-to-window pool — pre-build POOL_SIZE
-            // hidden windows, same wry#1418 mitigation as cockpit above.
-            // Each window loads notif-detached.html and waits for a
-            // `notif_configure` event to know which tab content to render.
+            // hidden windows so __TAURI_INTERNALS__ IPC bridge is injected.
+            // JS doesn't fully init in hidden WebView2 windows, so
+            // notif_detach force-reloads the page when showing. The window
+            // then mounts Svelte, pulls config via notif_get_config invoke.
             for i in 0..notif_window::POOL_SIZE {
                 let label = notif_window::window_label(i);
-                let notif_builder = tauri::WebviewWindowBuilder::new(
+                let mut notif_builder = tauri::WebviewWindowBuilder::new(
                     app,
                     &label,
                     tauri::WebviewUrl::App("notif-detached.html".into()),
@@ -1788,7 +1816,9 @@ pub fn run() {
                 .visible(false);
 
                 #[cfg(windows)]
-                let notif_builder = notif_builder.drag_and_drop(false);
+                {
+                    notif_builder = notif_builder.drag_and_drop(false);
+                }
 
                 if let Err(e) = notif_builder.build() {
                     tracing::warn!("notif_window: failed to pre-build '{label}': {e}");
@@ -1819,6 +1849,7 @@ pub fn run() {
             bus_unsubscribe,
             bus_publish,
             rift_reset_for_reload,
+            terminal_mounted,
             fs_tree,
             fs_read_text,
             fs_write_text,
@@ -1831,6 +1862,7 @@ pub fn run() {
             cockpit_window::cockpit_status,
             notif_window::notif_detach,
             notif_window::notif_dock,
+            notif_window::notif_get_config,
             notif_window::notif_detach_status,
             aegis_open_lessons,
             aegis_open_settings,
@@ -1873,6 +1905,9 @@ pub fn run() {
                 if let Err(e) = rift_bus::clear_mcp_socket() {
                     tracing::warn!("rift: failed to clear mcp_socket on exit: {e}");
                 }
+                // Destroy any live notification pop-out windows so they
+                // don't hold the process alive after main closes.
+                notif_window::destroy_all(app_handle);
             }
         });
 }

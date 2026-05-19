@@ -217,18 +217,17 @@ function getHeat(path: string, windowMs: number): number {
 
 /**
  * Build a snapshot of heat counts across all tracked paths for a given
- * window. Also prunes timestamps older than `windowMs` from `heatLog`
- * and removes entries with empty arrays (garbage collection).
+ * window. Pure read — does NOT mutate heatLog (would violate Svelte 5's
+ * no-mutation-inside-$derived rule). Pruning is deferred via microtask.
  *
  * Returns a new Map of path → count for entries with count > 0.
  */
 function heatSnapshot(windowMs: number): Map<string, number> {
   const cutoff = Date.now() - windowMs;
   const result = new Map<string, number>();
-  const pruned = new Map<string, number[]>();
+  let needsPrune = false;
 
   for (const [path, stamps] of heatLog) {
-    // Binary-ish prune: find first index >= cutoff. Stamps are ordered.
     let firstValid = -1;
     for (let i = 0; i < stamps.length; i++) {
       if (stamps[i] >= cutoff) {
@@ -236,15 +235,33 @@ function heatSnapshot(windowMs: number): Map<string, number> {
         break;
       }
     }
-    if (firstValid === -1) continue; // all expired — drop entry
-    const kept = firstValid === 0 ? stamps : stamps.slice(firstValid);
-    pruned.set(path, kept);
-    result.set(path, kept.length);
+    if (firstValid === -1) {
+      needsPrune = true;
+      continue;
+    }
+    if (firstValid > 0) needsPrune = true;
+    const count = stamps.length - (firstValid > 0 ? firstValid : 0);
+    result.set(path, count);
   }
 
-  // Assign-replace for reactivity.
-  heatLog = pruned;
+  if (needsPrune) {
+    queueMicrotask(() => pruneHeatLog(windowMs));
+  }
   return result;
+}
+
+function pruneHeatLog(windowMs: number): void {
+  const cutoff = Date.now() - windowMs;
+  const pruned = new Map<string, number[]>();
+  for (const [path, stamps] of heatLog) {
+    let firstValid = -1;
+    for (let i = 0; i < stamps.length; i++) {
+      if (stamps[i] >= cutoff) { firstValid = i; break; }
+    }
+    if (firstValid === -1) continue;
+    pruned.set(path, firstValid === 0 ? stamps : stamps.slice(firstValid));
+  }
+  heatLog = pruned;
 }
 
 /**

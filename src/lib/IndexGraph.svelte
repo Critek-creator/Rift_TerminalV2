@@ -118,11 +118,16 @@
   let selectedId = $state<string | null>(null);
   let hoveredId = $state<string | null>(null);
   let searchInput = $state<HTMLInputElement | undefined>(undefined);
+  let activeKindFilter = $state<VaultKind | null>(null);
 
   function toggleKind(kind: VaultKind): void {
     const next = new Set(collapsedKinds);
     if (next.has(kind)) next.delete(kind); else next.add(kind);
     collapsedKinds = next;
+  }
+
+  function toggleKindFilter(kind: VaultKind): void {
+    activeKindFilter = activeKindFilter === kind ? null : kind;
   }
 
   // ---------------------------------------------------------------------------
@@ -166,18 +171,31 @@
     collapsed: boolean;
   }
 
+  const RECENTS_LIMIT = 5;
+  const RECENTS_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+  const recentVaults = $derived.by<VaultNode[]>(() => {
+    return activeNodes
+      .filter((n) => n.updatedMs && (Date.now() - n.updatedMs) < RECENTS_WINDOW_MS)
+      .sort((a, b) => (b.updatedMs ?? 0) - (a.updatedMs ?? 0))
+      .slice(0, RECENTS_LIMIT);
+  });
+
+  function matchesSearch(n: VaultNode, q: string): boolean {
+    return n.id.toLowerCase().includes(q) ||
+      n.label.toLowerCase().includes(q) ||
+      (n.displayName ?? '').toLowerCase().includes(q) ||
+      (n.shortLabel ?? '').toLowerCase().includes(q);
+  }
+
   const categories = $derived.by<CategoryGroup[]>(() => {
     const q = searchQuery.toLowerCase().trim();
-    return CATEGORY_ORDER
+    const kindsToShow = activeKindFilter ? [activeKindFilter] : CATEGORY_ORDER;
+    return kindsToShow
       .map((kind) => {
         let vaults = activeNodes.filter((n) => n.kind === kind);
         if (q) {
-          vaults = vaults.filter((n) =>
-            n.id.toLowerCase().includes(q) ||
-            n.label.toLowerCase().includes(q) ||
-            (n.displayName ?? '').toLowerCase().includes(q) ||
-            (n.shortLabel ?? '').toLowerCase().includes(q)
-          );
+          vaults = vaults.filter((n) => matchesSearch(n, q));
         }
         return {
           kind,
@@ -188,6 +206,14 @@
         };
       })
       .filter((g) => g.vaults.length > 0);
+  });
+
+  const kindCounts = $derived.by<Record<VaultKind, number>>(() => {
+    const counts: Record<string, number> = {};
+    for (const n of activeNodes) {
+      counts[n.kind] = (counts[n.kind] ?? 0) + 1;
+    }
+    return counts as Record<VaultKind, number>;
   });
 
   const totalCount = $derived(activeNodes.length);
@@ -405,6 +431,36 @@
   {#if viewMode === 'content'}
     <IndexContentBrowser />
   {:else}
+  <!-- Tag chip filters -->
+  {#if activeNodes.length > 0 || walkComplete}
+    <div class="kind-chips">
+      {#each CATEGORY_ORDER as kind (kind)}
+        {@const count = kindCounts[kind] ?? 0}
+        {#if count > 0}
+          <button
+            type="button"
+            class="kind-chip kind-chip-{kind}"
+            class:active={activeKindFilter === kind}
+            onclick={() => toggleKindFilter(kind)}
+            title="{KIND_LABEL[kind]} ({count})"
+          >
+            <span class="chip-glyph">{KIND_GLYPH[kind]}</span>
+            <span class="chip-label">{KIND_LABEL[kind]}</span>
+            <span class="chip-count">{count}</span>
+          </button>
+        {/if}
+      {/each}
+      {#if activeKindFilter}
+        <button
+          type="button"
+          class="kind-chip kind-chip-clear"
+          onclick={() => { activeKindFilter = null; }}
+          title="Clear filter"
+        >ALL</button>
+      {/if}
+    </div>
+  {/if}
+
   <!-- Vault list -->
   <div class="browser-body">
     {#if activeNodes.length === 0 && !walkComplete}
@@ -415,6 +471,39 @@
     {:else if categories.length === 0 && searchQuery}
       <div class="browser-empty">no vaults match "{searchQuery}"</div>
     {:else}
+      <!-- Recents section -->
+      {#if recentVaults.length > 0 && !searchQuery && !activeKindFilter}
+        <div class="recents-section">
+          <div class="recents-header">
+            <span class="recents-glyph">◆</span>
+            <span>RECENT</span>
+          </div>
+          {#each recentVaults as vault (vault.id)}
+            {@const state = nodeState(vault)}
+            {@const conns = connectionsFor(vault.id)}
+            <button
+              type="button"
+              class="vault-row recent-row"
+              class:selected={selectedId === vault.id}
+              class:dragging={draggingId === vault.id}
+              onmouseenter={() => { hoveredId = vault.id; crossRefHighlight.hoveredVaultId = vault.id; }}
+              onmouseleave={() => { if (hoveredId === vault.id) hoveredId = null; crossRefHighlight.hoveredVaultId = null; }}
+              onclick={() => { selectedId = selectedId === vault.id ? null : vault.id; }}
+              onmousedown={(e) => onRowMouseDown(e, vault)}
+            >
+              <span class="state-dot state-{state}"></span>
+              <span class="vault-glyph kind-{vault.kind}">{KIND_GLYPH[vault.kind]}</span>
+              <span class="vault-id">{vault.id}</span>
+              <span class="vault-name">{vault.displayName || vault.shortLabel || ''}</span>
+              <span class="vault-age">{formatAge(vault.updatedMs)}</span>
+              {#if conns.length > 0}
+                <span class="vault-refs" title={conns.join(', ')}>⟷{conns.length}</span>
+              {/if}
+            </button>
+          {/each}
+        </div>
+      {/if}
+
       {#each categories as group (group.kind)}
         <!-- Category header -->
         <button
@@ -523,7 +612,7 @@
     flex-direction: column;
     height: 100%;
     background: var(--bg-base);
-    font-family: 'JetBrains Mono', monospace;
+    font-family: var(--font-family);
     font-size: 12px;
     color: var(--amber-warm);
     user-select: none;
@@ -534,7 +623,7 @@
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 6px 10px;
+    padding: 8px 12px;
     background: var(--bg-surface);
     border-bottom: 1px solid var(--border-subtle);
     flex-shrink: 0;
@@ -544,26 +633,30 @@
     gap: 0;
   }
   .mode-btn {
-    padding: 2px 8px;
+    padding: 3px 10px;
     border: 1px solid var(--border-subtle);
-    background: transparent;
+    border-radius: var(--radius-md, 4px);
+    background: var(--bg-elevated);
     color: var(--amber-faint);
     font-family: inherit;
-    font-size: 8px;
+    font-size: 9px;
     font-weight: 700;
     letter-spacing: 0.1em;
     cursor: pointer;
     transition: all 0.12s;
   }
-  .mode-btn:first-child { border-right: none; }
+  .mode-btn:first-child { border-top-right-radius: 0; border-bottom-right-radius: 0; border-right: none; }
+  .mode-btn:last-child { border-top-left-radius: 0; border-bottom-left-radius: 0; }
   .mode-btn.active {
-    color: var(--term-cyan, #4ad4d4);
-    border-color: var(--term-cyan, #4ad4d4);
-    background: rgba(74, 212, 212, 0.08);
+    color: var(--term-cyan, #6FE0E0);
+    border-color: var(--term-cyan, #6FE0E0);
+    background: rgba(74, 212, 212, 0.1);
+    box-shadow: 0 0 6px rgba(74, 212, 212, 0.15);
   }
   .mode-btn:hover:not(.active) {
     color: var(--amber-dim);
     border-color: var(--amber-dim);
+    background: var(--bg-hover);
   }
   .browser-title {
     font-size: 9px;
@@ -576,22 +669,24 @@
     font-weight: 700;
     color: var(--bg-base);
     background: var(--amber-dim);
-    padding: 1px 5px;
-    min-width: 18px;
+    padding: 2px 7px;
+    min-width: 20px;
     text-align: center;
+    border-radius: 10px;
   }
   .browser-search {
     flex: 1;
     min-width: 0;
-    height: 22px;
+    height: 26px;
     background: var(--bg-base);
     border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md, 4px);
     color: var(--amber-warm);
     font-family: inherit;
     font-size: 11px;
-    padding: 0 8px;
+    padding: 0 10px;
     outline: none;
-    transition: border-color 0.15s;
+    transition: border-color 0.15s, box-shadow 0.15s;
   }
   .browser-search::placeholder {
     color: var(--amber-faint);
@@ -599,7 +694,95 @@
   }
   .browser-search:focus {
     border-color: var(--amber-dim);
-    box-shadow: 0 0 0 1px rgba(255, 168, 38, 0.15);
+    box-shadow: 0 0 0 1px rgba(255, 168, 38, 0.15),
+                inset 0 1px 3px rgba(0, 0, 0, 0.2);
+  }
+
+  /* Kind filter chips */
+  .kind-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    padding: 6px 12px 8px;
+    background: var(--bg-surface);
+    border-bottom: 1px solid var(--border-subtle);
+    flex-shrink: 0;
+  }
+  .kind-chip {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 8px;
+    border: 1px solid var(--border-subtle);
+    border-radius: 12px;
+    background: var(--bg-elevated);
+    color: var(--amber-dim);
+    font-family: inherit;
+    font-size: 9px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    cursor: pointer;
+    transition: all 0.12s;
+  }
+  .kind-chip:hover {
+    border-color: var(--amber-dim);
+    background: var(--bg-hover);
+    color: var(--amber-warm);
+  }
+  .kind-chip.active {
+    border-color: currentColor;
+    box-shadow: 0 0 6px rgba(255, 168, 38, 0.15);
+  }
+  .kind-chip-p.active       { color: var(--amber-bright); background: rgba(255, 200, 64, 0.1); }
+  .kind-chip-pr.active      { color: var(--amber-warm);   background: rgba(240, 160, 48, 0.1); }
+  .kind-chip-r.active       { color: var(--term-cyan);    background: rgba(111, 224, 224, 0.1); }
+  .kind-chip-s.active       { color: var(--term-blue);    background: rgba(108, 182, 255, 0.1); }
+  .kind-chip-lore.active    { color: var(--term-purple);  background: rgba(197, 143, 255, 0.1); }
+  .kind-chip-agt.active     { color: var(--term-green);   background: rgba(79, 232, 85, 0.1); }
+  .kind-chip-h.active       { color: var(--amber-faint);  background: rgba(168, 120, 48, 0.1); }
+  .kind-chip-clear {
+    color: var(--amber-faint);
+    border-style: dashed;
+    font-size: 8px;
+    letter-spacing: 0.1em;
+  }
+  .kind-chip-clear:hover { color: var(--amber-warm); border-style: solid; }
+  .chip-glyph { font-size: 10px; }
+  .chip-label { text-transform: uppercase; }
+  .chip-count {
+    font-size: 8px;
+    color: var(--amber-faint);
+    font-weight: 400;
+  }
+  .kind-chip.active .chip-count { color: inherit; opacity: 0.7; }
+
+  /* Recents section */
+  .recents-section {
+    border-bottom: 1px solid var(--border-active);
+    background: linear-gradient(to bottom, rgba(255, 200, 64, 0.03), transparent);
+  }
+  .recents-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    font-size: var(--section-header-size, 11px);
+    font-weight: 700;
+    letter-spacing: var(--section-header-spacing, 0.1em);
+    color: var(--amber-bright);
+    text-shadow: var(--glow-amber-faint);
+    border-bottom: 1px solid var(--border-subtle);
+    background: var(--bg-surface);
+  }
+  .recents-glyph {
+    font-size: 10px;
+    text-shadow: var(--glow-amber);
+  }
+  .recent-row {
+    background: rgba(255, 200, 64, 0.02);
+  }
+  .recent-row:hover {
+    background: rgba(255, 200, 64, 0.06);
   }
 
   /* Scrollable body */
@@ -638,17 +821,17 @@
   .category-header {
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 8px;
     width: 100%;
-    padding: 5px 10px;
+    padding: 7px 12px;
     background: var(--bg-surface);
     border: none;
     border-bottom: 1px solid var(--border-subtle);
     color: var(--amber-dim);
     font-family: inherit;
-    font-size: 9px;
+    font-size: 10px;
     font-weight: 700;
-    letter-spacing: 0.12em;
+    letter-spacing: 0.1em;
     cursor: pointer;
     transition: color 0.12s, background 0.12s;
     text-align: left;
@@ -682,9 +865,9 @@
   .vault-row {
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 8px;
     width: 100%;
-    padding: 4px 10px 4px 20px;
+    padding: 5px 12px 5px 22px;
     background: transparent;
     border: none;
     border-left: 2px solid transparent;
@@ -841,7 +1024,7 @@
     padding: 4px 10px;
     background: var(--bg-elevated);
     border: 1px solid var(--amber-dim);
-    font-family: 'JetBrains Mono', monospace;
+    font-family: var(--font-family);
     font-size: 11px;
     color: var(--amber-bright);
     box-shadow: 0 2px 12px rgba(0, 0, 0, 0.5);

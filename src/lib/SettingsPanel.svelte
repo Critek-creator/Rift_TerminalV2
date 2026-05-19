@@ -20,7 +20,7 @@
   import { getVersion, getName } from '@tauri-apps/api/app';
   import { check, type Update } from '@tauri-apps/plugin-updater';
   import { popouts } from './popouts.svelte';
-  import type { RiftConfig, McpConfig, ShellPref, SeverityLevel } from './riftConfig';
+  import type { RiftConfig, McpConfig, ShellPref, SeverityLevel, StatusLineConfig } from './riftConfig';
 
   interface Props {
     popoutId: number;
@@ -28,7 +28,7 @@
 
   let { popoutId }: Props = $props();
 
-  type SettingsTab = 'general' | 'terminal' | 'index' | 'tree' | 'mcp';
+  type SettingsTab = 'general' | 'terminal' | 'index' | 'tree' | 'mcp' | 'statusline';
   let activeTab = $state<SettingsTab>('general');
 
   // ---------------------------------------------------------------------
@@ -108,7 +108,7 @@
   let savingTerminal = $state(false);
   let savingTree = $state(false);
   let saveBanner = $state<{
-    section: 'fs' | 'index' | 'mcp' | 'terminal' | 'notif' | 'tree';
+    section: 'fs' | 'index' | 'mcp' | 'terminal' | 'notif' | 'tree' | 'statusline';
     ok: boolean;
     msg: string;
   } | null>(null);
@@ -117,9 +117,34 @@
   let termShellKind = $state<ShellKind>('auto');
   let termCustomPath = $state('');
   let termFontSize = $state(13);
+  let termFontFamily = $state("'JetBrains Mono', monospace");
   let termLineHeight = $state(1.55);
   let termScrollback = $state(1000);
   let termLanesEnabled = $state(true);
+
+  // Font presets — aesthetic templates
+  const FONT_PRESETS: { label: string; value: string }[] = [
+    { label: 'Abyssal Classic', value: "'JetBrains Mono', monospace" },
+    { label: 'Operator', value: "'Fira Code', monospace" },
+    { label: 'Cascade', value: "'Cascadia Code', monospace" },
+    { label: 'Plexed', value: "'IBM Plex Mono', monospace" },
+    { label: 'Source', value: "'Source Code Pro', monospace" },
+  ];
+  let fontPresetMode = $state<'preset' | 'custom'>('preset');
+  let customFontFamily = $state('');
+
+  // StatusLine — segment visibility toggles.
+  let slShowDir = $state(true);
+  let slShowGit = $state(true);
+  let slShowRepo = $state(true);
+  let slShowSession = $state(true);
+  let slShowSkill = $state(true);
+  let slShowEffort = $state(true);
+  let slShowModel = $state(true);
+  let slShowCtx = $state(true);
+  let slShowSessionUse = $state(true);
+  let slShowWeek = $state(true);
+  let savingStatusline = $state(false);
 
   // Tree — D-020 heatmap groundwork.
   let treeHeatmapEnabled = $state(false);
@@ -333,9 +358,26 @@
     && (
       !shellPrefEquals(buildTerminalShellPref(), config.terminal.shell)
       || termFontSize !== config.terminal.font_size
+      || termFontFamily !== (config.terminal.font_family ?? "'JetBrains Mono', monospace")
       || Math.abs(termLineHeight - config.terminal.line_height) > 1e-4
       || termScrollback !== config.terminal.scrollback
       || termLanesEnabled !== config.terminal.lanes_enabled
+    )
+  );
+
+  const statuslineDirty = $derived(
+    config !== null
+    && (
+      slShowDir !== (config.statusline?.show_dir ?? true)
+      || slShowGit !== (config.statusline?.show_git ?? true)
+      || slShowRepo !== (config.statusline?.show_repo ?? true)
+      || slShowSession !== (config.statusline?.show_session ?? true)
+      || slShowSkill !== (config.statusline?.show_skill ?? true)
+      || slShowEffort !== (config.statusline?.show_effort ?? true)
+      || slShowModel !== (config.statusline?.show_model ?? true)
+      || slShowCtx !== (config.statusline?.show_ctx ?? true)
+      || slShowSessionUse !== (config.statusline?.show_session_use ?? true)
+      || slShowWeek !== (config.statusline?.show_week ?? true)
     )
   );
 
@@ -360,9 +402,31 @@
     termShellKind = c.terminal.shell.kind;
     termCustomPath = c.terminal.shell.kind === 'custom' ? c.terminal.shell.path : '';
     termFontSize = c.terminal.font_size;
+    termFontFamily = c.terminal.font_family ?? "'JetBrains Mono', monospace";
     termLineHeight = c.terminal.line_height;
     termScrollback = c.terminal.scrollback;
     termLanesEnabled = c.terminal.lanes_enabled;
+    // Font preset mode detection
+    const matchedPreset = FONT_PRESETS.find(p => p.value === termFontFamily);
+    if (matchedPreset) {
+      fontPresetMode = 'preset';
+      customFontFamily = '';
+    } else {
+      fontPresetMode = 'custom';
+      customFontFamily = termFontFamily;
+    }
+    // StatusLine snapshot
+    const sl = c.statusline ?? {} as StatusLineConfig;
+    slShowDir = sl.show_dir ?? true;
+    slShowGit = sl.show_git ?? true;
+    slShowRepo = sl.show_repo ?? true;
+    slShowSession = sl.show_session ?? true;
+    slShowSkill = sl.show_skill ?? true;
+    slShowEffort = sl.show_effort ?? true;
+    slShowModel = sl.show_model ?? true;
+    slShowCtx = sl.show_ctx ?? true;
+    slShowSessionUse = sl.show_session_use ?? true;
+    slShowWeek = sl.show_week ?? true;
     // Tree snapshot — defaults for old configs are filled by serde-side
     // #[serde(default)], so c.tree is always present at runtime.
     const tree = c.tree ?? { heatmap_enabled: false, heatmap_window_minutes: 15 };
@@ -424,6 +488,7 @@
         terminal: {
           shell: buildTerminalShellPref(),
           font_size: Math.max(8, Math.min(48, Math.floor(termFontSize || 13))),
+          font_family: termFontFamily || "'JetBrains Mono', monospace",
           line_height: Math.max(1.0, Math.min(2.5, termLineHeight || 1.55)),
           scrollback: Math.max(100, Math.min(100000, Math.floor(termScrollback || 1000))),
           lanes_enabled: termLanesEnabled,
@@ -441,6 +506,38 @@
       saveBanner = { section: 'terminal', ok: false, msg: String(err) };
     } finally {
       savingTerminal = false;
+    }
+  }
+
+  async function saveStatuslineConfig() {
+    if (!config) return;
+    savingStatusline = true;
+    saveBanner = null;
+    try {
+      const next: RiftConfig = {
+        ...config,
+        statusline: {
+          show_dir: slShowDir,
+          show_git: slShowGit,
+          show_repo: slShowRepo,
+          show_session: slShowSession,
+          show_skill: slShowSkill,
+          show_effort: slShowEffort,
+          show_model: slShowModel,
+          show_ctx: slShowCtx,
+          show_session_use: slShowSessionUse,
+          show_week: slShowWeek,
+          color_overrides: config.statusline?.color_overrides ?? {},
+        },
+      };
+      await invoke('config_save', { cfg: next });
+      config = next;
+      broadcastConfigChanged();
+      saveBanner = { section: 'statusline', ok: true, msg: 'status line saved' };
+    } catch (err) {
+      saveBanner = { section: 'statusline', ok: false, msg: String(err) };
+    } finally {
+      savingStatusline = false;
     }
   }
 
@@ -524,11 +621,12 @@
 >
   <nav class="tab-strip">
     {#each [
-      { id: 'general',  label: 'GENERAL' },
-      { id: 'terminal', label: 'TERMINAL' },
-      { id: 'index',    label: 'INDEX' },
-      { id: 'tree',     label: 'TREE' },
-      { id: 'mcp',      label: 'MCP' },
+      { id: 'general',    label: 'GENERAL' },
+      { id: 'terminal',   label: 'TERMINAL' },
+      { id: 'statusline', label: 'STATUS LINE' },
+      { id: 'index',      label: 'INDEX' },
+      { id: 'tree',       label: 'TREE' },
+      { id: 'mcp',        label: 'MCP' },
     ] as tab (tab.id)}
       <button
         class="tab-btn"
@@ -808,6 +906,49 @@
           </label>
         </div>
 
+        <div class="section-label" style="margin-top: 12px;">Font</div>
+        <div class="radio-row">
+          <label class="radio">
+            <input type="radio" name="font-mode" value="preset"
+              checked={fontPresetMode === 'preset'}
+              onchange={() => (fontPresetMode = 'preset')}
+            />
+            <span>preset</span>
+          </label>
+          <label class="radio">
+            <input type="radio" name="font-mode" value="custom"
+              checked={fontPresetMode === 'custom'}
+              onchange={() => { fontPresetMode = 'custom'; if (!customFontFamily) customFontFamily = termFontFamily; }}
+            />
+            <span>custom</span>
+          </label>
+        </div>
+
+        {#if fontPresetMode === 'preset'}
+          <div class="radio-col">
+            {#each FONT_PRESETS as preset}
+              <label class="radio">
+                <input type="radio" name="font-preset" value={preset.value}
+                  checked={termFontFamily === preset.value}
+                  onchange={() => (termFontFamily = preset.value)}
+                />
+                <span style="font-family: {preset.value}">{preset.label}</span>
+              </label>
+            {/each}
+          </div>
+        {:else}
+          <label class="field">
+            <span class="field-label">CSS font-family</span>
+            <input
+              type="text"
+              class="field-input"
+              bind:value={customFontFamily}
+              oninput={() => (termFontFamily = customFontFamily)}
+              placeholder="'My Font', monospace"
+            />
+          </label>
+        {/if}
+
         <div class="row">
           <button
             type="button"
@@ -818,6 +959,47 @@
             {savingTerminal ? 'saving…' : 'save terminal'}
           </button>
           {#if saveBanner && saveBanner.section === 'terminal'}
+            <span class="banner-inline" class:fail={!saveBanner.ok}>
+              {saveBanner.msg}
+            </span>
+          {/if}
+        </div>
+      </section>
+    {:else}
+      <div class="hint">loading config…</div>
+    {/if}
+    {/if}
+
+    {#if activeTab === 'statusline'}
+    <!-- STATUS LINE -->
+    {#if config}
+      <section class="section">
+        <div class="section-label">Segment Visibility</div>
+        <div class="hint">toggle individual status line segments on or off.</div>
+
+        <div class="toggle-grid">
+          <label class="kv-toggle"><input type="checkbox" bind:checked={slShowDir} /><span>DIR</span></label>
+          <label class="kv-toggle"><input type="checkbox" bind:checked={slShowModel} /><span>MODEL</span></label>
+          <label class="kv-toggle"><input type="checkbox" bind:checked={slShowCtx} /><span>CTX%</span></label>
+          <label class="kv-toggle"><input type="checkbox" bind:checked={slShowSession} /><span>SESSION</span></label>
+          <label class="kv-toggle"><input type="checkbox" bind:checked={slShowSkill} /><span>SKILL</span></label>
+          <label class="kv-toggle"><input type="checkbox" bind:checked={slShowGit} /><span>GIT</span></label>
+          <label class="kv-toggle"><input type="checkbox" bind:checked={slShowRepo} /><span>REPO</span></label>
+          <label class="kv-toggle"><input type="checkbox" bind:checked={slShowSessionUse} /><span>USE%</span></label>
+          <label class="kv-toggle"><input type="checkbox" bind:checked={slShowWeek} /><span>WEEK%</span></label>
+          <label class="kv-toggle"><input type="checkbox" bind:checked={slShowEffort} /><span>EFFORT</span></label>
+        </div>
+
+        <div class="row">
+          <button
+            type="button"
+            class="btn primary"
+            disabled={!statuslineDirty || savingStatusline}
+            onclick={saveStatuslineConfig}
+          >
+            {savingStatusline ? 'saving…' : 'save status line'}
+          </button>
+          {#if saveBanner && saveBanner.section === 'statusline'}
             <span class="banner-inline" class:fail={!saveBanner.ok}>
               {saveBanner.msg}
             </span>
@@ -1097,7 +1279,7 @@
     display: flex;
     flex-direction: column;
     min-height: 0;
-    font-family: 'JetBrains Mono', monospace;
+    font-family: var(--font-family);
     color: var(--amber-warm);
   }
 
@@ -1115,7 +1297,7 @@
     border: none;
     border-bottom: 3px solid transparent;
     color: var(--amber-faint);
-    font-family: 'JetBrains Mono', monospace;
+    font-family: var(--font-family);
     font-size: 9px;
     font-weight: 700;
     letter-spacing: 0.14em;
@@ -1256,7 +1438,7 @@
 
   /* ─── Mono value display ─────────────────────────────────────────────── */
   .mono-wrap {
-    font-family: 'JetBrains Mono', monospace;
+    font-family: var(--font-family);
     word-break: break-all;
     font-size: 10px;
   }
@@ -1426,6 +1608,18 @@
   /* Terminal section has 8 radios — wrap onto multiple rows on narrow popouts. */
   .radio-row.radio-wrap {
     row-gap: 8px;
+  }
+  .radio-col {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-bottom: 8px;
+  }
+  .toggle-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 4px 16px;
+    margin-bottom: 10px;
   }
   .radio {
     display: inline-flex;

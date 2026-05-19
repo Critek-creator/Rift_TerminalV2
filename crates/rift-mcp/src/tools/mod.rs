@@ -225,6 +225,11 @@ pub fn tool_catalog() -> Vec<ToolSpec> {
                         "maximum": 5000,
                         "description": "Number of lines to read from the bottom of the buffer. Default: visible rows.",
                     },
+                    "window": {
+                        "type": "string",
+                        "enum": ["main", "cockpit"],
+                        "description": "Which window to read from. Default: main.",
+                    },
                 },
             }),
         },
@@ -362,7 +367,7 @@ pub fn tool_catalog() -> Vec<ToolSpec> {
         },
         ToolSpec {
             name: "rift_config_set",
-            description: "Update Rift terminal configuration at runtime. Changes are persisted to disk. Requires allow_mutations permission. Supports: font_size (8-48), line_height (1.0-2.5), scrollback (100-100000), lanes_enabled (bool), shell (auto/pwsh/cmd/bash/zsh).",
+            description: "Update Rift terminal configuration at runtime. Changes are persisted to disk. Requires allow_mutations permission. Supports: font_size (8-48), font_family (CSS font stack string), line_height (1.0-2.5), scrollback (100-100000), lanes_enabled (bool), shell (auto/pwsh/cmd/bash/zsh).",
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -371,6 +376,10 @@ pub fn tool_catalog() -> Vec<ToolSpec> {
                         "minimum": 8,
                         "maximum": 48,
                         "description": "Terminal font size in pixels",
+                    },
+                    "font_family": {
+                        "type": "string",
+                        "description": "CSS font-family stack (e.g. \"'Fira Code', monospace\")",
                     },
                     "line_height": {
                         "type": "number",

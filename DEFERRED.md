@@ -73,13 +73,7 @@ C-021 in the closed-deferrals section. Phases B–F (Tier 1 completion,
 DOM/screenshot/`js_eval`, mutating tools, audit-log notif tab,
 WebSocket transport) remain in the locked plan as ongoing v1.x work.
 
-### D-010 — Sentinel implementation (active 2026-04-27, opened by Phase 7.0 architecture lock)
-- Spec §10.11 names Sentinel as the source-of-truth for agent misbehavior detection (stuck / runaway / unauthorized edits); Rift is the display layer.
-- Sentinel does NOT yet exist in the workspace — no crate, no source file, no Aegis-side spec defining the event surface. Greenfield post-v1 work.
-- v1 scope: Phase 7.5 ships an empty Agents-tab placeholder card "Sentinel: integration not loaded" per §10.7 capability-driven empty-state pattern. No detection logic, no event subscription — pure visual stub that lights up when a future Sentinel translator self-registers.
-- **Unblocking event**: (a) Sentinel architecture spec lands as a separate planning beat post-v1, AND (b) a Sentinel-side implementation produces detectable misbehavior events on a documented schema. Then Rift's Agents tab subscribes to `sentinel.*` envelopes and renders them alongside existing Aegis-derived `agent.*` events.
-- Created during Phase 7.0 architecture lock (this commit). No code change required to open this deferral — pure spec deferral. Phase 7.5 will write the placeholder card and reference this entry inline.
-- Phase 7.5 placeholder card landed in `src/lib/NotificationPane.svelte` (persistent-state section, bottom of the state-panel footer).
+<!-- D-010 closed 2026-05-19 — see C-027 below. -->
 
 <!-- D-020 closed 2026-05-16 — see C-025 below. -->
 
@@ -88,6 +82,28 @@ WebSocket transport) remain in the locked plan as ongoing v1.x work.
 ---
 
 ## Closed deferrals
+
+### C-027 — D-010 Sentinel integration (closed 2026-05-19)
+
+Both unblocking criteria met: (a) Sentinel architecture spec resolved
+(p007 vault, 7 design questions answered 2026-05-16), and (b) Sentinel
+implementation produces detectable events on a documented schema.
+
+**Sentinel side (Abyssal_Sentinel project):** Core engine (`sentinel.mjs`)
+with rule loading, pattern checking, session state, violation logging.
+Three CC hooks registered in global `settings.json`: PreToolUse (scope
+guard), PostToolUse (output scan + guess-loop), Stop (session-end gate).
+`emitBusEvents()` writes structured JSONL to `~/.sentinel/events.jsonl`.
+
+**Rift side:** `crates/rift-bus/src/translators/sentinel.rs` file-tail
+translator watches `~/.sentinel/events.jsonl`, publishes `Category::Agent`
+envelopes with `sentinel.*` kinds. Spawned at app startup
+(`src-tauri/src/lib.rs`). `AgentsTabContent.svelte` renders sentinel
+violations with severity-colored rows in a dedicated SENTINEL section.
+Capability-driven empty state when no events received (§10.7 pattern).
+
+Pipeline is live end-to-end: Sentinel hooks fire → violations written
+to `events.jsonl` → Rift translator publishes on bus → Agents tab renders.
 
 ### C-026 — D-021 Section Catalog Self-Discovery (closed 2026-05-16)
 

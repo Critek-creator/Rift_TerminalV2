@@ -257,7 +257,7 @@
     display: flex;
     flex-direction: column;
     min-height: 0;
-    font-family: 'JetBrains Mono', monospace;
+    font-family: var(--font-family);
     color: var(--amber-warm);
     background: var(--bg-elevated, #14140F);
   }
@@ -394,7 +394,7 @@
     border: 1px solid var(--border-active, #4a3818);
     border-right: none;
     color: var(--amber-warm);
-    font-family: 'JetBrains Mono', monospace;
+    font-family: var(--font-family);
     font-size: 11px;
     padding: 0 10px;
     outline: none;
@@ -423,7 +423,7 @@
     background: var(--bg-panel, #0c0c0a);
     border: 1px solid var(--border-active, #4a3818);
     color: var(--amber-dim);
-    font-family: 'JetBrains Mono', monospace;
+    font-family: var(--font-family);
     font-size: 10px;
     font-weight: 700;
     letter-spacing: 0.08em;
@@ -480,7 +480,7 @@
   }
 
   .picker-btn {
-    font-family: 'JetBrains Mono', monospace;
+    font-family: var(--font-family);
     font-size: 10px;
     letter-spacing: 0.08em;
     font-weight: 700;

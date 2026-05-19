@@ -91,6 +91,8 @@ pub struct RiftConfig {
     pub notif_filters: NotifFilterConfig,
     /// Filesystem tree display settings (D-020 heatmap groundwork).
     pub tree: TreeConfig,
+    /// StatusLine segment visibility and color overrides (§10.2).
+    pub statusline: StatusLineConfig,
 }
 
 /// A recently-used project entry stored in the config.
@@ -481,6 +483,52 @@ impl Default for TreeConfig {
 }
 
 // ---------------------------------------------------------------------------
+// StatusLineConfig (§10.2 — segment visibility + color overrides)
+// ---------------------------------------------------------------------------
+
+/// Per-segment visibility and optional color override for the status line.
+///
+/// Each segment can be individually toggled. Color overrides are CSS color
+/// strings (hex, rgb, hsl) — when `None`, the default palette from
+/// `styles.css` Phase 8.7g.2 applies.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(default)]
+pub struct StatusLineConfig {
+    pub show_dir: bool,
+    pub show_git: bool,
+    pub show_repo: bool,
+    pub show_session: bool,
+    pub show_skill: bool,
+    pub show_effort: bool,
+    pub show_model: bool,
+    pub show_ctx: bool,
+    pub show_session_use: bool,
+    pub show_week: bool,
+    /// Optional per-segment color overrides (CSS color strings).
+    /// Keys: "dir", "git", "repo", "session", "skill", "effort",
+    /// "model", "ctx", "session_use", "week".
+    pub color_overrides: std::collections::HashMap<String, String>,
+}
+
+impl Default for StatusLineConfig {
+    fn default() -> Self {
+        Self {
+            show_dir: true,
+            show_git: true,
+            show_repo: true,
+            show_session: true,
+            show_skill: true,
+            show_effort: true,
+            show_model: true,
+            show_ctx: true,
+            show_session_use: true,
+            show_week: true,
+            color_overrides: std::collections::HashMap::new(),
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // TerminalConfig (D-018 groundwork — shell preference + font + lanes)
 // ---------------------------------------------------------------------------
 
@@ -509,6 +557,9 @@ pub struct TerminalConfig {
     /// xterm font size in CSS pixels. Clamped at runtime to
     /// [`TERMINAL_MIN_FONT_SIZE`]..=[`TERMINAL_MAX_FONT_SIZE`].
     pub font_size: u16,
+    /// CSS font-family stack for the entire app. Applied via `--font-family`
+    /// custom property. Defaults to `"'JetBrains Mono', monospace"`.
+    pub font_family: String,
     /// xterm line-height multiplier (1.0 = no extra leading).
     pub line_height: f32,
     /// xterm scrollback ring buffer line count.
@@ -520,11 +571,15 @@ pub struct TerminalConfig {
     pub lanes_enabled: bool,
 }
 
+/// Default CSS font-family stack.
+pub const TERMINAL_DEFAULT_FONT_FAMILY: &str = "'JetBrains Mono', monospace";
+
 impl Default for TerminalConfig {
     fn default() -> Self {
         Self {
             shell: ShellPref::default(),
             font_size: TERMINAL_DEFAULT_FONT_SIZE,
+            font_family: TERMINAL_DEFAULT_FONT_FAMILY.to_string(),
             line_height: TERMINAL_DEFAULT_LINE_HEIGHT,
             scrollback: TERMINAL_DEFAULT_SCROLLBACK,
             lanes_enabled: true,

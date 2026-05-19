@@ -1,7 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
-  import { listen } from '@tauri-apps/api/event';
   import { getCurrentWindow, PhysicalPosition, PhysicalSize } from '@tauri-apps/api/window';
   import type { Window as TauriWindow } from '@tauri-apps/api/window';
   import NotificationPane from './lib/NotificationPane.svelte';
@@ -16,8 +15,7 @@
   import { signalBusReady, type Category } from './lib/bus';
   import { parseSeverity, type SeverityLevel } from './lib/notifFilter';
 
-  // Pool window: Tauri runtime is injected at setup() before this
-  // component mounts (same wry#1418 mitigation as CockpitDetached).
+  // On-demand window: built fresh each time a tab is detached.
   // signalBusReady at module scope is safe — see CockpitDetached:28-31.
   signalBusReady();
 
@@ -130,6 +128,11 @@
     });
   }
 
+  function onTitlebarMouseDown(e: MouseEvent): void {
+    if ((e.target as HTMLElement).closest('button')) return;
+    appWindow?.startDragging().catch(() => {});
+  }
+
   async function dock(): Promise<void> {
     if (!config) return;
     try {
@@ -137,6 +140,12 @@
     } catch (err) {
       console.error('[NotifDetached] notif_dock failed:', err);
     }
+  }
+
+  function applyConfig(cfg: NotifConfig): void {
+    config = cfg;
+    appWindow.setTitle(`Rift — ${cfg.title}`).catch(() => {});
+    void restoreSavedPosition().then(() => startPositionTracking()).catch(() => startPositionTracking());
   }
 
   onMount(() => {
@@ -147,34 +156,22 @@
       return;
     }
 
-    let unlistenConfigure: (() => void) | undefined;
-    let unlistenReset: (() => void) | undefined;
-    let cancelledConfigure = false;
-    let cancelledReset = false;
-
-    void listen<NotifConfig>('notif_configure', (event) => {
-      config = event.payload;
-      appWindow.setTitle(`Rift — ${event.payload.title}`).catch(() => {});
-      void restoreSavedPosition().then(() => startPositionTracking()).catch(() => startPositionTracking());
-    }).then((u) => { if (cancelledConfigure) u(); else unlistenConfigure = u; });
-
-    void listen('notif_reset', () => {
-      config = null;
-      stopPositionTracking();
-    }).then((u) => { if (cancelledReset) u(); else unlistenReset = u; });
-
-    return () => {
-      cancelledConfigure = true;
-      cancelledReset = true;
-      unlistenConfigure?.();
-      unlistenReset?.();
-      stopPositionTracking();
-    };
+    // Pull config from backend — the window is built on-demand so the
+    // config is always stored before the window exists. No event race.
+    void (async () => {
+      const label = appWindow.label;
+      try {
+        const pending = await invoke<NotifConfig | null>('notif_get_config', { label });
+        if (pending) applyConfig(pending);
+      } catch (err) {
+        console.error('[NotifDetached] notif_get_config failed:', err);
+      }
+    })();
   });
 </script>
 
 <div class="detached-shell" data-tauri-drag-region>
-  <header class="titlebar" data-tauri-drag-region>
+  <header class="titlebar" role="toolbar" tabindex={-1} data-tauri-drag-region onmousedown={onTitlebarMouseDown}>
     <span class="brand">
       <span class="glyph">◆</span>RIFT
       {#if config}

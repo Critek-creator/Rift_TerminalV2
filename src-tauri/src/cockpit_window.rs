@@ -109,17 +109,17 @@ pub fn cockpit_detach(app: AppHandle, state: State<'_, CockpitWindowState>) -> R
         msg
     })?;
 
-    // First-detach-only setup: register the close-requested interceptor.
-    // We use a one-shot AtomicBool to avoid stacking duplicate listeners on
-    // repeated detach/reattach cycles within a single session.
+    // First-detach-only setup: force-reload + register close interceptor.
+    // Hidden WebView2 windows defer JS execution, so the initial page load
+    // never ran Svelte. Reload forces fresh module execution — same pattern
+    // as notif_detach. Only needed once; subsequent show/hide cycles reuse
+    // the now-initialized JS context.
     if !state.listeners_attached.swap(true, Ordering::SeqCst) {
+        let _ = win.eval("location.reload()");
+
         let app_for_close = app.clone();
         win.on_window_event(move |event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                // Intercept the X-button close — hide instead of destroy so
-                // the webview (with its already-injected runtime) survives
-                // for the next detach. The cockpit-detached window only
-                // truly destroys when the app exits.
                 api.prevent_close();
                 if let Some(w) = app_for_close.get_webview_window(WINDOW_LABEL) {
                     let _ = w.hide();

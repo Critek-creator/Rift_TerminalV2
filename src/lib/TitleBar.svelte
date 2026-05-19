@@ -194,37 +194,39 @@
   .btn.settings,
   .btn.detach {
     width: auto;
-    height: 22px;
-    padding: 0 8px;
+    height: 24px;
+    padding: 0 10px;
     font-size: 9px;
+    font-weight: 600;
     letter-spacing: 0.08em;
-    border-radius: 2px;
-    /* Hairline bottom border at rest — present but near-invisible, becomes
-       the amber underline on hover without a layout shift. */
+    border-radius: var(--radius-md, 4px);
+    border: 1px solid transparent;
     box-shadow: inset 0 -1px 0 transparent;
   }
   .btn.project:hover,
   .btn.settings:hover {
     color: var(--amber-bright);
     text-shadow: var(--glow-amber);
-    background: rgba(255, 200, 64, 0.06);
-    box-shadow: inset 0 -1px 0 var(--amber-warm);
+    background: rgba(255, 200, 64, 0.08);
+    border-color: var(--border-subtle);
+    box-shadow: 0 0 4px rgba(255, 168, 38, 0.1);
   }
   .btn.project:active,
   .btn.settings:active {
-    background: rgba(255, 200, 64, 0.10);
-    box-shadow: inset 0 -1px 0 var(--amber-bright);
+    background: rgba(255, 200, 64, 0.12);
+    border-color: var(--amber-dim);
   }
 
   .btn.detach:hover {
     color: var(--amber-bright);
     text-shadow: var(--glow-amber);
-    background: rgba(255, 200, 64, 0.06);
-    box-shadow: inset 0 -1px 0 var(--amber-warm);
+    background: rgba(255, 200, 64, 0.08);
+    border-color: var(--border-subtle);
+    box-shadow: 0 0 4px rgba(255, 168, 38, 0.1);
   }
   .btn.detach:active {
-    background: rgba(255, 200, 64, 0.10);
-    box-shadow: inset 0 -1px 0 var(--amber-bright);
+    background: rgba(255, 200, 64, 0.12);
+    border-color: var(--amber-dim);
   }
 
   /* DOCK GUI variant — blue accent mirrors the cockpit's local DOCK button */
@@ -259,7 +261,7 @@
 
   /* Close button gets the standard red-on-hover treatment */
   .btn.close:hover {
-    color: #fff;
+    color: var(--term-white, #E8E4D8);
     background: rgba(255, 72, 72, 0.20);
     text-shadow: none;
   }

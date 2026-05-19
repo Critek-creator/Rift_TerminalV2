@@ -18,8 +18,8 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use rift_bus::{
-    build_tree, load_config, publish_error, read_text, save_config, write_text, Category, Envelope,
-    McpConfig, RiftBus, ShellPref, SubscribeFilter,
+    build_tree, publish_error, read_text, save_config, write_text, Category, Envelope, McpConfig,
+    RiftBus, ShellPref, SubscribeFilter,
 };
 use serde_json::{json, Value};
 use tauri::{AppHandle, Listener, Manager};
@@ -285,8 +285,8 @@ async fn dispatch_tool(
         "bus_tail" => Err("bus_tail must route through start_bus_tail".into()),
         // Phase B — Tier 1 read tools (D-014 §3 Tier 1 catalog)
         "fs_read" => tool_fs_read(project_root, payload),
-        "fs_tree" => tool_fs_tree(project_root, payload),
-        "todo_scan" => tool_todo_scan(project_root),
+        "fs_tree" => tool_fs_tree(project_root, app_handle, payload),
+        "todo_scan" => tool_todo_scan(project_root, app_handle),
         "pty_list" => tool_pty_list(pty_registry),
         "cockpit_state" => tool_cockpit_state(bus),
         "notif_tabs" => tool_notif_tabs(bus),
@@ -546,24 +546,18 @@ fn tool_fs_read(project_root: &Path, payload: &Value) -> Result<Value, String> {
 /// Args: `{ "max_depth"?: number }`. Defaults to the same constant the
 /// Tauri command uses (`FS_TREE_DEFAULT_MAX_DEPTH = 6`). Ignore globs
 /// come from the persisted [`RiftConfig`] — same source the watcher uses.
-fn tool_fs_tree(project_root: &Path, payload: &Value) -> Result<Value, String> {
+fn tool_fs_tree(
+    project_root: &Path,
+    app_handle: &AppHandle,
+    payload: &Value,
+) -> Result<Value, String> {
     let max_depth = payload
         .get("max_depth")
         .and_then(|v| v.as_u64())
         .map(|n| n.min(64) as u32)
         .unwrap_or(rift_bus::FS_TREE_DEFAULT_MAX_DEPTH);
 
-    // TODO: when spawn_mcp_host accepts Arc<CachedConfig>, read from cache
-    // instead of hitting disk per MCP request (audit finding T3).
-    let ignore_patterns: Vec<String> =
-        load_config()
-            .map(|cfg| cfg.fs.ignore_globs)
-            .unwrap_or_else(|_| {
-                rift_bus::DEFAULT_IGNORE_GLOBS
-                    .iter()
-                    .map(|s| s.to_string())
-                    .collect()
-            });
+    let ignore_patterns: Vec<String> = app_handle.state::<CachedConfig>().get().fs.ignore_globs;
 
     let mut builder = globset::GlobSetBuilder::new();
     for pattern in &ignore_patterns {
@@ -583,18 +577,8 @@ fn tool_fs_tree(project_root: &Path, payload: &Value) -> Result<Value, String> {
 ///
 /// Same payload shape as the TODO notif tab. Ignore globs are loaded from
 /// [`RiftConfig`] (matching the public `todo_scan_command`).
-fn tool_todo_scan(project_root: &Path) -> Result<Value, String> {
-    // TODO: when spawn_mcp_host accepts Arc<CachedConfig>, read from cache
-    // instead of hitting disk per MCP request (audit finding T3).
-    let ignore_patterns: Vec<String> =
-        load_config()
-            .map(|cfg| cfg.fs.ignore_globs)
-            .unwrap_or_else(|_| {
-                rift_bus::DEFAULT_IGNORE_GLOBS
-                    .iter()
-                    .map(|s| s.to_string())
-                    .collect()
-            });
+fn tool_todo_scan(project_root: &Path, app_handle: &AppHandle) -> Result<Value, String> {
+    let ignore_patterns: Vec<String> = app_handle.state::<CachedConfig>().get().fs.ignore_globs;
 
     let mut builder = globset::GlobSetBuilder::new();
     for pattern in &ignore_patterns {
@@ -866,7 +850,8 @@ async fn tool_pty_read(app_handle: &AppHandle, payload: &Value) -> Result<Value,
     );
 
     let wrapper = format!("return (function() {{ {js} }})();");
-    let result = eval_js(app_handle, "main", &wrapper).await?;
+    let window = resolve_window_label(payload);
+    let result = eval_js(app_handle, window, &wrapper).await?;
 
     if result.get("error").is_some() {
         return Err(result["error"].as_str().unwrap_or("unknown").to_owned());
@@ -965,7 +950,7 @@ fn tool_rift_diagnose(
     let mcp = &cfg.mcp;
 
     Ok(json!({
-        "version": "0.1.3",
+        "version": env!("CARGO_PKG_VERSION"),
         "pty_sessions": pty_entries,
         "pty_count": pty_count,
         "bus_subscribers": bus_subscribers,
@@ -973,6 +958,7 @@ fn tool_rift_diagnose(
         "recent_errors": recent_errors,
         "terminal_config": {
             "font_size": terminal.font_size,
+            "font_family": terminal.font_family,
             "line_height": terminal.line_height,
             "scrollback": terminal.scrollback,
             "lanes_enabled": terminal.lanes_enabled,
@@ -1008,6 +994,16 @@ fn tool_rift_config_set(
             return Err(format!("rift_config_set: font_size {v} out of range 8-48"));
         }
         cfg.terminal.font_size = v;
+        changed = true;
+    }
+
+    // font_family: CSS font-family string
+    if let Some(v) = payload.get("font_family").and_then(|v| v.as_str()) {
+        let v = v.trim();
+        if v.is_empty() {
+            return Err("rift_config_set: font_family cannot be empty".into());
+        }
+        cfg.terminal.font_family = v.to_string();
         changed = true;
     }
 
@@ -1063,7 +1059,7 @@ fn tool_rift_config_set(
 
     if !changed {
         return Err(
-            "rift_config_set: no recognized fields provided. Supply at least one of: font_size, line_height, scrollback, lanes_enabled, shell".into(),
+            "rift_config_set: no recognized fields provided. Supply at least one of: font_size, font_family, line_height, scrollback, lanes_enabled, shell".into(),
         );
     }
 
@@ -1077,11 +1073,19 @@ fn tool_rift_config_set(
     // Update the in-memory cache.
     cached.set(cfg.clone());
 
+    // Publish config.changed so the frontend can react without a page reload.
+    if let Ok(env) =
+        Envelope::new(Category::System, "config.changed").with_payload(&json!({ "source": "mcp" }))
+    {
+        bus.publish(env);
+    }
+
     let terminal = &cfg.terminal;
     Ok(json!({
         "ok": true,
         "terminal_config": {
             "font_size": terminal.font_size,
+            "font_family": terminal.font_family,
             "line_height": terminal.line_height,
             "scrollback": terminal.scrollback,
             "lanes_enabled": terminal.lanes_enabled,

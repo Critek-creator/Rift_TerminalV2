@@ -63,13 +63,13 @@
     gap: 10px;
     align-items: baseline;
     padding: 2px 0;
-    font-family: 'JetBrains Mono', monospace;
+    font-family: var(--font-family);
     font-size: 11px;
     line-height: 1.5;
     white-space: nowrap;
   }
   .aegis-row:hover {
-    background: rgba(212, 137, 10, 0.04);
+    background: rgba(212, 137, 10, 0.06);
   }
 
   .ts {
@@ -83,8 +83,8 @@
   .tag {
     display: inline-block;
     padding: 0 4px;
-    border: 1px solid var(--amber-primary, #d4890a);
-    color: var(--amber-primary, #d4890a);
+    border: 1px solid var(--amber-primary, #FFA826);
+    color: var(--amber-primary, #FFA826);
     font-size: 9px;
     font-weight: 700;
     letter-spacing: 0.08em;
@@ -98,6 +98,7 @@
     font-size: 10px;
     overflow: hidden;
     text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   /* Invocation lines are slightly brighter to distinguish from rare context rows */
@@ -106,7 +107,7 @@
   }
 
   .aegis-row[data-kind='aegis.context'] .label {
-    color: var(--amber-primary, #d4890a);
+    color: var(--amber-primary, #FFA826);
     font-weight: 600;
   }
 </style>

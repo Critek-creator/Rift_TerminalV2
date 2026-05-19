@@ -155,9 +155,10 @@ pub use translators::sentinel::spawn_sentinel_translator;
 /// Top-level Rift configuration struct.
 pub use config::{
     CockpitConfig, DetachedPos, FsConfig, IndexDensity, IndexLabelVisibility, McpConfig,
-    NotifFilterConfig, ProjectEntry, RiftConfig, SeverityLevel, ShellPref, TerminalConfig,
-    TreeConfig, TERMINAL_DEFAULT_FONT_SIZE, TERMINAL_DEFAULT_LINE_HEIGHT,
-    TERMINAL_DEFAULT_SCROLLBACK, TERMINAL_MAX_FONT_SIZE, TERMINAL_MIN_FONT_SIZE,
+    NotifFilterConfig, ProjectEntry, RiftConfig, SeverityLevel, ShellPref, StatusLineConfig,
+    TerminalConfig, TreeConfig, TERMINAL_DEFAULT_FONT_FAMILY, TERMINAL_DEFAULT_FONT_SIZE,
+    TERMINAL_DEFAULT_LINE_HEIGHT, TERMINAL_DEFAULT_SCROLLBACK, TERMINAL_MAX_FONT_SIZE,
+    TERMINAL_MIN_FONT_SIZE,
 };
 
 /// Load config from the platform config directory (default on missing file).

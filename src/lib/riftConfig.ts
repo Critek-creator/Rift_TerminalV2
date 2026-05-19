@@ -35,6 +35,7 @@ export interface McpConfig {
 export interface TerminalConfig {
   shell: ShellPref;
   font_size: number;
+  font_family: string;
   line_height: number;
   scrollback: number;
   lanes_enabled: boolean;
@@ -69,6 +70,20 @@ export interface TreeConfig {
   heatmap_window_minutes: number;
 }
 
+export interface StatusLineConfig {
+  show_dir: boolean;
+  show_git: boolean;
+  show_repo: boolean;
+  show_session: boolean;
+  show_skill: boolean;
+  show_effort: boolean;
+  show_model: boolean;
+  show_ctx: boolean;
+  show_session_use: boolean;
+  show_week: boolean;
+  color_overrides: Record<string, string>;
+}
+
 export interface RiftConfig {
   projects: ProjectEntry[];
   fs: FsConfig;
@@ -79,4 +94,5 @@ export interface RiftConfig {
   session: SessionConfig;
   notif_filters: NotifFilterConfig;
   tree: TreeConfig;
+  statusline: StatusLineConfig;
 }

@@ -47,10 +47,6 @@ export function signalBusReady(): void {
   _readyResolve();
 }
 
-export function resetBusReady(): void {
-  _readyPromise = new Promise<void>((r) => { _readyResolve = r; });
-}
-
 /**
  * Subscribe to bus envelopes. Replay snapshot drains synchronously into
  * `onEnvelope` first, followed by live events. Returns an `unsubscribe`

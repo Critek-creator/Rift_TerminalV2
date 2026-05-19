@@ -346,7 +346,7 @@
     min-height: 0;
     background: var(--bg-base);
     color: var(--amber-primary);
-    font-family: 'JetBrains Mono', monospace;
+    font-family: var(--font-family);
     font-size: 12px;
     --accent: var(--amber-primary, #FFA826);
   }
@@ -447,7 +447,7 @@
     font-weight: 600;
     letter-spacing: 0.05em;
     white-space: nowrap;
-    background: rgba(212, 137, 10, 0.04);
+    background: rgba(212, 137, 10, 0.06);
     flex-shrink: 0;
   }
 
@@ -460,11 +460,11 @@
     border-bottom: 1px solid var(--border-subtle);
   }
   .log-header {
-    padding: 6px 14px;
+    padding: var(--section-header-padding, 8px 16px);
     color: var(--amber-warm);
-    font-size: 10px;
+    font-size: var(--section-header-size, 11px);
     font-weight: 700;
-    letter-spacing: 0.12em;
+    letter-spacing: var(--section-header-spacing, 0.1em);
     border-bottom: 1px solid var(--border-subtle);
     background: var(--bg-surface);
     box-shadow: var(--depth-edge-light), var(--depth-section-sep);
@@ -473,7 +473,7 @@
   .log-body {
     flex: 1;
     overflow-y: auto;
-    padding: 8px 14px;
+    padding: 10px 16px;
     color: var(--amber-warm);
     font-size: 11px;
     line-height: 1.5;
@@ -501,16 +501,16 @@
     box-shadow: var(--depth-lift), var(--depth-edge-light);
   }
   .state-header {
-    padding: 6px 14px;
+    padding: var(--section-header-padding, 8px 16px);
     color: var(--amber-warm);
-    font-size: 10px;
+    font-size: var(--section-header-size, 11px);
     font-weight: 700;
-    letter-spacing: 0.12em;
+    letter-spacing: var(--section-header-spacing, 0.1em);
     border-bottom: 1px solid var(--border-subtle);
     box-shadow: var(--depth-edge-light);
   }
   .state-body {
-    padding: 8px 14px 12px;
+    padding: 10px 16px 14px;
     display: flex;
     flex-direction: column;
     gap: 4px;
@@ -556,7 +556,7 @@
     background: rgba(212, 137, 10, 0.06);
   }
 
-  /* Skill path — faint italic (§10.1 meta lane: #5a4410 faint amber italic) */
+  /* Skill path — faint italic (§10.1 meta lane: #A87830 faint amber italic) */
   .skill-path-row {
     margin-top: 6px;
     display: flex;
@@ -570,7 +570,7 @@
     flex-shrink: 0;
   }
   .skill-path {
-    color: var(--amber-faint, #5a4410);
+    color: var(--amber-faint, #A87830);
     font-style: italic;
     font-size: 9px;
     overflow: hidden;
@@ -592,7 +592,7 @@
     border: 1px solid var(--accent);
     color: var(--accent);
     background: rgba(212, 137, 10, 0.06);
-    font-family: 'JetBrains Mono', monospace;
+    font-family: var(--font-family);
     font-size: 9px;
     font-weight: 600;
     letter-spacing: 0.06em;

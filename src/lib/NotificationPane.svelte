@@ -336,22 +336,19 @@
     display: flex;
     flex-direction: column;
     min-height: 0;
-    /* Phase 8.7q.3 — min-width: 0 closes the flex-min-content escape hatch
-       that let wide grid descendants (long unbreakable JSON in a payload-
-       expanded <pre>) push the pane wider than its slot, visually covering
-       the terminal sibling in promoted-pane mode. */
     min-width: 0;
     background: var(--bg-base);
     color: var(--amber-primary);
-    font-family: 'JetBrains Mono', monospace;
+    font-family: var(--font-family);
     font-size: 12px;
+    gap: 1px;
   }
 
   /* Per-accent border tints — tag accent semantics from §10.1 */
-  .pane[data-accent="amber"]  { --accent: var(--amber-primary); --accent-glow: rgba(212, 137, 10, 0.25); --accent-bg: rgba(212, 137, 10, 0.04); }
-  .pane[data-accent="cyan"]   { --accent: var(--term-cyan); --accent-glow: rgba(74, 212, 212, 0.25); --accent-bg: rgba(74, 212, 212, 0.04); }
-  .pane[data-accent="purple"] { --accent: var(--term-purple); --accent-glow: rgba(176, 120, 232, 0.25); --accent-bg: rgba(176, 120, 232, 0.04); }
-  .pane[data-accent="red"]    { --accent: var(--term-red); --accent-glow: rgba(204, 51, 51, 0.25); --accent-bg: rgba(204, 51, 51, 0.04); }
+  .pane[data-accent="amber"]  { --accent: var(--amber-primary); --accent-glow: rgba(212, 137, 10, 0.25); --accent-bg: rgba(212, 137, 10, 0.06); }
+  .pane[data-accent="cyan"]   { --accent: var(--term-cyan); --accent-glow: rgba(74, 212, 212, 0.25); --accent-bg: rgba(74, 212, 212, 0.06); }
+  .pane[data-accent="purple"] { --accent: var(--term-purple); --accent-glow: rgba(176, 120, 232, 0.25); --accent-bg: rgba(176, 120, 232, 0.06); }
+  .pane[data-accent="red"]    { --accent: var(--term-red); --accent-glow: rgba(204, 51, 51, 0.25); --accent-bg: rgba(204, 51, 51, 0.06); }
 
   .drag-handle {
     height: 28px;
@@ -393,22 +390,27 @@
   }
 
   .status {
-    height: 32px;
-    padding: 0 14px;
+    height: 38px;
+    padding: 0 16px;
     background: linear-gradient(to bottom, var(--bg-elevated), var(--bg-surface));
     border-bottom: 1px solid var(--border-subtle);
     border-left: 3px solid var(--accent, var(--amber-primary));
+    border-radius: 0 var(--radius-md, 4px) 0 0;
     box-shadow: var(--depth-edge-light), var(--depth-section-sep);
     display: flex; align-items: center; gap: 14px;
     color: var(--amber-warm);
-    font-size: 11px; letter-spacing: 0.1em; font-weight: 700;
+    font-size: var(--section-header-size, 11px);
+    letter-spacing: var(--section-header-spacing, 0.1em);
+    font-weight: 700;
+    flex-shrink: 0;
   }
   .status .title {
     color: var(--accent, var(--amber-primary));
     text-shadow: 0 0 8px var(--accent-glow, rgba(255, 168, 38, 0.35));
+    font-size: 12px;
   }
   .status .icon { margin-right: 8px; opacity: 0.9; }
-  .status .state { color: var(--amber-dim); font-weight: 400; letter-spacing: 0.04em; }
+  .status .state { color: var(--amber-dim); font-weight: 500; letter-spacing: 0.04em; font-size: 11px; }
   .status .spacer { flex: 1; }
   .status .meta {
     color: var(--amber-faint);
@@ -417,17 +419,18 @@
     font-style: italic;
   }
   .strip {
-    height: 28px;
-    padding: 0 14px;
+    height: 32px;
+    padding: 0 16px;
     border-bottom: 1px solid var(--border-subtle);
     box-shadow: var(--depth-edge-light);
     display: flex; align-items: center; gap: 14px;
-    background: linear-gradient(to bottom, var(--accent-bg, rgba(212, 137, 10, 0.04)), transparent);
+    background: linear-gradient(to bottom, var(--accent-bg, rgba(212, 137, 10, 0.06)), transparent);
     color: var(--amber-dim);
     font-size: 10px;
     letter-spacing: 0.1em;
     overflow: hidden;
     position: relative;
+    flex-shrink: 0;
   }
   .strip::before {
     content: '';
@@ -455,7 +458,7 @@
     font-weight: 600;
     letter-spacing: 0.05em;
     white-space: nowrap;
-    background: var(--accent-bg, rgba(212, 137, 10, 0.04));
+    background: var(--accent-bg, rgba(212, 137, 10, 0.06));
     box-shadow: 0 0 4px var(--accent-glow, rgba(212, 137, 10, 0.15));
     animation: strip-event-fade 4s ease-out forwards;
   }
@@ -473,27 +476,26 @@
     border-bottom: 1px solid var(--border-subtle);
   }
   .log-header {
-    padding: 6px 14px;
+    padding: var(--section-header-padding, 8px 16px);
     color: var(--amber-warm);
-    font-size: 10px;
+    font-size: var(--section-header-size, 11px);
     font-weight: 700;
-    letter-spacing: 0.12em;
+    letter-spacing: var(--section-header-spacing, 0.1em);
     border-bottom: 1px solid var(--border-subtle);
     border-left: 3px solid var(--accent, var(--amber-primary));
-    background: linear-gradient(to right, var(--accent-bg, rgba(212, 137, 10, 0.04)), var(--bg-surface));
+    background: linear-gradient(to right, var(--accent-bg, rgba(212, 137, 10, 0.06)), var(--bg-surface));
     box-shadow: var(--depth-edge-light), var(--depth-section-sep);
+    flex-shrink: 0;
   }
   .log-body {
     flex: 1;
     overflow-y: auto;
-    /* Phase 8.7q.3 — overflow-x: hidden + min-width: 0 prevents long
-       unbreakable JSON tokens in a row from blowing the pane width out. */
     overflow-x: hidden;
     min-width: 0;
-    padding: 8px 14px;
+    padding: 10px 16px;
     color: var(--amber-warm);
     font-size: 11px;
-    line-height: 1.5;
+    line-height: 1.55;
     box-shadow: var(--depth-inset);
   }
   .log-body::-webkit-scrollbar { width: 5px; }
@@ -507,19 +509,15 @@
 
   .log-body .row {
     display: grid;
-    /* Phase 8.7q.3 — minmax(0, 1fr) lets the payload track shrink below
-       intrinsic min-content. Without this, a long unbreakable JSON token
-       in `.payload` defeats `overflow: hidden + ellipsis` and the track
-       grows to the content width, blowing out the parent pane. */
     grid-template-columns: 14px 70px 140px minmax(0, 1fr);
-    gap: 8px;
+    gap: 10px;
     align-items: baseline;
-    padding: 2px 4px;
+    padding: 4px 6px;
     white-space: nowrap;
     cursor: pointer;
     user-select: text;
     border-left: 2px solid transparent;
-    border-radius: 2px;
+    border-radius: var(--radius-md, 4px);
     transition: background 0.12s, border-color 0.12s;
   }
   .log-body .row:hover {
@@ -568,6 +566,7 @@
     font-size: 10px;
     overflow: hidden;
     text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .log-body .payload-expanded {
     grid-area: pl;
@@ -578,7 +577,7 @@
     border-left: 2px solid var(--accent, var(--amber-primary));
     box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.35), 0 0 4px var(--accent-glow, rgba(212, 137, 10, 0.1));
     color: var(--amber-warm);
-    font-family: 'JetBrains Mono', monospace;
+    font-family: var(--font-family);
     font-size: 10.5px;
     line-height: 1.45;
     white-space: pre-wrap;
@@ -602,25 +601,25 @@
   .state-panel {
     flex-shrink: 0;
     background: var(--bg-panel);
-    max-height: 180px;
+    max-height: 200px;
     overflow-y: auto;
     border-top: 1px solid var(--border-subtle);
     box-shadow: var(--depth-lift), var(--depth-edge-light);
   }
   .state-header {
-    padding: 6px 14px;
+    padding: var(--section-header-padding, 8px 16px);
     color: var(--amber-warm);
-    font-size: 10px;
+    font-size: var(--section-header-size, 11px);
     font-weight: 700;
-    letter-spacing: 0.12em;
+    letter-spacing: var(--section-header-spacing, 0.1em);
     border-bottom: 1px solid var(--border-subtle);
     border-left: 3px solid var(--accent, var(--amber-primary));
-    background: linear-gradient(to right, var(--accent-bg, rgba(212, 137, 10, 0.04)), var(--bg-surface));
+    background: linear-gradient(to right, var(--accent-bg, rgba(212, 137, 10, 0.06)), var(--bg-surface));
     box-shadow: var(--depth-edge-light);
   }
   .state-body {
-    padding: 8px 14px 12px;
-    display: flex; flex-direction: column; gap: 4px;
+    padding: 10px 16px 14px;
+    display: flex; flex-direction: column; gap: 5px;
   }
   .state-body .k-row {
     display: flex; align-items: center; justify-content: space-between;
@@ -629,7 +628,7 @@
     border-radius: 2px;
     transition: background 0.12s;
   }
-  .state-body .k-row:hover { background: rgba(212, 137, 10, 0.04); }
+  .state-body .k-row:hover { background: rgba(212, 137, 10, 0.06); }
   .k-row .k { color: var(--amber-dim); }
   .k-row .v { color: var(--amber-warm); font-weight: 600; }
 
@@ -646,21 +645,21 @@
     border-radius: 2px;
     transition: background 0.12s;
   }
-  .histo-row:hover { background: rgba(212, 137, 10, 0.04); }
+  .histo-row:hover { background: rgba(212, 137, 10, 0.06); }
   .histo-kind { color: var(--accent, var(--amber-primary)); }
   .histo-count { color: var(--amber-warm); font-weight: 700; font-variant-numeric: tabular-nums; }
 
   /* Sentinel placeholder card — capability-driven empty state (§10.7, Phase 7.5) */
   .sentinel-card {
-    margin: 10px 4px 4px;
-    padding: 10px 12px;
+    margin: 10px 8px 8px;
+    padding: 12px 14px;
     border: 1px dashed var(--border-subtle);
     border-left: 2px solid var(--amber-faint);
-    border-radius: 3px;
+    border-radius: var(--radius-md, 4px);
     box-shadow: var(--depth-inset);
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: 5px;
     opacity: 0.55;
     transition: opacity 0.15s;
   }
@@ -688,25 +687,36 @@
   }
 
   .ctrl-btn {
-    background: none;
+    background: var(--bg-elevated);
     border: 1px solid var(--border-subtle);
-    color: var(--amber-faint);
-    font-family: 'JetBrains Mono', monospace;
+    color: var(--amber-dim);
+    font-family: var(--font-family);
     font-size: 11px;
-    padding: 2px 8px;
+    padding: 3px 10px;
     cursor: pointer;
-    border-radius: 3px;
+    border-radius: var(--radius-md, 4px);
     line-height: 1;
-    transition: color 0.12s, border-color 0.12s, box-shadow 0.12s;
+    font-weight: 500;
+    transition: color 0.12s, border-color 0.12s, box-shadow 0.12s,
+                background 0.12s;
   }
   .ctrl-btn:hover {
-    color: var(--amber-primary);
+    color: var(--amber-bright);
     border-color: var(--amber-primary);
-    box-shadow: 0 0 4px rgba(212, 137, 10, 0.2);
+    background: var(--bg-hover);
+    box-shadow: 0 0 6px rgba(212, 137, 10, 0.2);
+  }
+  .ctrl-btn:active {
+    background: rgba(255, 168, 38, 0.1);
+  }
+  .ctrl-btn:focus-visible {
+    outline: 1px solid var(--amber-primary);
+    outline-offset: 1px;
   }
   .ctrl-btn.active {
     color: var(--term-green);
     border-color: var(--term-green);
+    background: rgba(79, 232, 85, 0.06);
     box-shadow: 0 0 4px rgba(51, 204, 51, 0.2);
   }
 </style>

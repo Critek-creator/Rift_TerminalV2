@@ -264,7 +264,7 @@
     flex-direction: column;
     height: 100%;
     background: var(--bg-base);
-    font-family: 'JetBrains Mono', monospace;
+    font-family: var(--font-family);
     font-size: 12px;
     color: var(--amber-warm);
     user-select: none;
@@ -283,13 +283,13 @@
     font-size: 9px;
     font-weight: 700;
     letter-spacing: 0.14em;
-    color: var(--term-cyan, #4ad4d4);
+    color: var(--term-cyan, #6FE0E0);
   }
   .cb-count {
     font-size: 9px;
     font-weight: 700;
     color: var(--bg-base);
-    background: var(--term-cyan, #4ad4d4);
+    background: var(--term-cyan, #6FE0E0);
     padding: 1px 5px;
     min-width: 18px;
     text-align: center;
@@ -359,7 +359,7 @@
     font-style: italic;
     font-size: 11px;
   }
-  .cb-error { color: var(--term-red, #f87171); }
+  .cb-error { color: var(--term-red, #FF4848); }
 
   .floor-group { border-bottom: 1px solid var(--border-subtle); }
   .floor-header {
@@ -498,7 +498,7 @@
     font-style: italic;
     margin-bottom: 8px;
     padding: 6px 8px;
-    background: rgba(74, 212, 212, 0.04);
+    background: rgba(74, 212, 212, 0.06);
     border-left: 2px solid var(--term-cyan);
   }
 

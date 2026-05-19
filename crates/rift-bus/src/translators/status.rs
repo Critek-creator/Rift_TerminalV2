@@ -1,16 +1,15 @@
 //! Status translator — publishes `Category::Status` envelopes every 5 seconds.
 //!
-//! Closes the unblocked slice of D-012: `DIR`, `GIT`, and `REPO` StatusLine
-//! segments. The remaining segments (`CTX`, `SESSION`, `WEEK`, `MODEL`) stay
-//! as em-dash placeholders — they are upstream-blocked on a Claude Code usage
-//! hook that does not yet exist. See `DEFERRED.md` D-012 for the tracking entry.
+//! D-012: `DIR`, `GIT`, and `REPO` segments are live via git polling.
+//! `MODEL`, `CTX%`, `SESSION USE%`, `WEEK%` are sourced from Claude Code's
+//! StatusJSON, written to `$TEMP/rift-cc-status.json` by the bridge script
+//! `tools/cc-status-bridge.mjs`.
 //!
 //! ## §9 Boundary note
 //!
-//! ALL git subprocess invocations and home-dir resolution live exclusively in
-//! this file. Nothing leaks to rift-bus core. `check-translator-boundary.sh`
-//! enforces the `std::process::Command` + `tokio::net::` pattern — git via
-//! `std::process::Command` is in the allowlist for translators.
+//! ALL git subprocess invocations, home-dir resolution, and CC status file
+//! reads live exclusively in this file. Nothing leaks to rift-bus core.
+//! `check-translator-boundary.sh` enforces the boundary.
 //!
 //! ## Kind taxonomy
 //!
@@ -30,14 +29,19 @@
 //!   "dir":  "~/Documents/Abyssal_Arts_main/Projects/Rift_TerminalV2",
 //!   "git":  "main*",
 //!   "repo": "Rift_TerminalV2",
-//!   "ts":   1714262400000
+//!   "ts":   1714262400000,
+//!   "model": "claude-opus-4-6[1m]",
+//!   "ctx_pct": 42,
+//!   "session_use_pct": 30,
+//!   "week_pct": 65
 //! }
 //! ```
 //!
 //! `dir` is tilde-collapsed (home dir replaced with `~`). `git` appends `*`
 //! when the working tree is dirty. Falls back to `—` on any failure so
 //! callers never need to handle absent fields — the segments always have a
-//! displayable value.
+//! displayable value. CC-sourced fields are absent when the bridge has not
+//! yet written a file or the file is stale (>30 s).
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -119,25 +123,135 @@ pub async fn spawn_status_translator(
 /// the published shape without a real timer.
 pub(crate) fn publish_status_snapshot(bus: &RiftBus, project_root: &Path) {
     let ts = now_unix_ms();
-    // Resolve the repo root via `git rev-parse --show-toplevel` so DIR/REPO
-    // reflect the actual repository even when the binary's CWD is a
-    // subdirectory (e.g., `tauri dev` runs rift.exe with CWD=src-tauri/).
-    // Falls back to `project_root` when not in a git tree.
     let canonical_root = resolve_repo_root(project_root);
     let root_ref: &Path = canonical_root.as_deref().unwrap_or(project_root);
 
     let dir = compute_dir(root_ref);
-    let git = compute_git(project_root); // git_cmd already takes any path inside the repo
+    let git = compute_git(project_root);
     let repo = compute_repo(root_ref);
 
-    let mut env = Envelope::new(Category::Status, "usage");
-    env.payload = json!({
+    let mut payload = json!({
         "dir":  dir,
         "git":  git,
         "repo": repo,
         "ts":   ts,
     });
+
+    // Merge CC StatusJSON data (model, context, usage) when available.
+    if let Some(cc) = read_cc_status() {
+        let map = payload.as_object_mut().expect("just built");
+        if let Some(m) = cc.model {
+            map.insert("model".into(), json!(m));
+        }
+        if let Some(v) = cc.ctx_pct {
+            map.insert("ctx_pct".into(), json!(v));
+        }
+        if let Some(v) = cc.session_use_pct {
+            map.insert("session_use_pct".into(), json!(v));
+        }
+        if let Some(v) = cc.week_pct {
+            map.insert("week_pct".into(), json!(v));
+        }
+    }
+
+    let mut env = Envelope::new(Category::Status, "usage");
+    env.payload = payload;
     bus.publish(env);
+}
+
+// ---------------------------------------------------------------------------
+// CC StatusJSON reader — reads the bridge-teed temp file
+// ---------------------------------------------------------------------------
+
+/// Parsed subset of Claude Code's StatusJSON relevant to Rift's status line.
+struct CcStatus {
+    model: Option<String>,
+    ctx_pct: Option<u32>,
+    session_use_pct: Option<u32>,
+    week_pct: Option<u32>,
+}
+
+/// Read and parse `$TEMP/rift-cc-status.json`. Returns `None` if the file
+/// is missing, unreadable, older than 30 seconds, or unparseable.
+fn read_cc_status() -> Option<CcStatus> {
+    let path = std::env::temp_dir().join("rift-cc-status.json");
+    let metadata = std::fs::metadata(&path).ok()?;
+
+    // Staleness guard — ignore files older than 30 seconds.
+    let age = metadata
+        .modified()
+        .ok()?
+        .elapsed()
+        .unwrap_or(Duration::from_secs(999));
+    if age > Duration::from_secs(30) {
+        return None;
+    }
+
+    let content = std::fs::read_to_string(&path).ok()?;
+    let v: serde_json::Value = serde_json::from_str(&content).ok()?;
+
+    // model — string or { id, display_name }
+    let model = v.get("model").and_then(|m| {
+        if let Some(s) = m.as_str() {
+            Some(s.to_string())
+        } else {
+            m.get("display_name")
+                .or_else(|| m.get("id"))
+                .and_then(|x| x.as_str())
+                .map(|s| s.to_string())
+        }
+    });
+
+    // ctx_pct — computed from context_window tokens
+    let ctx_pct = v.get("context_window").and_then(|cw| {
+        let window = cw.get("context_window_size").and_then(as_f64)?;
+        if window <= 0.0 {
+            return None;
+        }
+        let usage = cw.get("current_usage").and_then(|cu| {
+            // current_usage can be a number or an object with token fields
+            if let Some(n) = as_f64(cu) {
+                Some(n)
+            } else {
+                let input = as_f64(cu.get("input_tokens")?).unwrap_or(0.0);
+                let output = as_f64(cu.get("output_tokens")?).unwrap_or(0.0);
+                Some(input + output)
+            }
+        })?;
+        Some(((usage / window) * 100.0).round() as u32)
+    });
+
+    // session_use_pct — from rate_limits.five_hour.used_percentage
+    let session_use_pct = v
+        .get("rate_limits")
+        .and_then(|rl| rl.get("five_hour"))
+        .and_then(|fh| fh.get("used_percentage"))
+        .and_then(as_f64)
+        .map(|v| v.round() as u32);
+
+    // week_pct — from rate_limits.seven_day.used_percentage
+    let week_pct = v
+        .get("rate_limits")
+        .and_then(|rl| rl.get("seven_day"))
+        .and_then(|sd| sd.get("used_percentage"))
+        .and_then(as_f64)
+        .map(|v| v.round() as u32);
+
+    Some(CcStatus {
+        model,
+        ctx_pct,
+        session_use_pct,
+        week_pct,
+    })
+}
+
+/// Coerce a JSON value to f64 — handles both number and numeric-string.
+fn as_f64(v: &serde_json::Value) -> Option<f64> {
+    if let Some(n) = v.as_f64() {
+        Some(n)
+    } else {
+        v.as_str()?.trim().parse::<f64>().ok()
+    }
 }
 
 // ---------------------------------------------------------------------------

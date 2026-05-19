@@ -1,8 +1,8 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Default capabilities for main + cockpit-detached windows. Window controls (minimize/maximize/close) granted so the custom TitleBar.svelte buttons fire. Webview-create granted so cockpit_detach (Phase 6.4) can spawn the detached cockpit window.",
-  "windows": ["main", "cockpit-detached"],
+  "description": "Default capabilities for main, cockpit-detached, and notification pop-out windows. Window controls (minimize/maximize/close) granted so the custom TitleBar.svelte buttons fire. Webview-create granted so cockpit_detach (Phase 6.4) can spawn the detached cockpit window.",
+  "windows": ["main", "cockpit-detached", "notif-detached-0", "notif-detached-1", "notif-detached-2", "notif-detached-3"],
   "permissions": [
     "core:default",
     "core:window:allow-minimize",

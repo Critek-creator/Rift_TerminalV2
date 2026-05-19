@@ -1025,7 +1025,7 @@
   /* Node glyphs */
   :global(.node-glyph) {
     fill: var(--amber-warm);
-    font-family: 'JetBrains Mono', monospace;
+    font-family: var(--font-family);
     font-size: 10px;
     font-weight: 700;
     text-anchor: middle;
@@ -1038,7 +1038,7 @@
 
   /* Cross-ref highlight — vault browser hover (cyan accent from Index tab) */
   :global(.node-crossref) {
-    stroke: var(--term-cyan, #4ad4d4);
+    stroke: var(--term-cyan, #6FE0E0);
     stroke-width: 2;
     animation: crossref-pulse 0.35s ease-out;
   }
@@ -1050,7 +1050,7 @@
   /* Labels */
   :global(.tree-node-label) {
     fill: var(--amber-dim);
-    font-family: 'JetBrains Mono', monospace;
+    font-family: var(--font-family);
     font-size: 10px;
     font-weight: 500;
     dominant-baseline: middle;
@@ -1060,7 +1060,7 @@
   :global(.tree-node-label.active)     { fill: var(--amber-bright); font-weight: 700; }
   :global(.tree-node-label.recent)     { fill: var(--amber-warm);   font-weight: 600; }
   :global(.tree-node-label.background) { fill: var(--amber-faint); }
-  :global(.tree-node-label.crossref) { fill: var(--term-cyan, #4ad4d4); font-weight: 700; }
+  :global(.tree-node-label.crossref) { fill: var(--term-cyan, #6FE0E0); font-weight: 700; }
 
   /* Edges */
   :global(.edge) {
@@ -1080,7 +1080,7 @@
     opacity: 0.3;
   }
   :global(.edge.crossref) {
-    stroke: var(--term-cyan, #4ad4d4);
+    stroke: var(--term-cyan, #6FE0E0);
     stroke-width: 1.5;
     opacity: 0.8;
     filter: drop-shadow(0 0 3px rgba(74, 212, 212, 0.5));
@@ -1095,7 +1095,7 @@
     border: 1px solid var(--amber-faint);
     border-radius: 3px;
     padding: 4px 7px;
-    font-family: 'JetBrains Mono', monospace;
+    font-family: var(--font-family);
     font-size: 9px;
     color: var(--amber-primary);
     white-space: nowrap;
@@ -1130,7 +1130,7 @@
     gap: 8px;
     padding: 32px 16px;
     color: var(--amber-faint);
-    font-family: 'JetBrains Mono', monospace;
+    font-family: var(--font-family);
     font-size: 11px;
     font-style: italic;
   }
@@ -1165,7 +1165,7 @@
     background: rgba(15, 12, 6, 0.94);
     border: 1px solid var(--amber-bright);
     border-radius: 12px;
-    font-family: 'JetBrains Mono', monospace;
+    font-family: var(--font-family);
     font-size: 11px;
     color: var(--amber-warm);
     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5),
@@ -1183,5 +1183,6 @@
     color: var(--amber-warm);
     overflow: hidden;
     text-overflow: ellipsis;
+    white-space: nowrap;
   }
 </style>

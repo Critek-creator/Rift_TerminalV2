@@ -11,7 +11,7 @@ const SEVERITY_RANK: Record<SeverityLevel, number> = {
   error: 3,
 };
 
-export function severityRank(level: SeverityLevel): number {
+function severityRank(level: SeverityLevel): number {
   return SEVERITY_RANK[level] ?? 1;
 }
 

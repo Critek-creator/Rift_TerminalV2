@@ -441,7 +441,7 @@
     min-height: 0;
     background: var(--bg-base);
     color: var(--amber-warm);
-    font-family: 'JetBrains Mono', monospace;
+    font-family: var(--font-family);
     font-size: 12px;
   }
 
@@ -529,6 +529,10 @@
   .ctl-btn:hover:not(:disabled) {
     border-color: var(--amber-bright);
     color: var(--amber-bright);
+  }
+  .ctl-btn:focus-visible {
+    outline: 1px solid var(--amber-bright);
+    outline-offset: 1px;
   }
   .ctl-btn:disabled { opacity: 0.4; cursor: not-allowed; }
   .ctl-btn.active {
@@ -665,11 +669,11 @@
     border-bottom: 1px solid var(--border-subtle);
   }
   .log-header {
-    padding: 6px 14px;
+    padding: var(--section-header-padding, 8px 16px);
     color: var(--amber-warm);
-    font-size: 10px;
+    font-size: var(--section-header-size, 11px);
     font-weight: 700;
-    letter-spacing: 0.12em;
+    letter-spacing: var(--section-header-spacing, 0.1em);
     box-shadow: var(--depth-edge-light), var(--depth-section-sep);
     border-bottom: 1px solid var(--border-subtle);
     background: var(--bg-surface);
@@ -677,7 +681,7 @@
   .log-body {
     flex: 1;
     overflow-y: auto;
-    padding: 4px 14px 8px;
+    padding: 6px 16px 10px;
     color: var(--amber-warm);
     font-size: 11px;
     box-shadow: var(--depth-inset);
@@ -749,16 +753,16 @@
     box-shadow: var(--depth-lift), var(--depth-edge-light);
   }
   .state-header {
-    padding: 6px 14px;
+    padding: var(--section-header-padding, 8px 16px);
     color: var(--amber-warm);
-    font-size: 10px;
+    font-size: var(--section-header-size, 11px);
     font-weight: 700;
-    letter-spacing: 0.12em;
+    letter-spacing: var(--section-header-spacing, 0.1em);
     box-shadow: var(--depth-edge-light);
     border-bottom: 1px solid var(--border-subtle);
   }
   .state-body {
-    padding: 8px 14px 10px;
+    padding: 10px 16px 14px;
     display: flex;
     flex-direction: column;
     gap: 4px;

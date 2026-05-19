@@ -354,53 +354,59 @@
 
 <style>
   .tabbar {
-    height: 36px;
+    height: 40px;
     background: var(--bg-surface);
     border-bottom: 1px solid var(--border-active);
     box-shadow: 0 1px 6px rgba(0, 0, 0, 0.4);
     display: flex;
     align-items: stretch;
     flex-shrink: 0;
+    padding: 0 2px;
+    gap: 2px;
   }
   .tabbar.drop-active {
     box-shadow: inset 0 0 0 1px var(--amber-bright), 0 1px 6px rgba(0, 0, 0, 0.4);
   }
-  .group { display: flex; align-items: stretch; }
+  .group { display: flex; align-items: stretch; gap: 2px; }
   .group.right {
     margin-left: auto;
+    padding-left: 6px;
     border-left: 2px solid var(--border-active);
     box-shadow: inset 1px 0 8px rgba(0, 0, 0, 0.3);
   }
 
-  /* Phase 8.7g.3 — tab text lifted: inactive amber-dim → amber-warm,
-     active amber-primary → amber-bright with stronger glow so the
-     active tab reads clearly above the inactive row. */
   .tab {
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 0 16px;
-    height: 100%;
-    border: none;
-    border-right: 1px solid var(--border-subtle);
-    background: transparent;
+    padding: 0 18px;
+    height: calc(100% - 4px);
+    margin-top: 4px;
+    border: 1px solid var(--border-subtle);
+    border-bottom: none;
+    border-radius: 4px 4px 0 0;
+    background: var(--bg-elevated);
     color: var(--amber-warm);
     font-family: inherit;
     font-size: 12px;
+    font-weight: 500;
     cursor: pointer;
     position: relative;
-    transition: color 0.15s, background 0.15s, box-shadow 0.15s;
+    transition: color 0.15s, background 0.15s, box-shadow 0.15s,
+                border-color 0.15s;
     user-select: none;
   }
   .tab:hover {
     color: var(--amber-bright);
-    background: rgba(255, 168, 38, 0.08);
+    background: var(--bg-hover);
+    border-color: var(--amber-faint);
   }
   .tab:hover::before {
     content: '';
     position: absolute;
     inset: 0 0 auto 0;
     height: 2px;
+    border-radius: 4px 4px 0 0;
     background: var(--amber-dim);
     opacity: 0.7;
   }
@@ -410,24 +416,28 @@
   }
   .tab.active {
     color: var(--amber-bright);
-    background: rgba(255, 168, 38, 0.10);
+    background: var(--bg-base);
+    border-color: var(--border-active);
+    box-shadow: inset 0 2px 8px rgba(255, 200, 64, 0.06),
+                0 -1px 4px rgba(0, 0, 0, 0.3);
     text-shadow: var(--glow-amber-strong);
-    border-right-color: var(--border-active);
+    z-index: 1;
   }
   .tab.active::before {
     content: '';
     position: absolute;
-    inset: 0 0 auto 0;
-    height: 2px;
+    inset: -1px 0 auto 0;
+    height: 3px;
+    border-radius: 4px 4px 0 0;
     background: var(--amber-bright);
-    box-shadow: 0 2px 12px rgba(255, 200, 64, 0.6), 0 0 6px rgba(255, 200, 64, 0.4);
+    box-shadow: 0 0 12px rgba(255, 200, 64, 0.6), 0 0 4px rgba(255, 200, 64, 0.4);
   }
   .tab.active::after {
     content: '';
     position: absolute;
-    inset: auto 0 0 0;
-    height: 1px;
-    background: rgba(255, 200, 64, 0.25);
+    left: 0; right: 0; bottom: -1px;
+    height: 2px;
+    background: var(--bg-base);
     pointer-events: none;
   }
   /* Disabled tabs — visually distinct from hover, not just low opacity */
@@ -528,19 +538,23 @@
   }
 
   .add {
-    width: 36px;
+    width: 34px;
     background: transparent;
-    border: none;
-    border-right: 1px solid var(--border-subtle);
+    border: 1px solid transparent;
+    border-bottom: none;
+    border-radius: 4px 4px 0 0;
+    margin-top: 4px;
     color: var(--amber-warm);
     cursor: pointer;
-    font-size: 14px;
+    font-size: 15px;
     font-family: inherit;
-    transition: color 0.12s, background 0.12s, text-shadow 0.12s;
+    transition: color 0.12s, background 0.12s, text-shadow 0.12s,
+                border-color 0.12s;
   }
   .add:hover {
     color: var(--amber-bright);
     background: var(--bg-hover);
+    border-color: var(--border-subtle);
     text-shadow: 0 0 8px rgba(255, 200, 64, 0.5);
   }
   .add:active { transform: scale(0.92); }
@@ -551,19 +565,23 @@
 
   /* Phase 8.7h — manage button (notif strip tail) */
   .manage {
-    width: 28px;
+    width: 30px;
     background: transparent;
-    border: none;
-    border-left: 1px solid var(--border-subtle);
+    border: 1px solid transparent;
+    border-bottom: none;
+    border-radius: 4px 4px 0 0;
+    margin-top: 4px;
+    margin-left: 2px;
     color: var(--amber-faint);
     cursor: pointer;
     font-size: 14px;
     font-family: inherit;
-    transition: color 0.12s, background 0.12s;
+    transition: color 0.12s, background 0.12s, border-color 0.12s;
   }
   .manage:hover {
     color: var(--amber-bright);
     background: var(--bg-hover);
+    border-color: var(--border-subtle);
   }
 
   .badge {

@@ -69,13 +69,13 @@
     gap: 10px;
     align-items: baseline;
     padding: 2px 0;
-    font-family: 'JetBrains Mono', monospace;
+    font-family: var(--font-family);
     font-size: 11px;
     line-height: 1.5;
     white-space: nowrap;
   }
   .index-row:hover {
-    background: rgba(74, 212, 212, 0.04);
+    background: rgba(74, 212, 212, 0.06);
   }
 
   .ts {
@@ -85,12 +85,12 @@
     flex-shrink: 0;
   }
 
-  /* Cyan-bordered INDEX tag — matches §10.1 cyan lane (#4ad4d4) */
+  /* Cyan-bordered INDEX tag — matches §10.1 cyan lane (#6FE0E0) */
   .tag {
     display: inline-block;
     padding: 0 4px;
-    border: 1px solid var(--term-cyan, #4ad4d4);
-    color: var(--term-cyan, #4ad4d4);
+    border: 1px solid var(--term-cyan, #6FE0E0);
+    color: var(--term-cyan, #6FE0E0);
     font-size: 9px;
     font-weight: 700;
     letter-spacing: 0.08em;
@@ -104,11 +104,12 @@
     font-size: 10px;
     overflow: hidden;
     text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   /* vault.update rows are slightly brighter — these are the primary signal */
   .index-row[data-kind='vault.update'] .label {
-    color: var(--term-cyan, #4ad4d4);
+    color: var(--term-cyan, #6FE0E0);
     font-weight: 600;
   }
 

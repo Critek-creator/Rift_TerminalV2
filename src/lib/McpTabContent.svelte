@@ -258,7 +258,7 @@
     min-width: 0;
     background: var(--bg-base);
     color: var(--term-blue);
-    font-family: 'JetBrains Mono', monospace;
+    font-family: var(--font-family);
     font-size: 12px;
   }
 
@@ -317,7 +317,7 @@
     border-bottom: 1px solid var(--border-subtle);
     box-shadow: var(--depth-edge-light);
     display: flex; align-items: center; gap: 14px;
-    background: linear-gradient(to bottom, rgba(108, 182, 255, 0.04), transparent);
+    background: linear-gradient(to bottom, rgba(108, 182, 255, 0.06), transparent);
     color: var(--amber-dim);
     font-size: 10px;
     letter-spacing: 0.1em;
@@ -333,7 +333,7 @@
     font-weight: 600;
     letter-spacing: 0.05em;
     white-space: nowrap;
-    background: rgba(108, 182, 255, 0.04);
+    background: rgba(108, 182, 255, 0.06);
     flex-shrink: 0;
   }
 
@@ -345,11 +345,11 @@
     border-bottom: 1px solid var(--border-subtle);
   }
   .log-header {
-    padding: 6px 14px;
+    padding: var(--section-header-padding, 8px 16px);
     color: var(--amber-warm);
-    font-size: 10px;
+    font-size: var(--section-header-size, 11px);
     font-weight: 700;
-    letter-spacing: 0.12em;
+    letter-spacing: var(--section-header-spacing, 0.1em);
     border-bottom: 1px solid var(--border-subtle);
     background: var(--bg-surface);
     box-shadow: var(--depth-edge-light), var(--depth-section-sep);
@@ -359,7 +359,7 @@
     overflow-y: auto;
     overflow-x: hidden;
     min-width: 0;
-    padding: 8px 14px;
+    padding: 10px 16px;
     color: var(--amber-warm);
     font-size: 11px;
     line-height: 1.5;
@@ -373,12 +373,12 @@
     font-size: 11px;
     letter-spacing: 0.04em;
     border-bottom: 1px solid rgba(255, 72, 72, 0.2);
-    background: rgba(255, 72, 72, 0.04);
+    background: rgba(255, 72, 72, 0.06);
   }
   .empty-card {
     border: 1px dashed var(--border-subtle);
     padding: 12px 14px;
-    background: rgba(108, 182, 255, 0.03);
+    background: rgba(108, 182, 255, 0.05);
     color: var(--amber-warm);
     font-size: 11px;
     line-height: 1.55;
@@ -405,11 +405,11 @@
     white-space: nowrap;
     transition: background 0.12s ease-out;
   }
-  .log-body .row:hover { background: rgba(108, 182, 255, 0.04); }
+  .log-body .row:hover { background: rgba(108, 182, 255, 0.06); }
   .ts { color: var(--amber-faint); font-variant-numeric: tabular-nums; font-size: 10px; }
   .method { font-weight: 700; font-size: 10px; letter-spacing: 0.06em; }
-  .tool { color: var(--term-blue); font-weight: 600; font-size: 10px; overflow: hidden; text-overflow: ellipsis; }
-  .payload { color: var(--amber-dim); font-size: 10px; overflow: hidden; text-overflow: ellipsis; }
+  .tool { color: var(--term-blue); font-weight: 600; font-size: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .payload { color: var(--amber-dim); font-size: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
   .state-panel {
     flex-shrink: 0;
@@ -420,16 +420,16 @@
     box-shadow: var(--depth-lift), var(--depth-edge-light);
   }
   .state-header {
-    padding: 6px 14px;
+    padding: var(--section-header-padding, 8px 16px);
     color: var(--amber-warm);
-    font-size: 10px;
+    font-size: var(--section-header-size, 11px);
     font-weight: 700;
-    letter-spacing: 0.12em;
+    letter-spacing: var(--section-header-spacing, 0.1em);
     border-bottom: 1px solid var(--border-subtle);
     box-shadow: var(--depth-edge-light);
   }
   .state-body {
-    padding: 8px 14px 12px;
+    padding: 10px 16px 14px;
     display: flex; flex-direction: column; gap: 4px;
   }
   .k-row {
@@ -463,7 +463,7 @@
     background: none;
     border: 1px solid var(--border-subtle);
     color: var(--amber-faint);
-    font-family: 'JetBrains Mono', monospace;
+    font-family: var(--font-family);
     font-size: 11px;
     padding: 1px 6px;
     cursor: pointer;
@@ -472,5 +472,6 @@
     transition: color 0.12s ease-out, border-color 0.12s ease-out, background 0.12s ease-out;
   }
   .ctrl-btn:hover { color: var(--term-blue); border-color: var(--term-blue); }
+  .ctrl-btn:focus-visible { outline: 1px solid var(--term-blue); outline-offset: 1px; }
   .ctrl-btn.active { color: var(--term-green); border-color: var(--term-green); }
 </style>

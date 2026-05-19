@@ -1,62 +1,128 @@
 <script lang="ts">
   // §10.2 — two-row status line. Color-block segments, dark text on
-  // category-tinted backgrounds. All values bold. Segment data sources:
-  //   * dir / git / repo    → live via translators/status.rs (Category::Status, 5s poll)
-  //   * skill               → live via aegis.session.skill_loaded (Phase 7.4 / Aegis)
-  //   * effort              → live via aegis.session.effort (D-016 closed; producer
-  //                            in the private rift-aegis crate, feature-gated; on
-  //                            public-CI builds without the `aegis` feature, no
-  //                            envelope is published and the segment stays '—')
-  //   * model / ctx / sessionUse / week → D-012 blocked (upstream Claude Code usage
-  //                            hook not yet available); segments hidden until unblocked
+  // category-tinted backgrounds. All values bold.
   //
-  // Phase 8.7g.2 — colors split by category instead of all-amber:
+  // Row 1: DIR / MODEL / CTX% / SESSION / SKILL
+  // Row 2: GIT / REPO / SESSION USE% / WEEK% / EFFORT
+  //
+  // Segment data sources:
+  //   * dir / git / repo       → live via translators/status.rs (5s poll)
+  //   * skill / effort         → live via Aegis integration (feature-gated)
+  //   * model / ctx / session  → CC StatusJSON via cc_status translator
+  //   * sessionUse / week      → CC StatusJSON rate_limits
+  //
+  // Phase 8.7g.2 color families:
   //   GREEN  — env locale (DIR, GIT, REPO)
-  //   AMBER  — model+aegis state (SKILL, EFFORT)
+  //   CYAN   — model identity (MODEL)
+  //   BLUE   — usage metrics (CTX%, SESSION USE%, WEEK%)
+  //   AMBER  — aegis state (SKILL, EFFORT)
   //   PURPLE — session/clock (SESSION)
+  //
+  // Visibility controlled by StatusLineConfig per-segment toggles.
+
+  import type { StatusLineConfig } from './riftConfig';
 
   interface Props {
     dir?: string;
+    model?: string;
+    ctx?: string;
     session?: string;
     skill?: string;
     effort?: string;
     git?: string;
     repo?: string;
+    sessionUse?: string;
+    week?: string;
+    visibility?: StatusLineConfig;
   }
 
   let {
     dir = '—',
+    model = '—',
+    ctx = '—',
     session = '—',
     skill = '—',
     effort = '—',
     git = '—',
     repo = '—',
+    sessionUse = '—',
+    week = '—',
+    visibility,
   }: Props = $props();
+
+  const show = $derived({
+    dir: visibility?.show_dir ?? true,
+    model: visibility?.show_model ?? true,
+    ctx: visibility?.show_ctx ?? true,
+    session: visibility?.show_session ?? true,
+    skill: visibility?.show_skill ?? true,
+    effort: visibility?.show_effort ?? true,
+    git: visibility?.show_git ?? true,
+    repo: visibility?.show_repo ?? true,
+    sessionUse: visibility?.show_session_use ?? true,
+    week: visibility?.show_week ?? true,
+  });
+
+  function override(key: string): string | undefined {
+    return visibility?.color_overrides?.[key];
+  }
 </script>
 
 <footer class="statusline">
   <div class="row">
-    <div class="seg dir">
-      <span class="label">DIR</span><span class="value">{dir}</span>
-    </div>
-    <div class="seg session">
-      <span class="label">SESSION</span><span class="value">{session}</span>
-    </div>
-    <div class="seg skill">
-      <span class="label">SKILL</span><span class="value">{skill}</span>
-    </div>
-    <div class="seg effort">
-      <span class="label">EFFORT</span><span class="value">{effort}</span>
-    </div>
+    {#if show.dir}
+      <div class="seg dir" style:background={override('dir')}>
+        <span class="label">DIR</span><span class="value">{dir}</span>
+      </div>
+    {/if}
+    {#if show.model}
+      <div class="seg model" style:background={override('model')}>
+        <span class="label">MODEL</span><span class="value">{model}</span>
+      </div>
+    {/if}
+    {#if show.ctx}
+      <div class="seg ctx" style:background={override('ctx')}>
+        <span class="label">CTX</span><span class="value">{ctx}</span>
+      </div>
+    {/if}
+    {#if show.session}
+      <div class="seg session" style:background={override('session')}>
+        <span class="label">SESSION</span><span class="value">{session}</span>
+      </div>
+    {/if}
+    {#if show.skill}
+      <div class="seg skill" style:background={override('skill')}>
+        <span class="label">SKILL</span><span class="value">{skill}</span>
+      </div>
+    {/if}
     <div class="seg spacer"></div>
   </div>
   <div class="row">
-    <div class="seg git">
-      <span class="label">GIT</span><span class="value">{git}</span>
-    </div>
-    <div class="seg repo">
-      <span class="label">REPO</span><span class="value">{repo}</span>
-    </div>
+    {#if show.git}
+      <div class="seg git" style:background={override('git')}>
+        <span class="label">GIT</span><span class="value">{git}</span>
+      </div>
+    {/if}
+    {#if show.repo}
+      <div class="seg repo" style:background={override('repo')}>
+        <span class="label">REPO</span><span class="value">{repo}</span>
+      </div>
+    {/if}
+    {#if show.sessionUse}
+      <div class="seg session-use" style:background={override('session_use')}>
+        <span class="label">USE</span><span class="value">{sessionUse}</span>
+      </div>
+    {/if}
+    {#if show.week}
+      <div class="seg week" style:background={override('week')}>
+        <span class="label">WEEK</span><span class="value">{week}</span>
+      </div>
+    {/if}
+    {#if show.effort}
+      <div class="seg effort" style:background={override('effort')}>
+        <span class="label">EFFORT</span><span class="value">{effort}</span>
+      </div>
+    {/if}
     <div class="seg spacer"></div>
   </div>
 </footer>
@@ -103,16 +169,18 @@
     background: transparent !important;
   }
 
-  /* Phase 8.7g.2 — segment colors split by metric category instead of
-     all-amber. Within each family the bright/mid/dim shades stay
-     distinguishable from one another while reading as the same group.
-     model / ctx / sessionUse / week removed (D-012 blocked — hidden until
-     upstream Claude Code usage hook is available). */
-
   /* GREEN family — env locale */
   .dir    { background: var(--status-green-bright); }
   .git    { background: var(--status-green-mid); }
   .repo   { background: var(--status-green-dim); }
+
+  /* CYAN — model identity */
+  .model  { background: var(--status-cyan-bright); }
+
+  /* BLUE family — usage metrics */
+  .ctx         { background: var(--status-blue-mid); }
+  .session-use { background: var(--status-blue-bright); }
+  .week        { background: var(--status-blue-dim); }
 
   /* AMBER family — Aegis state */
   .skill  { background: var(--amber-primary); }

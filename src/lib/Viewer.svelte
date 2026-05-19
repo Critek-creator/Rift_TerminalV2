@@ -261,7 +261,7 @@
       // per §10.1 lane semantics. CM6 uses the @lezer/highlight tag system;
       // these classes are how the default highlightStyle injects them.
       '.tok-keyword':       { color: 'var(--term-purple)', fontWeight: '600' },
-      '.tok-string':        { color: 'var(--term-green, #33CC33)' },
+      '.tok-string':        { color: 'var(--term-green, #4FE855)' },
       '.tok-number':        { color: 'var(--amber-bright)' },
       '.tok-comment':       { color: 'var(--amber-faint)', fontStyle: 'italic' },
       '.tok-typeName':      { color: 'var(--term-cyan)' },
@@ -506,17 +506,18 @@
     min-height: 0;
     background: var(--bg-base);
     color: var(--amber-warm);
-    font-family: 'JetBrains Mono', monospace;
+    font-family: var(--font-family);
   }
 
   /* Status bar */
   .viewer-status {
     display: flex;
     align-items: center;
-    gap: 8px;
-    padding: 6px 12px;
+    gap: 10px;
+    padding: 8px 14px;
     border-bottom: 1px solid var(--border-subtle);
-    background: var(--bg-elevated);
+    background: linear-gradient(to bottom, var(--bg-elevated), var(--bg-surface));
+    box-shadow: var(--depth-edge-light, none), var(--depth-section-sep, none);
     flex-shrink: 0;
     font-size: 11px;
     flex-wrap: wrap;
@@ -560,7 +561,9 @@
     letter-spacing: 0.12em;
     text-transform: uppercase;
     border: 1px solid var(--border-subtle);
-    padding: 1px 5px;
+    border-radius: var(--radius-md, 4px);
+    padding: 2px 7px;
+    background: var(--bg-base);
   }
 
   .viewer-btn-edit,
@@ -569,21 +572,23 @@
   .viewer-btn-retry {
     font-family: inherit;
     font-size: 10px;
+    font-weight: 500;
     letter-spacing: 0.06em;
     cursor: pointer;
-    padding: 2px 8px;
-    border-radius: 0;
+    padding: 3px 10px;
+    border-radius: var(--radius-md, 4px);
     transition: color 0.12s ease-out, background 0.12s ease-out, border-color 0.12s ease-out, box-shadow 0.12s ease-out, opacity 0.12s ease-out;
   }
 
   .viewer-btn-edit {
-    background: transparent;
-    border: 1px solid var(--amber-faint);
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-subtle);
     color: var(--amber-dim);
   }
   .viewer-btn-edit:hover {
-    border-color: var(--amber-warm);
+    border-color: var(--amber-dim);
     color: var(--amber-warm);
+    background: var(--bg-hover);
   }
 
   .viewer-btn-save {
@@ -601,13 +606,14 @@
   }
 
   .viewer-btn-cancel {
-    background: transparent;
+    background: var(--bg-elevated);
     border: 1px solid var(--border-subtle);
     color: var(--amber-dim);
   }
   .viewer-btn-cancel:hover {
     border-color: var(--term-red);
     color: var(--term-red);
+    background: rgba(255, 72, 72, 0.06);
   }
 
   /* Content body */
@@ -628,7 +634,7 @@
   .viewer-pre {
     margin: 0;
     padding: 12px;
-    font-family: 'JetBrains Mono', monospace;
+    font-family: var(--font-family);
     font-size: 12px;
     line-height: 1.55;
     /* Let Shiki's theme colors show through; only override font/spacing. */
@@ -640,7 +646,7 @@
 
   /* Shiki wraps output in a <pre><code> — make code inherit our font. */
   .viewer-pre :global(code) {
-    font-family: 'JetBrains Mono', monospace;
+    font-family: var(--font-family);
     font-size: 12px;
     line-height: 1.55;
     white-space: pre-wrap;
@@ -720,12 +726,13 @@
     line-height: 1.4;
   }
   .viewer-btn-retry {
-    background: transparent;
+    background: var(--bg-elevated);
     border: 1px solid var(--term-red);
     color: var(--term-red);
     margin-top: 4px;
   }
   .viewer-btn-retry:hover {
     background: rgba(204, 51, 51, 0.12);
+    box-shadow: 0 0 4px rgba(204, 51, 51, 0.15);
   }
 </style>
