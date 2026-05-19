@@ -8,6 +8,8 @@
   import { deferredFit } from './terminal-fit-timing';
   import { TREE_PATH_MIME, RIFT_VAULT_DROP_EVENT, type RiftVaultDropDetail } from './dragMime';
   import { laneFormatGated } from './laneFormat';
+  import LaneGutter from './LaneGutter.svelte';
+  import { subscribe as busSubscribe, type Envelope } from './bus';
 
   type PtyExited = { id: number; code: number };
 
@@ -23,8 +25,8 @@
 
   let { visible = true, projectPath = null }: Props = $props();
 
-  let host: HTMLDivElement;
-  let term: XTerm | undefined;
+  let host: HTMLDivElement = $state(undefined!);
+  let term: XTerm | undefined = $state(undefined);
   let fit: FitAddon | undefined;
   let resizeObs: ResizeObserver | undefined;
   let unlistenExited: UnlistenFn | undefined;
@@ -47,6 +49,16 @@
    *  the user's Settings change applies on next session (no cross-tab
    *  reactivity in v1 — matches existing project-swap precedent). */
   let lanesEnabled = true;
+
+  // ---------------------------------------------------------------------------
+  // §10.1 lane gutter — left-edge color strip indicating the active lane.
+  // Subscribes to `pty` bus events with kind `lane.changed` published by the
+  // Rust LaneClassifier. Until the backend publishes these events, the gutter
+  // defaults to SYS (amber-faint) which is correct for a fresh shell prompt.
+  // ---------------------------------------------------------------------------
+  let currentLane = $state('SYS');
+  let unsubscribeLane: (() => Promise<void>) | undefined;
+  let laneMounted = true;
 
   // ---------------------------------------------------------------------------
   // Drag-node-into-terminal (Phase 6.6 — design calls A, C, D)
@@ -432,13 +444,37 @@
 
     // Phase 8.7 — vault-drop event listener (manual gesture from IndexGraph).
     host.addEventListener(RIFT_VAULT_DROP_EVENT, onTermVaultDrop);
+
+    // §10.1 lane gutter — subscribe to lane.changed bus events.
+    // The Rust LaneClassifier publishes Category::Pty / kind "lane.changed"
+    // envelopes when the active lane transitions. We filter on the session_id
+    // so multi-tab setups only show lane state for their own PTY.
+    try {
+      const u = await busSubscribe({ category: 'pty' }, (env: Envelope) => {
+        if (env.kind !== 'lane.changed') return;
+        const p = env.payload as { lane?: string; session_id?: number } | null;
+        if (!p?.lane) return;
+        // Filter to our session — ignore lane events from other tabs' PTYs.
+        if (p.session_id !== undefined && p.session_id !== sessionId) return;
+        currentLane = p.lane;
+      });
+      if (!laneMounted) {
+        void u().catch(() => {});
+      } else {
+        unsubscribeLane = u;
+      }
+    } catch (err) {
+      console.warn('[Terminal] lane bus subscription failed', err);
+    }
   });
 
   onDestroy(() => {
+    laneMounted = false;
     if (sessionId !== null && alive) {
       invoke('pty_kill', { id: sessionId }).catch(() => {});
     }
     unlistenExited?.();
+    unsubscribeLane?.().catch(() => {});
     resizeObs?.disconnect();
     host?.removeEventListener(RIFT_VAULT_DROP_EVENT, onTermVaultDrop);
     fit?.dispose();
@@ -457,10 +493,13 @@
   ondragover={onTermDragOver}
   ondragleave={onTermDragLeave}
   ondrop={onTermDrop}
-></div>
+>
+  <LaneGutter terminal={term} hostElement={host} currentLane={currentLane} />
+</div>
 
 <style>
   .terminal-host {
+    position: relative;
     flex: 1;
     background: var(--bg-base);
     padding: 8px;

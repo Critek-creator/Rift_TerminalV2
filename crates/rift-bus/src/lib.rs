@@ -185,7 +185,7 @@ pub use config::{clear_mcp_socket, load_mcp_socket, mcp_socket_path, save_mcp_so
 // ---------------------------------------------------------------------------
 
 /// Lane classifier + prelude injection for live PTY-stream lane classification.
-pub use translators::lane::{LaneClassifier, PreludeInjection, SentinelEvent};
+pub use translators::lane::{Lane, LaneClassifier, PreludeInjection, SentinelEvent};
 
 /// Prepare the lane-classification shell prelude for a given shell binary.
 pub use translators::lane::prepare_lane_prelude;

@@ -1,4 +1,4 @@
-//! Tool catalog — Phase A (4) + Phase B (6) + Phase C (3) + Phase D (7) = 20 tools.
+//! Tool catalog — Phase A (4) + Phase B (6) + Phase C (3) + Phase D (7) + diagnostic (2) = 22 tools.
 //!
 //! Each tool's `inputSchema` is a JSON Schema object understood by MCP
 //! clients. Per-tool semantics live host-side in `src-tauri/src/mcp_host.rs`;
@@ -29,7 +29,7 @@ pub struct ToolSpec {
     pub input_schema: Value,
 }
 
-/// Phase A + B + C + D tool catalog (20 tools — D-014 §3 Tier 1 + Tier 2 + Tier 3).
+/// Phase A + B + C + D tool catalog (22 tools — D-014 §3 Tier 1 + Tier 2 + Tier 3 + diagnostic).
 pub fn tool_catalog() -> Vec<ToolSpec> {
     vec![
         ToolSpec {
@@ -349,6 +349,52 @@ pub fn tool_catalog() -> Vec<ToolSpec> {
                         "description": "CSS selector for the drop target. If provided, to_x/to_y are ignored.",
                     },
                 },
+            }),
+        },
+        // ----- Post-Phase D — diagnostic + runtime config tools -----
+        ToolSpec {
+            name: "rift_diagnose",
+            description: "Return Rift terminal health metrics: version, active PTY sessions, bus subscriber count, recent error count, lane classifier state, and terminal config.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {},
+            }),
+        },
+        ToolSpec {
+            name: "rift_config_set",
+            description: "Update Rift terminal configuration at runtime. Changes are persisted to disk. Requires allow_mutations permission. Supports: font_size (8-48), line_height (1.0-2.5), scrollback (100-100000), lanes_enabled (bool), shell (auto/pwsh/cmd/bash/zsh).",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "font_size": {
+                        "type": "integer",
+                        "minimum": 8,
+                        "maximum": 48,
+                        "description": "Terminal font size in pixels",
+                    },
+                    "line_height": {
+                        "type": "number",
+                        "minimum": 1.0,
+                        "maximum": 2.5,
+                        "description": "Terminal line height multiplier",
+                    },
+                    "scrollback": {
+                        "type": "integer",
+                        "minimum": 100,
+                        "maximum": 100000,
+                        "description": "Terminal scrollback buffer lines",
+                    },
+                    "lanes_enabled": {
+                        "type": "boolean",
+                        "description": "Enable/disable lane classification coloring",
+                    },
+                    "shell": {
+                        "type": "string",
+                        "enum": ["auto", "pwsh", "powershell", "cmd", "bash", "zsh", "sh"],
+                        "description": "Preferred shell for new terminal sessions",
+                    },
+                },
+                "additionalProperties": false,
             }),
         },
     ]

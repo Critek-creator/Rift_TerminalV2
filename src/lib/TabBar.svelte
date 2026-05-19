@@ -50,6 +50,10 @@
     /** Phase 8.7j — reorder via drag-onto-other-tab. App splices `srcId`
      *  into `dstId`'s slot and persists the new order to localStorage. */
     onReorderNotif: (srcId: string, dstId: string) => void;
+    /** Detach a notification tab into its own window. */
+    onDetach: (id: string) => void;
+    /** Set of currently detached tab IDs — visual state. */
+    detachedIds: Set<string>;
     /** When true, multiple projects are open — show project name on tabs. */
     multiProject?: boolean;
   }
@@ -69,8 +73,14 @@
     onDemote,
     onManageNotifs,
     onReorderNotif,
+    onDetach,
+    detachedIds,
     multiProject = false,
   }: Props = $props();
+
+  function isDetached(id: string): boolean {
+    return detachedIds.has(id);
+  }
 
   function tabDisplayTitle(tab: SessionTab): string {
     if (!multiProject || !tab.projectPath) return tab.title;
@@ -121,6 +131,7 @@
   // the per-tab insertion-line indicator.
   let reorderHoverId = $state<string | null>(null);
   let didReorder = false;
+  let didDropInside = false;
 
   function onTabDragOver(e: DragEvent, tab: NotifTab) {
     if (!e.dataTransfer?.types.includes(NOTIF_TAB_MIME)) return;
@@ -149,6 +160,7 @@
     // immediately demote so the tab settles back into the strip.
     if (isPromoted(srcId)) onDemote();
     didReorder = true;
+    didDropInside = true;
     reorderHoverId = null;
   }
 
@@ -176,6 +188,7 @@
     // Promote on dragstart only if the tab wasn't already promoted; dragging an
     // already-promoted tab from the strip is a demote gesture (resolved on drop).
     if (!draggedFromPromoted) onPromote(tab.id);
+    didDropInside = false;
   }
 
   function onStripDragOver(e: DragEvent) {
@@ -220,6 +233,7 @@
     // drags by definition come from an already-promoted tab.
     const payload = e.dataTransfer.getData(NOTIF_TAB_MIME);
     const isPaneSourceDrag = payload === '__promoted_pane__';
+    didDropInside = true;
     if (isPaneSourceDrag || draggedFromPromoted) {
       onDemote();
     }
@@ -280,28 +294,48 @@
         class:promoted={isPromoted(tab.id)}
         class:promoted-cyan={isPromoted(tab.id) && tab.id === 'hooks'}
         class:promoted-red={isPromoted(tab.id) && tab.id === 'errors'}
+        class:detached={isDetached(tab.id)}
         class:live={isLive(tab) && tab.enabled}
         class:reorder-target={reorderHoverId === tab.id}
         aria-current={isActiveNotif(tab.id) ? 'page' : 'false'}
-        draggable={tab.enabled}
+        draggable={tab.enabled && !isDetached(tab.id)}
         onclick={() => onNotifClick(tab)}
         ondragstart={(e) => onNotifDragStart(e, tab)}
+        ondragend={(e) => {
+          if (e.dataTransfer?.dropEffect === 'none' && !didDropInside && tab.enabled && !isDetached(tab.id)) {
+            onDetach(tab.id);
+          }
+          didDropInside = false;
+        }}
         ondragover={(e) => onTabDragOver(e, tab)}
         ondragleave={() => onTabDragLeave(tab)}
         ondrop={(e) => onTabDrop(e, tab)}
         oncontextmenu={(e) => { e.preventDefault(); onToggleNotif(tab.id); }}
         title={tab.enabled
-          ? (isPromoted(tab.id)
-              ? 'click to close side pane · drag to reorder · right-click to hide'
-              : 'click to open · drag onto another tab to reorder · drag off strip to promote · right-click to hide')
+          ? (isDetached(tab.id)
+              ? 'detached to own window · click to focus'
+              : isPromoted(tab.id)
+                ? 'click to close side pane · drag to reorder · right-click to hide'
+                : 'click to open · drag onto another tab to reorder · drag off strip to promote · right-click to hide')
           : 'right-click to enable'}
       >
-        <span class="icon">{isPromoted(tab.id) ? '↗' : tab.icon}</span>
+        <span class="icon">{isDetached(tab.id) ? '⬡' : isPromoted(tab.id) ? '↗' : tab.icon}</span>
         <span>{tab.title}</span>
         {#if tab.unreadCount > 0 && tab.enabled}
           <span class="badge" aria-label="{tab.unreadCount} unread events">
             {tab.unreadCount > 99 ? '99+' : tab.unreadCount}
           </span>
+        {/if}
+        {#if tab.enabled && !isDetached(tab.id)}
+          <!-- svelte-ignore a11y_click_events_have_key_events -->
+          <span
+            role="button"
+            tabindex="-1"
+            class="popout-btn"
+            aria-label="detach {tab.title} to own window"
+            onclick={(e) => { e.stopPropagation(); onDetach(tab.id); }}
+            title="pop out to own window"
+          >⧉</span>
         {/if}
       </button>
     {/each}
@@ -441,6 +475,37 @@
   }
   .tab.notif.promoted-cyan .icon { color: var(--term-cyan); }
   .tab.notif.promoted-red .icon { color: var(--term-red); }
+
+  .tab.notif.detached {
+    opacity: 0.45;
+    cursor: pointer;
+  }
+  .tab.notif.detached .icon {
+    color: var(--term-blue);
+    opacity: 1;
+  }
+
+  .popout-btn {
+    display: none;
+    margin-left: 2px;
+    padding: 0 3px;
+    height: 16px;
+    line-height: 16px;
+    background: transparent;
+    border: 1px solid var(--amber-faint);
+    color: var(--amber-faint);
+    font-size: 9px;
+    font-family: inherit;
+    cursor: pointer;
+    border-radius: 2px;
+    flex-shrink: 0;
+  }
+  .tab.notif:hover .popout-btn { display: inline-flex; }
+  .popout-btn:hover {
+    color: var(--term-blue);
+    border-color: var(--term-blue);
+    background: rgba(108, 182, 255, 0.08);
+  }
 
   .icon { font-size: 11px; opacity: 0.85; }
 

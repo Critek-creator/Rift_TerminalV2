@@ -31,6 +31,7 @@ mod index_bridge {
     }
 }
 mod mcp_host;
+mod notif_window;
 mod todo_scan;
 
 // Rift Terminal v2 — Tauri host crate.
@@ -90,7 +91,7 @@ use rift_aegis::probe as aegis_probe;
 use rift_bus::{
     build_tree, load_config, prepare_lane_prelude, publish_command, publish_error, read_text,
     save_config, spawn_fs_watcher, spawn_session_logger, spawn_status_translator,
-    spawn_vault_walker, write_text, Category, CommandBuffer, Envelope, FsWatcher, IpcServer,
+    spawn_vault_walker, write_text, Category, CommandBuffer, Envelope, FsWatcher, IpcServer, Lane,
     LaneClassifier, RiftBus, RiftConfig, SentinelEvent, ShellPref, SubscribeFilter, TreeNode,
     FS_TREE_DEFAULT_MAX_DEPTH,
 };
@@ -420,7 +421,7 @@ impl ProjectRoot {
 // Initialized from load_config() at startup; invalidated by config_save.
 // ---------------------------------------------------------------------------
 
-struct CachedConfig {
+pub(crate) struct CachedConfig {
     inner: Mutex<RiftConfig>,
 }
 
@@ -643,12 +644,16 @@ async fn pty_start(
         }
 
         // D-018: Lane classifier sits in the output path when enabled.
-        // Strips OSC 6973 sentinels and injects ANSI lane-color prefixes.
+        // Strips OSC 6973 sentinels; lane state tracked for bus/gutter
+        // (Approach D — no ANSI color injection into the byte stream).
         let mut lane_classifier = if lanes_enabled {
             Some(LaneClassifier::new())
         } else {
             None
         };
+        // Track last-published lane so we only emit bus events on transitions.
+        let mut last_lane = Lane::Sys;
+        let lane_bus = drain_bus.clone();
 
         // L2: Subscribe to Hook + Aegis bus events for direct lane injection.
         // When a hook/aegis event arrives on the bus, we inject the lane
@@ -670,13 +675,28 @@ async fn pty_start(
                         Some(ref mut cls) => {
                             let transformed = cls.transform(&chunk);
                             // L3: On CMD_START, sample process tree for claude.
+                            // inject_event updates lane state (for bus/notif
+                            // consumers); no ANSI bytes sent to terminal
+                            // (Approach D — stop fighting shell SGR).
                             if cls.take_cmd_start_flag() {
                                 if let Some(pid) = l3_root_pid {
                                     if is_claude_descendant(pid) {
-                                        if let Some(ansi) = cls.inject_event(SentinelEvent::ClaudeStart) {
-                                            let _ = on_chunk.send(ansi);
-                                        }
+                                        cls.inject_event(SentinelEvent::ClaudeStart);
                                     }
+                                }
+                            }
+                            // Publish lane.changed on transitions so the
+                            // frontend gutter can update in real time.
+                            let cur = cls.current_lane();
+                            if cur != last_lane {
+                                last_lane = cur;
+                                if let Some(ref bus) = lane_bus {
+                                    let mut env = Envelope::new(Category::Pty, "lane.changed");
+                                    env.payload = json!({
+                                        "lane": cur.to_string(),
+                                        "session_id": id,
+                                    });
+                                    bus.publish(env);
                                 }
                             }
                             transformed
@@ -695,8 +715,18 @@ async fn pty_start(
                     if let Ok(env) = hook_result {
                         if let Some(ref mut cls) = lane_classifier {
                             let event = envelope_to_hook_event(&env);
-                            if let Some(ansi) = cls.inject_event(event) {
-                                let _ = on_chunk.send(ansi);
+                            cls.inject_event(event);
+                            let cur = cls.current_lane();
+                            if cur != last_lane {
+                                last_lane = cur;
+                                if let Some(ref bus) = lane_bus {
+                                    let mut lenv = Envelope::new(Category::Pty, "lane.changed");
+                                    lenv.payload = json!({
+                                        "lane": cur.to_string(),
+                                        "session_id": id,
+                                    });
+                                    bus.publish(lenv);
+                                }
                             }
                         }
                     }
@@ -711,8 +741,18 @@ async fn pty_start(
                     if let Ok(env) = aegis_result {
                         if let Some(ref mut cls) = lane_classifier {
                             let event = envelope_to_aegis_event(&env);
-                            if let Some(ansi) = cls.inject_event(event) {
-                                let _ = on_chunk.send(ansi);
+                            cls.inject_event(event);
+                            let cur = cls.current_lane();
+                            if cur != last_lane {
+                                last_lane = cur;
+                                if let Some(ref bus) = lane_bus {
+                                    let mut lenv = Envelope::new(Category::Pty, "lane.changed");
+                                    lenv.payload = json!({
+                                        "lane": cur.to_string(),
+                                        "session_id": id,
+                                    });
+                                    bus.publish(lenv);
+                                }
                             }
                         }
                     }
@@ -1461,6 +1501,7 @@ pub fn run() {
         .manage(BusSubscriptionRegistry::default())
         .manage(CommandBufferRegistry::default())
         .manage(cockpit_window::CockpitWindowState::default())
+        .manage(notif_window::NotifWindowState::default())
         .manage(ShutdownNotify::default())
         .setup(|app| {
             // Bus is always present; the IPC server is best-effort and may
@@ -1728,6 +1769,32 @@ pub fn run() {
 
             cockpit_builder.build()?;
 
+            // Notification tab detach-to-window pool — pre-build POOL_SIZE
+            // hidden windows, same wry#1418 mitigation as cockpit above.
+            // Each window loads notif-detached.html and waits for a
+            // `notif_configure` event to know which tab content to render.
+            for i in 0..notif_window::POOL_SIZE {
+                let label = notif_window::window_label(i);
+                let notif_builder = tauri::WebviewWindowBuilder::new(
+                    app,
+                    &label,
+                    tauri::WebviewUrl::App("notif-detached.html".into()),
+                )
+                .title("Rift — Notification")
+                .inner_size(500.0, 650.0)
+                .min_inner_size(360.0, 400.0)
+                .decorations(false)
+                .resizable(true)
+                .visible(false);
+
+                #[cfg(windows)]
+                let notif_builder = notif_builder.drag_and_drop(false);
+
+                if let Err(e) = notif_builder.build() {
+                    tracing::warn!("notif_window: failed to pre-build '{label}': {e}");
+                }
+            }
+
             // Force-center and unminimize the main window to override stale
             // WebView2 cached state. EBWebView persists window geometry AND
             // minimized/maximized state across runs — a previous minimized
@@ -1762,6 +1829,9 @@ pub fn run() {
             cockpit_window::cockpit_detach,
             cockpit_window::cockpit_reattach,
             cockpit_window::cockpit_status,
+            notif_window::notif_detach,
+            notif_window::notif_dock,
+            notif_window::notif_detach_status,
             aegis_open_lessons,
             aegis_open_settings,
             index_open_vault_root,

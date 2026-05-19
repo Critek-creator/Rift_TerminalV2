@@ -122,23 +122,17 @@
     active = { kind: 'session', id };
   }
   function activateNotif(id: string) {
-    // Per user spec correction (drift from earlier Phase 3.5a implementation):
-    // notif tabs NEVER replace the terminal/session surface in the main slot.
+    // Notif tabs NEVER replace the terminal/session surface in the main slot.
     // Click toggles promotion alongside the main session surface — the notif's
     // content lives in `aside.promoted-pane` next to the terminal, never in
     // place of it.
     //
-    // To detach a notif tab into a SEPARATE webview window (drag-out for
-    // multi-monitor observation, paralleling Phase 6.4 cockpit_detach), is
-    // a v1.x feature ask — not yet wired. For v1, click is the only path to
-    // attach/detach a notif side-pane; the side pane's drag-back handle (or
-    // another click on the same tab) is the path to demote.
+    // Detach-to-separate-window is now wired via notif_window.rs (pool of 4
+    // pre-built hidden Tauri windows). The pop-out button and drag-out-of-
+    // window gesture call `detachNotif(id)` which invokes `notif_detach`.
     //
     // The `active` state machine never becomes `notification` — notif tabs
     // promote to a side pane via `promoted`, never replace the main surface.
-    // If a future "notif fullscreen" gesture is needed, re-introduce a
-    // dedicated state-machine variant with explicit semantics; do NOT revive
-    // the previous unreachable branches that this commit removed.
     const wasPromoted = promoted === id;
     promoted = wasPromoted ? null : id;
     // §10.9 ack — promoting a tab into the side pane counts as viewing it.
@@ -334,6 +328,68 @@
     if (promoted === null) return undefined;
     return notifs.find((n) => n.id === promoted);
   });
+
+  // Notification tab detach-to-window state.
+  // Tracks which tabs are currently hosted in their own Tauri windows.
+  let detachedIds = $state<Set<string>>(new Set());
+
+  async function detachNotif(id: string) {
+    if (detachedIds.has(id)) return;
+    // If promoted, demote first — can't be both promoted and detached.
+    if (promoted === id) promoted = null;
+
+    const tab = notifs.find((n) => n.id === id);
+    if (!tab) return;
+
+    try {
+      await invoke('notif_detach', {
+        args: {
+          tabId: id,
+          category: CATEGORY_BY_NOTIF[id] ?? '',
+          title: tab.title,
+          icon: tab.icon,
+          severityThreshold: thresholdFor(id),
+        },
+      });
+      detachedIds = new Set([...detachedIds, id]);
+    } catch (err) {
+      console.warn('[App] notif_detach failed:', err);
+    }
+  }
+
+  // Dock events arrive from Rust when the user clicks DOCK or closes the window.
+  $effect(() => {
+    let cancelled = false;
+    let unlisten: (() => void) | undefined;
+
+    void (async () => {
+      const u = await listen<{ tabId: string }>('notif_docked', (event) => {
+        const next = new Set(detachedIds);
+        next.delete(event.payload.tabId);
+        detachedIds = next;
+      });
+      if (cancelled) {
+        u();
+      } else {
+        unlisten = u;
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  });
+
+  // Recover detach state on mount (reload-recovery).
+  async function recoverDetachState() {
+    try {
+      const ids = await invoke<string[]>('notif_detach_status');
+      if (ids.length > 0) detachedIds = new Set(ids);
+    } catch {
+      // best-effort
+    }
+  }
 
   // Phase 6.2 — cockpit right pane header data.
   // Tree.svelte computes these internally and pushes them up via $bindable props.
@@ -651,6 +707,9 @@
         console.warn('[App] cockpit_status failed:', err);
       }
 
+      // Recover notification tab detach state on reload.
+      await recoverDetachState();
+
       unlistenDetached = await listen('cockpit_detached', () => {
         cockpitDetached = true;
       });
@@ -796,6 +855,8 @@
     onDemote={demoteTab}
     onManageNotifs={openNotifManager}
     onReorderNotif={reorderNotif}
+    onDetach={detachNotif}
+    {detachedIds}
     {multiProject}
   />
 

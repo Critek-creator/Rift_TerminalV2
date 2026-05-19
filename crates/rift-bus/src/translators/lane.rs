@@ -280,55 +280,35 @@ impl Default for LaneClassifier {
 }
 
 // -------------------------------------------------------------------------
-// ANSI lane-color escapes (24-bit, matching src/lib/laneFormat.ts palette)
+// ANSI lane-color escapes REMOVED (Approach D — stop fighting shell SGR)
+//
+// Lane colors were previously injected into the PTY byte stream by
+// `transform()` and `inject_event()`. This caused visible oscillation
+// when programs (PSReadLine, oh-my-posh, Starship, Claude Code) emitted
+// SGR resets — xterm fell back to the theme foreground, then the next
+// chunk got lane color prepended again.
+//
+// Lane identity is still tracked by the state machine and consumed by
+// notification tabs and bus events. The frontend can style lane-tagged
+// UI elements via CSS using the lane identity reported on bus envelopes.
 // -------------------------------------------------------------------------
 
-impl Lane {
-    /// ANSI 24-bit foreground escape for this lane. Matches the palette in
-    /// `src/lib/laneFormat.ts` so Rift-owned and PTY-stream colors are
-    /// consistent.
-    fn ansi_prefix(&self) -> &'static [u8] {
-        match self {
-            // SYS: italic + amber faint (168, 120, 48)
-            Lane::Sys => b"\x1b[3;38;2;168;120;48m",
-            // UserInput: off-white (216, 212, 200)
-            Lane::UserInput => b"\x1b[38;2;216;212;200m",
-            // CLAUDE: blue (108, 182, 255)
-            Lane::Claude => b"\x1b[38;2;108;182;255m",
-            // AGENT: purple (197, 143, 255)
-            Lane::Agent => b"\x1b[38;2;197;143;255m",
-            // HOOK: cyan (111, 224, 224)
-            Lane::Hook => b"\x1b[38;2;111;224;224m",
-            // AEGIS: amber primary (255, 168, 38)
-            Lane::Aegis => b"\x1b[38;2;255;168;38m",
-            // OK: terminal green (79, 232, 85)
-            Lane::Ok => b"\x1b[38;2;79;232;85m",
-            // ERR: terminal red (255, 72, 72)
-            Lane::Err => b"\x1b[38;2;255;72;72m",
-        }
-    }
-}
-
 // -------------------------------------------------------------------------
-// Chunk transformer — strip sentinels + inject lane colors
+// Chunk transformer — strip sentinels, track lane state (no color inject)
 // -------------------------------------------------------------------------
 
 impl LaneClassifier {
-    /// Transform a PTY chunk: strip OSC 6973 sentinels and inject ANSI lane-
-    /// color escapes at each lane transition. Returns the modified byte stream
-    /// ready for xterm.js.
+    /// Transform a PTY chunk: strip OSC 6973 sentinels and update lane state.
+    /// Returns the modified byte stream ready for xterm.js with sentinels
+    /// removed but **no ANSI lane-color escapes injected** (Approach D).
     ///
-    /// On chunks with no sentinels, this is a memcpy (no color change needed
-    /// mid-chunk). On sentinel-containing chunks, sentinels are removed and
-    /// color escapes are spliced at the transition points.
+    /// On chunks with no sentinels, this is a memcpy. On sentinel-containing
+    /// chunks, sentinels are removed and lane state is updated, but the
+    /// output contains only the original non-sentinel bytes — shell programs
+    /// manage their own colors without interference.
     pub fn transform(&mut self, chunk: &[u8]) -> Vec<u8> {
         self.cmd_start_fired = false;
-        let mut out = Vec::with_capacity(chunk.len() + 24);
-        // Prepend the current lane's ANSI color at the start of every
-        // chunk. This ensures the lane tint survives SGR resets from
-        // PSReadLine and other shell components — programs that set their
-        // own colors override it naturally for their content.
-        out.extend_from_slice(self.current_lane.ansi_prefix());
+        let mut out = Vec::with_capacity(chunk.len());
         let mut i = 0;
 
         while i < chunk.len() {
@@ -337,9 +317,8 @@ impl LaneClassifier {
                 if chunk[i] == BEL {
                     let event_str = String::from_utf8_lossy(buf).to_string();
                     if let Some(evt) = parse_sentinel_event(&event_str) {
-                        if let Some(change) = self.apply_event(evt) {
-                            out.extend_from_slice(change.lane.ansi_prefix());
-                        }
+                        // Update lane state; no color bytes emitted.
+                        self.apply_event(evt);
                     }
                     self.partial_osc = None;
                     i += 1;
@@ -359,13 +338,11 @@ impl LaneClassifier {
                     // Full prefix found — scan for BEL.
                     let after_prefix = i + OSC_PREFIX_LEN;
                     if let Some(bel_pos) = chunk[after_prefix..].iter().position(|&b| b == BEL) {
-                        // Complete sentinel — parse and emit color if lane changed.
+                        // Complete sentinel — parse and update state (no color emit).
                         let event_bytes = &chunk[after_prefix..after_prefix + bel_pos];
                         let event_str = String::from_utf8_lossy(event_bytes).to_string();
                         if let Some(evt) = parse_sentinel_event(&event_str) {
-                            if let Some(change) = self.apply_event(evt) {
-                                out.extend_from_slice(change.lane.ansi_prefix());
-                            }
+                            self.apply_event(evt);
                         }
                         i = after_prefix + bel_pos + 1;
                     } else {
@@ -396,15 +373,16 @@ impl LaneClassifier {
 
 impl LaneClassifier {
     /// Inject a synthetic lane event from a bus envelope (L2 mechanism).
-    /// Returns the ANSI escape bytes to emit into the output channel so
-    /// xterm.js picks up the color change immediately.
+    /// Returns the new [`Lane`] identity if the event caused a transition,
+    /// or `None` if the lane did not change.
     ///
     /// Used by the drain task when it receives a `Category::Hook` or
     /// `Category::Aegis` bus event — the event doesn't flow through the
-    /// PTY byte stream, so we inject the lane transition directly.
-    pub fn inject_event(&mut self, event: SentinelEvent) -> Option<Vec<u8>> {
-        self.apply_event(event)
-            .map(|change| change.lane.ansi_prefix().to_vec())
+    /// PTY byte stream, so we inject the lane transition directly into
+    /// the classifier's state machine. No ANSI bytes are produced
+    /// (Approach D — color injection removed to stop fighting shell SGR).
+    pub fn inject_event(&mut self, event: SentinelEvent) -> Option<Lane> {
+        self.apply_event(event).map(|change| change.lane)
     }
 }
 
@@ -700,7 +678,7 @@ mod tests {
     }
 
     // -----------------------------------------------------------------
-    // transform() tests
+    // transform() tests (Approach D — no ANSI color injection)
     // -----------------------------------------------------------------
 
     #[test]
@@ -708,23 +686,20 @@ mod tests {
         let mut c = LaneClassifier::new();
         let input = b"hello world\r\n";
         let out = c.transform(input);
-        // Prepends current lane (Sys) color, then passthrough.
-        assert!(out.starts_with(Lane::Sys.ansi_prefix()));
-        assert!(out.windows(13).any(|w| w == b"hello world\r\n"));
+        // No color prepend — output is a clean passthrough of the input.
+        assert_eq!(out, input);
     }
 
     #[test]
-    fn transform_strips_sentinel_injects_color() {
+    fn transform_strips_sentinel_no_color_inject() {
         let mut c = LaneClassifier::new();
         let input = b"\x1b]6973;PROMPT_END\x07typed text";
         let out = c.transform(input);
-        // Starts with Sys prepend, sentinel stripped, UserInput color injected.
-        assert!(out.starts_with(Lane::Sys.ansi_prefix()));
+        // Sentinel stripped, text preserved, no ANSI color bytes injected.
         assert!(!out.windows(4).any(|w| w == b"6973"));
-        assert!(out
-            .windows(Lane::UserInput.ansi_prefix().len())
-            .any(|w| w == Lane::UserInput.ansi_prefix()));
-        assert!(out.windows(10).any(|w| w == b"typed text"));
+        assert_eq!(&out, b"typed text");
+        // Lane state updated even though no color bytes emitted.
+        assert_eq!(c.current_lane(), Lane::UserInput);
     }
 
     #[test]
@@ -733,26 +708,24 @@ mod tests {
         let input =
             b"\x1b]6973;PROMPT_END\x07cmd\x1b]6973;CMD_START\x07output\x1b]6973;CMD_END;exit=1\x07";
         let out = c.transform(input);
-        // Should contain UserInput prefix, Ok prefix, and Err prefix.
         let out_str = String::from_utf8_lossy(&out);
-        // UserInput color for "cmd"
+        // Text preserved, sentinels stripped, no ANSI color bytes.
         assert!(out.windows(3).any(|w| w == b"cmd"));
-        // Err color injected after CMD_END;exit=1
-        assert!(out
-            .windows(Lane::Err.ansi_prefix().len())
-            .any(|w| w == Lane::Err.ansi_prefix()));
-        // "output" text preserved
         assert!(out_str.contains("output"));
+        // No ESC bytes should be present (sentinels removed, no color injected).
+        assert!(!out.contains(&0x1b));
+        // Lane state tracks the final transition (Err from exit=1).
+        assert_eq!(c.current_lane(), Lane::Err);
     }
 
     #[test]
-    fn transform_large_chunk_prepends_lane_color() {
+    fn transform_large_chunk_no_color_prepend() {
         let mut c = LaneClassifier::new();
         let big = vec![b'X'; 65536];
         let out = c.transform(&big);
-        // Prepends Sys lane color, then the original bytes.
-        assert!(out.starts_with(Lane::Sys.ansi_prefix()));
-        assert_eq!(out.len(), big.len() + Lane::Sys.ansi_prefix().len());
+        // No color prepend — output is identical to input.
+        assert_eq!(out.len(), big.len());
+        assert_eq!(out, big);
     }
 
     // -----------------------------------------------------------------

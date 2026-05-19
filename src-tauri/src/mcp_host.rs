@@ -18,14 +18,14 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use rift_bus::{
-    build_tree, load_config, publish_error, read_text, write_text, Category, Envelope, McpConfig,
-    RiftBus, SubscribeFilter,
+    build_tree, load_config, publish_error, read_text, save_config, write_text, Category, Envelope,
+    McpConfig, RiftBus, ShellPref, SubscribeFilter,
 };
 use serde_json::{json, Value};
 use tauri::{AppHandle, Listener, Manager};
 use tokio::sync::oneshot;
 
-use crate::{git_status, todo_scan, PtyRegistry};
+use crate::{git_status, todo_scan, CachedConfig, PtyRegistry};
 
 /// Spawn the MCP host subscriber on the rift-bus runtime.
 ///
@@ -360,6 +360,14 @@ async fn dispatch_tool(
                 return Err("simulate_drag requires mcp.allow_mutations = true".into());
             }
             tool_simulate_drag(app_handle, payload).await
+        }
+        // Post-Phase D — diagnostic + runtime config tools
+        "rift_diagnose" => tool_rift_diagnose(bus, pty_registry, app_handle),
+        "rift_config_set" => {
+            if !cfg.allow_mutations {
+                return Err("rift_config_set requires mcp.allow_mutations = true".into());
+            }
+            tool_rift_config_set(bus, app_handle, payload)
         }
         other => Err(format!("unknown MCP tool: {other}")),
     }
@@ -916,6 +924,170 @@ fn tool_git_action(project_root: &Path, payload: &Value) -> Result<Value, String
     let result = git_status::run_action(project_root, action, message)
         .map_err(|e| format!("git_action: {e}"))?;
     serde_json::to_value(result).map_err(|e| format!("git_action: serialize failed: {e}"))
+}
+
+// ---------------------------------------------------------------------------
+// Post-Phase D — diagnostic + runtime config tools
+// ---------------------------------------------------------------------------
+
+/// `rift_diagnose` — return Rift terminal health metrics for diagnosis.
+///
+/// Read-only. No permission gate required. Gathers version, active PTY
+/// sessions, bus subscriber/replay counts, recent system-error count,
+/// and current terminal + MCP config sections.
+fn tool_rift_diagnose(
+    bus: &RiftBus,
+    pty_registry: &PtyRegistry,
+    app_handle: &AppHandle,
+) -> Result<Value, String> {
+    // PTY sessions snapshot.
+    let pty_entries: Vec<Value> = pty_registry
+        .list()
+        .into_iter()
+        .map(|(id, alive)| json!({ "id": id, "alive": alive }))
+        .collect();
+    let pty_count = pty_entries.len();
+
+    // Bus metrics.
+    let bus_subscribers = bus.subscriber_count();
+    let bus_replay_len = bus.replay_len();
+
+    // Count recent system-category envelopes whose kind contains "error".
+    let (system_snapshot, _sub) = bus.subscribe(SubscribeFilter::Category(Category::System));
+    let recent_errors = system_snapshot
+        .iter()
+        .filter(|e| e.kind.contains("error"))
+        .count();
+
+    // Terminal + MCP config from CachedConfig.
+    let cfg = app_handle.state::<CachedConfig>().get();
+    let terminal = &cfg.terminal;
+    let mcp = &cfg.mcp;
+
+    Ok(json!({
+        "version": "0.1.3",
+        "pty_sessions": pty_entries,
+        "pty_count": pty_count,
+        "bus_subscribers": bus_subscribers,
+        "bus_replay_len": bus_replay_len,
+        "recent_errors": recent_errors,
+        "terminal_config": {
+            "font_size": terminal.font_size,
+            "line_height": terminal.line_height,
+            "scrollback": terminal.scrollback,
+            "lanes_enabled": terminal.lanes_enabled,
+            "shell": format!("{:?}", terminal.shell),
+        },
+        "mcp_config": {
+            "enabled": mcp.enabled,
+            "allow_inspection": mcp.allow_inspection,
+            "allow_mutations": mcp.allow_mutations,
+        },
+    }))
+}
+
+/// `rift_config_set` — update terminal configuration at runtime.
+///
+/// Requires `mcp.allow_mutations = true`. Applies only the fields present
+/// in the payload (partial update). Validates ranges and persists to disk.
+fn tool_rift_config_set(
+    bus: &RiftBus,
+    app_handle: &AppHandle,
+    payload: &Value,
+) -> Result<Value, String> {
+    let cached = app_handle.state::<CachedConfig>();
+    let mut cfg = cached.get();
+
+    // Track whether any field was actually updated.
+    let mut changed = false;
+
+    // font_size: 8..=48
+    if let Some(v) = payload.get("font_size").and_then(|v| v.as_u64()) {
+        let v = v as u16;
+        if !(8..=48).contains(&v) {
+            return Err(format!("rift_config_set: font_size {v} out of range 8-48"));
+        }
+        cfg.terminal.font_size = v;
+        changed = true;
+    }
+
+    // line_height: 1.0..=2.5
+    if let Some(v) = payload.get("line_height").and_then(|v| v.as_f64()) {
+        let v = v as f32;
+        if !(1.0..=2.5).contains(&v) {
+            return Err(format!(
+                "rift_config_set: line_height {v} out of range 1.0-2.5"
+            ));
+        }
+        cfg.terminal.line_height = v;
+        changed = true;
+    }
+
+    // scrollback: 100..=100_000
+    if let Some(v) = payload.get("scrollback").and_then(|v| v.as_u64()) {
+        let v = v as u32;
+        if !(100..=100_000).contains(&v) {
+            return Err(format!(
+                "rift_config_set: scrollback {v} out of range 100-100000"
+            ));
+        }
+        cfg.terminal.scrollback = v;
+        changed = true;
+    }
+
+    // lanes_enabled: bool
+    if let Some(v) = payload.get("lanes_enabled").and_then(|v| v.as_bool()) {
+        cfg.terminal.lanes_enabled = v;
+        changed = true;
+    }
+
+    // shell: string → ShellPref
+    if let Some(v) = payload.get("shell").and_then(|v| v.as_str()) {
+        let pref = match v {
+            "auto" => ShellPref::Auto,
+            "pwsh" => ShellPref::Pwsh,
+            "powershell" => ShellPref::Powershell,
+            "cmd" => ShellPref::Cmd,
+            "bash" => ShellPref::Bash,
+            "zsh" => ShellPref::Zsh,
+            "sh" => ShellPref::Sh,
+            other => {
+                return Err(format!(
+                    "rift_config_set: unknown shell '{other}'. Valid: auto, pwsh, powershell, cmd, bash, zsh, sh"
+                ))
+            }
+        };
+        cfg.terminal.shell = pref;
+        changed = true;
+    }
+
+    if !changed {
+        return Err(
+            "rift_config_set: no recognized fields provided. Supply at least one of: font_size, line_height, scrollback, lanes_enabled, shell".into(),
+        );
+    }
+
+    // Persist to disk.
+    save_config(&cfg).map_err(|e| {
+        let msg = format!("rift_config_set: save failed: {e}");
+        publish_error(bus, "mcp.rift_config_set", &msg, None);
+        msg
+    })?;
+
+    // Update the in-memory cache.
+    cached.set(cfg.clone());
+
+    let terminal = &cfg.terminal;
+    Ok(json!({
+        "ok": true,
+        "terminal_config": {
+            "font_size": terminal.font_size,
+            "line_height": terminal.line_height,
+            "scrollback": terminal.scrollback,
+            "lanes_enabled": terminal.lanes_enabled,
+            "shell": format!("{:?}", terminal.shell),
+        },
+    }))
 }
 
 /// Escape a string for safe interpolation into a JavaScript single-quoted literal.
