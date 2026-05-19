@@ -40,7 +40,7 @@
 //! displayable value.
 
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
@@ -86,13 +86,17 @@ const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 /// All git subprocess invocations and home-dir lookups are confined to this
 /// function and its private helpers. No external-system calls escape to
 /// rift-bus core.
-pub async fn spawn_status_translator(bus: RiftBus, project_root: PathBuf, shutdown: Arc<Notify>) {
+pub async fn spawn_status_translator(
+    bus: RiftBus,
+    project_root: Arc<Mutex<PathBuf>>,
+    shutdown: Arc<Notify>,
+) {
     let mut tick = interval(Duration::from_secs(5));
     loop {
         tokio::select! {
             _ = tick.tick() => {
                 let bus_clone = bus.clone();
-                let root_clone = project_root.clone();
+                let root_clone = project_root.lock().expect("project root poisoned").clone();
                 let _ = tokio::task::spawn_blocking(move || {
                     publish_status_snapshot(&bus_clone, &root_clone);
                 }).await;

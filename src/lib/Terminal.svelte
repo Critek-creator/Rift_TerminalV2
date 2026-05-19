@@ -16,9 +16,12 @@
      *  pass on the transition false → true to redraw what arrived while
      *  hidden. */
     visible?: boolean;
+    /** Project directory for this session. When set, the PTY spawns with
+     *  this cwd instead of the global ProjectRoot. */
+    projectPath?: string | null;
   }
 
-  let { visible = true }: Props = $props();
+  let { visible = true, projectPath = null }: Props = $props();
 
   let host: HTMLDivElement;
   let term: XTerm | undefined;
@@ -374,6 +377,7 @@
         rows: term.rows,
         cols: term.cols,
         onChunk,
+        cwd: projectPath ?? undefined,
       });
       alive = true;
     } catch (err) {

@@ -45,6 +45,10 @@ export type PopoutContent =
   | {
       /** Phase 6.7 — project picker (switch active project). */
       kind: 'project-picker';
+      /** When set, the picker opens a new tab with the selected project
+       *  instead of swapping the current tab's project (project-per-tab). */
+      title?: string;
+      onSelect?: (path: string) => void;
     }
   | {
       /** Phase 8.7h — notif tab manager (§10.7 capability-driven UI made

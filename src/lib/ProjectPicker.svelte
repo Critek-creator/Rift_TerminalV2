@@ -26,9 +26,12 @@
   interface Props {
     /** Id of the enclosing PopoutEntry — used to dismiss this popout. */
     popoutId: number;
+    /** When set, the picker calls this instead of invoke('project_swap').
+     *  Used by project-per-tab to open a project in a new tab. */
+    onSelect?: (path: string) => void;
   }
 
-  let { popoutId }: Props = $props();
+  let { popoutId, onSelect }: Props = $props();
 
   // ---------------------------------------------------------------------------
   // State
@@ -81,7 +84,11 @@
     busy = true;
     error = null;
     try {
-      await invoke('project_swap', { path: path.trim() });
+      if (onSelect) {
+        onSelect(path.trim());
+      } else {
+        await invoke('project_swap', { path: path.trim() });
+      }
       popouts.dismiss(popoutId);
     } catch (e: unknown) {
       error = String(e);

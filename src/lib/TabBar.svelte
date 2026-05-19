@@ -7,7 +7,7 @@
   // tab off the strip → App promotes it to a fixed-width right-side pane;
   // drag the pane handle back onto the strip → demote.
 
-  export type SessionTab = { id: number; title: string };
+  export type SessionTab = { id: number; title: string; projectPath: string | null };
   export type NotifTab = {
     id: string;
     title: string;
@@ -41,7 +41,7 @@
     onActivateSession: (id: number) => void;
     onActivateNotif: (id: string) => void;
     onCloseSession: (id: number) => void;
-    onAddSession: () => void;
+    onAddSession: (opts?: { pickProject?: boolean }) => void;
     onToggleNotif: (id: string) => void;
     onPromote: (id: string) => void;
     onDemote: () => void;
@@ -50,6 +50,8 @@
     /** Phase 8.7j — reorder via drag-onto-other-tab. App splices `srcId`
      *  into `dstId`'s slot and persists the new order to localStorage. */
     onReorderNotif: (srcId: string, dstId: string) => void;
+    /** When true, multiple projects are open — show project name on tabs. */
+    multiProject?: boolean;
   }
 
   let {
@@ -67,7 +69,14 @@
     onDemote,
     onManageNotifs,
     onReorderNotif,
+    multiProject = false,
   }: Props = $props();
+
+  function tabDisplayTitle(tab: SessionTab): string {
+    if (!multiProject || !tab.projectPath) return tab.title;
+    const name = tab.projectPath.split(/[\\/]/).at(-1) ?? '';
+    return name ? `${tab.title} · ${name}` : tab.title;
+  }
 
   // §10.9 — "Amber border animates around a tab when something is live/active
   // inside it." A tab is "live" if any envelope arrived in the last 3 seconds.
@@ -243,7 +252,7 @@
         }}
       >
         <span class="icon">▶</span>
-        <span>{tab.title}</span>
+        <span>{tabDisplayTitle(tab)}</span>
         <button
           type="button"
           class="close"
@@ -252,7 +261,13 @@
         >×</button>
       </div>
     {/each}
-    <button type="button" class="add" aria-label="new tab" onclick={onAddSession}>+</button>
+    <button
+      type="button"
+      class="add"
+      aria-label="new tab"
+      title="New tab (Shift+click: pick project)"
+      onclick={(e: MouseEvent) => onAddSession({ pickProject: e.shiftKey })}
+    >+</button>
   </div>
 
   <div class="group right">

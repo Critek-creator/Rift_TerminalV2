@@ -165,7 +165,7 @@
       {:else if entry.content.kind === 'project-picker'}
         <!-- Phase 6.7: ProjectPicker owns its own keyboard handling (Esc
              stopPropagation per pr003 popout-keydown-bubble-collision). -->
-        <ProjectPicker popoutId={entry.id} />
+        <ProjectPicker popoutId={entry.id} onSelect={entry.content.onSelect} />
       {:else if entry.content.kind === 'notif-manager'}
         <!-- Phase 8.7h: notif tab manager — App.svelte passes a getTabs
              getter + onToggle/onReset callbacks; NotifManager is stateless. -->

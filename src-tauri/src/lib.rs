@@ -392,14 +392,15 @@ impl WatcherRegistry {
 // the duplicate env::current_dir() calls flagged by Validator 6.2.
 // ---------------------------------------------------------------------------
 
+#[derive(Clone)]
 struct ProjectRoot {
-    path: Mutex<PathBuf>,
+    pub(crate) path: Arc<Mutex<PathBuf>>,
 }
 
 impl ProjectRoot {
     fn new(path: PathBuf) -> Self {
         Self {
-            path: Mutex::new(path),
+            path: Arc::new(Mutex::new(path)),
         }
     }
 
@@ -538,6 +539,7 @@ async fn pty_start(
     rows: u16,
     cols: u16,
     on_chunk: Channel<Vec<u8>>,
+    cwd: Option<String>,
 ) -> Result<u32, String> {
     let dims = PtyDims {
         rows: rows.max(1),
@@ -577,13 +579,14 @@ async fn pty_start(
     } else {
         tracing::warn!("pty_start: IPC server not ready yet — RIFT_SOCKET_NAME omitted; hooks from this PTY session won't publish to the bus until next pty_start");
     }
-    // Phase 8.7g.4 — pin PTY cwd to the canonical project root so
-    // `cargo run --` (which starts the binary from src-tauri/) doesn't
-    // leak the wrong cwd into the user's shell prompt. ProjectRoot is
-    // managed at setup() and updated on project_swap.
-    if let Some(root) = app.try_state::<ProjectRoot>() {
-        opts = opts.with_cwd(root.inner().get());
-    }
+    let effective_cwd = match cwd {
+        Some(ref p) => dunce::canonicalize(p).map_err(|e| format!("invalid cwd: {e}"))?,
+        None => app
+            .try_state::<ProjectRoot>()
+            .map(|r| r.inner().get())
+            .unwrap_or_else(|| std::env::current_dir().unwrap_or_default()),
+    };
+    opts = opts.with_cwd(effective_cwd);
     let (mut output, control) = PtySession::spawn_with_options(opts).map_err(|e| {
         let msg = e.to_string();
         publish_error(
@@ -1310,6 +1313,11 @@ fn config_save(
 
 /// Swap the active project to `path`.
 ///
+#[tauri::command]
+fn project_root_get(project_root: State<'_, ProjectRoot>) -> String {
+    project_root.get().to_string_lossy().into_owned()
+}
+
 /// Sequence (Design F):
 ///  1. Canonicalize `path` via `dunce` (pr003 gotcha).
 ///  2. Verify it is a directory.
@@ -1558,10 +1566,10 @@ pub fn run() {
             let app_handle = app.handle().clone();
             let socket_name_for_task = socket_name.clone();
 
-            // D-012 unblocked slice — clone bus + capture root before bus_for_ipc
-            // is moved into the IPC spawn closure below.
+            // D-012 unblocked slice — clone bus + capture live root reference
+            // before bus_for_ipc is moved into the IPC spawn closure below.
             let status_bus = bus_for_ipc.clone();
-            let status_root = app.state::<ProjectRoot>().inner().get();
+            let status_root = app.state::<ProjectRoot>().inner().clone();
 
             // Phase 7.1 — Aegis detection (two-layer).
             //
@@ -1626,7 +1634,7 @@ pub fn run() {
                 // First status envelope publish is then ~250ms after Terminal
                 // mount, well past the cockpit's initial flex settle.
                 tokio::time::sleep(std::time::Duration::from_millis(250)).await;
-                spawn_status_translator(status_bus, status_root, status_shutdown).await;
+                spawn_status_translator(status_bus, status_root.path.clone(), status_shutdown).await;
             });
 
             // Session logger — persists every bus envelope to a .jsonl file on disk.
@@ -1749,6 +1757,7 @@ pub fn run() {
             fs_write_text,
             config_get,
             config_save,
+            project_root_get,
             project_swap,
             cockpit_window::cockpit_detach,
             cockpit_window::cockpit_reattach,

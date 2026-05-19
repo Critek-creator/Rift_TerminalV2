@@ -45,7 +45,8 @@
 
   // ----- session tabs -----
   let nextSessionId = 1;
-  let sessions = $state<SessionTab[]>([{ id: 0, title: 'rift' }]);
+  let initialProjectRoot = $state<string | null>(null);
+  let sessions = $state<SessionTab[]>([{ id: 0, title: 'rift', projectPath: null }]);
 
   // ----- notification tabs (§10.7 + §10.16 catalog-driven) -----
   // D-021: Tab strip is initialized from the section catalog registry.
@@ -143,10 +144,33 @@
     // §10.9 ack — promoting a tab into the side pane counts as viewing it.
     if (!wasPromoted) ackUnread(id);
   }
-  function addSession() {
+  function addSession(opts?: { pickProject?: boolean }) {
+    if (opts?.pickProject) {
+      openProjectPickerForNewTab();
+      return;
+    }
     const id = nextSessionId++;
-    sessions = [...sessions, { id, title: `shell ${id + 1}` }];
+    const activeSession = sessions.find(
+      (s) => active.kind === 'session' && s.id === active.id,
+    );
+    const inheritedPath = activeSession?.projectPath ?? initialProjectRoot;
+    sessions = [...sessions, { id, title: `shell ${id + 1}`, projectPath: inheritedPath }];
     active = { kind: 'session', id };
+  }
+
+  function openProjectInNewTab(path: string) {
+    const id = nextSessionId++;
+    sessions = [...sessions, { id, title: `shell ${id + 1}`, projectPath: path }];
+    active = { kind: 'session', id };
+  }
+
+  function openProjectPickerForNewTab() {
+    popouts.summon({
+      content: {
+        kind: 'project-picker',
+        onSelect: openProjectInNewTab,
+      },
+    });
   }
   function closeSession(id: number) {
     sessions = sessions.filter((s) => s.id !== id);
@@ -156,6 +180,29 @@
       active = last ? { kind: 'session', id: last.id } : { kind: 'empty' };
     }
   }
+  // ----- project-per-tab: active project follows active session -----
+  const activeProjectPath = $derived.by(() => {
+    const a = active;
+    if (a.kind !== 'session') return initialProjectRoot;
+    const s = sessions.find((s) => s.id === a.id);
+    return s?.projectPath ?? initialProjectRoot;
+  });
+
+  const multiProject = $derived(
+    new Set(sessions.map((s) => s.projectPath)).size > 1,
+  );
+
+
+  let lastSwappedPath: string | null = null;
+  $effect(() => {
+    const path = activeProjectPath;
+    if (!path || path === lastSwappedPath) return;
+    lastSwappedPath = path;
+    invoke('project_swap', { path }).catch((err: unknown) =>
+      console.warn('[rift] tab-switch project_swap failed:', err),
+    );
+  });
+
   function toggleNotif(id: string) {
     notifs = notifs.map((n) => (n.id === id ? { ...n, enabled: !n.enabled } : n));
     const enabled = notifs.find((n) => n.id === id)?.enabled;
@@ -572,6 +619,11 @@
         console.warn('[App] rift_reset_for_reload failed:', err);
       }
       signalBusReady();
+      const root = await invoke<string>('project_root_get');
+      initialProjectRoot = root;
+      if (sessions[0] && sessions[0].projectPath === null) {
+        sessions[0].projectPath = root;
+      }
     })();
 
     // Phase 8.7j — restore persisted notif tab order before any subscription
@@ -744,6 +796,7 @@
     onDemote={demoteTab}
     onManageNotifs={openNotifManager}
     onReorderNotif={reorderNotif}
+    {multiProject}
   />
 
   <!-- Phase 6.2 — always-on cockpit: left = terminal surface, right = file tree -->
@@ -757,7 +810,10 @@
             class="surface"
             class:visible={active.kind === 'session' && active.id === s.id}
           >
-            <Terminal visible={active.kind === 'session' && active.id === s.id} />
+            <Terminal
+              visible={active.kind === 'session' && active.id === s.id}
+              projectPath={s.projectPath}
+            />
           </div>
         {/each}
 
