@@ -84,14 +84,30 @@
     return h;
   });
 
+  let pendingBatch: Envelope[] = [];
+  let flushTimer: ReturnType<typeof setTimeout> | undefined;
+  const FLUSH_INTERVAL_MS = 80;
+
+  function flushBatch(): void {
+    flushTimer = undefined;
+    if (pendingBatch.length === 0) return;
+    const batch = pendingBatch;
+    pendingBatch = [];
+    let next = [...events, ...batch];
+    if (next.length > RECENT_LOG_LIMIT * 2) {
+      next = next.slice(-RECENT_LOG_LIMIT);
+    }
+    events = next;
+    lastTickTs = Date.now();
+  }
+
   function handleEnvelope(env: Envelope) {
     if (paused) return;
     if (!shouldShow(env.kind, severityThreshold)) return;
-    events = [...events, env];
-    if (events.length > RECENT_LOG_LIMIT * 2) {
-      events = events.slice(-RECENT_LOG_LIMIT);
+    pendingBatch.push(env);
+    if (!flushTimer) {
+      flushTimer = setTimeout(flushBatch, FLUSH_INTERVAL_MS);
     }
-    lastTickTs = Date.now();
   }
 
   let tickTimer: ReturnType<typeof setInterval> | undefined;
@@ -116,6 +132,7 @@
 
   onDestroy(() => {
     mounted = false;
+    if (flushTimer) clearTimeout(flushTimer);
     if (tickTimer) clearInterval(tickTimer);
     unsubscribe?.().catch(() => {});
   });

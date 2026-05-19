@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
-  import { getCurrentWindow, PhysicalPosition, PhysicalSize } from '@tauri-apps/api/window';
+  import { getCurrentWindow, PhysicalPosition, PhysicalSize, availableMonitors } from '@tauri-apps/api/window';
   import type { Window as TauriWindow } from '@tauri-apps/api/window';
   import NotificationPane from './lib/NotificationPane.svelte';
   import AegisTabContent from './lib/AegisTabContent.svelte';
@@ -83,6 +83,19 @@
     }
 
     try {
+      const monitors = await availableMonitors();
+      const onScreen = monitors.some((m) => {
+        const mx = m.position.x;
+        const my = m.position.y;
+        const mw = m.size.width;
+        const mh = m.size.height;
+        return pos.x + pos.width > mx + 50 && pos.x < mx + mw - 50
+            && pos.y > my - 20 && pos.y < my + mh - 50;
+      });
+      if (!onScreen) {
+        try { localStorage.removeItem(posKey(config.tabId)); } catch { /* ignore */ }
+        return;
+      }
       await appWindow.setPosition(new PhysicalPosition(pos.x, pos.y));
       await appWindow.setSize(new PhysicalSize(pos.width, pos.height));
     } catch {

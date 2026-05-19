@@ -162,7 +162,10 @@ pub fn notif_detach(
     // This reload triggers a fresh module execution.
     let _ = win.eval("location.reload()");
 
-    // Show + focus.
+    // Show centered, then focus. Center first so the window is always
+    // on-screen — the JS-side restoreSavedPosition can override later
+    // if valid coordinates exist in localStorage.
+    let _ = win.center();
     win.show().map_err(|e| {
         let mut slots = state.slots.lock().expect("notif slot lock");
         slots[slot] = None;
