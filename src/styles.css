@@ -98,6 +98,18 @@
   --ease-in:      ease-in;
   --ease-in-out:  ease-in-out;
 
+  /* Overlay / interactive surfaces */
+  --backdrop-overlay:    rgba(0, 0, 0, 0.55);
+  --shadow-overlay:      0 8px 32px rgba(0, 0, 0, 0.7);
+  --shadow-flyout:       0 4px 16px rgba(0, 0, 0, 0.4);
+  --bg-amber-hover:      rgba(255, 168, 38, 0.08);
+  --bg-amber-selected:   rgba(255, 168, 38, 0.10);
+  --bg-amber-tint:       rgba(255, 168, 38, 0.10);
+  --border-amber-tint:   rgba(255, 168, 38, 0.25);
+  --bg-blue-tint:        rgba(108, 182, 255, 0.12);
+  --bg-blue-tint-hover:  rgba(108, 182, 255, 0.20);
+  --border-blue-tint:    rgba(108, 182, 255, 0.30);
+
   /* Domain colors (Index content browser) */
   --domain-theories:  #a78bfa;
   --domain-projects:  #fbbf24;

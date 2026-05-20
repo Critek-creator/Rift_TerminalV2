@@ -85,8 +85,8 @@
     display: block;
     width: 80px;
     height: 14px;
-    background: rgba(255, 168, 38, 0.1);
-    border: 1px solid rgba(255, 168, 38, 0.25);
+    background: var(--bg-amber-tint);
+    border: 1px solid var(--border-amber-tint);
     border-radius: 3px;
   }
 </style>

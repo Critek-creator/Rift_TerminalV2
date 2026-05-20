@@ -42,7 +42,7 @@
   {#if expanded}
     <div class="corr-flyout">
       <div class="corr-flyout-title">correlated events ({count})</div>
-      {#each related as r (r.ts + ':' + r.kind)}
+      {#each related as r, i (r.ts + ':' + r.kind + ':' + i)}
         <div class="corr-event">
           <span class="corr-dot" style="background: {CAT_COLOR[r.category] ?? 'var(--amber-dim)'}"></span>
           <span class="corr-ts">{formatTs(r.ts)}</span>
@@ -58,8 +58,8 @@
   .corr-badge {
     display: inline-flex;
     align-items: center;
-    background: rgba(108, 182, 255, 0.12);
-    border: 1px solid rgba(108, 182, 255, 0.3);
+    background: var(--bg-blue-tint);
+    border: 1px solid var(--border-blue-tint);
     color: var(--term-blue);
     font-family: var(--font-family);
     font-size: 9px;
@@ -72,7 +72,7 @@
     flex-shrink: 0;
   }
   .corr-badge:hover {
-    background: rgba(108, 182, 255, 0.2);
+    background: var(--bg-blue-tint-hover);
     border-color: var(--term-blue);
   }
   .corr-flyout {
@@ -85,7 +85,7 @@
     padding: 8px 10px;
     min-width: 240px;
     max-width: 360px;
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+    box-shadow: var(--shadow-flyout);
   }
   .corr-flyout-title {
     color: var(--amber-warm);

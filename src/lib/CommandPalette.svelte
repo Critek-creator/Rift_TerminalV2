@@ -66,6 +66,7 @@
   });
 
   $effect(() => {
+    void filtered.length;
     selectedIdx = 0;
   });
 
@@ -106,10 +107,9 @@
 
 </script>
 
-<!-- svelte-ignore a11y_no_static_element_interactions -->
-<div class="palette-backdrop" onclick={onclose} onkeydown={onKeydown}>
+<div class="palette-backdrop" role="presentation" onclick={onclose} onkeydown={onKeydown}>
   <!-- svelte-ignore a11y_click_events_have_key_events -->
-  <div class="palette-panel" onclick={(e) => e.stopPropagation()}>
+  <div class="palette-panel" role="dialog" aria-label="Command palette" aria-modal="true" tabindex="-1" onclick={(e) => e.stopPropagation()}>
     <input
       bind:this={inputEl}
       bind:value={query}
@@ -154,7 +154,7 @@
     position: fixed;
     inset: 0;
     z-index: 100;
-    background: rgba(0, 0, 0, 0.55);
+    background: var(--backdrop-overlay);
     display: flex;
     justify-content: center;
     padding-top: 80px;
@@ -166,7 +166,7 @@
     background: var(--bg-surface, #1a1814);
     border: 1px solid var(--border-subtle, rgba(255, 168, 38, 0.15));
     border-radius: var(--radius-md, 6px);
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.7);
+    box-shadow: var(--shadow-overlay);
     display: flex;
     flex-direction: column;
     overflow: hidden;
@@ -214,10 +214,10 @@
     cursor: pointer;
   }
   .entry.selected {
-    background: rgba(255, 168, 38, 0.10);
+    background: var(--bg-amber-selected);
   }
   .entry:hover {
-    background: rgba(255, 168, 38, 0.08);
+    background: var(--bg-amber-hover);
   }
 
   .entry-icon {
