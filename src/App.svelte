@@ -562,10 +562,15 @@
             const p = env.payload as {
               dir?: string; git?: string; repo?: string;
               model?: string; ctx_pct?: number; session_use_pct?: number; week_pct?: number;
+              github_owner?: string; github_repo?: string;
             };
             if (p.dir  !== undefined) statusDir  = p.dir;
             if (p.git  !== undefined) statusGit  = p.git;
-            if (p.repo !== undefined) statusRepo = p.repo;
+            if (p.github_owner && p.github_repo) {
+              statusRepo = `${p.github_owner}/${p.github_repo}`;
+            } else if (p.repo !== undefined) {
+              statusRepo = p.repo;
+            }
             if (p.model !== undefined) statusModel = p.model;
             if (p.ctx_pct !== undefined) statusCtx = `${p.ctx_pct}%`;
             if (p.session_use_pct !== undefined) statusSessionUse = `${p.session_use_pct}%`;
