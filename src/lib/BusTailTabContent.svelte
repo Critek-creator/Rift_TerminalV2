@@ -18,6 +18,8 @@
   import { subscribe, type Category, type Envelope } from './bus';
   import { NOTIF_TAB_MIME } from './dragMime';
   import { shouldShow, type SeverityLevel } from './notifFilter';
+  import { SparklineBuffer } from './SparklineBuffer';
+  import SparklineChart from './SparklineChart.svelte';
 
   interface Props {
     severityThreshold?: SeverityLevel;
@@ -53,6 +55,8 @@
   let paused = $state(false);
   let mutedCats = $state<Set<Category>>(new Set());
   let lastTickTs = $state<number>(Date.now());
+  const sparkline = new SparklineBuffer();
+  let sparklineData = $state<number[]>(sparkline.snapshot());
   let unsubscribe: (() => Promise<void>) | undefined;
   let mounted = true;
 
@@ -103,6 +107,7 @@
   function handleEnvelope(env: Envelope) {
     if (paused) return;
     if (!shouldShow(env.kind, severityThreshold)) return;
+    sparkline.record();
     pendingBatch.push(env);
     if (!flushTimer) {
       flushTimer = setTimeout(flushBatch, FLUSH_INTERVAL_MS);
@@ -126,6 +131,8 @@
     }
     tickTimer = setInterval(() => {
       lastTickTs = Date.now();
+      sparkline.tick();
+      sparklineData = sparkline.snapshot();
     }, 1000);
   });
 
@@ -207,6 +214,7 @@
     <span class="state">
       {visibleCount}/{totalCount} event{totalCount === 1 ? '' : 's'} · last {lastSeenLabel}
     </span>
+    <SparklineChart data={sparklineData} />
     <span class="spacer"></span>
     <button type="button" class="ctl-btn" class:active={paused} onclick={togglePause}>
       {paused ? 'paused' : 'live'}
@@ -358,9 +366,11 @@
     background: var(--bg-elevated);
     border-bottom: 1px solid var(--border-subtle);
     box-shadow: var(--depth-edge-light), var(--depth-section-sep);
-    display: flex; align-items: center; gap: 14px;
+    display: flex; align-items: center; gap: 10px;
     color: var(--amber-warm);
     font-size: 11px; letter-spacing: 0.1em; font-weight: 700;
+    overflow: hidden;
+    flex-shrink: 0;
   }
   .status .title {
     color: var(--amber-bright);

@@ -34,6 +34,7 @@
   import type { RiftConfig as RiftConfigType, StatusLineConfig } from './lib/riftConfig';
   import { sectionCatalog } from './lib/sectionCatalog.svelte';
   import CommandPalette from './lib/CommandPalette.svelte';
+  import ShortcutOverlay from './lib/ShortcutOverlay.svelte';
 
   // D-021: Tab→category mapping is now derived from the section catalog.
   // `sectionCatalog.categoryMap` builds the reverse map dynamically.
@@ -128,6 +129,9 @@
 
   // ----- command palette -----
   let paletteOpen = $state(false);
+
+  // ----- shortcut overlay -----
+  let shortcutsOpen = $state(false);
 
   // ----- which surface is in the main pane -----
   let active = $state<ActiveSurface>({ kind: 'session', id: 0 });
@@ -246,6 +250,7 @@
   // reloads via `rift.notifs.order` (an array of tab ids). New tabs added
   // in future builds append at the end so order updates are forward-safe.
   const NOTIF_ORDER_KEY = 'rift.notifs.order';
+  const WORKSPACE_KEY = 'rift.workspace';
   function reorderNotif(srcId: string, dstId: string) {
     if (srcId === dstId) return;
     const srcIdx = notifs.findIndex((n) => n.id === srcId);
@@ -264,6 +269,23 @@
     } catch {
       // localStorage unavailable (private mode etc.) — silent best-effort.
     }
+  }
+  function persistWorkspace() {
+    try {
+      localStorage.setItem(WORKSPACE_KEY, JSON.stringify({
+        promoted: promoted,
+      }));
+    } catch {}
+  }
+  function applyPersistedWorkspace() {
+    try {
+      const raw = localStorage.getItem(WORKSPACE_KEY);
+      if (!raw) return;
+      const ws = JSON.parse(raw);
+      if (typeof ws.promoted === 'string' && notifs.some((n) => n.id === ws.promoted && n.enabled)) {
+        promoted = ws.promoted;
+      }
+    } catch {}
   }
   function applyPersistedNotifOrder() {
     try {
@@ -339,10 +361,12 @@
   function promoteTab(id: string) {
     promoted = id;
     ackUnread(id); // §10.9 — promotion = view, clear the badge
+    persistWorkspace();
   }
   function demoteTab() {
     promoted = null;
     // active stays as-is — user clicks the tab in the strip to view it again.
+    persistWorkspace();
   }
 
   function notifAccent(id: string): 'amber' | 'cyan' | 'purple' | 'red' {
@@ -743,6 +767,7 @@
     // fires. Pure synchronous read of localStorage; ordering must settle
     // before TabBar renders to avoid a flicker.
     applyPersistedNotifOrder();
+    applyPersistedWorkspace();
 
     // Svelte 5's onMount requires a sync callback that optionally returns a
     // cleanup. Async init runs in an IIFE; cleanup captures unlisten handles
@@ -856,6 +881,10 @@
       if (e.ctrlKey && e.key === 'b') {
         e.preventDefault();
         toggleCockpit();
+      }
+      if (e.ctrlKey && e.shiftKey && e.key === '?') {
+        e.preventDefault();
+        shortcutsOpen = !shortcutsOpen;
       }
     };
     window.addEventListener('keydown', onKeyDown);
@@ -1102,6 +1131,10 @@
       onclose={() => { paletteOpen = false; }}
       onActivateNotif={activateNotif}
     />
+  {/if}
+
+  {#if shortcutsOpen}
+    <ShortcutOverlay onclose={() => { shortcutsOpen = false; }} />
   {/if}
 </div>
 
