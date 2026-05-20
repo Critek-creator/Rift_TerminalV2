@@ -33,7 +33,9 @@
 //!   "model": "claude-opus-4-6[1m]",
 //!   "ctx_pct": 42,
 //!   "session_use_pct": 30,
-//!   "week_pct": 65
+//!   "week_pct": 65,
+//!   "github_owner": "Critek-creator",
+//!   "github_repo": "Rift_TerminalV2"
 //! }
 //! ```
 //!
@@ -152,6 +154,12 @@ pub(crate) fn publish_status_snapshot(bus: &RiftBus, project_root: &Path) {
         if let Some(v) = cc.week_pct {
             map.insert("week_pct".into(), json!(v));
         }
+        if let Some(v) = cc.github_owner {
+            map.insert("github_owner".into(), json!(v));
+        }
+        if let Some(v) = cc.github_repo {
+            map.insert("github_repo".into(), json!(v));
+        }
     }
 
     let mut env = Envelope::new(Category::Status, "usage");
@@ -169,6 +177,8 @@ struct CcStatus {
     ctx_pct: Option<u32>,
     session_use_pct: Option<u32>,
     week_pct: Option<u32>,
+    github_owner: Option<String>,
+    github_repo: Option<String>,
 }
 
 /// Read and parse `$TEMP/rift-cc-status.json`. Returns `None` if the file
@@ -237,11 +247,28 @@ fn read_cc_status() -> Option<CcStatus> {
         .and_then(as_f64)
         .map(|v| v.round() as u32);
 
+    // GitHub repo info from workspace.repo (v2.1.145+)
+    let github_owner = v
+        .get("workspace")
+        .and_then(|ws| ws.get("repo"))
+        .and_then(|r| r.get("owner"))
+        .and_then(|o| o.as_str())
+        .map(|s| s.to_string());
+
+    let github_repo = v
+        .get("workspace")
+        .and_then(|ws| ws.get("repo"))
+        .and_then(|r| r.get("name"))
+        .and_then(|n| n.as_str())
+        .map(|s| s.to_string());
+
     Some(CcStatus {
         model,
         ctx_pct,
         session_use_pct,
         week_pct,
+        github_owner,
+        github_repo,
     })
 }
 

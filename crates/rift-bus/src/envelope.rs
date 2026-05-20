@@ -41,6 +41,9 @@ pub enum Category {
     /// entirely until `RiftConfig.mcp.enabled = true`.
     /// Spec: `decisions/D-014_rift_mcp_v1_plan.md`.
     Mcp,
+    /// Sentinel watchdog events — rule violations, detection status,
+    /// health checks. Integration-provided (D-010, post-v1).
+    Sentinel,
 }
 
 /// The wire envelope. Every event on the bus and across the IPC boundary
@@ -137,6 +140,7 @@ mod tests {
             Category::Status,
             Category::System,
             Category::Mcp,
+            Category::Sentinel,
         ] {
             let env = Envelope::new(c, "smoke");
             let json = serde_json::to_string(&env).expect("encode");

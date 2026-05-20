@@ -1223,6 +1223,16 @@ fn git_action_command(
     git_status::run_action(&root, &action, message.as_deref())
 }
 
+#[tauri::command]
+fn list_sessions() -> Result<Vec<rift_bus::session_reader::SessionMeta>, String> {
+    rift_bus::session_reader::list_sessions()
+}
+
+#[tauri::command]
+fn load_session(session_id: String) -> Result<Vec<serde_json::Value>, String> {
+    rift_bus::session_reader::load_session(&session_id)
+}
+
 /// Shared helper: resolve `~/<rel_path>` and open it in the OS default editor.
 ///
 /// Cross-platform dispatch:
@@ -1873,6 +1883,8 @@ pub fn run() {
             mcp_status,
             mcp_token_get,
             mcp_token_regenerate,
+            list_sessions,
+            load_session,
             index_bridge::index_list_nodes,
             index_bridge::index_search_nodes,
             index_bridge::index_get_node,

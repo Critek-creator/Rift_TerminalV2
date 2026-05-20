@@ -113,7 +113,13 @@ const BUILTIN_TABS: TabDescriptor[] = [
   },
   {
     id: 'agents', title: 'agents', icon: '◊',
-    category: 'agent', detectedByDefault: false,
+    category: 'agent', detectedByDefault: true,
+    sections: [...STANDARD_SECTIONS],
+    source: 'builtin',
+  },
+  {
+    id: 'sentinel', title: 'sentinel', icon: '⊘',
+    category: 'sentinel', detectedByDefault: true,
     sections: [...STANDARD_SECTIONS],
     source: 'builtin',
   },
@@ -126,6 +132,12 @@ const BUILTIN_TABS: TabDescriptor[] = [
   {
     id: 'mcp', title: 'mcp', icon: '⬡',
     category: 'mcp', detectedByDefault: false,
+    sections: [...STANDARD_SECTIONS],
+    source: 'builtin',
+  },
+  {
+    id: 'sessions', title: 'sessions', icon: '⏱',
+    category: undefined, detectedByDefault: true,
     sections: [...STANDARD_SECTIONS],
     source: 'builtin',
   },

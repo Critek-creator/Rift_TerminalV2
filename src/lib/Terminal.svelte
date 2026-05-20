@@ -4,11 +4,13 @@
   import { listen, type UnlistenFn } from '@tauri-apps/api/event';
   import { Terminal as XTerm } from '@xterm/xterm';
   import { FitAddon } from '@xterm/addon-fit';
+  import { SearchAddon } from '@xterm/addon-search';
   import '@xterm/xterm/css/xterm.css';
   import { deferredFit } from './terminal-fit-timing';
   import { TREE_PATH_MIME, RIFT_VAULT_DROP_EVENT, type RiftVaultDropDetail } from './dragMime';
   import { laneFormatGated } from './laneFormat';
   import LaneGutter from './LaneGutter.svelte';
+  import TerminalSearch from './TerminalSearch.svelte';
   import { subscribe as busSubscribe, type Envelope } from './bus';
 
   type PtyExited = { id: number; code: number };
@@ -28,6 +30,8 @@
   let host: HTMLDivElement = $state(undefined!);
   let term: XTerm | undefined = $state(undefined);
   let fit: FitAddon | undefined;
+  let search = $state<SearchAddon | undefined>(undefined);
+  let searchOpen = $state(false);
   let resizeObs: ResizeObserver | undefined;
   let unlistenExited: UnlistenFn | undefined;
   let recoveryTimer: ReturnType<typeof setInterval> | undefined;
@@ -209,6 +213,8 @@
     });
     fit = new FitAddon();
     term.loadAddon(fit);
+    search = new SearchAddon();
+    term.loadAddon(search);
 
     // CRITICAL: await fonts.ready BEFORE term.open(host).
     //
@@ -284,6 +290,12 @@
 
     t.attachCustomKeyEventHandler((e) => {
       if (e.type !== 'keydown') return true;
+
+      // Ctrl+Shift+F — toggle terminal search overlay.
+      if (e.ctrlKey && e.shiftKey && (e.key === 'F' || e.key === 'f')) {
+        searchOpen = !searchOpen;
+        return false;
+      }
 
       // Zoom keybinds (Phase 8.7m — restoring V1 commit aff0f50 behavior).
       // Plain Ctrl+= / Ctrl++ / Ctrl+- / Ctrl+0 only — Shift/Alt combos
@@ -500,6 +512,7 @@
     if (recoveryTimer) clearInterval(recoveryTimer);
     resizeObs?.disconnect();
     host?.removeEventListener(RIFT_VAULT_DROP_EVENT, onTermVaultDrop);
+    search?.dispose();
     fit?.dispose();
     term?.dispose();
     delete (window as any).__RIFT_TERM__;
@@ -518,6 +531,9 @@
   ondrop={onTermDrop}
 >
   <LaneGutter terminal={term} hostElement={host} currentLane={currentLane} />
+  {#if searchOpen && search}
+    <TerminalSearch searchAddon={search} onclose={() => { searchOpen = false; term?.focus(); }} />
+  {/if}
 </div>
 
 <style>

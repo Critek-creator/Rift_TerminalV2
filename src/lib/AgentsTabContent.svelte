@@ -47,19 +47,7 @@
     endMessage?: string;
   }
 
-  interface SentinelViolation {
-    ts: number;
-    ruleId: string;
-    name: string;
-    source?: string;
-    level: string;
-    message: string;
-    file?: string;
-    line?: number | null;
-  }
-
   const ARCHIVE_LIMIT = 50;
-  const SENTINEL_LIMIT = 100;
   const RUNNING_INACTIVITY_HINT_MS = 30_000; // > 30s with no activity = "stuck?" hint
 
   // Live registry — keyed by agent id. Reactive map via reassignment.
@@ -68,8 +56,6 @@
   let agents = $state<Record<string, AgentState>>({});
   // Archive of finished agents, newest first.
   let archive = $state<AgentState[]>([]);
-  // Sentinel violations, newest first.
-  let sentinelViolations = $state<SentinelViolation[]>([]);
   let totalEvents = $state(0);
   let lastTickTs = $state<number>(Date.now());
   let unsubscribe: (() => Promise<void>) | undefined;
@@ -156,19 +142,6 @@
       }
 
       default:
-        if (env.kind.startsWith('sentinel.')) {
-          const sv: SentinelViolation = {
-            ts: env.ts,
-            ruleId: stringOr(payload.ruleId, env.kind),
-            name: stringOr(payload.name, env.kind),
-            source: stringOr(payload.source, undefined),
-            level: stringOr(payload.level, 'warning'),
-            message: stringOr(payload.message, ''),
-            file: stringOr(payload.file, undefined),
-            line: numberOr(payload.line, null),
-          };
-          sentinelViolations = [sv, ...sentinelViolations].slice(0, SENTINEL_LIMIT);
-        }
         break;
     }
   }
@@ -426,32 +399,6 @@
     </div>
   </footer>
 
-  <!-- Sentinel violations section -->
-  {#if sentinelViolations.length > 0}
-  <footer class="section">
-    <div class="section-head">
-      <span>SENTINEL ({sentinelViolations.length})</span>
-    </div>
-    <div class="sentinel-list">
-      {#each sentinelViolations.slice(0, 20) as v (v.ts + ':' + v.ruleId + ':' + (v.file ?? ''))}
-        <div class="sentinel-row level-{v.level}">
-          <span class="sentinel-icon">{v.level === 'critical' ? '🛑' : v.level === 'error' ? '⚠' : '◆'}</span>
-          <span class="sentinel-rule">[{v.ruleId}]</span>
-          <span class="sentinel-msg">{v.message}</span>
-          {#if v.file}
-            <span class="sentinel-file">{v.file.split('/').pop()}{v.line ? `:${v.line}` : ''}</span>
-          {/if}
-          {#if v.source}
-            <span class="sentinel-source">{v.source}</span>
-          {/if}
-        </div>
-      {/each}
-      {#if sentinelViolations.length > 20}
-        <div class="archive-overflow">+{sentinelViolations.length - 20} older</div>
-      {/if}
-    </div>
-  </footer>
-  {/if}
   {/if}
 </section>
 
@@ -856,45 +803,4 @@
     padding-top: 4px;
   }
 
-  /* Sentinel violations */
-  .sentinel-list { padding: 4px 14px; }
-  .sentinel-row {
-    display: flex;
-    align-items: baseline;
-    gap: 6px;
-    font-size: 10px;
-    padding: 2px 0;
-    color: var(--amber-warm);
-    transition: background 0.12s ease-out;
-  }
-  .sentinel-row:hover { background: rgba(212, 137, 10, 0.06); }
-  .sentinel-row.level-critical { color: var(--term-red); }
-  .sentinel-row.level-error { color: var(--term-red); opacity: 0.9; }
-  .sentinel-row.level-warning { color: var(--amber-primary); }
-  .sentinel-icon { font-size: 9px; flex-shrink: 0; }
-  .sentinel-rule {
-    font-weight: 700;
-    font-size: 9px;
-    letter-spacing: 0.04em;
-    flex-shrink: 0;
-    color: var(--amber-dim);
-  }
-  .sentinel-msg {
-    flex: 1;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .sentinel-file {
-    font-size: 9px;
-    color: var(--amber-faint);
-    flex-shrink: 0;
-  }
-  .sentinel-source {
-    font-size: 8px;
-    color: var(--amber-faint);
-    font-style: italic;
-    flex-shrink: 0;
-  }
 </style>

@@ -20,6 +20,8 @@
   import AgentsTabContent from './lib/AgentsTabContent.svelte';
   import FsTabContent from './lib/FsTabContent.svelte';
   import McpTabContent from './lib/McpTabContent.svelte';
+  import SentinelTabContent from './lib/SentinelTabContent.svelte';
+  import SessionsTabContent from './lib/SessionsTabContent.svelte';
   import StatusLine from './lib/StatusLine.svelte';
   import Popout from './lib/Popout.svelte';
   import { popouts } from './lib/popouts.svelte';
@@ -31,6 +33,7 @@
   import { parseSeverity, type SeverityLevel } from './lib/notifFilter';
   import type { RiftConfig as RiftConfigType, StatusLineConfig } from './lib/riftConfig';
   import { sectionCatalog } from './lib/sectionCatalog.svelte';
+  import CommandPalette from './lib/CommandPalette.svelte';
 
   // D-021: Tab→category mapping is now derived from the section catalog.
   // `sectionCatalog.categoryMap` builds the reverse map dynamically.
@@ -120,7 +123,11 @@
     agent: 'agents',
     fs: 'filesystem',
     mcp: 'mcp',
+    sentinel: 'sentinel',
   };
+
+  // ----- command palette -----
+  let paletteOpen = $state(false);
 
   // ----- which surface is in the main pane -----
   let active = $state<ActiveSurface>({ kind: 'session', id: 0 });
@@ -428,6 +435,18 @@
   // CSS flex-basis values so existing users see no immediate layout change.
   let cockpitRightWidth = $state(420); // px — was flex: 0 0 38% (~420 of 1100)
   let graphHeightPct = $state(55);     // percent — was flex: 0 0 55%
+
+  // Cockpit collapse toggle — hides the right pane (graph + tree) to give
+  // the terminal full width. Persisted to localStorage. Ctrl+B toggles.
+  const COCKPIT_COLLAPSED_KEY = 'rift.cockpit.collapsed';
+  let cockpitCollapsed = $state(
+    (() => { try { return localStorage.getItem(COCKPIT_COLLAPSED_KEY) === 'true'; } catch { return false; } })()
+  );
+
+  function toggleCockpit() {
+    cockpitCollapsed = !cockpitCollapsed;
+    try { localStorage.setItem(COCKPIT_COLLAPSED_KEY, String(cockpitCollapsed)); } catch {}
+  }
 
   // Phase 8.7g — main window position + size persistence.
   // tauri.conf.json hardcodes width:1100/height:700 at every launch, so
@@ -823,10 +842,24 @@
       }
     })();
 
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.ctrlKey && e.key === 'k') {
+        e.preventDefault();
+        paletteOpen = !paletteOpen;
+        return;
+      }
+      if (e.ctrlKey && e.key === 'b') {
+        e.preventDefault();
+        toggleCockpit();
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+
     return () => {
       unlistenDetached?.();
       unlistenReattached?.();
       window.removeEventListener('rift:config-changed', onConfigChanged);
+      window.removeEventListener('keydown', onKeyDown);
     };
   });
 
@@ -897,12 +930,14 @@
     onDetach={detachNotif}
     {detachedIds}
     {multiProject}
+    {cockpitCollapsed}
+    onToggleCockpit={toggleCockpit}
   />
 
   <!-- Phase 6.2 — always-on cockpit: left = terminal surface, right = file tree -->
   <main class="cockpit">
     <!-- Left half: existing terminal / notification / empty surfaces + optional promoted pane -->
-    <div class="cockpit-left" class:split={promoted !== null}>
+    <div class="cockpit-left" class:split={promoted !== null} class:full-width={cockpitCollapsed || cockpitDetached}>
       <div class="main-left">
         <!-- session terminals — keep all alive, hide inactive ones to preserve scrollback -->
         {#each sessions as s (s.id)}
@@ -953,6 +988,10 @@
               <FsTabContent severityThreshold={thresholdFor('filesystem')} onDragBack={demoteTab} />
             {:else if promotedTab.id === 'mcp'}
               <McpTabContent severityThreshold={thresholdFor('mcp')} onDragBack={demoteTab} />
+            {:else if promotedTab.id === 'sentinel'}
+              <SentinelTabContent severityThreshold={thresholdFor('sentinel')} onDragBack={demoteTab} />
+            {:else if promotedTab.id === 'sessions'}
+              <SessionsTabContent onDragBack={demoteTab} />
             {:else}
               <NotificationPane
                 title={promotedTab.title}
@@ -974,7 +1013,7 @@
          Reattach is handled by the cockpit window's own DOCK button (or its
          X — both intercepted to .hide()). The TitleBar's chip swaps to a
          ↙ DOCK button while detached, so the user always has a path back. -->
-    {#if !cockpitDetached}
+    {#if !cockpitDetached && !cockpitCollapsed}
       <!-- Phase 8.7e — vertical splitter between terminal (cockpit-left) and
            cockpit-right (graph + tree). Drag to resize terminal/cockpit
            widths; double-click to reset to default 420px. Width persists. -->
@@ -1052,6 +1091,13 @@
       stackIndex={i}
     />
   {/each}
+
+  {#if paletteOpen}
+    <CommandPalette
+      onclose={() => { paletteOpen = false; }}
+      onActivateNotif={activateNotif}
+    />
+  {/if}
 </div>
 
 <style>
@@ -1073,6 +1119,9 @@
     min-width: 0;
     min-height: 0;
     border-right: 2px solid var(--amber-faint);
+  }
+  .cockpit-left.full-width {
+    border-right: none;
   }
   /* When a notif tab is promoted, the left column switches to row layout so
      the promoted pane sits alongside the main terminal area. */

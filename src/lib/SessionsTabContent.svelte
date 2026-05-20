@@ -1,0 +1,520 @@
+<script lang="ts">
+  import { onMount } from 'svelte';
+  import { invoke } from '@tauri-apps/api/core';
+  import { NOTIF_TAB_MIME } from './dragMime';
+
+  interface SessionMeta {
+    id: string;
+    date: string;
+    event_count: number;
+    size_bytes: number;
+  }
+
+  interface SessionEvent {
+    id: string;
+    version: number;
+    timestamp: number;
+    category: string;
+    kind: string;
+    payload: any;
+  }
+
+  interface Props {
+    onDragBack?: () => void;
+  }
+
+  let { onDragBack }: Props = $props();
+
+  let sessions = $state<SessionMeta[]>([]);
+  let selectedId = $state<string | null>(null);
+  let events = $state<SessionEvent[]>([]);
+  let loading = $state(false);
+  let error = $state<string | null>(null);
+  let expandedRows = $state<Set<number>>(new Set());
+
+  const CAT_COLOR: Record<string, string> = {
+    pty:      'var(--term-white)',
+    hook:     'var(--term-cyan)',
+    agent:    'var(--term-purple)',
+    fs:       'var(--amber-faint)',
+    index:    'var(--status-blue-bright, #6CB6FF)',
+    aegis:    'var(--amber-primary)',
+    status:   'var(--amber-bright)',
+    system:   'var(--term-red)',
+    mcp:      'var(--term-purple, #C58FFF)',
+    sentinel: 'var(--term-red)',
+  };
+
+  function catColor(cat: string): string {
+    return CAT_COLOR[cat] ?? 'var(--amber-dim)';
+  }
+
+  async function loadSessions() {
+    loading = true;
+    error = null;
+    try {
+      sessions = await invoke<SessionMeta[]>('list_sessions');
+    } catch (err) {
+      error = String((err as Error).message ?? err);
+      sessions = [];
+    } finally {
+      loading = false;
+    }
+  }
+
+  async function selectSession(id: string) {
+    selectedId = id;
+    loading = true;
+    error = null;
+    expandedRows = new Set();
+    try {
+      events = await invoke<SessionEvent[]>('load_session', { sessionId: id });
+    } catch (err) {
+      error = String((err as Error).message ?? err);
+      events = [];
+    } finally {
+      loading = false;
+    }
+  }
+
+  function goBack() {
+    selectedId = null;
+    events = [];
+    expandedRows = new Set();
+    error = null;
+  }
+
+  function toggleRow(idx: number) {
+    const next = new Set(expandedRows);
+    if (next.has(idx)) next.delete(idx); else next.add(idx);
+    expandedRows = next;
+  }
+
+  function formatSize(bytes: number): string {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  }
+
+  function formatCount(n: number): string {
+    return n.toLocaleString();
+  }
+
+  function formatTs(ts: number): string {
+    const d = new Date(ts);
+    const h = String(d.getHours()).padStart(2, '0');
+    const m = String(d.getMinutes()).padStart(2, '0');
+    const s = String(d.getSeconds()).padStart(2, '0');
+    const ms = String(d.getMilliseconds()).padStart(3, '0');
+    return `${h}:${m}:${s}.${ms}`;
+  }
+
+  function formatPayload(payload: unknown): string {
+    if (payload === null || payload === undefined) return '';
+    if (typeof payload === 'string') return payload;
+    try { return JSON.stringify(payload); } catch { return String(payload); }
+  }
+
+  function formatPayloadExpanded(payload: unknown): string {
+    if (payload === null || payload === undefined) return '';
+    if (typeof payload === 'string') return payload;
+    try { return JSON.stringify(payload, null, 2); } catch { return String(payload); }
+  }
+
+  const selectedSession = $derived(
+    selectedId ? sessions.find((s) => s.id === selectedId) : undefined,
+  );
+
+  function onHandleDragStart(e: DragEvent) {
+    if (e.dataTransfer) {
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData(NOTIF_TAB_MIME, '__promoted_pane__');
+      e.dataTransfer.setData('text/plain', '__promoted_pane__');
+    }
+  }
+
+  onMount(() => {
+    loadSessions();
+  });
+</script>
+
+<section class="pane">
+  {#if onDragBack}
+    <div
+      class="drag-handle"
+      role="button"
+      tabindex="0"
+      draggable={true}
+      ondragstart={onHandleDragStart}
+      title="drag back to tab strip to dock"
+    >
+      <span class="handle-glyph">↙</span>
+      <span class="handle-title">sessions</span>
+      <span class="handle-hint">drag to dock</span>
+    </div>
+  {/if}
+
+  {#if error}
+    <div class="error-state">&#x26A0; {error}</div>
+  {/if}
+
+  {#if !selectedId}
+    <!-- Session list view -->
+    <header class="status">
+      <span class="title"><span class="icon">&#x23F1;</span>SESSIONS</span>
+      <span class="state">
+        {sessions.length} saved session{sessions.length === 1 ? '' : 's'}
+      </span>
+      <span class="spacer"></span>
+      <button type="button" class="ctl-btn" onclick={loadSessions} disabled={loading}>
+        {loading ? 'loading...' : 'refresh'}
+      </button>
+    </header>
+
+    <div class="log">
+      <div class="log-header">SAVED SESSIONS</div>
+      <div class="log-body">
+        {#if loading && sessions.length === 0}
+          <div class="empty-card">
+            <div class="empty-title">Loading...</div>
+            <div class="empty-desc">Scanning session log directory.</div>
+          </div>
+        {:else if sessions.length === 0}
+          <div class="empty-card">
+            <div class="empty-title">No saved sessions</div>
+            <div class="empty-desc">Sessions are recorded automatically when enabled in settings. Check that session logging is active in rift-config.toml.</div>
+          </div>
+        {:else}
+          {#each sessions as s (s.id)}
+            <!-- svelte-ignore a11y_click_events_have_key_events -->
+            <!-- svelte-ignore a11y_no_static_element_interactions -->
+            <div class="session-row" onclick={() => selectSession(s.id)}>
+              <span class="session-date">{s.date}</span>
+              <span class="session-count">{formatCount(s.event_count)} events</span>
+              <span class="session-size">{formatSize(s.size_bytes)}</span>
+              <span class="session-arrow">&#x25B6;</span>
+            </div>
+          {/each}
+        {/if}
+      </div>
+    </div>
+  {:else}
+    <!-- Event viewer -->
+    <header class="status">
+      <button type="button" class="ctl-btn" onclick={goBack}>&#x25C0; back</button>
+      <span class="title"><span class="icon">&#x23F1;</span>{selectedSession?.date ?? selectedId}</span>
+      <span class="state">
+        {formatCount(events.length)} event{events.length === 1 ? '' : 's'}
+        {#if selectedSession}· {formatSize(selectedSession.size_bytes)}{/if}
+      </span>
+      <span class="spacer"></span>
+    </header>
+
+    <div class="log">
+      <div class="log-header">SESSION EVENTS</div>
+      <div class="log-body">
+        {#if loading}
+          <div class="empty-card">
+            <div class="empty-title">Loading...</div>
+            <div class="empty-desc">Reading session events from disk.</div>
+          </div>
+        {:else if events.length === 0}
+          <div class="empty-card">
+            <div class="empty-title">No events in this session</div>
+            <div class="empty-desc">The session file may be empty or corrupted.</div>
+          </div>
+        {:else}
+          {#each events as e, i (i)}
+            {@const isExpanded = expandedRows.has(i)}
+            <!-- svelte-ignore a11y_click_events_have_key_events -->
+            <!-- svelte-ignore a11y_no_static_element_interactions -->
+            <div
+              class="row"
+              class:expanded={isExpanded}
+              onclick={(ev) => {
+                const target = ev.target as HTMLElement;
+                if (target.closest('.payload-expanded')) return;
+                toggleRow(i);
+              }}
+              title="click to {isExpanded ? 'collapse' : 'expand'}"
+            >
+              <span class="caret">{isExpanded ? '&#x25BC;' : '&#x25B6;'}</span>
+              <span class="ts">{formatTs(e.timestamp)}</span>
+              <span class="cat" style="color: {catColor(e.category)};">{e.category}</span>
+              <span class="kind">{e.kind}</span>
+              {#if isExpanded}
+                <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+                <pre
+                  class="payload-expanded"
+                  onmousedown={(ev) => ev.stopPropagation()}
+                >{formatPayloadExpanded(e.payload)}</pre>
+              {:else}
+                <span class="payload">{formatPayload(e.payload)}</span>
+              {/if}
+            </div>
+          {/each}
+        {/if}
+      </div>
+    </div>
+  {/if}
+</section>
+
+<style>
+  .pane {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    min-width: 0;
+    background: var(--bg-base);
+    color: var(--amber-warm);
+    font-family: var(--font-family);
+    font-size: 12px;
+  }
+
+  .drag-handle {
+    height: 26px;
+    padding: 0 12px;
+    background: var(--bg-surface);
+    border-bottom: 1px solid var(--border-subtle);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    cursor: grab;
+    user-select: none;
+    color: var(--amber-warm);
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    font-weight: 700;
+  }
+  .drag-handle { transition: background 0.12s ease-out; }
+  .drag-handle:active { cursor: grabbing; }
+  .drag-handle:hover { background: var(--bg-hover); }
+  .drag-handle .handle-glyph {
+    color: var(--amber-bright);
+    font-size: 12px;
+    text-shadow: var(--glow-amber-faint);
+  }
+  .drag-handle .handle-title {
+    color: var(--amber-bright);
+    text-transform: uppercase;
+  }
+  .drag-handle .handle-hint {
+    margin-left: auto;
+    color: var(--amber-faint);
+    font-style: italic;
+    font-weight: 400;
+    letter-spacing: 0.04em;
+  }
+
+  .status {
+    height: 30px;
+    padding: 0 14px;
+    background: var(--bg-elevated);
+    border-bottom: 1px solid var(--border-subtle);
+    box-shadow: var(--depth-edge-light), var(--depth-section-sep);
+    display: flex; align-items: center; gap: 14px;
+    color: var(--amber-warm);
+    font-size: 11px; letter-spacing: 0.1em; font-weight: 700;
+  }
+  .status .title {
+    color: var(--amber-bright);
+    text-shadow: var(--glow-amber-faint);
+  }
+  .status .icon { margin-right: 8px; opacity: 0.85; }
+  .status .state { color: var(--amber-dim); font-weight: 400; letter-spacing: 0.04em; }
+  .status .spacer { flex: 1; }
+  .ctl-btn {
+    background: transparent;
+    border: 1px solid var(--amber-faint);
+    color: var(--amber-warm);
+    font-family: inherit;
+    font-size: 9px;
+    letter-spacing: 0.1em;
+    font-weight: 700;
+    padding: 2px 8px;
+    cursor: pointer;
+    text-transform: uppercase;
+    transition: color 0.12s ease-out, background 0.12s ease-out, border-color 0.12s ease-out, opacity 0.12s ease-out;
+  }
+  .ctl-btn:hover:not(:disabled) {
+    border-color: var(--amber-bright);
+    color: var(--amber-bright);
+  }
+  .ctl-btn:focus-visible {
+    outline: 1px solid var(--amber-bright);
+    outline-offset: 1px;
+  }
+  .ctl-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  .error-state {
+    color: var(--term-red);
+    padding: 12px 14px;
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    border-bottom: 1px solid rgba(255, 72, 72, 0.2);
+    background: rgba(255, 72, 72, 0.06);
+  }
+
+  .log {
+    flex: 1;
+    display: flex; flex-direction: column;
+    min-height: 0;
+    min-width: 0;
+  }
+  .log-header {
+    padding: var(--section-header-padding, 8px 16px);
+    color: var(--amber-warm);
+    font-size: var(--section-header-size, 11px);
+    font-weight: 700;
+    letter-spacing: var(--section-header-spacing, 0.1em);
+    border-bottom: 1px solid var(--border-subtle);
+    background: var(--bg-surface);
+    box-shadow: var(--depth-edge-light), var(--depth-section-sep);
+  }
+  .log-body {
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: hidden;
+    min-width: 0;
+    padding: 10px 16px;
+    color: var(--amber-warm);
+    font-size: 11px;
+    line-height: 1.5;
+    box-shadow: var(--depth-inset);
+  }
+  .log-body::-webkit-scrollbar { width: 5px; }
+  .log-body::-webkit-scrollbar-thumb { background: var(--amber-faint); }
+
+  .empty-card {
+    border: 1px dashed var(--border-subtle);
+    padding: 12px 14px;
+    background: rgba(212, 137, 10, 0.05);
+    color: var(--amber-warm);
+    font-size: 11px;
+    line-height: 1.55;
+  }
+  .empty-title {
+    color: var(--amber-bright);
+    font-weight: 700;
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    margin-bottom: 6px;
+  }
+  .empty-desc {
+    color: var(--amber-dim);
+    font-size: 10px;
+  }
+
+  /* Session list rows */
+  .session-row {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 8px 4px;
+    border-bottom: 1px solid rgba(255, 168, 38, 0.06);
+    cursor: pointer;
+    transition: background 0.12s ease-out;
+  }
+  .session-row:hover { background: rgba(212, 137, 10, 0.08); }
+  .session-date {
+    color: var(--amber-bright);
+    font-weight: 600;
+    font-size: 12px;
+    min-width: 140px;
+  }
+  .session-count {
+    color: var(--amber-warm);
+    font-size: 10px;
+    font-variant-numeric: tabular-nums;
+    min-width: 100px;
+  }
+  .session-size {
+    color: var(--amber-dim);
+    font-size: 10px;
+    font-variant-numeric: tabular-nums;
+    min-width: 60px;
+  }
+  .session-arrow {
+    color: var(--amber-faint);
+    font-size: 9px;
+    margin-left: auto;
+  }
+
+  /* Event rows — mirrors BusTailTabContent grid pattern */
+  .log-body .row {
+    display: grid;
+    grid-template-columns: 14px 85px 60px 140px minmax(0, 1fr);
+    gap: 8px;
+    align-items: baseline;
+    padding: 1px 0;
+    white-space: nowrap;
+    cursor: pointer;
+    user-select: text;
+    transition: background 0.12s ease-out;
+  }
+  .log-body .row:hover { background: rgba(212, 137, 10, 0.06); }
+  .log-body .row.expanded {
+    grid-template-columns: 14px 85px 60px minmax(0, 1fr);
+    grid-template-areas:
+      "caret ts    cat   kind"
+      "pl    pl    pl    pl";
+    background: rgba(212, 137, 10, 0.05);
+    padding: 4px 0 6px;
+    white-space: normal;
+  }
+  .log-body .row.expanded .caret { grid-area: caret; color: var(--amber-bright); }
+  .log-body .row.expanded .ts    { grid-area: ts; }
+  .log-body .row.expanded .cat   { grid-area: cat; }
+  .log-body .row.expanded .kind  { grid-area: kind; }
+  .log-body .caret {
+    color: var(--amber-faint);
+    font-size: 9px;
+    line-height: 1.5;
+    user-select: none;
+  }
+  .log-body .ts {
+    color: var(--amber-faint);
+    font-variant-numeric: tabular-nums;
+    font-size: 10px;
+  }
+  .log-body .cat {
+    font-weight: 700;
+    font-size: 9px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+  .log-body .kind {
+    color: var(--amber-warm);
+    font-weight: 600;
+  }
+  .log-body .payload {
+    color: var(--amber-dim);
+    font-size: 10px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .log-body .payload-expanded {
+    grid-area: pl;
+    margin: 4px 0 0 22px;
+    padding: 6px 8px;
+    background: var(--bg-base);
+    border: 1px solid var(--border-subtle);
+    color: var(--amber-warm);
+    font-family: var(--font-family);
+    font-size: 10.5px;
+    line-height: 1.45;
+    white-space: pre-wrap;
+    word-break: break-word;
+    min-width: 0;
+    max-height: 320px;
+    overflow-x: auto;
+    overflow-y: auto;
+    user-select: text;
+    cursor: text;
+  }
+  .log-body .payload-expanded::-webkit-scrollbar { width: 5px; }
+  .log-body .payload-expanded::-webkit-scrollbar-thumb { background: var(--amber-faint); }
+</style>

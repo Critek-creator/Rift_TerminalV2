@@ -56,6 +56,10 @@
     detachedIds: Set<string>;
     /** When true, multiple projects are open — show project name on tabs. */
     multiProject?: boolean;
+    /** Cockpit right-pane collapsed state. */
+    cockpitCollapsed?: boolean;
+    /** Toggle cockpit right-pane visibility. */
+    onToggleCockpit?: () => void;
   }
 
   let {
@@ -76,6 +80,8 @@
     onDetach,
     detachedIds,
     multiProject = false,
+    cockpitCollapsed = false,
+    onToggleCockpit,
   }: Props = $props();
 
   function isDetached(id: string): boolean {
@@ -349,6 +355,16 @@
       onclick={onManageNotifs}
       title="manage notification tabs"
     >⋯</button>
+    {#if onToggleCockpit}
+      <button
+        type="button"
+        class="manage cockpit-toggle"
+        class:collapsed={cockpitCollapsed}
+        aria-label={cockpitCollapsed ? 'show cockpit' : 'hide cockpit'}
+        onclick={onToggleCockpit}
+        title={cockpitCollapsed ? 'show cockpit (Ctrl+B)' : 'hide cockpit (Ctrl+B)'}
+      >{cockpitCollapsed ? '◧' : '◨'}</button>
+    {/if}
   </div>
 </nav>
 
@@ -582,6 +598,14 @@
     color: var(--amber-bright);
     background: var(--bg-hover);
     border-color: var(--border-subtle);
+  }
+  .cockpit-toggle {
+    border-left: 1px solid var(--border-subtle);
+    margin-left: 4px;
+    padding-left: 2px;
+  }
+  .cockpit-toggle.collapsed {
+    color: var(--amber-dim);
   }
 
   .badge {

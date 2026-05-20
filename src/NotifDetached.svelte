@@ -12,6 +12,8 @@
   import AgentsTabContent from './lib/AgentsTabContent.svelte';
   import FsTabContent from './lib/FsTabContent.svelte';
   import McpTabContent from './lib/McpTabContent.svelte';
+  import SentinelTabContent from './lib/SentinelTabContent.svelte';
+  import SessionsTabContent from './lib/SessionsTabContent.svelte';
   import { signalBusReady, type Category } from './lib/bus';
   import { parseSeverity, type SeverityLevel } from './lib/notifFilter';
 
@@ -219,6 +221,10 @@
           <FsTabContent {severityThreshold} />
         {:else if config.tabId === 'mcp'}
           <McpTabContent {severityThreshold} />
+        {:else if config.tabId === 'sentinel'}
+          <SentinelTabContent {severityThreshold} />
+        {:else if config.tabId === 'sessions'}
+          <SessionsTabContent />
         {:else}
           <NotificationPane
             title={config.title}

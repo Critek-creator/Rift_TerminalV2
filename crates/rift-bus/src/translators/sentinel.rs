@@ -1,5 +1,5 @@
 //! Sentinel translator — watches `~/.sentinel/events.jsonl` and publishes
-//! `Category::Agent` / `kind="sentinel.*"` envelopes on the Rift bus.
+//! `Category::Sentinel` / `kind="sentinel.*"` envelopes on the Rift bus.
 //!
 //! Pattern: file-tail translator (same family as `vault_walker` and the
 //! aegis.log live-tail in rift-aegis). Reads new lines appended by the
@@ -119,7 +119,7 @@ async fn read_and_publish(bus: &RiftBus, path: &PathBuf, offset: u64) -> u64 {
             .and_then(|v| v.as_str())
             .unwrap_or("sentinel.violation");
 
-        match Envelope::new(Category::Agent, kind).with_payload(&parsed) {
+        match Envelope::new(Category::Sentinel, kind).with_payload(&parsed) {
             Ok(env) => bus.publish(env),
             Err(e) => {
                 tracing::debug!("sentinel_translator: envelope build failed: {e}");
