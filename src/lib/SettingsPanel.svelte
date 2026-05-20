@@ -20,7 +20,8 @@
   import { getVersion, getName } from '@tauri-apps/api/app';
   import { check, type Update } from '@tauri-apps/plugin-updater';
   import { popouts } from './popouts.svelte';
-  import type { RiftConfig, McpConfig, ShellPref, SeverityLevel, StatusLineConfig } from './riftConfig';
+  import type { RiftConfig, McpConfig, ShellPref, SeverityLevel, StatusLineConfig, AlertRule, AlertAction } from './riftConfig';
+  import { newAlertRuleId } from './alertRules';
 
   interface Props {
     popoutId: number;
@@ -28,7 +29,7 @@
 
   let { popoutId }: Props = $props();
 
-  type SettingsTab = 'general' | 'terminal' | 'index' | 'tree' | 'mcp' | 'statusline';
+  type SettingsTab = 'general' | 'terminal' | 'index' | 'tree' | 'mcp' | 'statusline' | 'alerts';
   let activeTab = $state<SettingsTab>('general');
 
   // ---------------------------------------------------------------------
@@ -108,7 +109,7 @@
   let savingTerminal = $state(false);
   let savingTree = $state(false);
   let saveBanner = $state<{
-    section: 'fs' | 'index' | 'mcp' | 'terminal' | 'notif' | 'tree' | 'statusline';
+    section: 'fs' | 'index' | 'mcp' | 'terminal' | 'notif' | 'tree' | 'statusline' | 'alerts';
     ok: boolean;
     msg: string;
   } | null>(null);
@@ -145,6 +146,66 @@
   let slShowSessionUse = $state(true);
   let slShowWeek = $state(true);
   let savingStatusline = $state(false);
+
+  // Alerts — smart tab alerting rules.
+  let alertRules = $state<AlertRule[]>([]);
+  let savingAlerts = $state(false);
+
+  const alertsDirty = $derived(
+    config !== null
+    && JSON.stringify(alertRules) !== JSON.stringify(config.alerts?.rules ?? [])
+  );
+
+  function addAlertRule() {
+    alertRules = [...alertRules, {
+      id: newAlertRuleId(),
+      tab_id: 'errors',
+      severity: 'error' as SeverityLevel,
+      threshold: 3,
+      window_secs: 10,
+      action: 'flash' as AlertAction,
+      enabled: true,
+    }];
+  }
+
+  function removeAlertRule(id: string) {
+    alertRules = alertRules.filter((r) => r.id !== id);
+  }
+
+  function updateAlertRule(id: string, patch: Partial<AlertRule>) {
+    alertRules = alertRules.map((r) => r.id === id ? { ...r, ...patch } : r);
+  }
+
+  async function saveAlertRules() {
+    if (!config) return;
+    savingAlerts = true;
+    saveBanner = null;
+    try {
+      const next: RiftConfig = {
+        ...config,
+        alerts: { rules: alertRules },
+      };
+      await invoke('config_save', { cfg: next });
+      config = next;
+      broadcastConfigChanged();
+      saveBanner = { section: 'alerts', ok: true, msg: 'alert rules saved' };
+    } catch (err) {
+      saveBanner = { section: 'alerts', ok: false, msg: String(err) };
+    } finally {
+      savingAlerts = false;
+    }
+  }
+
+  const TAB_ID_OPTIONS = [
+    'errors', 'hooks', 'commands', 'aegis', 'index', 'agents',
+    'filesystem', 'mcp', 'sentinel', 'bustail', 'todo', 'git', 'sessions',
+  ];
+
+  const ALERT_ACTION_OPTIONS: { value: AlertAction; label: string }[] = [
+    { value: 'flash', label: 'flash badge' },
+    { value: 'promote', label: 'auto-promote' },
+    { value: 'tone', label: 'play tone' },
+  ];
 
   // Tree — D-020 heatmap groundwork.
   let treeHeatmapEnabled = $state(false);
@@ -432,6 +493,8 @@
     const tree = c.tree ?? { heatmap_enabled: false, heatmap_window_minutes: 15 };
     treeHeatmapEnabled = tree.heatmap_enabled;
     treeHeatmapWindow = tree.heatmap_window_minutes;
+    // Alert rules snapshot.
+    alertRules = c.alerts?.rules ?? [];
     // Notification filters snapshot.
     const nf = c.notif_filters ?? { default_threshold: 'info', per_tab: {} };
     notifDefaultThreshold = (['debug', 'info', 'warn', 'error'].includes(nf.default_threshold)
@@ -627,6 +690,7 @@
       { id: 'index',      label: 'INDEX' },
       { id: 'tree',       label: 'TREE' },
       { id: 'mcp',        label: 'MCP' },
+      { id: 'alerts',     label: 'ALERTS' },
     ] as tab (tab.id)}
       <button
         class="tab-btn"
@@ -1267,6 +1331,108 @@
     {/if}
     {/if}
 
+    {#if activeTab === 'alerts'}
+    <!-- ALERTS — smart tab alerting rules -->
+    {#if config}
+      <section class="section">
+        <div class="section-label">Alert rules</div>
+        <div class="hint">
+          trigger visual or audio alerts when event rates exceed a threshold
+          within a sliding window. rules evaluate per-envelope in the master
+          bus subscription.
+        </div>
+
+        {#if alertRules.length === 0}
+          <div class="hint" style="font-style: italic; margin: 12px 0;">no rules configured — click add rule to create one.</div>
+        {/if}
+
+        {#each alertRules as rule (rule.id)}
+          <div class="alert-rule-row">
+            <label class="kv-toggle">
+              <input
+                type="checkbox"
+                checked={rule.enabled}
+                onchange={() => updateAlertRule(rule.id, { enabled: !rule.enabled })}
+              />
+              <span class="alert-rule-label">
+                <select
+                  class="inline-select"
+                  value={rule.tab_id}
+                  onchange={(e) => updateAlertRule(rule.id, { tab_id: (e.target as HTMLSelectElement).value })}
+                >
+                  {#each TAB_ID_OPTIONS as tid (tid)}
+                    <option value={tid}>{tid}</option>
+                  {/each}
+                </select>
+                <select
+                  class="inline-select"
+                  value={rule.severity}
+                  onchange={(e) => updateAlertRule(rule.id, { severity: (e.target as HTMLSelectElement).value as SeverityLevel })}
+                >
+                  <option value="debug">debug+</option>
+                  <option value="info">info+</option>
+                  <option value="warn">warn+</option>
+                  <option value="error">error</option>
+                </select>
+                <span class="alert-rule-op">&ge;</span>
+                <input
+                  type="number"
+                  class="inline-number"
+                  min="1"
+                  max="100"
+                  value={rule.threshold}
+                  onchange={(e) => updateAlertRule(rule.id, { threshold: parseInt((e.target as HTMLInputElement).value) || 3 })}
+                />
+                <span class="alert-rule-op">in</span>
+                <input
+                  type="number"
+                  class="inline-number"
+                  min="1"
+                  max="60"
+                  value={rule.window_secs}
+                  onchange={(e) => updateAlertRule(rule.id, { window_secs: parseInt((e.target as HTMLInputElement).value) || 10 })}
+                />
+                <span class="alert-rule-op">s</span>
+                <span class="alert-rule-arrow">&rarr;</span>
+                <select
+                  class="inline-select"
+                  value={rule.action}
+                  onchange={(e) => updateAlertRule(rule.id, { action: (e.target as HTMLSelectElement).value as AlertAction })}
+                >
+                  {#each ALERT_ACTION_OPTIONS as opt (opt.value)}
+                    <option value={opt.value}>{opt.label}</option>
+                  {/each}
+                </select>
+              </span>
+            </label>
+            <button type="button" class="btn btn-danger-sm" onclick={() => removeAlertRule(rule.id)}>
+              &times;
+            </button>
+          </div>
+        {/each}
+
+        <div class="row" style="margin-top: 8px;">
+          <button type="button" class="btn" onclick={addAlertRule}>+ add rule</button>
+          <button
+            type="button"
+            class="btn primary"
+            disabled={!alertsDirty || savingAlerts}
+            onclick={saveAlertRules}
+          >
+            {savingAlerts ? 'saving…' : 'save alerts'}
+          </button>
+          {#if saveBanner && saveBanner.section === 'alerts'}
+            <span class="banner-inline" class:fail={!saveBanner.ok}>
+              {saveBanner.msg}
+            </span>
+          {/if}
+        </div>
+      </section>
+    {:else}
+      <div class="hint">loading config…</div>
+    {/if}
+    {/if}
+
   </div>
 
   <div class="settings-footer">
@@ -1671,5 +1837,60 @@
     display: flex;
     justify-content: flex-end;
     background: var(--bg-panel, #0c0c0a);
+  }
+  .alert-rule-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 0;
+    border-bottom: 1px solid var(--border-subtle);
+  }
+  .alert-rule-row:last-of-type { border-bottom: none; }
+  .alert-rule-label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  .alert-rule-op {
+    color: var(--amber-faint);
+    font-size: 10px;
+  }
+  .alert-rule-arrow {
+    color: var(--amber-bright);
+    font-size: 11px;
+  }
+  .inline-select {
+    background: var(--bg-elevated);
+    color: var(--amber-warm);
+    border: 1px solid var(--border-subtle);
+    font-family: var(--font-family);
+    font-size: 10px;
+    padding: 2px 4px;
+    border-radius: var(--radius-md, 4px);
+  }
+  .inline-number {
+    background: var(--bg-elevated);
+    color: var(--amber-warm);
+    border: 1px solid var(--border-subtle);
+    font-family: var(--font-family);
+    font-size: 10px;
+    width: 40px;
+    padding: 2px 4px;
+    text-align: center;
+    border-radius: var(--radius-md, 4px);
+  }
+  .btn-danger-sm {
+    background: transparent;
+    color: var(--term-red);
+    border: 1px solid rgba(255, 72, 72, 0.3);
+    font-size: 12px;
+    padding: 2px 6px;
+    cursor: pointer;
+    border-radius: var(--radius-md, 4px);
+    line-height: 1;
+  }
+  .btn-danger-sm:hover {
+    background: rgba(255, 72, 72, 0.15);
   }
 </style>

@@ -93,6 +93,10 @@ pub struct RiftConfig {
     pub tree: TreeConfig,
     /// StatusLine segment visibility and color overrides (§10.2).
     pub statusline: StatusLineConfig,
+    /// Alert rules — user-configurable threshold-based event alerting.
+    /// Each rule watches a notification tab for event bursts and triggers
+    /// a visual/audio action (flash badge, auto-promote, tone).
+    pub alerts: AlertsConfig,
 }
 
 /// A recently-used project entry stored in the config.
@@ -526,6 +530,59 @@ impl Default for StatusLineConfig {
             color_overrides: std::collections::HashMap::new(),
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// AlertsConfig — user-configurable event alerting rules
+// ---------------------------------------------------------------------------
+
+/// Alert rules configuration.
+///
+/// Each rule watches a specific notification tab for event rate thresholds
+/// (via the per-tab SparklineBuffer) and triggers an action when exceeded.
+/// Rules persist in `config.toml` under `[alerts]`.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AlertsConfig {
+    /// Ordered list of alert rules. Evaluated per-envelope in the master
+    /// subscription; first matching rule per tab per envelope wins.
+    pub rules: Vec<AlertRule>,
+}
+
+/// A single alert rule targeting one notification tab.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct AlertRule {
+    /// Unique identifier (nanoid or UUID).
+    pub id: String,
+    /// Notification tab this rule watches (e.g. "errors", "hooks", "mcp").
+    pub tab_id: String,
+    /// Minimum event severity to count toward the threshold.
+    pub severity: SeverityLevel,
+    /// Number of qualifying events within `window_secs` that triggers the action.
+    pub threshold: u32,
+    /// Sliding window in seconds (1–60). Evaluated against SparklineBuffer.
+    pub window_secs: u32,
+    /// Action to execute when the threshold is met.
+    pub action: AlertAction,
+    /// Whether this rule is active.
+    pub enabled: bool,
+}
+
+/// Action triggered by an alert rule.
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+#[non_exhaustive]
+pub enum AlertAction {
+    /// Flash the tab badge red (CSS animation, 3 cycles).
+    #[default]
+    Flash,
+    /// Auto-promote the tab to the side pane.
+    Promote,
+    /// Play a short audio tone (Web Audio API).
+    Tone,
+    /// Forward-compat catch-all.
+    #[serde(other)]
+    Unknown,
 }
 
 // ---------------------------------------------------------------------------
@@ -1172,6 +1229,43 @@ max_depth = 4
             cfg.tree.heatmap_window_minutes, 15,
             "tree.heatmap_window_minutes should default to 15"
         );
+    }
+
+    // T31a — parse_config_without_alerts_section_uses_defaults
+    #[test]
+    fn parse_config_without_alerts_section_uses_defaults() {
+        let toml_str = r#"
+[fs]
+max_depth = 4
+"#;
+        let cfg: RiftConfig = toml::from_str(toml_str).expect("parse should succeed");
+        assert!(
+            cfg.alerts.rules.is_empty(),
+            "alerts.rules should default to empty"
+        );
+    }
+
+    // T31b — alerts_config_round_trips
+    #[test]
+    fn alerts_config_round_trips() {
+        let original = AlertsConfig {
+            rules: vec![AlertRule {
+                id: "test-001".to_string(),
+                tab_id: "errors".to_string(),
+                severity: SeverityLevel::Error,
+                threshold: 3,
+                window_secs: 10,
+                action: AlertAction::Flash,
+                enabled: true,
+            }],
+        };
+        let toml_str = toml::to_string_pretty(&original).expect("serialize");
+        let back: AlertsConfig = toml::from_str(&toml_str).expect("deserialize");
+        assert_eq!(back.rules.len(), 1);
+        assert_eq!(back.rules[0].id, "test-001");
+        assert_eq!(back.rules[0].tab_id, "errors");
+        assert_eq!(back.rules[0].threshold, 3);
+        assert_eq!(back.rules[0].action, AlertAction::Flash);
     }
 
     // T31 — tree_config_round_trips

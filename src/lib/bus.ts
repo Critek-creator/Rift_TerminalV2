@@ -30,6 +30,8 @@ export interface Envelope {
   kind: string;
   ts: number;
   payload: unknown;
+  correlation_id?: string;
+  parent_id?: string;
 }
 
 export interface SubscribeOptions {

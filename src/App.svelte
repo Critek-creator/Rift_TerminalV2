@@ -31,7 +31,10 @@
   import { subscribe, publish, signalBusReady, type Category } from './lib/bus';
   import { enrichmentStore } from './lib/enrichmentStore.svelte';
   import { parseSeverity, type SeverityLevel } from './lib/notifFilter';
-  import type { RiftConfig as RiftConfigType, StatusLineConfig } from './lib/riftConfig';
+  import type { RiftConfig as RiftConfigType, StatusLineConfig, AlertRule } from './lib/riftConfig';
+  import { SparklineBuffer } from './lib/SparklineBuffer';
+  import { evaluateRule, triggerAction } from './lib/alertRules';
+  import { CorrelationIndex } from './lib/correlationIndex';
   import { sectionCatalog } from './lib/sectionCatalog.svelte';
   import CommandPalette from './lib/CommandPalette.svelte';
   import ShortcutOverlay from './lib/ShortcutOverlay.svelte';
@@ -126,6 +129,32 @@
     mcp: 'mcp',
     sentinel: 'sentinel',
   };
+
+  // ----- correlation index -----
+  const correlationIndex = new CorrelationIndex();
+
+  // ----- alert rules -----
+  let alertRules = $state<AlertRule[]>([]);
+  const alertBuffers = new Map<string, SparklineBuffer>();
+  let alertTriggered = $state<Record<string, boolean>>({});
+
+  function getAlertBuffer(tabId: string): SparklineBuffer {
+    let buf = alertBuffers.get(tabId);
+    if (!buf) {
+      buf = new SparklineBuffer();
+      alertBuffers.set(tabId, buf);
+    }
+    return buf;
+  }
+
+  async function loadAlertRules() {
+    try {
+      const cfg = await invoke<RiftConfigType>('config_get');
+      alertRules = cfg?.alerts?.rules ?? [];
+    } catch (err) {
+      console.warn('Failed to load alert rules:', err);
+    }
+  }
 
   // ----- command palette -----
   let paletteOpen = $state(false);
@@ -497,7 +526,10 @@
   let tickNow = $state(Date.now());
 
   $effect(() => {
-    const t = setInterval(() => { tickNow = Date.now(); }, 1000);
+    const t = setInterval(() => {
+      tickNow = Date.now();
+      for (const buf of alertBuffers.values()) buf.tick();
+    }, 1000);
     return () => clearInterval(t);
   });
 
@@ -543,6 +575,29 @@
               unreadCount: inView ? 0 : n.unreadCount + 1,
             };
           });
+
+          // Correlation: index every envelope that carries a correlation_id.
+          correlationIndex.index(env);
+
+          // Alert rules: record event in per-tab buffer and evaluate.
+          const buf = getAlertBuffer(id);
+          buf.record();
+          for (const rule of alertRules) {
+            if (rule.tab_id !== id) continue;
+            if (evaluateRule(rule, buf, env.kind)) {
+              const result = triggerAction(rule.action);
+              if (result.flash) {
+                alertTriggered = { ...alertTriggered, [id]: true };
+                setTimeout(() => {
+                  alertTriggered = { ...alertTriggered, [id]: false };
+                }, 2000);
+              }
+              if (result.promote && promoted !== id) {
+                promoted = id;
+              }
+              break;
+            }
+          }
         });
         if (cancelled) {
           void u().catch(() => {});
@@ -781,10 +836,14 @@
     // Load font_family + statusline config on mount.
     void loadAppearanceConfig();
 
-    // Re-read filters + appearance when Settings saves (rift:config-changed broadcast).
+    // Load alert rules from config on mount.
+    void loadAlertRules();
+
+    // Re-read filters + appearance + alerts when Settings saves (rift:config-changed broadcast).
     const onConfigChanged = () => {
       void loadNotifFilters();
       void loadAppearanceConfig();
+      void loadAlertRules();
     };
     window.addEventListener('rift:config-changed', onConfigChanged);
 
@@ -965,6 +1024,7 @@
     {detachedIds}
     {multiProject}
     {cockpitCollapsed}
+    {alertTriggered}
     onToggleCockpit={toggleCockpit}
   />
 
@@ -1011,7 +1071,7 @@
             {:else if promotedTab.id === 'index'}
               <IndexTabContent onDragBack={demoteTab} />
             {:else if promotedTab.id === 'bustail'}
-              <BusTailTabContent severityThreshold={thresholdFor('bustail')} onDragBack={demoteTab} />
+              <BusTailTabContent severityThreshold={thresholdFor('bustail')} onDragBack={demoteTab} {correlationIndex} />
             {:else if promotedTab.id === 'todo'}
               <TodoTabContent onDragBack={demoteTab} />
             {:else if promotedTab.id === 'git'}
@@ -1021,7 +1081,7 @@
             {:else if promotedTab.id === 'filesystem'}
               <FsTabContent severityThreshold={thresholdFor('filesystem')} onDragBack={demoteTab} />
             {:else if promotedTab.id === 'mcp'}
-              <McpTabContent severityThreshold={thresholdFor('mcp')} onDragBack={demoteTab} />
+              <McpTabContent severityThreshold={thresholdFor('mcp')} onDragBack={demoteTab} {correlationIndex} />
             {:else if promotedTab.id === 'sentinel'}
               <SentinelTabContent severityThreshold={thresholdFor('sentinel')} onDragBack={demoteTab} />
             {:else if promotedTab.id === 'sessions'}

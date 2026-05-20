@@ -587,6 +587,7 @@ pub fn publish_fs_event(bus: &RiftBus, event: FsEvent) {
     };
     let mut env = Envelope::new(Category::Fs, kind);
     env.payload = payload;
+    env.correlation_id = Some(crate::correlation::new_correlation_id());
     bus.publish(env);
 }
 

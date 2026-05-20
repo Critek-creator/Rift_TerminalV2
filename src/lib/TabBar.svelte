@@ -58,6 +58,8 @@
     multiProject?: boolean;
     /** Cockpit right-pane collapsed state. */
     cockpitCollapsed?: boolean;
+    /** Per-tab alert triggered state — drives flash animation. */
+    alertTriggered?: Record<string, boolean>;
     /** Toggle cockpit right-pane visibility. */
     onToggleCockpit?: () => void;
   }
@@ -81,6 +83,7 @@
     detachedIds,
     multiProject = false,
     cockpitCollapsed = false,
+    alertTriggered = {},
     onToggleCockpit,
   }: Props = $props();
 
@@ -328,7 +331,7 @@
         <span class="icon">{isDetached(tab.id) ? '⬡' : isPromoted(tab.id) ? '↗' : tab.icon}</span>
         <span>{tab.title}</span>
         {#if tab.unreadCount > 0 && tab.enabled}
-          <span class="badge" aria-label="{tab.unreadCount} unread events">
+          <span class="badge" class:alert-flash={alertTriggered[tab.id]} aria-label="{tab.unreadCount} unread events">
             {tab.unreadCount > 99 ? '99+' : tab.unreadCount}
           </span>
         {/if}
@@ -626,6 +629,15 @@
   @keyframes badge-pulse {
     0%, 100% { opacity: 1; }
     50%       { opacity: 0.7; }
+  }
+  .badge.alert-flash {
+    background: var(--term-red, #FF4848);
+    box-shadow: 0 0 8px rgba(255, 72, 72, 0.6);
+    animation: alert-flash-anim 0.5s ease-in-out 4;
+  }
+  @keyframes alert-flash-anim {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.4; transform: scale(1.3); }
   }
 
   /* §10.9 — live-active animated amber border. The pulse runs on the bottom

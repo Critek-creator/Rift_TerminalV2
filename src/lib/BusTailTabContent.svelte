@@ -20,13 +20,16 @@
   import { shouldShow, type SeverityLevel } from './notifFilter';
   import { SparklineBuffer } from './SparklineBuffer';
   import SparklineChart from './SparklineChart.svelte';
+  import CorrelationBadge from './CorrelationBadge.svelte';
+  import type { CorrelationIndex } from './correlationIndex';
 
   interface Props {
     severityThreshold?: SeverityLevel;
     onDragBack?: () => void;
+    correlationIndex?: CorrelationIndex | null;
   }
 
-  let { severityThreshold = 'debug', onDragBack }: Props = $props();
+  let { severityThreshold = 'debug', onDragBack, correlationIndex = null }: Props = $props();
 
   const RECENT_LOG_LIMIT = 200;
   const LIVE_ACTIVITY_WINDOW_MS = 4000;
@@ -273,6 +276,9 @@
             <span class="ts">{formatTs(e.ts)}</span>
             <span class="cat" style="color: {CAT_COLOR[e.category]};">{e.category}</span>
             <span class="kind">{e.kind}</span>
+            {#if correlationIndex}
+              <CorrelationBadge env={e} index={correlationIndex} />
+            {/if}
             {#if isExpanded}
               <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
               <pre

@@ -84,6 +84,22 @@ export interface StatusLineConfig {
   color_overrides: Record<string, string>;
 }
 
+export type AlertAction = 'flash' | 'promote' | 'tone';
+
+export interface AlertRule {
+  id: string;
+  tab_id: string;
+  severity: SeverityLevel;
+  threshold: number;
+  window_secs: number;
+  action: AlertAction;
+  enabled: boolean;
+}
+
+export interface AlertsConfig {
+  rules: AlertRule[];
+}
+
 export interface RiftConfig {
   projects: ProjectEntry[];
   fs: FsConfig;
@@ -95,4 +111,5 @@ export interface RiftConfig {
   notif_filters: NotifFilterConfig;
   tree: TreeConfig;
   statusline: StatusLineConfig;
+  alerts: AlertsConfig;
 }

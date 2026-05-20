@@ -8,6 +8,7 @@
 
 pub mod bus;
 pub mod config;
+pub mod correlation;
 pub mod envelope;
 pub mod ipc;
 pub mod session_logger;

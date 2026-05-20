@@ -1239,17 +1239,24 @@ async fn tool_simulate_drag(app_handle: &AppHandle, payload: &Value) -> Result<V
 
 fn publish_response(bus: &RiftBus, tool: &str, request_id: Value, result: Result<Value, String>) {
     let kind = format!("mcp.response.{tool}");
+    let corr_id = request_id.as_str().map(|s| format!("mcp-{s}"));
     let payload = match result {
         Ok(v) => json!({ "request_id": request_id, "ok": true, "result": v }),
         Err(e) => json!({ "request_id": request_id, "ok": false, "error": e }),
     };
-    if let Ok(env) = Envelope::new(Category::Mcp, kind).with_payload(&payload) {
+    if let Ok(mut env) = Envelope::new(Category::Mcp, kind).with_payload(&payload) {
+        env.correlation_id = corr_id;
         bus.publish(env);
     }
 }
 
 fn publish_audit(bus: &RiftBus, kind: &str, payload: Value) {
-    if let Ok(env) = Envelope::new(Category::Mcp, kind).with_payload(&payload) {
+    let corr_id = payload
+        .get("request_id")
+        .and_then(|v| v.as_str())
+        .map(|s| format!("mcp-{s}"));
+    if let Ok(mut env) = Envelope::new(Category::Mcp, kind).with_payload(&payload) {
+        env.correlation_id = corr_id;
         bus.publish(env);
     }
 }

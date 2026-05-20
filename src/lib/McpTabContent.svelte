@@ -3,13 +3,18 @@
   import { subscribe, type Envelope } from './bus';
   import { NOTIF_TAB_MIME } from './dragMime';
   import { shouldShow, type SeverityLevel } from './notifFilter';
+  import { McpStatsStore, percentile } from './mcpStats';
+  import SparklineChart from './SparklineChart.svelte';
+  import CorrelationBadge from './CorrelationBadge.svelte';
+  import type { CorrelationIndex } from './correlationIndex';
 
   interface Props {
     severityThreshold?: SeverityLevel;
     onDragBack?: () => void;
+    correlationIndex?: CorrelationIndex | null;
   }
 
-  let { severityThreshold = 'info', onDragBack }: Props = $props();
+  let { severityThreshold = 'info', onDragBack, correlationIndex = null }: Props = $props();
 
   const LOG_LIMIT = 200;
   const LIVE_WINDOW_MS = 4000;
@@ -23,6 +28,10 @@
   let paused = $state(false);
   let unsubscribe: (() => Promise<void>) | undefined;
   let mounted = true;
+  const mcpStore = new McpStatsStore();
+  let dashboardTools = $state<Array<{ tool: string; stats: import('./mcpStats').McpToolStats }>>([]);
+  type DashSort = 'calls' | 'p95' | 'errors';
+  let dashSort = $state<DashSort>('calls');
 
   const liveEvents = $derived.by(() => {
     const cutoff = lastTickTs - LIVE_WINDOW_MS;
@@ -83,6 +92,15 @@
     const method = extractMethod(env.kind);
     methodHistogram = { ...methodHistogram, [method]: (methodHistogram[method] ?? 0) + 1 };
 
+    const p = env.payload as Record<string, unknown> | null;
+    const reqId = String(p?.request_id ?? p?.id ?? '');
+    if (method === 'INVOKE' || method === 'AUDIT') {
+      mcpStore.recordInvoke(tool, reqId, env.ts);
+    } else if (method === 'RESPONSE') {
+      const isErr = env.kind.toLowerCase().includes('error');
+      mcpStore.recordResponse(reqId, env.ts, isErr);
+    }
+
     lastTickTs = Date.now();
   }
 
@@ -101,7 +119,11 @@
       console.error('[McpTab] bus_subscribe failed', err);
       error = (err as Error).message || 'Connection failed';
     }
-    tickTimer = setInterval(() => { lastTickTs = Date.now(); }, 1000);
+    tickTimer = setInterval(() => {
+      lastTickTs = Date.now();
+      mcpStore.tick();
+      refreshDashboard();
+    }, 1000);
   });
 
   onDestroy(() => {
@@ -120,10 +142,22 @@
     try { return JSON.stringify(payload); } catch { return String(payload); }
   }
 
+  function refreshDashboard(): void {
+    let tools = mcpStore.allTools();
+    if (dashSort === 'p95') {
+      tools.sort((a, b) => percentile(b.stats.latencies, 95) - percentile(a.stats.latencies, 95));
+    } else if (dashSort === 'errors') {
+      tools.sort((a, b) => b.stats.errors - a.stats.errors);
+    }
+    dashboardTools = tools;
+  }
+
   function clearEvents(): void {
     events = [];
     toolHistogram = {};
     methodHistogram = {};
+    mcpStore.reset();
+    dashboardTools = [];
   }
 
   function onHandleDragStart(e: DragEvent) {
@@ -205,6 +239,9 @@
             <span class="method" style="color: {methodColor(method)}">{method}</span>
             <span class="tool">{tool || '—'}</span>
             <span class="payload">{formatPayload(e.payload)}</span>
+            {#if correlationIndex}
+              <CorrelationBadge env={e} index={correlationIndex} />
+            {/if}
           </div>
         {/each}
       {/if}
@@ -235,6 +272,44 @@
               <span class="histo-count">{n}</span>
             </div>
           {/each}
+        </div>
+      {/if}
+      {#if dashboardTools.length > 0}
+        <div class="perf-section">
+          <div class="perf-header">
+            <span class="histo-label">TOOL PERFORMANCE</span>
+            <span class="perf-sort">
+              {#each (['calls', 'p95', 'errors'] as const) as s (s)}
+                <button
+                  class="sort-btn"
+                  class:active={dashSort === s}
+                  onclick={() => { dashSort = s; refreshDashboard(); }}
+                >{s}</button>
+              {/each}
+            </span>
+          </div>
+          <div class="perf-table">
+            <div class="perf-row perf-thead">
+              <span class="perf-cell tool-col">tool</span>
+              <span class="perf-cell num-col">calls</span>
+              <span class="perf-cell num-col">err</span>
+              <span class="perf-cell num-col">p50</span>
+              <span class="perf-cell num-col">p95</span>
+              <span class="perf-cell spark-col">rate</span>
+            </div>
+            {#each dashboardTools.slice(0, 12) as { tool, stats } (tool)}
+              <div class="perf-row">
+                <span class="perf-cell tool-col tool-name">{tool}</span>
+                <span class="perf-cell num-col">{stats.calls}</span>
+                <span class="perf-cell num-col" class:has-errors={stats.errors > 0}>{stats.errors}</span>
+                <span class="perf-cell num-col">{stats.latencies.length > 0 ? `${percentile(stats.latencies, 50)}ms` : '—'}</span>
+                <span class="perf-cell num-col">{stats.latencies.length > 0 ? `${percentile(stats.latencies, 95)}ms` : '—'}</span>
+                <span class="perf-cell spark-col">
+                  <SparklineChart data={stats.sparkline.snapshot()} />
+                </span>
+              </div>
+            {/each}
+          </div>
         </div>
       {/if}
     </div>
@@ -474,4 +549,54 @@
   .ctrl-btn:hover { color: var(--term-blue); border-color: var(--term-blue); }
   .ctrl-btn:focus-visible { outline: 1px solid var(--term-blue); outline-offset: 1px; }
   .ctrl-btn.active { color: var(--term-green); border-color: var(--term-green); }
+
+  .perf-section {
+    margin-top: 8px;
+    border-top: 1px solid var(--border-subtle);
+    padding-top: 8px;
+  }
+  .perf-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 6px;
+  }
+  .perf-sort { display: flex; gap: 4px; }
+  .sort-btn {
+    background: transparent;
+    border: 1px solid var(--border-subtle);
+    color: var(--amber-faint);
+    font-family: var(--font-family);
+    font-size: 9px;
+    padding: 1px 5px;
+    cursor: pointer;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .sort-btn.active {
+    color: var(--amber-bright);
+    border-color: var(--amber-bright);
+  }
+  .perf-table { display: flex; flex-direction: column; gap: 1px; }
+  .perf-row {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    padding: 2px 0;
+  }
+  .perf-thead {
+    color: var(--amber-faint);
+    font-size: 9px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    border-bottom: 1px solid var(--border-subtle);
+    padding-bottom: 3px;
+    margin-bottom: 2px;
+  }
+  .perf-cell { font-size: 10px; }
+  .tool-col { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .num-col { width: 42px; text-align: right; flex-shrink: 0; color: var(--amber-dim); }
+  .spark-col { width: 86px; flex-shrink: 0; display: flex; justify-content: flex-end; }
+  .has-errors { color: var(--term-red); }
 </style>
