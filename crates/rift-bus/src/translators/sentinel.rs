@@ -36,12 +36,19 @@ pub async fn spawn_sentinel_translator(bus: RiftBus, shutdown: Arc<Notify>) {
         }
     };
 
-    if !events_path.parent().is_some_and(|p| p.exists()) {
-        tracing::info!(
-            "sentinel_translator: '{}' directory does not exist — sentinel not installed, skipping",
-            events_path.parent().unwrap().display()
-        );
-        return;
+    match events_path.parent() {
+        Some(dir) if dir.exists() => {}
+        Some(dir) => {
+            tracing::info!(
+                "sentinel_translator: '{}' directory does not exist — sentinel not installed, skipping",
+                dir.display()
+            );
+            return;
+        }
+        None => {
+            tracing::info!("sentinel_translator: events path has no parent directory, skipping");
+            return;
+        }
     }
 
     let mut last_offset: u64 = match tokio::fs::metadata(&events_path).await {

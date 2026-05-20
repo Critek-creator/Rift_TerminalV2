@@ -47,8 +47,6 @@
   // Derived views (§10.8 sections)
   // ---------------------------------------------------------------------------
 
-  // Capability detector: flips true the moment the first Index envelope arrives.
-  // TODO(8.5): this gate becomes always-true once vault-walker publishes continuously.
   const hasIndexData = $derived(entries.length > 0);
 
   // Section 2 — live activity strip: events within the trailing 4-second window.

@@ -25,20 +25,18 @@
 
   let { terminal, hostElement, currentLane }: Props = $props();
 
-  /** §10.1 lane palette — hex values kept in lockstep with styles.css
-   *  :root tokens and laneFormat.ts RGB triples. */
   const LANE_COLORS: Record<string, string> = {
-    SYS: '#A87830',
-    USER: '#E8E4D8',
-    CLAUDE: '#6CB6FF',
-    AGENT: '#C58FFF',
-    HOOK: '#6FE0E0',
-    AEGIS: '#FFA826',
-    OK: '#4FE855',
-    ERR: '#FF4848',
+    SYS: 'var(--amber-faint)',
+    USER: 'var(--term-white)',
+    CLAUDE: 'var(--term-blue)',
+    AGENT: 'var(--term-purple)',
+    HOOK: 'var(--term-cyan)',
+    AEGIS: 'var(--amber-primary)',
+    OK: 'var(--term-green)',
+    ERR: 'var(--term-red)',
   };
 
-  const FALLBACK_COLOR = '#A87830'; // SYS as fallback
+  const FALLBACK_COLOR = 'var(--amber-faint)';
 
   let gutterColor = $derived(LANE_COLORS[currentLane] ?? FALLBACK_COLOR);
   let visible = $derived(!!terminal && !!hostElement);
