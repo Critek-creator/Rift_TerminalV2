@@ -11,6 +11,7 @@ pub mod config;
 pub mod correlation;
 pub mod envelope;
 pub mod ipc;
+pub mod session_compare;
 pub mod session_logger;
 pub mod session_reader;
 pub mod translators;

@@ -328,14 +328,14 @@
     color: var(--amber-faint);
     padding: 1rem 14px;
     font-style: italic;
-    font-size: 11px;
+    font-size: var(--text-sm);
     letter-spacing: 0.04em;
   }
   .connect-error {
     color: var(--term-red);
     padding: 8px 14px;
     font-style: italic;
-    font-size: 11px;
+    font-size: var(--text-sm);
     letter-spacing: 0.04em;
     opacity: 0.9;
   }
@@ -347,7 +347,7 @@
     background: var(--bg-base);
     color: var(--amber-primary);
     font-family: var(--font-family);
-    font-size: 12px;
+    font-size: var(--text-base);
     --accent: var(--amber-primary, #FFA826);
   }
 
@@ -363,16 +363,16 @@
     cursor: grab;
     user-select: none;
     color: var(--amber-warm);
-    font-size: 10px;
+    font-size: var(--text-xs);
     letter-spacing: 0.1em;
     font-weight: 700;
-    transition: background 0.12s ease-out;
+    transition: background var(--duration-base)ease-out;
   }
   .drag-handle:active { cursor: grabbing; }
   .drag-handle:hover { background: var(--bg-hover); }
   .drag-handle .handle-glyph {
     color: var(--accent);
-    font-size: 12px;
+    font-size: var(--text-base);
     text-shadow: var(--glow-amber-faint);
   }
   .drag-handle .handle-title {
@@ -398,7 +398,7 @@
     align-items: center;
     gap: 14px;
     color: var(--amber-warm);
-    font-size: 11px;
+    font-size: var(--text-sm);
     letter-spacing: 0.1em;
     font-weight: 700;
     flex-shrink: 0;
@@ -431,7 +431,7 @@
     gap: 14px;
     background: linear-gradient(to bottom, rgba(212, 137, 10, 0.05), transparent);
     color: var(--amber-dim);
-    font-size: 10px;
+    font-size: var(--text-xs);
     letter-spacing: 0.1em;
     overflow: hidden;
     flex-shrink: 0;
@@ -443,7 +443,7 @@
     padding: 1px 6px;
     border: 1px solid var(--accent);
     color: var(--accent);
-    font-size: 9px;
+    font-size: var(--text-2xs);
     font-weight: 600;
     letter-spacing: 0.05em;
     white-space: nowrap;
@@ -475,7 +475,7 @@
     overflow-y: auto;
     padding: 10px 16px;
     color: var(--amber-warm);
-    font-size: 11px;
+    font-size: var(--text-sm);
     line-height: 1.5;
     box-shadow: var(--depth-inset);
   }
@@ -519,7 +519,7 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    font-size: 10px;
+    font-size: var(--text-xs);
     letter-spacing: 0.04em;
   }
   .k-row .k { color: var(--amber-dim); }
@@ -535,7 +535,7 @@
   .rs-label {
     display: block;
     color: var(--amber-warm);
-    font-size: 9px;
+    font-size: var(--text-2xs);
     font-weight: 700;
     letter-spacing: 0.12em;
     margin-bottom: 6px;
@@ -550,7 +550,7 @@
     padding: 1px 6px;
     border: 1px solid var(--accent);
     color: var(--accent);
-    font-size: 9px;
+    font-size: var(--text-2xs);
     font-weight: 600;
     letter-spacing: 0.06em;
     background: rgba(212, 137, 10, 0.06);
@@ -562,7 +562,7 @@
     display: flex;
     align-items: baseline;
     gap: 8px;
-    font-size: 10px;
+    font-size: var(--text-xs);
   }
   .skill-path-label {
     color: var(--amber-dim);
@@ -572,7 +572,7 @@
   .skill-path {
     color: var(--amber-faint, #A87830);
     font-style: italic;
-    font-size: 9px;
+    font-size: var(--text-2xs);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -593,12 +593,12 @@
     color: var(--accent);
     background: rgba(212, 137, 10, 0.06);
     font-family: var(--font-family);
-    font-size: 9px;
+    font-size: var(--text-2xs);
     font-weight: 600;
     letter-spacing: 0.06em;
     cursor: pointer;
     text-transform: uppercase;
-    transition: background 0.1s;
+    transition: background var(--duration-fast);
   }
   .qa-btn:hover {
     background: rgba(212, 137, 10, 0.14);
@@ -610,7 +610,7 @@
   .qa-error {
     margin-top: 4px;
     color: var(--term-red);
-    font-size: 9px;
+    font-size: var(--text-2xs);
     font-style: italic;
     letter-spacing: 0.04em;
     word-break: break-all;

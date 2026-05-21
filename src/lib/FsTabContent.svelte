@@ -2,7 +2,9 @@
   import { onMount, onDestroy } from 'svelte';
   import { subscribe, type Envelope } from './bus';
   import { NOTIF_TAB_MIME } from './dragMime';
-  import { shouldShow, type SeverityLevel } from './notifFilter';
+  import { shouldShow, kindToSeverity, type SeverityLevel } from './notifFilter';
+  import { HeatstripBuffer } from './HeatstripBuffer';
+  import HeatstripTimeline from './HeatstripTimeline.svelte';
 
   interface Props {
     severityThreshold?: SeverityLevel;
@@ -23,6 +25,10 @@
   let paused = $state(false);
   let unsubscribe: (() => Promise<void>) | undefined;
   let mounted = true;
+  const heatstrip = new HeatstripBuffer();
+  let heatstripData = $state(heatstrip.snapshot());
+  let heatstripTickCounter = 0;
+  let logBodyEl: HTMLDivElement | undefined = $state(undefined);
 
   const liveEvents = $derived.by(() => {
     const cutoff = lastTickTs - LIVE_WINDOW_MS;
@@ -81,6 +87,7 @@
   function handleEnvelope(env: Envelope) {
     if (paused) return;
     if (!shouldShow(env.kind, severityThreshold)) return;
+    heatstrip.push(kindToSeverity(env.kind));
     events = [...events, env];
     if (events.length > LOG_LIMIT * 2) events = events.slice(-LOG_LIMIT);
 
@@ -110,7 +117,15 @@
       console.error('[FsTab] bus_subscribe failed', err);
       error = (err as Error).message || 'Connection failed';
     }
-    tickTimer = setInterval(() => { lastTickTs = Date.now(); }, 1000);
+    tickTimer = setInterval(() => {
+      lastTickTs = Date.now();
+      heatstripTickCounter += 1;
+      if (heatstripTickCounter >= 60) {
+        heatstripTickCounter = 0;
+        heatstrip.tick();
+      }
+      heatstripData = heatstrip.snapshot();
+    }, 1000);
   });
 
   onDestroy(() => {
@@ -127,6 +142,26 @@
     events = [];
     opHistogram = {};
     dirHistogram = {};
+    heatstrip.clear();
+    heatstripData = heatstrip.snapshot();
+  }
+
+  function handleHeatstripSeek(minuteOffset: number): void {
+    if (!logBodyEl) return;
+    const now = Date.now();
+    const minutesAgo = 59 - minuteOffset;
+    const bucketStart = now - (minutesAgo + 1) * 60_000;
+    const bucketEnd = now - minutesAgo * 60_000;
+    const rows = logBodyEl.querySelectorAll<HTMLElement>('[data-ts]');
+    for (const row of rows) {
+      const ts = Number(row.dataset.ts);
+      if (ts >= bucketStart && ts < bucketEnd) {
+        row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        row.style.background = 'rgba(255, 200, 64, 0.15)';
+        setTimeout(() => { row.style.background = ''; }, 1200);
+        return;
+      }
+    }
   }
 
   function onHandleDragStart(e: DragEvent) {
@@ -174,6 +209,10 @@
     <button class="ctrl-btn" onclick={clearEvents} title="clear">✕</button>
   </header>
 
+  <div class="heatstrip-row">
+    <HeatstripTimeline buckets={heatstripData} onseek={handleHeatstripSeek} />
+  </div>
+
   <div class="strip">
     <span class="strip-label">LIVE</span>
     {#if liveEvents.length === 0}
@@ -192,7 +231,7 @@
 
   <div class="log">
     <div class="log-header">RECENT EVENTS</div>
-    <div class="log-body">
+    <div class="log-body" bind:this={logBodyEl}>
       {#if recentEvents.length === 0}
         <div class="empty-card">
           <div class="empty-title">Waiting for filesystem events</div>
@@ -202,7 +241,7 @@
         {#each recentEvents as e, i (e.ts + ':' + e.kind + ':' + i)}
           {@const op = extractOp(e.kind)}
           {@const fp = extractPath(e.payload)}
-          <div class="row">
+          <div class="row" data-ts={e.ts}>
             <span class="ts">{formatTs(e.ts)}</span>
             <span class="op" style="color: {opColor(op)}">{op}</span>
             <span class="filepath" title={fp}>
@@ -253,7 +292,7 @@
     color: var(--amber-faint);
     padding: 1rem 14px;
     font-style: italic;
-    font-size: 11px;
+    font-size: var(--text-sm);
     letter-spacing: 0.04em;
   }
   .pane {
@@ -265,7 +304,7 @@
     background: var(--bg-base);
     color: var(--term-cyan);
     font-family: var(--font-family);
-    font-size: 12px;
+    font-size: var(--text-base);
   }
 
   .drag-handle {
@@ -279,16 +318,16 @@
     cursor: grab;
     user-select: none;
     color: var(--amber-warm);
-    font-size: 10px;
+    font-size: var(--text-xs);
     letter-spacing: 0.1em;
     font-weight: 700;
   }
-  .drag-handle { transition: background 0.12s ease-out; }
+  .drag-handle { transition: background var(--duration-base) ease-out; }
   .drag-handle:active { cursor: grabbing; }
   .drag-handle:hover { background: var(--bg-hover); }
   .drag-handle .handle-glyph {
     color: var(--term-cyan);
-    font-size: 12px;
+    font-size: var(--text-base);
   }
   .drag-handle .handle-title {
     color: var(--term-cyan);
@@ -310,12 +349,19 @@
     box-shadow: var(--depth-edge-light), var(--depth-section-sep);
     display: flex; align-items: center; gap: 14px;
     color: var(--amber-warm);
-    font-size: 11px; letter-spacing: 0.1em; font-weight: 700;
+    font-size: var(--text-sm); letter-spacing: 0.1em; font-weight: 700;
   }
   .status .title { color: var(--term-cyan); text-shadow: 0 0 4px rgba(111, 224, 224, 0.35); }
   .status .icon { margin-right: 8px; opacity: 0.85; }
   .status .state { color: var(--amber-dim); font-weight: 400; letter-spacing: 0.04em; }
   .status .spacer { flex: 1; }
+
+  .heatstrip-row {
+    padding: 4px 14px;
+    background: var(--bg-elevated);
+    border-bottom: 1px solid var(--border-subtle);
+    flex-shrink: 0;
+  }
 
   .strip {
     height: 26px;
@@ -325,7 +371,7 @@
     display: flex; align-items: center; gap: 14px;
     background: linear-gradient(to bottom, rgba(111, 224, 224, 0.06), transparent);
     color: var(--amber-dim);
-    font-size: 10px;
+    font-size: var(--text-xs);
     letter-spacing: 0.1em;
     overflow: hidden;
   }
@@ -335,7 +381,7 @@
   .strip-event {
     padding: 1px 6px;
     border: 1px solid;
-    font-size: 9px;
+    font-size: var(--text-2xs);
     font-weight: 600;
     letter-spacing: 0.05em;
     white-space: nowrap;
@@ -367,7 +413,7 @@
     min-width: 0;
     padding: 10px 16px;
     color: var(--amber-warm);
-    font-size: 11px;
+    font-size: var(--text-sm);
     line-height: 1.5;
     box-shadow: var(--depth-inset);
   }
@@ -376,7 +422,7 @@
   .error-state {
     color: var(--term-red);
     padding: 12px 14px;
-    font-size: 11px;
+    font-size: var(--text-sm);
     letter-spacing: 0.04em;
     border-bottom: 1px solid rgba(255, 72, 72, 0.2);
     background: rgba(255, 72, 72, 0.06);
@@ -386,20 +432,20 @@
     padding: 12px 14px;
     background: rgba(111, 224, 224, 0.05);
     color: var(--amber-warm);
-    font-size: 11px;
+    font-size: var(--text-sm);
     line-height: 1.55;
   }
   .empty-title {
     color: var(--term-cyan);
     font-weight: 700;
-    font-size: 11px;
+    font-size: var(--text-sm);
     letter-spacing: 0.1em;
     text-transform: uppercase;
     margin-bottom: 6px;
   }
   .empty-desc {
     color: var(--amber-dim);
-    font-size: 10px;
+    font-size: var(--text-xs);
   }
 
   .log-body .row {
@@ -409,12 +455,12 @@
     align-items: baseline;
     padding: 1px 0;
     white-space: nowrap;
-    transition: background 0.12s ease-out;
+    transition: background var(--duration-base) ease-out;
   }
   .log-body .row:hover { background: rgba(111, 224, 224, 0.06); }
-  .ts { color: var(--amber-faint); font-variant-numeric: tabular-nums; font-size: 10px; }
-  .op { font-weight: 700; font-size: 10px; letter-spacing: 0.06em; }
-  .filepath { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--amber-warm); font-size: 10px; }
+  .ts { color: var(--amber-faint); font-variant-numeric: tabular-nums; font-size: var(--text-xs); }
+  .op { font-weight: 700; font-size: var(--text-xs); letter-spacing: 0.06em; }
+  .filepath { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--amber-warm); font-size: var(--text-xs); }
   .dir { color: var(--amber-faint); }
   .file { color: var(--amber-warm); font-weight: 600; }
   .kind-raw { color: var(--amber-dim); }
@@ -442,7 +488,7 @@
   }
   .k-row {
     display: flex; align-items: center; justify-content: space-between;
-    font-size: 10px; letter-spacing: 0.04em;
+    font-size: var(--text-xs); letter-spacing: 0.04em;
   }
   .k-row .k { color: var(--amber-dim); }
   .k-row .v { color: var(--amber-warm); font-weight: 600; }
@@ -454,7 +500,7 @@
   }
   .histo-row {
     display: flex; justify-content: space-between;
-    font-size: 10px;
+    font-size: var(--text-xs);
   }
   .histo-kind { font-weight: 600; }
   .histo-count { color: var(--amber-warm); font-weight: 700; font-variant-numeric: tabular-nums; }
@@ -466,7 +512,7 @@
   }
   .dir-label {
     color: var(--amber-warm);
-    font-size: 9px;
+    font-size: var(--text-2xs);
     font-weight: 700;
     letter-spacing: 0.12em;
     margin-bottom: 2px;
@@ -485,12 +531,12 @@
     border: 1px solid var(--border-subtle);
     color: var(--amber-faint);
     font-family: var(--font-family);
-    font-size: 11px;
+    font-size: var(--text-sm);
     padding: 1px 6px;
     cursor: pointer;
     border-radius: 3px;
     line-height: 1;
-    transition: color 0.12s ease-out, border-color 0.12s ease-out, background 0.12s ease-out;
+    transition: color var(--duration-base) ease-out, border-color var(--duration-base) ease-out, background var(--duration-base) ease-out;
   }
   .ctrl-btn:hover { color: var(--term-cyan); border-color: var(--term-cyan); }
   .ctrl-btn:focus-visible { outline: 1px solid var(--term-cyan); outline-offset: 1px; }

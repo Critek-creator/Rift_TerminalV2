@@ -22,7 +22,9 @@
   import { onMount, onDestroy } from 'svelte';
   import { subscribe, publish, type Envelope } from './bus';
   import { NOTIF_TAB_MIME } from './dragMime';
-  import { shouldShow, type SeverityLevel } from './notifFilter';
+  import { shouldShow, kindToSeverity, type SeverityLevel } from './notifFilter';
+  import { HeatstripBuffer } from './HeatstripBuffer';
+  import HeatstripTimeline from './HeatstripTimeline.svelte';
 
   interface Props {
     severityThreshold?: SeverityLevel;
@@ -60,6 +62,9 @@
   let lastTickTs = $state<number>(Date.now());
   let unsubscribe: (() => Promise<void>) | undefined;
   let mounted = true;
+  const heatstrip = new HeatstripBuffer();
+  let heatstripData = $state(heatstrip.snapshot());
+  let heatstripTickCounter = 0;
 
   // Sorted live agents — running on top, cancelling next, then by start ts.
   const runningAgents = $derived.by(() => {
@@ -79,6 +84,7 @@
 
   function handleEnvelope(env: Envelope) {
     if (!shouldShow(env.kind, severityThreshold)) return;
+    heatstrip.push(kindToSeverity(env.kind));
     totalEvents += 1;
     lastTickTs = Date.now();
 
@@ -200,6 +206,12 @@
     }
     tickTimer = setInterval(() => {
       lastTickTs = Date.now();
+      heatstripTickCounter += 1;
+      if (heatstripTickCounter >= 60) {
+        heatstripTickCounter = 0;
+        heatstrip.tick();
+      }
+      heatstripData = heatstrip.snapshot();
     }, 1000);
   });
 
@@ -277,6 +289,10 @@
       {/if}
     </span>
   </header>
+
+  <div class="heatstrip-row">
+    <HeatstripTimeline buckets={heatstripData} />
+  </div>
 
   <div class="strip">
     <span class="strip-label">LIVE</span>
@@ -407,14 +423,14 @@
     color: var(--amber-faint);
     padding: 1rem 14px;
     font-style: italic;
-    font-size: 11px;
+    font-size: var(--text-sm);
     letter-spacing: 0.04em;
   }
   .connect-error {
     color: var(--term-red);
     padding: 8px 14px;
     font-style: italic;
-    font-size: 11px;
+    font-size: var(--text-sm);
     letter-spacing: 0.04em;
     opacity: 0.9;
   }
@@ -426,7 +442,7 @@
     background: var(--bg-base);
     color: var(--amber-warm);
     font-family: var(--font-family);
-    font-size: 12px;
+    font-size: var(--text-base);
   }
 
   .drag-handle {
@@ -440,16 +456,16 @@
     cursor: grab;
     user-select: none;
     color: var(--amber-warm);
-    font-size: 10px;
+    font-size: var(--text-xs);
     letter-spacing: 0.1em;
     font-weight: 700;
-    transition: background 0.12s ease-out;
+    transition: background var(--duration-base)ease-out;
   }
   .drag-handle:active { cursor: grabbing; }
   .drag-handle:hover { background: var(--bg-hover); }
   .drag-handle .handle-glyph {
     color: var(--term-purple);
-    font-size: 12px;
+    font-size: var(--text-base);
   }
   .drag-handle .handle-title {
     color: var(--term-purple);
@@ -471,7 +487,7 @@
     box-shadow: var(--depth-edge-light), var(--depth-section-sep);
     display: flex; align-items: center; gap: 14px;
     color: var(--amber-warm);
-    font-size: 11px; letter-spacing: 0.1em; font-weight: 700;
+    font-size: var(--text-sm); letter-spacing: 0.1em; font-weight: 700;
   }
   .status .title {
     color: var(--term-purple);
@@ -484,6 +500,13 @@
     letter-spacing: 0.04em;
   }
 
+  .heatstrip-row {
+    padding: 4px 14px;
+    background: var(--bg-elevated);
+    border-bottom: 1px solid var(--border-subtle);
+    flex-shrink: 0;
+  }
+
   .strip {
     height: 26px;
     padding: 0 14px;
@@ -492,7 +515,7 @@
     display: flex; align-items: center; gap: 8px;
     background: linear-gradient(to bottom, rgba(176, 120, 232, 0.05), transparent);
     color: var(--amber-dim);
-    font-size: 10px;
+    font-size: var(--text-xs);
     letter-spacing: 0.1em;
     overflow: hidden;
   }
@@ -505,7 +528,7 @@
     padding: 1px 6px;
     border: 1px solid var(--term-purple);
     color: var(--term-purple);
-    font-size: 9px;
+    font-size: var(--text-2xs);
     font-weight: 600;
     letter-spacing: 0.05em;
     white-space: nowrap;
@@ -548,7 +571,7 @@
     overflow-y: auto;
     padding: 10px 16px;
     color: var(--amber-warm);
-    font-size: 11px;
+    font-size: var(--text-sm);
     line-height: 1.5;
     box-shadow: var(--depth-inset);
   }
@@ -559,20 +582,20 @@
     color: var(--amber-faint);
     font-style: italic;
   }
-  .empty.small { font-size: 10px; }
+  .empty.small { font-size: var(--text-xs); }
 
   .capability-card {
     border: 1px dashed var(--border-subtle);
     padding: 12px 14px;
     background: rgba(176, 120, 232, 0.05);
     color: var(--amber-warm);
-    font-size: 11px;
+    font-size: var(--text-sm);
     line-height: 1.55;
   }
   .cap-heading {
     color: var(--term-purple);
     font-weight: 700;
-    font-size: 11px;
+    font-size: var(--text-sm);
     letter-spacing: 0.1em;
     text-transform: uppercase;
     margin-bottom: 8px;
@@ -583,11 +606,11 @@
   }
   .cap-protocol {
     color: var(--amber-dim);
-    font-size: 10px;
+    font-size: var(--text-xs);
   }
   .cap-protocol code {
     color: var(--term-purple);
-    font-size: 10px;
+    font-size: var(--text-xs);
   }
   .cap-protocol ul {
     list-style: none;
@@ -634,26 +657,26 @@
   .card-name {
     color: var(--term-purple);
     font-weight: 700;
-    font-size: 12px;
+    font-size: var(--text-base);
     letter-spacing: 0.04em;
   }
   .card-kind {
     color: var(--amber-warm);
     border: 1px solid var(--amber-faint);
     padding: 0 4px;
-    font-size: 9px;
+    font-size: var(--text-2xs);
     font-weight: 600;
     letter-spacing: 0.06em;
     text-transform: uppercase;
   }
   .card-source {
     color: var(--amber-faint);
-    font-size: 10px;
+    font-size: var(--text-xs);
     font-style: italic;
   }
   .spacer { flex: 1; }
   .card-status {
-    font-size: 9px;
+    font-size: var(--text-2xs);
     font-weight: 700;
     letter-spacing: 0.08em;
     text-transform: uppercase;
@@ -674,11 +697,11 @@
     border: 1px solid var(--term-red);
     color: var(--term-red);
     font-family: inherit;
-    font-size: 14px;
+    font-size: var(--text-lg);
     line-height: 1;
     padding: 0 6px;
     cursor: pointer;
-    transition: background 0.12s ease-out, color 0.12s ease-out;
+    transition: background var(--duration-base)ease-out, color var(--duration-base)ease-out;
   }
   .card-cancel:hover:not(:disabled) {
     background: var(--term-red);
@@ -688,7 +711,7 @@
 
   .card-meta {
     color: var(--amber-faint);
-    font-size: 10px;
+    font-size: var(--text-xs);
     letter-spacing: 0.04em;
   }
   .card-id {
@@ -706,7 +729,7 @@
   }
   .card-message {
     color: var(--amber-warm);
-    font-size: 10px;
+    font-size: var(--text-xs);
     background: var(--bg-surface);
     padding: 4px 8px;
     border-left: 2px solid var(--term-purple);
@@ -722,7 +745,7 @@
   .card-progress-fill {
     height: 100%;
     background: linear-gradient(to right, var(--term-purple), var(--amber-bright));
-    transition: width 0.3s ease;
+    transition: width var(--duration-slow) ease;
   }
 
   .state-panel {
@@ -750,12 +773,12 @@
     border: none;
     color: var(--amber-faint);
     font-family: inherit;
-    font-size: 9px;
+    font-size: var(--text-2xs);
     letter-spacing: 0.1em;
     text-transform: uppercase;
     cursor: pointer;
     padding: 0;
-    transition: color 0.12s ease-out;
+    transition: color var(--duration-base)ease-out;
   }
   .archive-clear:hover { color: var(--term-red); }
   .state-body {
@@ -769,16 +792,16 @@
     grid-template-columns: 80px 1fr 60px 80px;
     gap: 10px;
     align-items: baseline;
-    font-size: 10px;
+    font-size: var(--text-xs);
     padding: 1px 0;
-    transition: background 0.12s ease-out;
+    transition: background var(--duration-base)ease-out;
   }
   .archive-row:hover { background: rgba(212, 137, 10, 0.06); }
   .archive-status {
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.06em;
-    font-size: 9px;
+    font-size: var(--text-2xs);
   }
   .archive-name {
     color: var(--amber-warm);
@@ -799,7 +822,7 @@
   .archive-overflow {
     color: var(--amber-faint);
     font-style: italic;
-    font-size: 9px;
+    font-size: var(--text-2xs);
     padding-top: 4px;
   }
 

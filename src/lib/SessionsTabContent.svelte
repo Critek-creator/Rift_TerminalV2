@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
   import { NOTIF_TAB_MIME } from './dragMime';
+  import SessionCompare from './SessionCompare.svelte';
 
   interface SessionMeta {
     id: string;
@@ -19,6 +20,8 @@
     payload: any;
   }
 
+  type ViewMode = 'list' | 'replay' | 'select-baseline' | 'select-compare' | 'compare';
+
   interface Props {
     onDragBack?: () => void;
   }
@@ -31,6 +34,11 @@
   let loading = $state(false);
   let error = $state<string | null>(null);
   let expandedRows = $state<Set<number>>(new Set());
+
+  /** Comparison state */
+  let viewMode = $state<ViewMode>('list');
+  let baselineId = $state<string | null>(null);
+  let compareId = $state<string | null>(null);
 
   const CAT_COLOR: Record<string, string> = {
     pty:      'var(--term-white)',
@@ -63,7 +71,19 @@
   }
 
   async function selectSession(id: string) {
+    if (viewMode === 'select-baseline') {
+      baselineId = id;
+      viewMode = 'select-compare';
+      return;
+    }
+    if (viewMode === 'select-compare') {
+      if (id === baselineId) return; // Cannot compare a session to itself.
+      compareId = id;
+      viewMode = 'compare';
+      return;
+    }
     selectedId = id;
+    viewMode = 'replay';
     loading = true;
     error = null;
     expandedRows = new Set();
@@ -82,7 +102,37 @@
     events = [];
     expandedRows = new Set();
     error = null;
+    viewMode = 'list';
   }
+
+  function enterCompareMode() {
+    baselineId = null;
+    compareId = null;
+    viewMode = 'select-baseline';
+  }
+
+  function exitCompareMode() {
+    viewMode = 'list';
+    baselineId = null;
+    compareId = null;
+  }
+
+  function onCompareBack() {
+    exitCompareMode();
+  }
+
+  const isSelectingMode = $derived(
+    viewMode === 'select-baseline' || viewMode === 'select-compare',
+  );
+
+  const canCompare = $derived(sessions.length >= 2);
+
+  const baselineSession = $derived(
+    baselineId ? sessions.find((s) => s.id === baselineId) : undefined,
+  );
+  const compareSession = $derived(
+    compareId ? sessions.find((s) => s.id === compareId) : undefined,
+  );
 
   function toggleRow(idx: number) {
     const next = new Set(expandedRows);
@@ -158,21 +208,62 @@
     <div class="error-state">&#x26A0; {error}</div>
   {/if}
 
-  {#if !selectedId}
+  {#if viewMode === 'compare' && baselineId && compareId}
+    <!-- Comparison view -->
+    <SessionCompare
+      baselineId={baselineId}
+      compareId={compareId}
+      baselineDate={baselineSession?.date ?? baselineId}
+      compareDate={compareSession?.date ?? compareId}
+      onBack={onCompareBack}
+    />
+  {:else if viewMode === 'list' || isSelectingMode}
     <!-- Session list view -->
     <header class="status">
       <span class="title"><span class="icon">&#x23F1;</span>SESSIONS</span>
       <span class="state">
-        {sessions.length} saved session{sessions.length === 1 ? '' : 's'}
+        {#if isSelectingMode}
+          {viewMode === 'select-baseline' ? 'select baseline session' : 'select comparison session'}
+        {:else}
+          {sessions.length} saved session{sessions.length === 1 ? '' : 's'}
+        {/if}
       </span>
       <span class="spacer"></span>
-      <button type="button" class="ctl-btn" onclick={loadSessions} disabled={loading}>
-        {loading ? 'loading...' : 'refresh'}
-      </button>
+      {#if isSelectingMode}
+        <button type="button" class="ctl-btn" onclick={exitCompareMode}>
+          cancel
+        </button>
+      {:else}
+        <button
+          type="button"
+          class="ctl-btn compare-btn"
+          onclick={enterCompareMode}
+          disabled={!canCompare || loading}
+          title={canCompare ? 'Compare two sessions side by side' : 'Need at least 2 sessions to compare'}
+        >
+          compare
+        </button>
+        <button type="button" class="ctl-btn" onclick={loadSessions} disabled={loading}>
+          {loading ? 'loading...' : 'refresh'}
+        </button>
+      {/if}
     </header>
 
+    {#if isSelectingMode && baselineId}
+      <div class="selection-hint">
+        Baseline: <strong>{baselineSession?.date ?? baselineId}</strong>
+        — now click the session to compare against
+      </div>
+    {/if}
+
     <div class="log">
-      <div class="log-header">SAVED SESSIONS</div>
+      <div class="log-header">
+        {#if isSelectingMode}
+          {viewMode === 'select-baseline' ? 'SELECT BASELINE' : 'SELECT COMPARISON'}
+        {:else}
+          SAVED SESSIONS
+        {/if}
+      </div>
       <div class="log-body">
         {#if loading && sessions.length === 0}
           <div class="empty-card">
@@ -186,19 +277,30 @@
           </div>
         {:else}
           {#each sessions as s (s.id)}
+            {@const isBaseline = s.id === baselineId}
             <!-- svelte-ignore a11y_click_events_have_key_events -->
             <!-- svelte-ignore a11y_no_static_element_interactions -->
-            <div class="session-row" onclick={() => selectSession(s.id)}>
+            <div
+              class="session-row"
+              class:session-row--baseline={isBaseline}
+              class:session-row--disabled={isBaseline && viewMode === 'select-compare'}
+              onclick={() => selectSession(s.id)}
+            >
+              {#if isBaseline}
+                <span class="session-badge">BASE</span>
+              {/if}
               <span class="session-date">{s.date}</span>
               <span class="session-count">{formatCount(s.event_count)} events</span>
               <span class="session-size">{formatSize(s.size_bytes)}</span>
-              <span class="session-arrow">&#x25B6;</span>
+              {#if !isSelectingMode}
+                <span class="session-arrow">&#x25B6;</span>
+              {/if}
             </div>
           {/each}
         {/if}
       </div>
     </div>
-  {:else}
+  {:else if viewMode === 'replay'}
     <!-- Event viewer -->
     <header class="status">
       <button type="button" class="ctl-btn" onclick={goBack}>&#x25C0; back</button>
@@ -269,7 +371,7 @@
     background: var(--bg-base);
     color: var(--amber-warm);
     font-family: var(--font-family);
-    font-size: 12px;
+    font-size: var(--text-base);
   }
 
   .drag-handle {
@@ -283,16 +385,16 @@
     cursor: grab;
     user-select: none;
     color: var(--amber-warm);
-    font-size: 10px;
+    font-size: var(--text-xs);
     letter-spacing: 0.1em;
     font-weight: 700;
   }
-  .drag-handle { transition: background 0.12s ease-out; }
+  .drag-handle { transition: background var(--duration-base) ease-out; }
   .drag-handle:active { cursor: grabbing; }
   .drag-handle:hover { background: var(--bg-hover); }
   .drag-handle .handle-glyph {
     color: var(--amber-bright);
-    font-size: 12px;
+    font-size: var(--text-base);
     text-shadow: var(--glow-amber-faint);
   }
   .drag-handle .handle-title {
@@ -315,7 +417,7 @@
     box-shadow: var(--depth-edge-light), var(--depth-section-sep);
     display: flex; align-items: center; gap: 14px;
     color: var(--amber-warm);
-    font-size: 11px; letter-spacing: 0.1em; font-weight: 700;
+    font-size: var(--text-sm); letter-spacing: 0.1em; font-weight: 700;
   }
   .status .title {
     color: var(--amber-bright);
@@ -329,13 +431,13 @@
     border: 1px solid var(--amber-faint);
     color: var(--amber-warm);
     font-family: inherit;
-    font-size: 9px;
+    font-size: var(--text-2xs);
     letter-spacing: 0.1em;
     font-weight: 700;
     padding: 2px 8px;
     cursor: pointer;
     text-transform: uppercase;
-    transition: color 0.12s ease-out, background 0.12s ease-out, border-color 0.12s ease-out, opacity 0.12s ease-out;
+    transition: color var(--duration-base) ease-out, background var(--duration-base) ease-out, border-color var(--duration-base) ease-out, opacity var(--duration-base) ease-out;
   }
   .ctl-btn:hover:not(:disabled) {
     border-color: var(--amber-bright);
@@ -350,7 +452,7 @@
   .error-state {
     color: var(--term-red);
     padding: 12px 14px;
-    font-size: 11px;
+    font-size: var(--text-sm);
     letter-spacing: 0.04em;
     border-bottom: 1px solid rgba(255, 72, 72, 0.2);
     background: rgba(255, 72, 72, 0.06);
@@ -379,7 +481,7 @@
     min-width: 0;
     padding: 10px 16px;
     color: var(--amber-warm);
-    font-size: 11px;
+    font-size: var(--text-sm);
     line-height: 1.5;
     box-shadow: var(--depth-inset);
   }
@@ -391,20 +493,45 @@
     padding: 12px 14px;
     background: rgba(212, 137, 10, 0.05);
     color: var(--amber-warm);
-    font-size: 11px;
+    font-size: var(--text-sm);
     line-height: 1.55;
   }
   .empty-title {
     color: var(--amber-bright);
     font-weight: 700;
-    font-size: 11px;
+    font-size: var(--text-sm);
     letter-spacing: 0.1em;
     text-transform: uppercase;
     margin-bottom: 6px;
   }
   .empty-desc {
     color: var(--amber-dim);
-    font-size: 10px;
+    font-size: var(--text-xs);
+  }
+
+  /* Compare button */
+  .compare-btn {
+    border-color: rgba(108, 182, 255, 0.4);
+    color: var(--term-blue);
+  }
+  .compare-btn:hover:not(:disabled) {
+    border-color: var(--term-blue);
+    color: var(--term-blue);
+    background: rgba(108, 182, 255, 0.08);
+  }
+
+  /* Selection hint bar */
+  .selection-hint {
+    padding: 6px 16px;
+    font-size: var(--text-xs);
+    color: var(--amber-dim);
+    background: rgba(108, 182, 255, 0.06);
+    border-bottom: 1px solid rgba(108, 182, 255, 0.15);
+    letter-spacing: 0.04em;
+  }
+  .selection-hint strong {
+    color: var(--amber-bright);
+    font-weight: 700;
   }
 
   /* Session list rows */
@@ -415,30 +542,50 @@
     padding: 8px 4px;
     border-bottom: 1px solid rgba(255, 168, 38, 0.06);
     cursor: pointer;
-    transition: background 0.12s ease-out;
+    transition: background var(--duration-base) ease-out;
   }
   .session-row:hover { background: rgba(212, 137, 10, 0.08); }
+  .session-row--baseline {
+    background: rgba(108, 182, 255, 0.08);
+    border-left: 2px solid var(--term-blue);
+  }
+  .session-row--disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    pointer-events: none;
+  }
+  .session-badge {
+    font-size: 8px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--term-blue);
+    border: 1px solid rgba(108, 182, 255, 0.4);
+    border-radius: var(--radius-sm, 2px);
+    padding: 1px 4px;
+    flex-shrink: 0;
+  }
   .session-date {
     color: var(--amber-bright);
     font-weight: 600;
-    font-size: 12px;
+    font-size: var(--text-base);
     min-width: 140px;
   }
   .session-count {
     color: var(--amber-warm);
-    font-size: 10px;
+    font-size: var(--text-xs);
     font-variant-numeric: tabular-nums;
     min-width: 100px;
   }
   .session-size {
     color: var(--amber-dim);
-    font-size: 10px;
+    font-size: var(--text-xs);
     font-variant-numeric: tabular-nums;
     min-width: 60px;
   }
   .session-arrow {
     color: var(--amber-faint);
-    font-size: 9px;
+    font-size: var(--text-2xs);
     margin-left: auto;
   }
 
@@ -452,7 +599,7 @@
     white-space: nowrap;
     cursor: pointer;
     user-select: text;
-    transition: background 0.12s ease-out;
+    transition: background var(--duration-base) ease-out;
   }
   .log-body .row:hover { background: rgba(212, 137, 10, 0.06); }
   .log-body .row.expanded {
@@ -470,18 +617,18 @@
   .log-body .row.expanded .kind  { grid-area: kind; }
   .log-body .caret {
     color: var(--amber-faint);
-    font-size: 9px;
+    font-size: var(--text-2xs);
     line-height: 1.5;
     user-select: none;
   }
   .log-body .ts {
     color: var(--amber-faint);
     font-variant-numeric: tabular-nums;
-    font-size: 10px;
+    font-size: var(--text-xs);
   }
   .log-body .cat {
     font-weight: 700;
-    font-size: 9px;
+    font-size: var(--text-2xs);
     letter-spacing: 0.06em;
     text-transform: uppercase;
   }
@@ -491,7 +638,7 @@
   }
   .log-body .payload {
     color: var(--amber-dim);
-    font-size: 10px;
+    font-size: var(--text-xs);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;

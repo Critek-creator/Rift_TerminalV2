@@ -285,7 +285,7 @@
     color: var(--amber-faint);
     padding: 1rem 14px;
     font-style: italic;
-    font-size: 11px;
+    font-size: var(--text-sm);
     letter-spacing: 0.04em;
   }
   .pane {
@@ -297,7 +297,7 @@
     background: var(--bg-base);
     color: var(--amber-warm);
     font-family: var(--font-family);
-    font-size: 12px;
+    font-size: var(--text-base);
   }
 
   .drag-handle {
@@ -311,16 +311,16 @@
     cursor: grab;
     user-select: none;
     color: var(--amber-warm);
-    font-size: 10px;
+    font-size: var(--text-xs);
     letter-spacing: 0.1em;
     font-weight: 700;
   }
-  .drag-handle { transition: background 0.12s ease-out; }
+  .drag-handle { transition: background var(--duration-base) ease-out; }
   .drag-handle:active { cursor: grabbing; }
   .drag-handle:hover { background: var(--bg-hover); }
   .drag-handle .handle-glyph {
     color: var(--term-red);
-    font-size: 12px;
+    font-size: var(--text-base);
   }
   .drag-handle .handle-title {
     color: var(--term-red);
@@ -342,7 +342,7 @@
     box-shadow: var(--depth-edge-light), var(--depth-section-sep);
     display: flex; align-items: center; gap: 14px;
     color: var(--amber-warm);
-    font-size: 11px; letter-spacing: 0.1em; font-weight: 700;
+    font-size: var(--text-sm); letter-spacing: 0.1em; font-weight: 700;
   }
   .status .title { color: var(--term-red); text-shadow: 0 0 4px rgba(255, 72, 72, 0.35); }
   .status .icon { margin-right: 8px; opacity: 0.85; }
@@ -352,8 +352,8 @@
   .ctrl-btn {
     background: none; border: 1px solid var(--border-subtle);
     color: var(--amber-warm); padding: 1px 8px;
-    font-family: inherit; font-size: 10px; cursor: pointer;
-    transition: background 0.12s, border-color 0.12s;
+    font-family: inherit; font-size: var(--text-xs); cursor: pointer;
+    transition: background var(--duration-base), border-color var(--duration-base);
   }
   .ctrl-btn:hover { background: var(--bg-hover); border-color: var(--amber-faint); }
   .ctrl-btn.active { border-color: var(--term-red); color: var(--term-red); }
@@ -366,7 +366,7 @@
     display: flex; align-items: center; gap: 14px;
     background: linear-gradient(to bottom, rgba(255, 72, 72, 0.04), transparent);
     color: var(--amber-dim);
-    font-size: 10px;
+    font-size: var(--text-xs);
     letter-spacing: 0.1em;
     overflow: hidden;
   }
@@ -376,7 +376,7 @@
   .strip-event {
     padding: 1px 6px;
     border: 1px solid;
-    font-size: 9px;
+    font-size: var(--text-2xs);
     font-weight: 600;
     letter-spacing: 0.05em;
     white-space: nowrap;
@@ -407,7 +407,7 @@
     overflow-x: hidden;
     min-width: 0;
     padding: 10px 16px;
-    font-size: 11px;
+    font-size: var(--text-sm);
     line-height: 1.5;
     box-shadow: var(--depth-inset);
   }
@@ -417,7 +417,7 @@
   .error-state {
     color: var(--term-red);
     padding: 12px 14px;
-    font-size: 11px;
+    font-size: var(--text-sm);
     letter-spacing: 0.04em;
     border-bottom: 1px solid rgba(255, 72, 72, 0.2);
     background: rgba(255, 72, 72, 0.06);
@@ -439,19 +439,19 @@
   .empty-title {
     color: var(--amber-warm);
     font-weight: 700;
-    font-size: 12px;
+    font-size: var(--text-base);
     letter-spacing: 0.08em;
     margin-bottom: 8px;
   }
   .empty-desc {
-    font-size: 11px;
+    font-size: var(--text-sm);
     line-height: 1.6;
     max-width: 320px;
     margin: 0 auto 8px;
     color: var(--amber-dim);
   }
   .empty-hint {
-    font-size: 10px;
+    font-size: var(--text-xs);
     font-style: italic;
     color: var(--amber-faint);
   }
@@ -462,7 +462,7 @@
     gap: 10px;
     padding: 16px;
     color: var(--term-green);
-    font-size: 12px;
+    font-size: var(--text-base);
     font-weight: 600;
     letter-spacing: 0.06em;
   }
@@ -483,15 +483,15 @@
 
   .ts {
     color: var(--amber-faint);
-    font-size: 9px;
+    font-size: var(--text-2xs);
     flex-shrink: 0;
     min-width: 60px;
     font-variant-numeric: tabular-nums;
   }
-  .level-icon { font-size: 9px; flex-shrink: 0; }
+  .level-icon { font-size: var(--text-2xs); flex-shrink: 0; }
   .rule-id {
     color: var(--amber-warm);
-    font-size: 9px;
+    font-size: var(--text-2xs);
     font-weight: 700;
     letter-spacing: 0.06em;
     flex-shrink: 0;
@@ -502,17 +502,17 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-size: 11px;
+    font-size: var(--text-sm);
   }
   .file {
     color: var(--term-cyan);
-    font-size: 9px;
+    font-size: var(--text-2xs);
     flex-shrink: 0;
     opacity: 0.8;
   }
   .source {
     color: var(--amber-faint);
-    font-size: 9px;
+    font-size: var(--text-2xs);
     font-style: italic;
     flex-shrink: 0;
   }
@@ -533,7 +533,7 @@
     display: flex;
     justify-content: space-between;
     padding: 2px 0;
-    font-size: 11px;
+    font-size: var(--text-sm);
   }
   .k { color: var(--amber-dim); }
   .v { color: var(--amber-warm); font-weight: 600; font-variant-numeric: tabular-nums; }

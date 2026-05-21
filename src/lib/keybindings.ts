@@ -22,6 +22,10 @@ export const keybindings: Keybinding[] = [
   { key: 'Ctrl+E', description: 'Toggle edit mode', category: 'editor' },
   { key: 'Ctrl+S', description: 'Save file', category: 'editor' },
 
+  // Bus Tail
+  { key: 'Ctrl+D', description: 'Bookmark focused event (Bus Tail)', category: 'navigation' },
+  { key: 'Ctrl+Shift+N', description: 'Annotate focused event (Bus Tail)', category: 'navigation' },
+
   // Window
   { key: 'Escape', description: 'Close overlay / dismiss', category: 'window' },
   { key: '/', description: 'Focus search (in Index)', category: 'window' },

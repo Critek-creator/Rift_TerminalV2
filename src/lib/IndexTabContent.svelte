@@ -343,14 +343,14 @@
     color: var(--amber-faint);
     padding: 1rem 14px;
     font-style: italic;
-    font-size: 11px;
+    font-size: var(--text-sm);
     letter-spacing: 0.04em;
   }
   .connect-error {
     color: var(--term-red);
     padding: 8px 14px;
     font-style: italic;
-    font-size: 11px;
+    font-size: var(--text-sm);
     letter-spacing: 0.04em;
     opacity: 0.9;
   }
@@ -362,7 +362,7 @@
     background: var(--bg-base);
     color: var(--term-cyan, #6FE0E0);
     font-family: var(--font-family);
-    font-size: 12px;
+    font-size: var(--text-base);
     --accent: var(--term-cyan, #6FE0E0);
   }
 
@@ -378,16 +378,16 @@
     cursor: grab;
     user-select: none;
     color: var(--amber-warm);
-    font-size: 10px;
+    font-size: var(--text-xs);
     letter-spacing: 0.1em;
     font-weight: 700;
-    transition: background 0.12s ease-out;
+    transition: background var(--duration-base) ease-out;
   }
   .drag-handle:active { cursor: grabbing; }
   .drag-handle:hover { background: var(--bg-hover); }
   .drag-handle .handle-glyph {
     color: var(--accent);
-    font-size: 12px;
+    font-size: var(--text-base);
   }
   .drag-handle .handle-title {
     color: var(--accent);
@@ -424,24 +424,24 @@
     align-items: center;
     gap: 8px;
     color: var(--accent);
-    font-size: 10px;
+    font-size: var(--text-xs);
     font-weight: 700;
     letter-spacing: 0.12em;
     text-transform: uppercase;
   }
   .index-card-icon {
-    font-size: 13px;
+    font-size: var(--text-md);
     opacity: 0.85;
   }
   .index-card-status {
     color: var(--amber-faint, #A87830);
-    font-size: 10px;
+    font-size: var(--text-xs);
     font-style: italic;
     letter-spacing: 0.04em;
   }
   .index-card-subtitle {
     color: var(--amber-faint, #A87830);
-    font-size: 9px;
+    font-size: var(--text-2xs);
     font-weight: 400;
     letter-spacing: 0.03em;
     line-height: 1.5;
@@ -459,7 +459,7 @@
     align-items: center;
     gap: 14px;
     color: var(--accent);
-    font-size: 11px;
+    font-size: var(--text-sm);
     letter-spacing: 0.1em;
     font-weight: 700;
     flex-shrink: 0;
@@ -491,7 +491,7 @@
     gap: 14px;
     background: linear-gradient(to bottom, rgba(74, 212, 212, 0.06), transparent);
     color: var(--amber-dim);
-    font-size: 10px;
+    font-size: var(--text-xs);
     letter-spacing: 0.1em;
     overflow: hidden;
     flex-shrink: 0;
@@ -503,7 +503,7 @@
     padding: 1px 6px;
     border: 1px solid var(--accent);
     color: var(--accent);
-    font-size: 9px;
+    font-size: var(--text-2xs);
     font-weight: 600;
     letter-spacing: 0.05em;
     white-space: nowrap;
@@ -535,7 +535,7 @@
     overflow-y: auto;
     padding: 10px 16px;
     color: var(--amber-warm);
-    font-size: 11px;
+    font-size: var(--text-sm);
     box-shadow: var(--depth-inset);
     line-height: 1.5;
   }
@@ -579,7 +579,7 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    font-size: 10px;
+    font-size: var(--text-xs);
     letter-spacing: 0.04em;
   }
   .k-row .k { color: var(--amber-dim); }
@@ -594,7 +594,7 @@
   .vk-label {
     display: block;
     color: var(--amber-warm);
-    font-size: 9px;
+    font-size: var(--text-2xs);
     font-weight: 700;
     letter-spacing: 0.12em;
     margin-bottom: 6px;
@@ -608,7 +608,7 @@
     padding: 1px 6px;
     border: 1px solid var(--accent);
     color: var(--accent);
-    font-size: 9px;
+    font-size: var(--text-2xs);
     font-weight: 600;
     letter-spacing: 0.06em;
     background: rgba(74, 212, 212, 0.06);
@@ -637,11 +637,11 @@
     border: 1px solid var(--amber-faint);
     color: var(--term-white);
     font-family: var(--font-family);
-    font-size: 10px;
+    font-size: var(--text-xs);
     padding: 3px 8px;
     letter-spacing: 0.04em;
     outline: none;
-    transition: border-color 0.12s ease-out;
+    transition: border-color var(--duration-base) ease-out;
   }
   .search-input::placeholder {
     color: var(--amber-faint);
@@ -656,12 +656,12 @@
     color: var(--accent);
     background: rgba(74, 212, 212, 0.06);
     font-family: var(--font-family);
-    font-size: 9px;
+    font-size: var(--text-2xs);
     font-weight: 600;
     letter-spacing: 0.06em;
     cursor: pointer;
     white-space: nowrap;
-    transition: background 0.1s;
+    transition: background var(--duration-fast);
   }
   .vault-root-btn:hover {
     background: rgba(74, 212, 212, 0.14);
@@ -672,7 +672,7 @@
   .vault-root-error {
     padding: 2px 14px;
     color: var(--term-red);
-    font-size: 9px;
+    font-size: var(--text-2xs);
     font-style: italic;
     letter-spacing: 0.04em;
     word-break: break-all;

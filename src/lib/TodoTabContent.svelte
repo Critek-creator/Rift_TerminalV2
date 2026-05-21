@@ -320,7 +320,7 @@
     background: var(--bg-base);
     color: var(--amber-warm);
     font-family: var(--font-family);
-    font-size: 12px;
+    font-size: var(--text-base);
   }
 
   .drag-handle {
@@ -334,16 +334,16 @@
     cursor: grab;
     user-select: none;
     color: var(--amber-warm);
-    font-size: 10px;
+    font-size: var(--text-xs);
     letter-spacing: 0.1em;
     font-weight: 700;
-    transition: background 0.12s ease-out;
+    transition: background var(--duration-base) ease-out;
   }
   .drag-handle:active { cursor: grabbing; }
   .drag-handle:hover { background: var(--bg-hover); }
   .drag-handle .handle-glyph {
     color: var(--amber-bright);
-    font-size: 12px;
+    font-size: var(--text-base);
     text-shadow: var(--glow-amber-faint);
   }
   .drag-handle .handle-title {
@@ -366,7 +366,7 @@
     box-shadow: var(--depth-edge-light), var(--depth-section-sep);
     display: flex; align-items: center; gap: 14px;
     color: var(--amber-warm);
-    font-size: 11px; letter-spacing: 0.1em; font-weight: 700;
+    font-size: var(--text-sm); letter-spacing: 0.1em; font-weight: 700;
   }
   .status .title {
     color: var(--amber-bright);
@@ -380,13 +380,13 @@
     border: 1px solid var(--amber-faint);
     color: var(--amber-warm);
     font-family: inherit;
-    font-size: 9px;
+    font-size: var(--text-2xs);
     letter-spacing: 0.1em;
     font-weight: 700;
     padding: 2px 8px;
     cursor: pointer;
     text-transform: uppercase;
-    transition: color 0.12s ease-out, background 0.12s ease-out, border-color 0.12s ease-out, opacity 0.12s ease-out;
+    transition: color var(--duration-base) ease-out, background var(--duration-base) ease-out, border-color var(--duration-base) ease-out, opacity var(--duration-base) ease-out;
   }
   .ctl-btn:hover:not(:disabled) {
     border-color: var(--amber-bright);
@@ -411,7 +411,7 @@
     display: flex; align-items: center; gap: 10px;
     background: linear-gradient(to bottom, rgba(212, 137, 10, 0.05), transparent);
     color: var(--amber-dim);
-    font-size: 10px;
+    font-size: var(--text-xs);
     letter-spacing: 0.1em;
     flex-wrap: wrap;
   }
@@ -431,12 +431,12 @@
     color: var(--chip-color, var(--amber-warm));
     background: transparent;
     font-family: inherit;
-    font-size: 9px;
+    font-size: var(--text-2xs);
     letter-spacing: 0.08em;
     font-weight: 700;
     cursor: pointer;
     text-transform: uppercase;
-    transition: background 0.12s ease-out, color 0.12s ease-out;
+    transition: background var(--duration-base) ease-out, color var(--duration-base) ease-out;
   }
   .chip:hover { background: rgba(212, 137, 10, 0.06); }
   .chip.active {
@@ -470,7 +470,7 @@
     overflow-y: auto;
     padding: 6px 16px;
     color: var(--amber-warm);
-    font-size: 11px;
+    font-size: var(--text-sm);
     box-shadow: var(--depth-inset);
     line-height: 1.5;
     display: flex;
@@ -491,7 +491,7 @@
     align-items: stretch;
     border-left: 2px solid transparent;
     width: 100%;
-    transition: background 0.12s ease-out, border-left-color 0.12s ease-out;
+    transition: background var(--duration-base) ease-out, border-left-color var(--duration-base) ease-out;
   }
   .row:hover {
     background: rgba(212, 137, 10, 0.06);
@@ -525,8 +525,8 @@
     border: none;
     color: var(--amber-faint);
     font-family: inherit;
-    transition: color 0.12s ease-out;
-    font-size: 14px;
+    transition: color var(--duration-base) ease-out;
+    font-size: var(--text-lg);
     line-height: 1;
     padding: 0 8px;
     cursor: pointer;
@@ -540,24 +540,24 @@
     border: none;
     color: var(--amber-faint);
     font-family: inherit;
-    font-size: 9px;
+    font-size: var(--text-2xs);
     letter-spacing: 0.06em;
     text-transform: uppercase;
     cursor: pointer;
     margin-left: 8px;
     padding: 0;
-    transition: color 0.12s ease-out;
+    transition: color var(--duration-base) ease-out;
   }
   .inline-clear:hover { color: var(--term-red); }
   .marker {
     font-weight: 700;
-    font-size: 10px;
+    font-size: var(--text-xs);
     letter-spacing: 0.06em;
   }
   .path {
     color: var(--amber-warm);
     font-weight: 600;
-    font-size: 11px;
+    font-size: var(--text-sm);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -569,7 +569,7 @@
   }
   .message {
     color: var(--amber-dim);
-    font-size: 11px;
+    font-size: var(--text-sm);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -602,7 +602,7 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    font-size: 10px;
+    font-size: var(--text-xs);
     letter-spacing: 0.04em;
   }
   .k-row .k {
@@ -624,7 +624,7 @@
   .cap-note {
     color: var(--amber-faint);
     font-style: italic;
-    font-size: 9px;
+    font-size: var(--text-2xs);
     margin-top: 6px;
   }
 </style>

@@ -340,7 +340,7 @@
     background: var(--bg-base);
     color: var(--amber-primary);
     font-family: var(--font-family);
-    font-size: 12px;
+    font-size: var(--text-base);
     gap: 1px;
   }
 
@@ -362,7 +362,7 @@
     cursor: grab;
     user-select: none;
     color: var(--amber-warm);
-    font-size: 10px;
+    font-size: var(--text-xs);
     letter-spacing: 0.1em;
     font-weight: 700;
   }
@@ -373,7 +373,7 @@
   }
   .drag-handle .handle-glyph {
     color: var(--accent, var(--amber-primary));
-    font-size: 13px;
+    font-size: var(--text-md);
     text-shadow: 0 0 6px var(--accent-glow, rgba(255, 168, 38, 0.35));
   }
   .drag-handle .handle-title {
@@ -407,10 +407,10 @@
   .status .title {
     color: var(--accent, var(--amber-primary));
     text-shadow: 0 0 8px var(--accent-glow, rgba(255, 168, 38, 0.35));
-    font-size: 12px;
+    font-size: var(--text-base);
   }
   .status .icon { margin-right: 8px; opacity: 0.9; }
-  .status .state { color: var(--amber-dim); font-weight: 500; letter-spacing: 0.04em; font-size: 11px; }
+  .status .state { color: var(--amber-dim); font-weight: 500; letter-spacing: 0.04em; font-size: var(--text-sm); }
   .status .spacer { flex: 1; }
   .status .meta {
     color: var(--amber-faint);
@@ -426,7 +426,7 @@
     display: flex; align-items: center; gap: 14px;
     background: linear-gradient(to bottom, var(--accent-bg, rgba(212, 137, 10, 0.06)), transparent);
     color: var(--amber-dim);
-    font-size: 10px;
+    font-size: var(--text-xs);
     letter-spacing: 0.1em;
     overflow: hidden;
     position: relative;
@@ -454,7 +454,7 @@
     padding: 2px 8px;
     border: 1px solid var(--accent, var(--amber-primary));
     color: var(--accent, var(--amber-primary));
-    font-size: 9px;
+    font-size: var(--text-2xs);
     font-weight: 600;
     letter-spacing: 0.05em;
     white-space: nowrap;
@@ -494,7 +494,7 @@
     min-width: 0;
     padding: 10px 16px;
     color: var(--amber-warm);
-    font-size: 11px;
+    font-size: var(--text-sm);
     line-height: 1.55;
     box-shadow: var(--depth-inset);
   }
@@ -518,7 +518,7 @@
     user-select: text;
     border-left: 2px solid transparent;
     border-radius: var(--radius-md, 4px);
-    transition: background 0.12s, border-color 0.12s;
+    transition: background var(--duration-base), border-color var(--duration-base);
   }
   .log-body .row:hover {
     background: rgba(212, 137, 10, 0.06);
@@ -545,17 +545,17 @@
   .log-body .row.expanded .kind   { grid-area: kind; }
   .log-body .caret {
     color: var(--amber-faint);
-    font-size: 9px;
+    font-size: var(--text-2xs);
     line-height: 1.5;
     user-select: none;
-    transition: color 0.12s;
+    transition: color var(--duration-base);
   }
   .log-body .row:hover .caret { color: var(--amber-dim); }
   .log-body .row.expanded .caret { color: var(--accent, var(--amber-bright)); }
   .log-body .ts {
     color: var(--amber-faint);
     font-variant-numeric: tabular-nums;
-    font-size: 10px;
+    font-size: var(--text-xs);
   }
   .log-body .kind {
     color: var(--accent, var(--amber-primary));
@@ -563,7 +563,7 @@
   }
   .log-body .payload {
     color: var(--amber-dim);
-    font-size: 10px;
+    font-size: var(--text-xs);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -623,10 +623,10 @@
   }
   .state-body .k-row {
     display: flex; align-items: center; justify-content: space-between;
-    font-size: 10px; letter-spacing: 0.04em;
+    font-size: var(--text-xs); letter-spacing: 0.04em;
     padding: 2px 4px;
     border-radius: 2px;
-    transition: background 0.12s;
+    transition: background var(--duration-base);
   }
   .state-body .k-row:hover { background: rgba(212, 137, 10, 0.06); }
   .k-row .k { color: var(--amber-dim); }
@@ -640,10 +640,10 @@
   }
   .histo-row {
     display: flex; justify-content: space-between;
-    font-size: 10px;
+    font-size: var(--text-xs);
     padding: 1px 4px;
     border-radius: 2px;
-    transition: background 0.12s;
+    transition: background var(--duration-base);
   }
   .histo-row:hover { background: rgba(212, 137, 10, 0.06); }
   .histo-kind { color: var(--accent, var(--amber-primary)); }
@@ -661,25 +661,25 @@
     flex-direction: column;
     gap: 5px;
     opacity: 0.55;
-    transition: opacity 0.15s;
+    transition: opacity var(--duration-med);
   }
   .sentinel-card:hover { opacity: 0.75; }
   .sentinel-heading {
     color: var(--amber-warm);
-    font-size: 10px;
+    font-size: var(--text-xs);
     font-weight: 700;
     letter-spacing: 0.1em;
     text-transform: uppercase;
   }
   .sentinel-status {
     color: var(--amber-faint);
-    font-size: 10px;
+    font-size: var(--text-xs);
     font-style: italic;
     letter-spacing: 0.04em;
   }
   .sentinel-subtitle {
     color: var(--amber-faint);
-    font-size: 9px;
+    font-size: var(--text-2xs);
     font-weight: 400;
     letter-spacing: 0.03em;
     line-height: 1.5;
@@ -691,14 +691,14 @@
     border: 1px solid var(--border-subtle);
     color: var(--amber-dim);
     font-family: var(--font-family);
-    font-size: 11px;
+    font-size: var(--text-sm);
     padding: 3px 10px;
     cursor: pointer;
     border-radius: var(--radius-md, 4px);
     line-height: 1;
     font-weight: 500;
-    transition: color 0.12s, border-color 0.12s, box-shadow 0.12s,
-                background 0.12s;
+    transition: color var(--duration-base), border-color var(--duration-base), box-shadow var(--duration-base),
+                background var(--duration-base);
   }
   .ctrl-btn:hover {
     color: var(--amber-bright);

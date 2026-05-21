@@ -1233,6 +1233,14 @@ fn load_session(session_id: String) -> Result<Vec<serde_json::Value>, String> {
     rift_bus::session_reader::load_session(&session_id)
 }
 
+#[tauri::command]
+fn compare_sessions(
+    baseline_id: String,
+    compare_id: String,
+) -> Result<rift_bus::session_compare::SessionDiff, String> {
+    rift_bus::session_compare::compare_sessions(&baseline_id, &compare_id)
+}
+
 /// Shared helper: resolve `~/<rel_path>` and open it in the OS default editor.
 ///
 /// Cross-platform dispatch:
@@ -1885,6 +1893,7 @@ pub fn run() {
             mcp_token_regenerate,
             list_sessions,
             load_session,
+            compare_sessions,
             index_bridge::index_list_nodes,
             index_bridge::index_search_nodes,
             index_bridge::index_get_node,

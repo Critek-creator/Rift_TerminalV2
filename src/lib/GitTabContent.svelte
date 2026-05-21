@@ -442,7 +442,7 @@
     background: var(--bg-base);
     color: var(--amber-warm);
     font-family: var(--font-family);
-    font-size: 12px;
+    font-size: var(--text-base);
   }
 
   .drag-handle {
@@ -456,16 +456,16 @@
     cursor: grab;
     user-select: none;
     color: var(--amber-warm);
-    font-size: 10px;
+    font-size: var(--text-xs);
     letter-spacing: 0.1em;
     font-weight: 700;
-    transition: background 0.12s ease-out;
+    transition: background var(--duration-base) ease-out;
   }
   .drag-handle:active { cursor: grabbing; }
   .drag-handle:hover { background: var(--bg-hover); }
   .drag-handle .handle-glyph {
     color: var(--amber-bright);
-    font-size: 12px;
+    font-size: var(--text-base);
     text-shadow: var(--glow-amber-faint);
   }
   .drag-handle .handle-title {
@@ -488,7 +488,7 @@
     box-shadow: var(--depth-edge-light), var(--depth-section-sep);
     display: flex; align-items: center; gap: 10px;
     color: var(--amber-warm);
-    font-size: 11px; letter-spacing: 0.1em; font-weight: 700;
+    font-size: var(--text-sm); letter-spacing: 0.1em; font-weight: 700;
   }
   .status .title {
     color: var(--amber-bright);
@@ -510,7 +510,7 @@
     color: var(--amber-dim);
     font-weight: 400;
     letter-spacing: 0.04em;
-    font-size: 10px;
+    font-size: var(--text-xs);
   }
   .status .spacer { flex: 1; }
   .ctl-btn {
@@ -518,13 +518,13 @@
     border: 1px solid var(--amber-faint);
     color: var(--amber-warm);
     font-family: inherit;
-    font-size: 9px;
+    font-size: var(--text-2xs);
     letter-spacing: 0.1em;
     font-weight: 700;
     padding: 2px 8px;
     cursor: pointer;
     text-transform: uppercase;
-    transition: color 0.12s ease-out, background 0.12s ease-out, border-color 0.12s ease-out, box-shadow 0.12s ease-out, opacity 0.12s ease-out;
+    transition: color var(--duration-base) ease-out, background var(--duration-base) ease-out, border-color var(--duration-base) ease-out, box-shadow var(--duration-base) ease-out, opacity var(--duration-base) ease-out;
   }
   .ctl-btn:hover:not(:disabled) {
     border-color: var(--amber-bright);
@@ -565,7 +565,7 @@
     padding: 2px 8px;
     border: 1px solid var(--term-green, #4FE855);
     color: var(--term-green, #4FE855);
-    font-size: 9px;
+    font-size: var(--text-2xs);
     letter-spacing: 0.06em;
     text-transform: uppercase;
     font-weight: 700;
@@ -590,11 +590,11 @@
     background: transparent;
     border: none;
     color: inherit;
-    font-size: 12px;
+    font-size: var(--text-base);
     line-height: 1;
     cursor: pointer;
     padding: 0 2px;
-    transition: color 0.12s ease-out, opacity 0.12s ease-out;
+    transition: color var(--duration-base) ease-out, opacity var(--duration-base) ease-out;
   }
 
   .commit-form {
@@ -610,7 +610,7 @@
     border: 1px solid var(--amber-faint);
     color: var(--amber-warm);
     font-family: inherit;
-    font-size: 11px;
+    font-size: var(--text-sm);
     padding: 6px 8px;
     resize: vertical;
     min-height: 32px;
@@ -632,7 +632,7 @@
     padding: 1px 6px;
     border: 1px solid var(--amber-faint);
     color: var(--amber-warm);
-    font-size: 9px;
+    font-size: var(--text-2xs);
     font-weight: 700;
     letter-spacing: 0.06em;
     text-transform: uppercase;
@@ -655,7 +655,7 @@
     display: flex; align-items: center; gap: 10px;
     background: linear-gradient(to bottom, rgba(212, 137, 10, 0.05), transparent);
     color: var(--amber-dim);
-    font-size: 10px;
+    font-size: var(--text-xs);
     letter-spacing: 0.1em;
     flex-wrap: wrap;
   }
@@ -683,7 +683,7 @@
     overflow-y: auto;
     padding: 6px 16px 10px;
     color: var(--amber-warm);
-    font-size: 11px;
+    font-size: var(--text-sm);
     box-shadow: var(--depth-inset);
     line-height: 1.5;
     display: flex;
@@ -701,7 +701,7 @@
 
   .group-header {
     color: var(--amber-bright);
-    font-size: 9px;
+    font-size: var(--text-2xs);
     font-weight: 700;
     letter-spacing: 0.14em;
     text-transform: uppercase;
@@ -725,7 +725,7 @@
     text-align: left;
     cursor: pointer;
     width: 100%;
-    transition: background 0.12s ease-out, border-left-color 0.12s ease-out;
+    transition: background var(--duration-base) ease-out, border-left-color var(--duration-base) ease-out;
   }
   .row:hover {
     background: rgba(212, 137, 10, 0.06);
@@ -733,12 +733,12 @@
   }
   .file-status {
     font-weight: 700;
-    font-size: 11px;
+    font-size: var(--text-sm);
     text-align: center;
   }
   .path {
     color: var(--amber-warm);
-    font-size: 11px;
+    font-size: var(--text-sm);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -776,18 +776,18 @@
     color: var(--amber-bright);
     font-weight: 700;
     font-variant-numeric: tabular-nums;
-    font-size: 10px;
+    font-size: var(--text-xs);
   }
   .commit-subject {
     color: var(--amber-warm);
-    font-size: 11px;
+    font-size: var(--text-sm);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
   .commit-meta {
     color: var(--amber-faint);
-    font-size: 10px;
+    font-size: var(--text-xs);
     letter-spacing: 0.04em;
   }
   .commit-sep { margin: 0 6px; }
