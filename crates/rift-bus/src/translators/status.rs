@@ -272,36 +272,52 @@ fn read_cc_status() -> Option<CcStatus> {
         .and_then(|n| n.as_str())
         .map(|s| s.to_string());
 
-    // skill — primary_skill or session.active_skill (CC version dependent)
+    // skill — extract from session_name (e.g. "aegis:auto" → "aegis"),
+    // or primary_skill, or session.active_skill (CC version dependent)
     let skill = v
-        .get("primary_skill")
-        .or_else(|| v.get("session").and_then(|s| s.get("active_skill")))
+        .get("session_name")
         .and_then(|s| s.as_str())
-        .filter(|s| !s.is_empty())
-        .map(|s| s.to_string());
+        .and_then(|s| s.split(':').next())
+        .filter(|s| !s.is_empty() && *s != "default")
+        .map(|s| s.to_string())
+        .or_else(|| {
+            v.get("primary_skill")
+                .or_else(|| v.get("session").and_then(|s| s.get("active_skill")))
+                .and_then(|s| s.as_str())
+                .filter(|s| !s.is_empty())
+                .map(|s| s.to_string())
+        });
 
-    // thinking effort — try direct effort field, fall back to budget derivation
-    let thinking_effort = v.get("thinking").and_then(|t| {
-        if let Some(e) = t.get("effort").and_then(|e| e.as_str()) {
-            return Some(e.to_string());
-        }
-        match t.get("type").and_then(|ty| ty.as_str()) {
-            Some("enabled") => {
-                let budget = t.get("budget_tokens").and_then(as_f64);
-                Some(
-                    match budget {
-                        Some(b) if b >= 32000.0 => "max",
-                        Some(b) if b >= 16000.0 => "high",
-                        Some(b) if b >= 8000.0 => "medium",
-                        Some(_) => "low",
-                        None => "on",
+    // effort — try top-level effort.level (current CC schema), then
+    // thinking.effort, then budget-derived from thinking.budget_tokens
+    let thinking_effort = v
+        .get("effort")
+        .and_then(|e| e.get("level"))
+        .and_then(|l| l.as_str())
+        .map(|s| s.to_string())
+        .or_else(|| {
+            v.get("thinking").and_then(|t| {
+                if let Some(e) = t.get("effort").and_then(|e| e.as_str()) {
+                    return Some(e.to_string());
+                }
+                match t.get("type").and_then(|ty| ty.as_str()) {
+                    Some("enabled") => {
+                        let budget = t.get("budget_tokens").and_then(as_f64);
+                        Some(
+                            match budget {
+                                Some(b) if b >= 32000.0 => "max",
+                                Some(b) if b >= 16000.0 => "high",
+                                Some(b) if b >= 8000.0 => "medium",
+                                Some(_) => "low",
+                                None => "on",
+                            }
+                            .to_string(),
+                        )
                     }
-                    .to_string(),
-                )
-            }
-            _ => None,
-        }
-    });
+                    _ => None,
+                }
+            })
+        });
 
     Some(CcStatus {
         model,
