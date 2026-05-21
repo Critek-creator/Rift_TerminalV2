@@ -179,7 +179,11 @@
         <span>loading…</span>
       </div>
     {:else if recentProjects.length === 0}
-      <div class="picker-empty">No recent projects</div>
+      <div class="picker-empty">
+        <span class="picker-empty-icon">◇</span>
+        <span class="picker-empty-text">No recent projects</span>
+        <span class="picker-empty-hint">use the path input below to open a project</span>
+      </div>
     {:else}
       <ul class="picker-list" role="listbox" aria-label="recent projects">
         {#each recentProjects as entry (entry.path)}
@@ -190,6 +194,7 @@
             aria-selected="false"
             onclick={() => onRecentClick(entry)}
           >
+            <span class="picker-item-icon">▦</span>
             <span class="picker-item-name">{entry.name}</span>
             <span class="picker-item-path">{entry.path}</span>
             <span class="picker-item-time">{formatRelative(entry.last_used_ms)}</span>
@@ -259,26 +264,26 @@
     min-height: 0;
     font-family: var(--font-family);
     color: var(--amber-warm);
-    background: var(--bg-elevated, #14140F);
+    background: var(--bg-elevated);
   }
 
   /* ─── Sections ───────────────────────────────────────────────────────── */
   .picker-section {
-    padding: 14px 16px;
+    padding: var(--space-lg);
     border-bottom: 1px solid var(--border-subtle);
   }
   .picker-section-input {
-    padding-bottom: 16px;
+    padding-bottom: var(--space-lg);
   }
 
   .picker-section-label {
-    font-size: 9px;
-    letter-spacing: 0.12em;
+    font-size: var(--section-header-size);
+    letter-spacing: var(--section-header-spacing);
     text-transform: uppercase;
-    font-weight: 700;
-    color: var(--amber-faint);
-    margin-bottom: 10px;
-    padding-bottom: 6px;
+    font-weight: var(--section-header-weight);
+    color: var(--amber-dim);
+    margin-bottom: var(--space-md);
+    padding-bottom: var(--space-sm);
     border-bottom: 1px solid var(--border-subtle);
   }
 
@@ -287,49 +292,53 @@
     list-style: none;
     margin: 0;
     padding: 0;
-    max-height: 232px;
+    max-height: 260px;
     overflow-y: auto;
   }
-  .picker-list::-webkit-scrollbar { width: 4px; }
-  .picker-list::-webkit-scrollbar-thumb {
-    background: var(--amber-faint);
-    border-radius: 2px;
-  }
-  .picker-list::-webkit-scrollbar-track { background: transparent; }
 
   .picker-item {
     display: grid;
-    grid-template-columns: auto 1fr auto;
+    grid-template-columns: 20px auto 1fr auto;
     align-items: center;
-    gap: 10px;
-    padding: 8px 10px;
+    gap: var(--space-sm);
+    padding: var(--space-sm) var(--space-md);
     cursor: pointer;
-    border-left: 2px solid transparent;
-    border-bottom: 1px solid transparent;
-    transition: border-color 0.1s, background 0.1s, color 0.1s;
+    border: 1px solid transparent;
+    border-radius: var(--radius-md);
+    margin-bottom: 2px;
+    transition: border-color var(--duration-fast) var(--ease-out),
+                background var(--duration-fast) var(--ease-out);
   }
-  .picker-item:last-child { border-bottom: none; }
   .picker-item:hover {
-    background: var(--bg-hover, #1a1a14);
-    border-left-color: var(--amber-dim, #D8A028);
+    background: var(--bg-hover);
+    border-color: var(--border-subtle);
   }
   .picker-item:active {
-    background: var(--bg-surface, #0F0F0D);
-    border-left-color: var(--amber-bright, #FFC840);
+    background: var(--bg-surface);
+    border-color: var(--amber-dim);
   }
 
+  .picker-item-icon {
+    color: var(--amber-faint);
+    font-size: var(--text-base);
+    text-align: center;
+    transition: color var(--duration-fast) var(--ease-out);
+  }
+  .picker-item:hover .picker-item-icon {
+    color: var(--amber-bright);
+  }
   .picker-item-name {
-    font-size: 11px;
+    font-size: var(--text-sm);
     font-weight: 700;
     color: var(--amber-warm);
     white-space: nowrap;
-    transition: color 0.1s;
+    transition: color var(--duration-fast) var(--ease-out);
   }
   .picker-item:hover .picker-item-name {
     color: var(--amber-bright);
   }
   .picker-item-path {
-    font-size: 9px;
+    font-size: var(--text-2xs);
     color: var(--amber-faint);
     overflow: hidden;
     text-overflow: ellipsis;
@@ -338,11 +347,12 @@
     letter-spacing: 0.02em;
   }
   .picker-item-time {
-    font-size: 9px;
+    font-size: var(--text-2xs);
     color: var(--amber-faint);
     white-space: nowrap;
     font-style: italic;
-    opacity: 0.8;
+    opacity: 0.7;
+    transition: opacity var(--duration-fast) var(--ease-out);
   }
   .picker-item:hover .picker-item-time {
     opacity: 1;
@@ -353,10 +363,10 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 10px;
-    padding: 20px 0;
+    gap: var(--space-md);
+    padding: var(--space-xl) 0;
     color: var(--amber-faint);
-    font-size: 11px;
+    font-size: var(--text-sm);
     font-style: italic;
   }
   .picker-loading-glyph {
@@ -365,49 +375,62 @@
   }
   @keyframes picker-pulse {
     0%, 100% { opacity: 0.3; text-shadow: none; }
-    50%       { opacity: 1;   text-shadow: var(--glow-amber, 0 0 8px rgba(255, 168, 38, 0.55)); }
+    50%       { opacity: 1;   text-shadow: var(--glow-amber); }
   }
 
   .picker-empty {
     display: flex;
+    flex-direction: column;
     align-items: center;
     justify-content: center;
-    padding: 20px 0;
+    gap: var(--space-sm);
+    padding: var(--space-2xl) 0;
     color: var(--amber-faint);
-    font-size: 11px;
+  }
+  .picker-empty-icon {
+    font-size: 24px;
+    opacity: 0.4;
+  }
+  .picker-empty-text {
+    font-size: var(--text-sm);
     font-style: italic;
     letter-spacing: 0.04em;
   }
+  .picker-empty-hint {
+    font-size: var(--text-2xs);
+    opacity: 0.7;
+  }
 
   /* ─── Path input row ─────────────────────────────────────────────────── */
-  /* Browse button is flush against the input — no gap, shared border. */
   .picker-input-row {
     display: flex;
     align-items: stretch;
     height: 36px;
+    border-radius: var(--radius-md);
+    overflow: hidden;
   }
 
   .picker-input {
     flex: 1;
     min-width: 0;
-    background: var(--bg-surface, #0F0F0D);
-    border: 1px solid var(--border-active, #4a3818);
+    background: var(--bg-base);
+    border: 1px solid var(--border-active);
     border-right: none;
+    border-radius: var(--radius-md) 0 0 var(--radius-md);
     color: var(--amber-warm);
     font-family: var(--font-family);
-    font-size: 11px;
-    padding: 0 10px;
+    font-size: var(--text-sm);
+    padding: 0 var(--space-md);
     outline: none;
     box-sizing: border-box;
     caret-color: var(--amber-bright);
-    transition: border-color 0.12s, box-shadow 0.15s;
+    transition: border-color var(--duration-base) var(--ease-out),
+                box-shadow var(--duration-med) var(--ease-out);
   }
   .picker-input:focus {
-    border-color: var(--amber-primary, #FFA826);
-    box-shadow: 0 0 0 1px var(--amber-dim, #D8A028),
-                var(--glow-amber, 0 0 8px rgba(255, 168, 38, 0.55));
-    /* restore right side so glow shows through */
-    border-right: 1px solid var(--amber-primary, #FFA826);
+    border-color: var(--amber-primary);
+    box-shadow: 0 0 0 1px var(--amber-dim), var(--glow-amber);
+    border-right: 1px solid var(--amber-primary);
   }
   .picker-input:disabled {
     opacity: 0.45;
@@ -420,29 +443,28 @@
 
   .picker-browse {
     flex: 0 0 auto;
-    background: var(--bg-panel, #0c0c0a);
-    border: 1px solid var(--border-active, #4a3818);
+    background: var(--bg-panel);
+    border: 1px solid var(--border-active);
+    border-radius: 0 var(--radius-md) var(--radius-md) 0;
     color: var(--amber-dim);
     font-family: var(--font-family);
-    font-size: 10px;
+    font-size: var(--text-xs);
     font-weight: 700;
-    letter-spacing: 0.08em;
+    letter-spacing: 0.06em;
     text-transform: uppercase;
-    padding: 0 14px;
+    padding: 0 var(--space-lg);
     cursor: pointer;
     white-space: nowrap;
-    transition: color 0.12s, border-color 0.12s, background 0.12s, transform 0.1s;
+    transition: color var(--duration-base) var(--ease-out),
+                border-color var(--duration-base) var(--ease-out),
+                background var(--duration-base) var(--ease-out);
     height: 36px;
     line-height: 36px;
   }
   .picker-browse:not(:disabled):hover {
     color: var(--amber-warm);
-    border-color: var(--amber-primary, #FFA826);
-    background: var(--bg-hover, #1a1a14);
-    transform: translateY(-1px);
-  }
-  .picker-browse:not(:disabled):active {
-    transform: translateY(0);
+    border-color: var(--amber-primary);
+    background: var(--bg-hover);
   }
   .picker-browse:disabled {
     opacity: 0.4;
@@ -453,15 +475,15 @@
   .picker-error {
     display: flex;
     align-items: flex-start;
-    gap: 8px;
-    padding: 10px 16px;
-    background: rgba(204, 51, 51, 0.06);
-    border-bottom: 1px solid var(--term-red, #FF4848);
-    font-size: 10px;
+    gap: var(--space-sm);
+    padding: var(--space-md) var(--space-lg);
+    background: rgba(255, 72, 72, 0.04);
+    border-bottom: 1px solid var(--term-red);
+    font-size: var(--text-xs);
   }
   .picker-error-glyph {
     flex-shrink: 0;
-    color: var(--term-red, #FF4848);
+    color: var(--term-red);
   }
   .picker-error-msg {
     color: var(--amber-dim);
@@ -473,25 +495,34 @@
   .picker-actions {
     display: flex;
     justify-content: flex-end;
-    gap: 8px;
-    padding: 12px 16px;
-    background: var(--bg-panel, #0c0c0a);
+    gap: var(--space-sm);
+    padding: var(--space-md) var(--space-lg);
+    background: var(--bg-panel);
     border-top: 1px solid var(--border-subtle);
   }
 
   .picker-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     font-family: var(--font-family);
-    font-size: 10px;
-    letter-spacing: 0.08em;
+    font-size: var(--text-xs);
+    letter-spacing: 0.06em;
     font-weight: 700;
     height: 34px;
-    padding: 0 16px;
-    line-height: 34px;
+    padding: 0 var(--space-lg);
     cursor: pointer;
-    border-radius: 0;
-    transition: color 0.12s, border-color 0.12s, background 0.12s,
-                box-shadow 0.12s, transform 0.1s;
+    border-radius: var(--radius-md);
+    transition: color var(--duration-base) var(--ease-out),
+                border-color var(--duration-base) var(--ease-out),
+                background var(--duration-base) var(--ease-out),
+                box-shadow var(--duration-base) var(--ease-out);
     text-transform: uppercase;
+    user-select: none;
+  }
+  .picker-btn:focus-visible {
+    outline: 1px solid var(--amber-warm);
+    outline-offset: 1px;
   }
   .picker-btn:disabled {
     opacity: 0.35;
@@ -499,31 +530,24 @@
   }
 
   .picker-btn-cancel {
-    background: transparent;
-    border: 1px solid var(--border-active, #4a3818);
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-subtle);
     color: var(--amber-dim);
   }
   .picker-btn-cancel:not(:disabled):hover {
-    border-color: var(--amber-faint);
-    color: var(--amber-warm);
-    transform: translateY(-1px);
-  }
-  .picker-btn-cancel:not(:disabled):active {
-    transform: translateY(0);
+    border-color: var(--amber-dim);
+    color: var(--amber-bright);
+    background: var(--bg-hover);
+    box-shadow: 0 0 4px rgba(255, 168, 38, 0.1);
   }
 
   .picker-btn-confirm {
-    background: var(--amber-bright, #FFC840);
-    border: 1px solid var(--amber-bright, #FFC840);
-    color: var(--bg-base, #080806);
-    font-weight: 800;
+    background: var(--amber-bright);
+    border: 1px solid var(--amber-bright);
+    color: var(--bg-base);
+    font-weight: 700;
   }
   .picker-btn-confirm:not(:disabled):hover {
-    box-shadow: var(--glow-amber-strong, 0 0 14px rgba(255, 200, 64, 0.85));
-    transform: translateY(-1px);
-  }
-  .picker-btn-confirm:not(:disabled):active {
-    transform: translateY(0);
-    box-shadow: var(--glow-amber, 0 0 8px rgba(255, 168, 38, 0.55));
+    box-shadow: var(--glow-amber);
   }
 </style>

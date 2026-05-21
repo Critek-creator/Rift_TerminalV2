@@ -487,6 +487,7 @@
   // localStorage on mount and persists on drag-end. Defaults match the prior
   // CSS flex-basis values so existing users see no immediate layout change.
   let cockpitRightWidth = $state(420); // px — was flex: 0 0 38% (~420 of 1100)
+  let promotedPaneWidth = $state(420); // px — promoted notif pane, splitter-resizable
   let graphHeightPct = $state(55);     // percent — was flex: 0 0 55%
 
   // Cockpit collapse toggle — hides the right pane (graph + tree) to give
@@ -1064,8 +1065,17 @@
            Re-keyed on the promoted id so the subscription resets cleanly
            when one promoted tab replaces another. -->
       {#if promotedTab}
+        <Splitter
+          direction="vertical"
+          storageKey="rift.promoted.width_px"
+          unit="px"
+          bind:size={promotedPaneWidth}
+          min={280}
+          max={800}
+          onDblClick={() => (promotedPaneWidth = 420)}
+        />
         {#key promotedTab.id}
-          <aside class="promoted-pane">
+          <aside class="promoted-pane" style="flex: 0 0 {promotedPaneWidth}px;">
             {#if promotedTab.id === 'aegis'}
               <AegisTabContent severityThreshold={thresholdFor('aegis')} onDragBack={demoteTab} />
             {:else if promotedTab.id === 'index'}
@@ -1236,14 +1246,14 @@
   }
 
   .promoted-pane {
-    flex: 0 0 420px;
+    /* flex-basis set inline via promotedPaneWidth state (splitter-controlled) */
     display: flex;
     flex-direction: column;
     min-height: 0;
     min-width: 0;
     overflow: hidden;
-    border-left: 2px solid var(--amber-faint);
-    box-shadow: inset 2px 0 10px rgba(0, 0, 0, 0.4);
+    border-left: none;
+    box-shadow: var(--depth-inset);
     background: var(--bg-base);
   }
 
