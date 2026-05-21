@@ -35,7 +35,9 @@
 //!   "session_use_pct": 30,
 //!   "week_pct": 65,
 //!   "github_owner": "Critek-creator",
-//!   "github_repo": "Rift_TerminalV2"
+//!   "github_repo": "Rift_TerminalV2",
+//!   "skill": "aegis",
+//!   "effort": "high"
 //! }
 //! ```
 //!
@@ -160,6 +162,12 @@ pub(crate) fn publish_status_snapshot(bus: &RiftBus, project_root: &Path) {
         if let Some(v) = cc.github_repo {
             map.insert("github_repo".into(), json!(v));
         }
+        if let Some(v) = cc.skill {
+            map.insert("skill".into(), json!(v));
+        }
+        if let Some(v) = cc.thinking_effort {
+            map.insert("effort".into(), json!(v));
+        }
     }
 
     let mut env = Envelope::new(Category::Status, "usage");
@@ -179,6 +187,8 @@ struct CcStatus {
     week_pct: Option<u32>,
     github_owner: Option<String>,
     github_repo: Option<String>,
+    skill: Option<String>,
+    thinking_effort: Option<String>,
 }
 
 /// Read and parse `$TEMP/rift-cc-status.json`. Returns `None` if the file
@@ -262,6 +272,37 @@ fn read_cc_status() -> Option<CcStatus> {
         .and_then(|n| n.as_str())
         .map(|s| s.to_string());
 
+    // skill — primary_skill or session.active_skill (CC version dependent)
+    let skill = v
+        .get("primary_skill")
+        .or_else(|| v.get("session").and_then(|s| s.get("active_skill")))
+        .and_then(|s| s.as_str())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string());
+
+    // thinking effort — try direct effort field, fall back to budget derivation
+    let thinking_effort = v.get("thinking").and_then(|t| {
+        if let Some(e) = t.get("effort").and_then(|e| e.as_str()) {
+            return Some(e.to_string());
+        }
+        match t.get("type").and_then(|ty| ty.as_str()) {
+            Some("enabled") => {
+                let budget = t.get("budget_tokens").and_then(as_f64);
+                Some(
+                    match budget {
+                        Some(b) if b >= 32000.0 => "max",
+                        Some(b) if b >= 16000.0 => "high",
+                        Some(b) if b >= 8000.0 => "medium",
+                        Some(_) => "low",
+                        None => "on",
+                    }
+                    .to_string(),
+                )
+            }
+            _ => None,
+        }
+    });
+
     Some(CcStatus {
         model,
         ctx_pct,
@@ -269,6 +310,8 @@ fn read_cc_status() -> Option<CcStatus> {
         week_pct,
         github_owner,
         github_repo,
+        skill,
+        thinking_effort,
     })
 }
 

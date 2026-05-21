@@ -629,7 +629,27 @@
   let statusCtx = $state('');
   let statusSessionUse = $state('');
   let statusWeek = $state('');
+  let statusSession = $state('');
+  let ccSkill = $state('');
+  let ccEffort = $state('');
   let statuslineConfig = $state<StatusLineConfig | undefined>(undefined);
+
+  // Session elapsed timer — 1s tick for smooth clock display.
+  const sessionStartMs = Date.now();
+  $effect(() => {
+    const tick = () => {
+      const elapsed = Math.floor((Date.now() - sessionStartMs) / 1000);
+      const h = Math.floor(elapsed / 3600);
+      const m = Math.floor((elapsed % 3600) / 60);
+      const s = elapsed % 60;
+      statusSession = h > 0
+        ? `${h}h ${String(m).padStart(2, '0')}m`
+        : `${m}m ${String(s).padStart(2, '0')}s`;
+    };
+    tick();
+    const timer = setInterval(tick, 1000);
+    return () => clearInterval(timer);
+  });
 
   $effect(() => {
     let cancelled = false;
@@ -643,6 +663,7 @@
               dir?: string; git?: string; repo?: string;
               model?: string; ctx_pct?: number; session_use_pct?: number; week_pct?: number;
               github_owner?: string; github_repo?: string;
+              skill?: string; effort?: string;
             };
             if (p.dir  !== undefined) statusDir  = p.dir;
             if (p.git  !== undefined) statusGit  = p.git;
@@ -655,6 +676,8 @@
             if (p.ctx_pct !== undefined) statusCtx = `${p.ctx_pct}%`;
             if (p.session_use_pct !== undefined) statusSessionUse = `${p.session_use_pct}%`;
             if (p.week_pct !== undefined) statusWeek = `${p.week_pct}%`;
+            if (p.skill !== undefined) ccSkill = p.skill;
+            if (p.effort !== undefined) ccEffort = p.effort;
           }
         });
         if (cancelled) {
@@ -1174,10 +1197,11 @@
     dir={statusDir || '—'}
     model={statusModel || '—'}
     ctx={statusCtx || '—'}
+    session={statusSession || '—'}
     repo={statusRepo || '—'}
     git={statusGit || '—'}
-    skill={aegisSkillName || '—'}
-    effort={aegisEffort || '—'}
+    skill={aegisSkillName || ccSkill || '—'}
+    effort={aegisEffort || ccEffort || '—'}
     sessionUse={statusSessionUse || '—'}
     week={statusWeek || '—'}
     visibility={statuslineConfig}
