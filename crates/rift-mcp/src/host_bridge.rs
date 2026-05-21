@@ -51,7 +51,7 @@ fn discovery_path_display() -> String {
 }
 
 /// Default per-call timeout if none provided.
-const DEFAULT_CALL_TIMEOUT: Duration = Duration::from_secs(5);
+const DEFAULT_CALL_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Notification broadcast channel capacity. Bursty bus traffic can push past
 /// this — the router task surfaces a `Lagged` notification (see

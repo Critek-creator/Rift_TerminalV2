@@ -68,7 +68,7 @@
   }
 </script>
 
-<footer class="statusline">
+<footer class="statusline" role="status" aria-live="polite" aria-label="Terminal status">
   <div class="row">
     {#if show.dir}
       <div class="seg dir" style:background={override('dir')}>

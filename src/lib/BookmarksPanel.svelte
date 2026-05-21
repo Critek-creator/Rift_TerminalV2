@@ -151,12 +151,14 @@
   }
 </script>
 
-<div class="bookmarks-panel">
-  <div class="panel-tabs">
+<div class="bookmarks-panel" aria-label="Bookmarks panel">
+  <div class="panel-tabs" role="tablist" aria-label="Bookmark views">
     <button
       type="button"
       class="panel-tab"
       class:active={viewMode === 'bookmarks'}
+      role="tab"
+      aria-selected={viewMode === 'bookmarks'}
       onclick={() => (viewMode = 'bookmarks')}
     >
       BOOKMARKS
@@ -168,6 +170,8 @@
       type="button"
       class="panel-tab"
       class:active={viewMode === 'filters'}
+      role="tab"
+      aria-selected={viewMode === 'filters'}
       onclick={() => (viewMode = 'filters')}
     >
       SAVED FILTERS

@@ -168,7 +168,8 @@ fn needs_reconnect(resp: &Response) -> bool {
         e.code == ErrorCode::InternalError as i32
             && (e.message.contains("disconnected")
                 || e.message.contains("pipe")
-                || e.message.contains("ipc:"))
+                || e.message.contains("ipc:")
+                || e.message.contains("timed out"))
     })
 }
 

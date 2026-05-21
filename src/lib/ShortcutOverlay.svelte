@@ -22,10 +22,8 @@
   }
 </script>
 
-<!-- svelte-ignore a11y_no_static_element_interactions -->
-<div class="overlay-backdrop" onclick={onclose} onkeydown={onKeydown}>
-  <!-- svelte-ignore a11y_click_events_have_key_events -->
-  <div class="overlay-panel" onclick={(e) => e.stopPropagation()}>
+<div class="overlay-backdrop" role="presentation" onclick={onclose} onkeydown={onKeydown}>
+  <div class="overlay-panel" role="dialog" aria-modal="true" aria-label="Keyboard shortcuts" tabindex="-1" onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.stopPropagation()}>
     <header class="overlay-header">
       <span class="header-icon">⌨</span>
       <span class="header-title">KEYBOARD SHORTCUTS</span>
