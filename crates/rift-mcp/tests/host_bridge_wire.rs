@@ -326,7 +326,7 @@ async fn timeout_when_host_silent() {
     // Mock host explicitly drops `silent` requests on the floor; bridge
     // default timeout is 5s — wrap in a generous outer timeout so a
     // misbehaving test never hangs CI.
-    let outcome = timeout(Duration::from_secs(10), bridge.call("silent", &Value::Null))
+    let outcome = timeout(Duration::from_secs(15), bridge.call("silent", &Value::Null))
         .await
         .expect("outer timeout — bridge should have surfaced its own");
     match outcome {

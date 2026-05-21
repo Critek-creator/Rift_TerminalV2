@@ -12,6 +12,7 @@
 //! of `root_pid`. False negatives are acceptable (best-effort); false
 //! positives are tolerable (lane reverts at CMD_END/PROMPT_START).
 
+#[cfg(windows)]
 const CLAUDE_BINARY_NAMES: &[&str] = &["claude", "claude.exe"];
 
 /// Returns `true` if any child of `root_pid` appears to be a Claude Code
