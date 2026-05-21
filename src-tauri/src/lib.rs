@@ -1526,6 +1526,72 @@ impl BusSubscriptionRegistryHandle {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Crash dump handler — writes panic info to ~/.abyssal/rift/crashes/.
+    // Beta users can copy the dump into a GitHub Issue for debugging.
+    std::panic::set_hook(Box::new(|info| {
+        let crash_dir = directories::BaseDirs::new()
+            .map(|d| d.data_dir().join("com.abyssal.rift").join("crashes"))
+            .unwrap_or_else(|| std::path::PathBuf::from("crashes"));
+        let _ = std::fs::create_dir_all(&crash_dir);
+
+        let ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let path = crash_dir.join(format!("crash-{ts}.txt"));
+
+        let version = env!("CARGO_PKG_VERSION");
+        let payload = info
+            .payload()
+            .downcast_ref::<&str>()
+            .copied()
+            .or_else(|| info.payload().downcast_ref::<String>().map(|s| s.as_str()))
+            .unwrap_or("(unknown)");
+        let location = info
+            .location()
+            .map(|l| format!("{}:{}:{}", l.file(), l.line(), l.column()))
+            .unwrap_or_else(|| "(unknown location)".into());
+
+        let body = format!(
+            "RIFT CRASH DUMP\n\
+             ===============\n\
+             version:  {version}\n\
+             os:       {os}\n\
+             arch:     {arch}\n\
+             time:     {ts}\n\
+             location: {location}\n\
+             message:  {payload}\n\
+             \n\
+             backtrace:\n\
+             {bt:?}\n",
+            os = std::env::consts::OS,
+            arch = std::env::consts::ARCH,
+            bt = std::backtrace::Backtrace::force_capture(),
+        );
+
+        let _ = std::fs::write(&path, &body);
+
+        // Rotate: keep only the 20 most recent crash files.
+        if let Ok(entries) = std::fs::read_dir(&crash_dir) {
+            let mut files: Vec<_> = entries
+                .filter_map(|e| e.ok())
+                .filter(|e| {
+                    e.file_name()
+                        .to_str()
+                        .is_some_and(|n| n.starts_with("crash-") && n.ends_with(".txt"))
+                })
+                .collect();
+            if files.len() > 20 {
+                files.sort_by_key(|e| e.file_name());
+                for old in &files[..files.len() - 20] {
+                    let _ = std::fs::remove_file(old.path());
+                }
+            }
+        }
+
+        eprintln!("Rift crashed — dump saved to {}", path.display());
+    }));
+
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())

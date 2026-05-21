@@ -97,6 +97,10 @@ pub struct RiftConfig {
     /// Each rule watches a notification tab for event bursts and triggers
     /// a visual/audio action (flash badge, auto-promote, tone).
     pub alerts: AlertsConfig,
+    /// Set to `true` after the welcome overlay is dismissed on first launch.
+    /// Defaults to `false` via `#[serde(default)]` so existing configs
+    /// (which lack this field) trigger the welcome experience.
+    pub first_run_completed: bool,
 }
 
 /// A recently-used project entry stored in the config.

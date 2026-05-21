@@ -40,6 +40,9 @@
   let appName = $state('Rift');
   let appIdentifier = $state('com.abyssal.rift');
 
+  // Crash log count — read from localStorage on init.
+  let jsCrashCount = $state((() => { try { return (JSON.parse(localStorage.getItem('rift:crash_log') || '[]') as unknown[]).length; } catch { return 0; } })());
+
   // ---------------------------------------------------------------------
   // Updates
   // ---------------------------------------------------------------------
@@ -712,11 +715,48 @@
       </div>
       <div class="kv">
         <div class="k">version</div>
-        <div class="v">{appVersion}</div>
+        <div class="v">{appVersion} <span style="background: rgba(255,168,38,0.18); border: 1px solid var(--amber-faint, #A87830); border-radius: 3px; padding: 0 5px; font-size: 8px; font-weight: 700; letter-spacing: 0.1em; color: var(--amber-primary, #FFA826); margin-left: 6px;">BETA</span></div>
       </div>
       <div class="kv">
         <div class="k">identifier</div>
         <div class="v">{appIdentifier}</div>
+      </div>
+      <div class="row" style="margin-top: 8px; gap: 6px;">
+        <button
+          type="button"
+          class="btn"
+          onclick={() => window.dispatchEvent(new Event('rift:show-welcome'))}
+        >WELCOME GUIDE</button>
+        <button
+          type="button"
+          class="btn"
+          onclick={() => window.open('https://patreon.com/abyssalarts', '_blank')}
+        >SUPPORT ON PATREON</button>
+      </div>
+    </section>
+
+    <!-- CRASH LOGS -->
+    <section class="section">
+      <div class="section-label">Crash Logs</div>
+      {#if jsCrashCount === 0}
+        <div class="hint">No JS errors recorded.</div>
+      {:else}
+        <div class="hint">{jsCrashCount} error{jsCrashCount === 1 ? '' : 's'} recorded.</div>
+        <div class="row" style="margin-top: 6px; gap: 6px;">
+          <button
+            type="button"
+            class="btn"
+            onclick={() => { navigator.clipboard.writeText(localStorage.getItem('rift:crash_log') || '[]'); }}
+          >COPY TO CLIPBOARD</button>
+          <button
+            type="button"
+            class="btn"
+            onclick={() => { localStorage.removeItem('rift:crash_log'); jsCrashCount = 0; }}
+          >CLEAR</button>
+        </div>
+      {/if}
+      <div class="hint" style="margin-top: 6px;">
+        Rust crash dumps are saved to your data directory under crashes/.
       </div>
     </section>
 

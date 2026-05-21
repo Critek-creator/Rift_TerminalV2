@@ -112,4 +112,5 @@ export interface RiftConfig {
   tree: TreeConfig;
   statusline: StatusLineConfig;
   alerts: AlertsConfig;
+  first_run_completed: boolean;
 }

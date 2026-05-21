@@ -22,7 +22,9 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     include: ['src/**/__tests__/**/*.test.ts'],
-    // Tauri APIs are mocked per-test via `vi.mock('@tauri-apps/api/core')`.
-    // No global setup file yet; add one if mock boilerplate gets repetitive.
+    setupFiles: ['src/lib/__tests__/setup.ts'],
+  },
+  resolve: {
+    conditions: ['browser'],
   },
 });

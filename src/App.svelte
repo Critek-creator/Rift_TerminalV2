@@ -38,6 +38,7 @@
   import { sectionCatalog } from './lib/sectionCatalog.svelte';
   import CommandPalette from './lib/CommandPalette.svelte';
   import ShortcutOverlay from './lib/ShortcutOverlay.svelte';
+  import WelcomeOverlay from './lib/WelcomeOverlay.svelte';
 
   // D-021: Tab→category mapping is now derived from the section catalog.
   // `sectionCatalog.categoryMap` builds the reverse map dynamically.
@@ -161,6 +162,29 @@
 
   // ----- shortcut overlay -----
   let shortcutsOpen = $state(false);
+
+  // ----- welcome overlay (first-run experience) -----
+  let welcomeOpen = $state(false);
+
+  async function dismissWelcome() {
+    welcomeOpen = false;
+    try {
+      const cfg = await invoke<RiftConfigType>('config_get');
+      await invoke('config_save', { cfg: { ...cfg, first_run_completed: true } });
+    } catch (err) {
+      console.warn('[App] failed to save first_run_completed:', err);
+    }
+  }
+
+  /** Re-open welcome overlay from Settings "Show Welcome Guide" button. */
+  function showWelcomeGuide() {
+    welcomeOpen = true;
+  }
+
+  // Expose to SettingsPanel via window event.
+  if (typeof window !== 'undefined') {
+    window.addEventListener('rift:show-welcome', showWelcomeGuide);
+  }
 
   // ----- which surface is in the main pane -----
   let active = $state<ActiveSurface>({ kind: 'session', id: 0 });
@@ -819,6 +843,24 @@
   });
 
   onMount(() => {
+    // JS crash log — capture unhandled errors for beta issue reporting.
+    const CRASH_KEY = 'rift:crash_log';
+    const MAX_CRASHES = 10;
+    function logJsCrash(msg: string, source?: string) {
+      try {
+        const existing = JSON.parse(localStorage.getItem(CRASH_KEY) || '[]') as Array<unknown>;
+        existing.push({ ts: Date.now(), msg, source });
+        if (existing.length > MAX_CRASHES) existing.splice(0, existing.length - MAX_CRASHES);
+        localStorage.setItem(CRASH_KEY, JSON.stringify(existing));
+      } catch { /* localStorage quota — non-fatal */ }
+    }
+    window.onerror = (_msg, source, line, col, err) => {
+      logJsCrash(err?.message ?? String(_msg), `${source}:${line}:${col}`);
+    };
+    window.onunhandledrejection = (e) => {
+      logJsCrash(String(e.reason), 'unhandled-promise');
+    };
+
     // Phase 8.7q.4 — drain orphan async resources from the prior page load.
     // On every mount (including HMR reloads), kill all Rust-side PTY drains
     // and bus subscriptions whose JS callbacks died with the prior page.
@@ -856,6 +898,14 @@
 
     // Load notification filter thresholds from config on mount.
     void loadNotifFilters();
+
+    // First-run welcome check — show overlay if config.first_run_completed is false.
+    void (async () => {
+      try {
+        const cfg = await invoke<RiftConfigType>('config_get');
+        if (!cfg?.first_run_completed) welcomeOpen = true;
+      } catch { /* non-fatal — skip welcome on config read failure */ }
+    })();
 
     // Load font_family + statusline config on mount.
     void loadAppearanceConfig();
@@ -1229,6 +1279,10 @@
 
   {#if shortcutsOpen}
     <ShortcutOverlay onclose={() => { shortcutsOpen = false; }} />
+  {/if}
+
+  {#if welcomeOpen}
+    <WelcomeOverlay ondismiss={dismissWelcome} />
   {/if}
 </div>
 

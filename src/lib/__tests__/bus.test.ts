@@ -33,9 +33,12 @@ vi.mock('@tauri-apps/api/core', () => {
   return { invoke: invokeMock, Channel };
 });
 
-beforeEach(() => {
+beforeEach(async () => {
   invokeMock.mockReset();
   channelInstances.length = 0;
+  // bus.ts has a ready-gate: subscribe() blocks until signalBusReady().
+  const { signalBusReady } = await import('../bus');
+  signalBusReady();
 });
 
 describe('bus.ts subscribe/unsubscribe round-trip', () => {

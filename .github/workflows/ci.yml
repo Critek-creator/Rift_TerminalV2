@@ -14,8 +14,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # macOS not in matrix — not a supported target for v0.x (add macos-latest when targeting macOS)
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-latest, windows-latest, macos-latest]
 
     steps:
       - name: Checkout
