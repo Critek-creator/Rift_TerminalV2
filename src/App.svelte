@@ -646,6 +646,7 @@
   $effect(() => {
     const t = setInterval(() => {
       tickNow = Date.now();
+      timelineNow = Date.now();
       for (const buf of alertBuffers.values()) buf.tick();
     }, 1000);
     return () => clearInterval(t);
@@ -704,6 +705,10 @@
             const p = env.payload as Record<string, unknown>;
             if (env.kind === 'cmd.start') {
               const cmdId = (p.id as string) || String(env.ts);
+              if (pendingCommands.size > 500) {
+                const oldest = pendingCommands.keys().next().value;
+                if (oldest !== undefined) pendingCommands.delete(oldest);
+              }
               pendingCommands.set(cmdId, {
                 command: (p.command as string) || '',
                 startTs: env.ts,

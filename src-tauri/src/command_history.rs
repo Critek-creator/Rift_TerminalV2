@@ -45,25 +45,25 @@ pub struct CommandHistoryStore {
 
 impl CommandHistoryStore {
     fn ensure_loaded(&self) -> Result<(), String> {
-        let mut loaded = self.loaded.lock();
-        if *loaded {
+        if *self.loaded.lock() {
             return Ok(());
         }
         let path = history_path()?;
+        let mut parsed = Vec::new();
         if path.exists() {
             let raw = std::fs::read_to_string(&path)
                 .map_err(|e| format!("command_history: read: {e}"))?;
-            let mut records = self.records.lock();
             for line in raw.lines() {
                 if line.trim().is_empty() {
                     continue;
                 }
                 if let Ok(rec) = serde_json::from_str::<CommandRecord>(line) {
-                    records.push(rec);
+                    parsed.push(rec);
                 }
             }
         }
-        *loaded = true;
+        *self.records.lock() = parsed;
+        *self.loaded.lock() = true;
         Ok(())
     }
 
@@ -77,27 +77,15 @@ impl CommandHistoryStore {
         let mut records = self.records.lock();
         records.push(record.clone());
 
-        // Trim to cap.
-        if records.len() > MAX_ENTRIES {
+        let trimmed = if records.len() > MAX_ENTRIES {
             let drain_count = records.len() - MAX_ENTRIES;
             records.drain(..drain_count);
-        }
+            true
+        } else {
+            false
+        };
 
-        // Append single line (fast path). Full rewrite only on trim.
-        if records.len() <= MAX_ENTRIES {
-            let line = serde_json::to_string(&record)
-                .map_err(|e| format!("command_history: serialize: {e}"))?;
-            use std::io::Write;
-            let mut file = std::fs::OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open(&path)
-                .map_err(|e| format!("command_history: open for append: {e}"))?;
-            writeln!(file, "{line}").map_err(|e| format!("command_history: write: {e}"))?;
-        }
-
-        // If we trimmed, rewrite the full file.
-        if records.len() == MAX_ENTRIES {
+        if trimmed {
             let mut out = String::new();
             for rec in records.iter() {
                 if let Ok(line) = serde_json::to_string(rec) {
@@ -107,6 +95,17 @@ impl CommandHistoryStore {
             }
             drop(records);
             std::fs::write(&path, out).map_err(|e| format!("command_history: rewrite: {e}"))?;
+        } else {
+            drop(records);
+            let line = serde_json::to_string(&record)
+                .map_err(|e| format!("command_history: serialize: {e}"))?;
+            use std::io::Write;
+            let mut file = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&path)
+                .map_err(|e| format!("command_history: open for append: {e}"))?;
+            writeln!(file, "{line}").map_err(|e| format!("command_history: write: {e}"))?;
         }
 
         Ok(())

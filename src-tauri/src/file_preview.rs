@@ -62,10 +62,18 @@ pub fn file_preview(
 fn resolve_path(path: &str, project_root: &Path) -> PathBuf {
     let p = PathBuf::from(path);
     if p.is_absolute() {
-        p
-    } else {
-        project_root.join(p)
+        return p;
     }
+    let joined = project_root.join(&p);
+    if let (Ok(canonical), Ok(root_canonical)) = (
+        std::fs::canonicalize(&joined),
+        std::fs::canonicalize(project_root),
+    ) {
+        if !canonical.starts_with(&root_canonical) {
+            return PathBuf::new();
+        }
+    }
+    joined
 }
 
 fn format_modified(meta: &std::fs::Metadata) -> String {

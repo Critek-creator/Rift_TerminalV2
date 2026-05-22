@@ -13,19 +13,21 @@ pub struct ProfileStore {
 
 impl ProfileStore {
     fn ensure_loaded(&self) -> Result<(), String> {
-        let mut loaded = self.loaded.lock();
-        if *loaded {
+        if *self.loaded.lock() {
             return Ok(());
         }
         let path = profiles_path()?;
-        if path.exists() {
+        let parsed = if path.exists() {
             let raw = std::fs::read_to_string(&path)
                 .map_err(|e| format!("profiles: failed to read {}: {e}", path.display()))?;
             let file: ProfilesFile =
                 toml::from_str(&raw).map_err(|e| format!("profiles: parse error: {e}"))?;
-            *self.inner.lock() = file.profiles;
-        }
-        *loaded = true;
+            file.profiles
+        } else {
+            Vec::new()
+        };
+        *self.inner.lock() = parsed;
+        *self.loaded.lock() = true;
         Ok(())
     }
 
@@ -56,7 +58,8 @@ struct ProfilesFile {
     profiles: Vec<WorkspaceProfile>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(default)]
 pub struct WorkspaceProfile {
     pub name: String,
     #[serde(default)]
@@ -64,7 +67,8 @@ pub struct WorkspaceProfile {
     pub state: WorkspaceProfileState,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(default)]
 pub struct WorkspaceProfileState {
     pub tabs: Vec<ProfileTabState>,
     #[serde(default)]
@@ -75,7 +79,8 @@ pub struct WorkspaceProfileState {
     pub notification_filters: ProfileNotifFilters,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(default)]
 pub struct ProfileTabState {
     pub label: String,
     #[serde(default)]

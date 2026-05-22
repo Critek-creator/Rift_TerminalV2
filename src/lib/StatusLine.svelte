@@ -126,11 +126,7 @@
     {/if}
     <div class="seg spacer"></div>
     <div class="seg profile-seg">
-      <ProfilePicker
-        activeProfile={null}
-        onSwitch={() => {}}
-        onSave={() => {}}
-      />
+      <ProfilePicker />
     </div>
   </div>
 </footer>

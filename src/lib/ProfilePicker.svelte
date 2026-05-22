@@ -4,11 +4,9 @@
 
   interface Props {
     activeProfile?: string | null;
-    onSwitch?: (name: string) => void;
-    onSave?: (name: string) => void;
   }
 
-  let { activeProfile = null, onSwitch, onSave }: Props = $props();
+  let { activeProfile = null }: Props = $props();
 
   interface ProfileEntry {
     name: string;
@@ -48,8 +46,12 @@
     focusedIndex = -1;
   }
 
-  function selectProfile(name: string) {
-    onSwitch?.(name);
+  async function selectProfile(name: string) {
+    try {
+      await invoke('profile_load', { name });
+    } catch (err) {
+      console.warn('profile_load failed:', err);
+    }
     close();
   }
 
@@ -58,10 +60,15 @@
     saveInput = '';
   }
 
-  function confirmSave() {
+  async function confirmSave() {
     const name = saveInput.trim();
     if (!name) return;
-    onSave?.(name);
+    try {
+      const state = { tabs: [], cockpit_visible: true, cockpit_panels: [], notification_filters: { default_threshold: null, per_tab: {} } };
+      await invoke('profile_save', { name, state, projectFilter: null });
+    } catch (err) {
+      console.warn('profile_save failed:', err);
+    }
     close();
     loadProfiles();
   }

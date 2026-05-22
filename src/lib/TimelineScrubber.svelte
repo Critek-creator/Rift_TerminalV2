@@ -15,7 +15,8 @@
     viewportMinutes?: number;
   }
 
-  let { events, currentTs, onSeek, viewportMinutes = 5 }: Props = $props();
+  let { events, currentTs, onSeek, viewportMinutes: initialViewport = 5 }: Props = $props();
+  let activeViewportMinutes = $state(initialViewport);
 
   const LANE_COLORS: Record<string, string> = {
     user: '#E8E4D8',
@@ -35,7 +36,7 @@
   let hoverPos = $state({ x: 0, y: 0 });
   let containerEl: HTMLDivElement | undefined = $state(undefined);
 
-  let viewportMs = $derived(viewportMinutes * 60 * 1000);
+  let viewportMs = $derived(activeViewportMinutes * 60 * 1000);
 
   let viewportStart = $derived.by(() => {
     if (events.length === 0) return currentTs - viewportMs;
@@ -87,7 +88,7 @@
   }
 
   function setZoom(minutes: number) {
-    viewportMinutes = minutes;
+    activeViewportMinutes = minutes;
     scrollOffset = 0;
   }
 
@@ -119,7 +120,7 @@
     {#each ZOOM_LEVELS as level}
       <button
         class="timeline-btn"
-        class:active={viewportMinutes === level}
+        class:active={activeViewportMinutes === level}
         onclick={() => setZoom(level)}
       >
         {level}m

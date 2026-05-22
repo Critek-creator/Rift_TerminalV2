@@ -89,13 +89,17 @@
               project: project ?? null,
             }).catch(() => {});
           }
-          setTimeout(fetchStats, 500);
+          clearTimeout(refreshTimer);
+          refreshTimer = setTimeout(fetchStats, 500);
         }
       });
     } catch { /* bus not ready yet */ }
   });
 
+  let refreshTimer: ReturnType<typeof setTimeout> | undefined;
+
   onDestroy(() => {
+    clearTimeout(refreshTimer);
     unsubscribeBus?.();
   });
 </script>
