@@ -1,0 +1,49 @@
+name: Auto-tag on version bump
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'package.json'
+
+permissions:
+  contents: write
+
+jobs:
+  auto-tag:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 2
+
+      - name: Check for version bump and tag
+        run: |
+          version=$(node -p "require('./package.json').version")
+          tag="v${version}"
+
+          # Check if this tag already exists
+          if git rev-parse "$tag" >/dev/null 2>&1; then
+            echo "Tag $tag already exists — skipping"
+            exit 0
+          fi
+
+          # Verify package.json actually changed in this push
+          if git diff HEAD~1 HEAD --name-only | grep -q '^package.json$'; then
+            old_version=$(git show HEAD~1:package.json | node -p "JSON.parse(require('fs').readFileSync('/dev/stdin','utf8')).version" 2>/dev/null || echo "")
+            if [ "$old_version" = "$version" ]; then
+              echo "package.json changed but version unchanged ($version) — skipping"
+              exit 0
+            fi
+            echo "Version bumped: ${old_version:-unknown} → $version"
+          else
+            echo "package.json not in changeset — skipping"
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$tag" -m "Release $tag"
+          git push origin "$tag"
+          echo "Created and pushed tag $tag — release workflow will fire"
