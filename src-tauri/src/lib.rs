@@ -897,7 +897,31 @@ fn bus_unsubscribe(state: State<'_, BusSubscriptionRegistry>, id: u64) {
 /// `TerminalReady` instead of a fixed sleep).
 #[tauri::command]
 fn terminal_mounted(ready: State<'_, TerminalReady>) {
-    ready.0.notify_waiters();
+    // notify_one stores a permit if no one is waiting yet, so the vault
+    // walker picks it up immediately when it starts polling — no 5s timeout.
+    ready.0.notify_one();
+}
+
+/// Re-walk the Abyssal Index vault directory and re-publish all `vault.update`
+/// + `walk.complete` envelopes. Called by IndexGraph.svelte on mount to handle
+/// the case where boot-walk events have been evicted from the replay ring
+/// buffer (e.g., after a page reload with heavy bus traffic between walks).
+#[tauri::command]
+fn vault_rescan(bus: State<'_, RiftBus>, project_root: State<'_, ProjectRoot>) {
+    use rift_bus::translators::vault_walker::{publish_walk_complete, rescan_vaults};
+
+    let vault_root = match directories::BaseDirs::new() {
+        Some(b) => b.home_dir().join(".claude/abyssal-index"),
+        None => {
+            publish_walk_complete(bus.inner());
+            return;
+        }
+    };
+    if !vault_root.exists() {
+        publish_walk_complete(bus.inner());
+        return;
+    }
+    rescan_vaults(bus.inner(), &vault_root, Some(&project_root.get()));
 }
 
 /// Phase 8.7q.4 — page-load cleanup hook.
@@ -1884,6 +1908,7 @@ pub fn run() {
             bus_publish,
             rift_reset_for_reload,
             terminal_mounted,
+            vault_rescan,
             fs_tree,
             fs_read_text,
             fs_write_text,

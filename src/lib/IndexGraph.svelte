@@ -11,6 +11,7 @@
   // Drag-to-terminal preserved: mousedown on vault row → ghost → drop on terminal.
 
   import { onMount } from 'svelte';
+  import { invoke } from '@tauri-apps/api/core';
   import { subscribe } from './bus';
   import { RIFT_VAULT_DROP_EVENT, type RiftVaultDropDetail } from './dragMime';
   import { crossRefHighlight } from './crossRefHighlight.svelte';
@@ -306,6 +307,17 @@
         });
         if (cancelled) { void u().catch(() => {}); }
         else { unsub = u; }
+
+        // Trigger a vault rescan after subscribing. Boot-walk events may have
+        // been evicted from the 512-entry replay ring buffer by other bus
+        // traffic (fs, status, hooks). The rescan re-publishes all vault.update
+        // + walk.complete events so this subscription picks them up as live
+        // events. Duplicates are harmless — liveNodeMap keys by vault_id.
+        if (!cancelled) {
+          invoke('vault_rescan').catch((err: unknown) => {
+            console.warn('[IndexGraph] vault_rescan failed:', err);
+          });
+        }
       } catch (err) {
         console.warn('[IndexGraph] Category::Index subscribe failed:', err);
         walkComplete = true;

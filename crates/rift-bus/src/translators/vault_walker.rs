@@ -477,6 +477,32 @@ fn derive_vault_type(id: &str) -> String {
 }
 
 // ---------------------------------------------------------------------------
+// On-demand rescan (vault_rescan Tauri command entry point)
+// ---------------------------------------------------------------------------
+
+/// Re-walk the vault directory and re-publish all `vault.update` + `walk.complete`
+/// envelopes. Called from the `vault_rescan` Tauri command to handle the case
+/// where boot-walk events have been evicted from the replay ring buffer (e.g.,
+/// after a page reload with heavy bus traffic).
+///
+/// Idempotent: duplicate events are harmless — the frontend's `liveNodeMap`
+/// (keyed by vault_id) overwrites on re-publish, and `walkComplete = true`
+/// is a no-op when already set.
+pub fn rescan_vaults(bus: &RiftBus, vault_root: &Path, project_root: Option<&Path>) {
+    let project_root_canon: Option<String> = project_root.and_then(|p| {
+        dunce::canonicalize(p)
+            .ok()
+            .map(|c| normalize_canon_str(&c.to_string_lossy()))
+    });
+    let cache: PathToIdCache = Arc::new(Mutex::new(HashMap::new()));
+    let vaults_dir = vault_root.join("vaults");
+    if vaults_dir.is_dir() {
+        walk_vaults_recursive(bus, &vaults_dir, &project_root_canon, &cache);
+    }
+    publish_walk_complete(bus);
+}
+
+// ---------------------------------------------------------------------------
 // walk.complete envelope helper
 // ---------------------------------------------------------------------------
 
