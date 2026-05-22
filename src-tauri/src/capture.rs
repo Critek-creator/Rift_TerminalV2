@@ -120,6 +120,7 @@ pub fn capture_window_png(_hwnd: isize) -> Result<Vec<u8>, String> {
     Err("native screenshot capture is only supported on Windows".into())
 }
 
+#[cfg(windows)]
 fn encode_png(rgb: &[u8], width: u32, height: u32) -> Result<Vec<u8>, String> {
     let mut buf = Vec::new();
     {
