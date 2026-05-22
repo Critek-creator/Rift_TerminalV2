@@ -16,9 +16,11 @@
   });
 
   function onKeydown(e: KeyboardEvent) {
-    e.preventDefault();
-    e.stopPropagation();
-    onclose();
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      e.stopPropagation();
+      onclose();
+    }
   }
 </script>
 

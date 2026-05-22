@@ -47,7 +47,9 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{mpsc, Arc, Mutex};
+use std::sync::{mpsc, Arc};
+
+use parking_lot::Mutex;
 use std::time::{Duration, Instant};
 
 use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
@@ -725,7 +727,7 @@ fn maybe_publish_enrichment(
 ) {
     // Update the path→id cache regardless of enrichment (covers delete-side).
     {
-        let mut cache = path_to_id_cache.lock().expect("path_to_id_cache poisoned");
+        let mut cache = path_to_id_cache.lock();
         cache.insert(path.to_path_buf(), meta.id.clone());
     }
 
@@ -1121,7 +1123,7 @@ fn upsert_debounce(
     kind: DebouncedKind,
     first_seen_ts: Instant,
 ) {
-    let mut guard = debounce_map.lock().expect("debounce map poisoned");
+    let mut guard = debounce_map.lock();
     guard
         .entry(path)
         .and_modify(|e| e.kind = kind)
@@ -1145,7 +1147,7 @@ fn flush_debounce(
     let now = Instant::now();
     let debounce_window = Duration::from_millis(100);
 
-    let mut guard = debounce_map.lock().expect("debounce map poisoned");
+    let mut guard = debounce_map.lock();
 
     let due: Vec<(PathBuf, DebounceEntry)> = guard
         .iter()
@@ -1181,7 +1183,7 @@ fn flush_debounce(
                 // path-derived dotted id (D-015) so sub-door deletes still
                 // identify the right node, fall back to file_stem last resort.
                 let vault_id = {
-                    let mut cache = path_to_id_cache.lock().expect("path_to_id_cache poisoned");
+                    let mut cache = path_to_id_cache.lock();
                     cache.remove(&path).unwrap_or_else(|| {
                         path_vault_id.clone().unwrap_or_else(|| {
                             path.file_stem()
@@ -1238,7 +1240,7 @@ fn flush_debounce(
         }
 
         // Re-acquire lock for the next iteration.
-        guard = debounce_map.lock().expect("debounce map poisoned");
+        guard = debounce_map.lock();
     }
 }
 
@@ -1484,7 +1486,7 @@ Body text here.
 
         // After 5 inserts the map should have exactly 1 entry (same path → collapsed).
         {
-            let guard = debounce_map.lock().unwrap();
+            let guard = debounce_map.lock();
             assert_eq!(
                 guard.len(),
                 1,
@@ -1506,7 +1508,7 @@ Body text here.
 
         // Map should be empty after flush.
         {
-            let guard = debounce_map.lock().unwrap();
+            let guard = debounce_map.lock();
             assert!(guard.is_empty(), "debounce map must be empty after flush");
         }
 

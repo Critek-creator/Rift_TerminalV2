@@ -6,7 +6,7 @@
 // before showing. The freshly-loaded Svelte component pulls its config
 // via invoke('notif_get_config') — no event timing dependency.
 
-use std::sync::Mutex;
+use parking_lot::Mutex;
 
 use rift_bus::{publish_error, Category, Envelope, RiftBus};
 use serde::{Deserialize, Serialize};
@@ -106,7 +106,7 @@ pub fn notif_detach(
     args: DetachArgs,
 ) -> Result<usize, String> {
     let slot = {
-        let mut slots = state.slots.lock().expect("notif slot lock");
+        let mut slots = state.slots.lock();
 
         if slots.iter().any(|s| s.as_deref() == Some(&args.tab_id)) {
             return Err(format!(
@@ -134,7 +134,7 @@ pub fn notif_detach(
     let label = window_label(slot);
 
     let win = app.get_webview_window(&label).ok_or_else(|| {
-        let mut slots = state.slots.lock().expect("notif slot lock");
+        let mut slots = state.slots.lock();
         slots[slot] = None;
         let msg =
             format!("notif_detach: window '{label}' not found — setup-time build may have failed");
@@ -151,7 +151,7 @@ pub fn notif_detach(
         severity_threshold: args.severity_threshold,
     };
     {
-        let mut configs = state.pending_configs.lock().expect("notif slot lock");
+        let mut configs = state.pending_configs.lock();
         configs[slot] = Some(payload);
     }
 
@@ -167,7 +167,7 @@ pub fn notif_detach(
     // if valid coordinates exist in localStorage.
     let _ = win.center();
     win.show().map_err(|e| {
-        let mut slots = state.slots.lock().expect("notif slot lock");
+        let mut slots = state.slots.lock();
         slots[slot] = None;
         let msg = format!("notif_detach: failed to show window '{label}': {e}");
         publish_error(&bus, "tauri.command.notif_detach", &msg, None);
@@ -211,12 +211,12 @@ pub fn notif_detach(
 
 fn dock_slot(app: &AppHandle, state: &NotifWindowState, slot: usize) {
     let tab_id = {
-        let mut slots = state.slots.lock().expect("notif slot lock");
+        let mut slots = state.slots.lock();
         slots[slot].take()
     };
 
     {
-        let mut configs = state.pending_configs.lock().expect("notif slot lock");
+        let mut configs = state.pending_configs.lock();
         configs[slot] = None;
     }
 
@@ -246,7 +246,7 @@ pub fn notif_dock(
     tab_id: String,
 ) -> Result<(), String> {
     let slot = {
-        let slots = state.slots.lock().expect("notif slot lock");
+        let slots = state.slots.lock();
         slots
             .iter()
             .position(|s| s.as_deref() == Some(&tab_id))
@@ -268,13 +268,13 @@ pub fn notif_get_config(
     if slot >= POOL_SIZE {
         return None;
     }
-    let configs = state.pending_configs.lock().expect("notif slot lock");
+    let configs = state.pending_configs.lock();
     configs[slot].clone()
 }
 
 #[tauri::command]
 pub fn notif_detach_status(state: State<'_, NotifWindowState>) -> Vec<String> {
-    let slots = state.slots.lock().expect("notif slot lock");
+    let slots = state.slots.lock();
     slots.iter().filter_map(|s| s.clone()).collect()
 }
 

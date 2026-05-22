@@ -306,6 +306,15 @@ body::after {
   outline: 1px solid var(--amber-warm);
   outline-offset: 1px;
 }
+
+/* Global focus-visible fallback — catches buttons in overlays, dialogs,
+   and components that lack a scoped :focus-visible rule. */
+button:focus-visible,
+[role="button"]:focus-visible,
+[tabindex]:focus-visible {
+  outline: 1px solid var(--amber-warm);
+  outline-offset: -2px;
+}
 .rift-btn:disabled {
   opacity: 0.4;
   cursor: not-allowed;

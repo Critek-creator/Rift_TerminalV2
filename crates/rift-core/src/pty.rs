@@ -30,7 +30,9 @@
 
 use std::io::{Read, Write};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+
+use parking_lot::Mutex;
 use std::thread;
 use std::time::Duration;
 
@@ -182,7 +184,7 @@ impl PtyControl {
     /// writer; `flush` is invoked on every call to ensure interactive shells
     /// see input promptly.
     pub fn write(&self, bytes: &[u8]) -> Result<(), PtyError> {
-        let mut guard = self.inner.writer.lock().expect("pty writer mutex poisoned");
+        let mut guard = self.inner.writer.lock();
         guard.write_all(bytes)?;
         guard.flush()?;
         Ok(())
@@ -193,7 +195,6 @@ impl PtyControl {
         self.inner
             .master
             .lock()
-            .expect("pty master mutex poisoned")
             .resize(dims.into())
             .map_err(|e| PtyError::ResizeFailed(e.to_string()))
     }
@@ -205,7 +206,6 @@ impl PtyControl {
         self.inner
             .child
             .lock()
-            .expect("pty child mutex poisoned")
             .kill()
             .map_err(|e| PtyError::KillFailed(e.to_string()))?;
         self.inner.alive.store(false, Ordering::SeqCst);
@@ -223,11 +223,7 @@ impl PtyControl {
     /// binaries (e.g. `claude.exe`). Returns `None` if the portable-pty
     /// backend doesn't support process-id retrieval.
     pub fn child_pid(&self) -> Option<u32> {
-        self.inner
-            .child
-            .lock()
-            .expect("pty child mutex poisoned")
-            .process_id()
+        self.inner.child.lock().process_id()
     }
 }
 
@@ -363,10 +359,7 @@ fn exit_watcher_loop(
     let exit_code: u32 = loop {
         thread::sleep(Duration::from_millis(250));
         let status = {
-            let mut guard = match child.lock() {
-                Ok(g) => g,
-                Err(_) => break u32::MAX, // poisoned mutex — treat as crash
-            };
+            let mut guard = child.lock();
             match guard.try_wait() {
                 Ok(Some(s)) => Some(s),
                 Ok(None) => None,

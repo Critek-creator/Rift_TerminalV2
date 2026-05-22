@@ -48,7 +48,9 @@
 //! yet written a file or the file is stale (>30 s).
 
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+
+use parking_lot::Mutex;
 
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
@@ -104,7 +106,7 @@ pub async fn spawn_status_translator(
         tokio::select! {
             _ = tick.tick() => {
                 let bus_clone = bus.clone();
-                let root_clone = project_root.lock().expect("project root poisoned").clone();
+                let root_clone = project_root.lock().clone();
                 let _ = tokio::task::spawn_blocking(move || {
                     publish_status_snapshot(&bus_clone, &root_clone);
                 }).await;

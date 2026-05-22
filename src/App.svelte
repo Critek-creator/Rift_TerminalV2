@@ -580,7 +580,7 @@
           // count toward the Commands tab badge.
           if (env.category === 'pty' && env.kind !== 'command.submitted') return;
           // Phase 8.7q.4 — skip the `system/notif.tabs` snapshot publish
-          // (broadcast by the $effect at ~line 452 whenever `notifs`
+          // (broadcast by the debounced $effect below whenever `notifs`
           // changes). It is a state-mirror, not an activity event.
           // Without this guard:
           //   $effect publishes notif.tabs → master subscriber bumps
@@ -597,7 +597,7 @@
               ...n,
               detected: true,
               lastActivityTs: now,
-              unreadCount: inView ? 0 : n.unreadCount + 1,
+              unreadCount: n.enabled ? (inView ? 0 : n.unreadCount + 1) : n.unreadCount,
             };
           });
 
@@ -775,9 +775,9 @@
   // D-014 Phase B — publish `notif.tabs` snapshot to the bus whenever the
   // catalog changes (toggle / reorder / detected flip). MCP `notif_tabs`
   // tool reads the latest snapshot from the replay buffer; without this
-  // producer the tool returns an empty list. Strips presentation-only
-  // fields the bus consumer doesn't need (icon glyph stays — useful for
-  // tool callers that surface tab affordances).
+  // producer the tool returns an empty list. Debounced 500ms to avoid
+  // flooding the bus during burst activity (each incoming event mutates
+  // unreadCount which would otherwise republish the full catalog per-event).
   $effect(() => {
     const tabs = notifs.map((n) => ({
       id: n.id,
@@ -788,9 +788,12 @@
       unread_count: n.unreadCount,
       last_activity_ts: n.lastActivityTs,
     }));
-    void publish('system', 'notif.tabs', { tabs }).catch((err) => {
-      console.warn('[App] notif.tabs publish failed:', err);
-    });
+    const timer = setTimeout(() => {
+      void publish('system', 'notif.tabs', { tabs }).catch((err) => {
+        console.warn('[App] notif.tabs publish failed:', err);
+      });
+    }, 500);
+    return () => clearTimeout(timer);
   });
 
   // Phase 8.6.1 — Category::Index enrichment subscription.

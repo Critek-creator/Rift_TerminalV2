@@ -3167,7 +3167,7 @@ dependencies = [
 
 [[package]]
 name = "rift-aegis"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "directories",
  "notify",
@@ -3180,13 +3180,14 @@ dependencies = [
 
 [[package]]
 name = "rift-app"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "base64 0.22.1",
  "directories",
  "dunce",
  "globset",
  "index-core",
+ "parking_lot",
  "png",
  "rift-aegis",
  "rift-bus",
@@ -3205,7 +3206,7 @@ dependencies = [
 
 [[package]]
 name = "rift-bus"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "directories",
  "dunce",
@@ -3213,6 +3214,7 @@ dependencies = [
  "globset",
  "interprocess",
  "notify",
+ "parking_lot",
  "serde",
  "serde_json",
  "serde_yaml",
@@ -3225,7 +3227,7 @@ dependencies = [
 
 [[package]]
 name = "rift-cli"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "anyhow",
  "clap",
@@ -3236,8 +3238,9 @@ dependencies = [
 
 [[package]]
 name = "rift-core"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
+ "parking_lot",
  "portable-pty",
  "serde",
  "thiserror 2.0.18",
@@ -3247,7 +3250,7 @@ dependencies = [
 
 [[package]]
 name = "rift-mcp"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "anyhow",
  "clap",

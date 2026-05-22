@@ -320,9 +320,39 @@ fn handle_initialize(id: Value) -> Response {
         "capabilities": {
             "tools": { "listChanged": false },
         },
+        "instructions": SERVER_INSTRUCTIONS,
     });
     Response::ok(id, result)
 }
+
+/// Instructions sent to the LLM in the `initialize` response.
+/// Tells Claude what Rift is and when to use its tools proactively.
+const SERVER_INSTRUCTIONS: &str = "\
+You are running inside Rift Terminal — a standalone terminal + GUI cockpit that \
+observes your activity in real time. All terminal I/O flows through a typed event \
+bus; the cockpit surfaces categorized notification tabs (errors, hooks, commands, \
+agents, filesystem, MCP, sentinel, git, sessions).\n\
+\n\
+USE PROACTIVELY:\n\
+- `screenshot` — after UI/visual changes to verify rendering, or when the user \
+  asks what something looks like. Captures the live Rift window.\n\
+- `rift_diagnose` — when debugging terminal issues, checking health, or starting \
+  a diagnostic session. Returns PTY state, bus stats, errors, config.\n\
+- `bus_history` — to understand recent activity, correlate events, or debug \
+  unexpected behavior. Filter by category (pty, hook, agent, fs, index, aegis, \
+  status, system, mcp).\n\
+- `todo_scan` — before wrapping up work, to catch leftover markers.\n\
+- `notif_tabs` — to see unread counts and which notification categories are active.\n\
+- `fs_tree` — for project structure overview (honors ignore globs).\n\
+- `git_status` — current branch, staged/unstaged changes, recent commits.\n\
+\n\
+The terminal uses lane classification — output lines are color-coded by source \
+(user input, Claude, agents, hooks, aegis, system, errors). Your output appears \
+in the blue (Claude) lane.\n\
+\n\
+When you use Rift tools, the activity appears in the MCP notification tab. \
+The user can see your tool usage in real time via the cockpit.\
+";
 
 fn handle_tools_list(id: Value) -> Response {
     let tools: Vec<Value> = tool_catalog()

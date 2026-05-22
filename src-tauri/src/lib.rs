@@ -69,7 +69,9 @@ mod todo_scan;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+
+use parking_lot::Mutex;
 
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
@@ -150,11 +152,7 @@ pub(crate) struct PtyRegistry(Arc<PtyRegistryInner>);
 impl PtyRegistry {
     fn insert(&self, control: PtyControl) -> u32 {
         let id = self.0.next_id.fetch_add(1, Ordering::SeqCst);
-        self.0
-            .sessions
-            .lock()
-            .expect("pty registry poisoned")
-            .insert(id, control);
+        self.0.sessions.lock().insert(id, control);
         id
     }
 
@@ -165,36 +163,17 @@ impl PtyRegistry {
     /// against double-registration; in practice never occurs because sessions
     /// have unique ids).
     fn insert_drain(&self, id: u32, handle: DrainHandle) {
-        self.0
-            .drain_handles
-            .lock()
-            .expect("pty drain registry poisoned")
-            .insert(id, handle);
+        self.0.drain_handles.lock().insert(id, handle);
     }
 
     fn get(&self, id: u32) -> Option<PtyControl> {
-        self.0
-            .sessions
-            .lock()
-            .expect("pty registry poisoned")
-            .get(&id)
-            .cloned()
+        self.0.sessions.lock().get(&id).cloned()
     }
 
     /// Remove the session and abort its drain task (if still running).
     fn remove(&self, id: u32) {
-        self.0
-            .sessions
-            .lock()
-            .expect("pty registry poisoned")
-            .remove(&id);
-        if let Some(handle) = self
-            .0
-            .drain_handles
-            .lock()
-            .expect("pty drain registry poisoned")
-            .remove(&id)
-        {
+        self.0.sessions.lock().remove(&id);
+        if let Some(handle) = self.0.drain_handles.lock().remove(&id) {
             handle.abort();
         }
     }
@@ -202,7 +181,7 @@ impl PtyRegistry {
     /// Snapshot of currently-tracked sessions: `(id, alive)` pairs sorted by
     /// id ascending. Used by the MCP `pty_list` tool (D-014 Phase B).
     pub(crate) fn list(&self) -> Vec<(u32, bool)> {
-        let guard = self.0.sessions.lock().expect("pty registry poisoned");
+        let guard = self.0.sessions.lock();
         let mut entries: Vec<(u32, bool)> = guard
             .iter()
             .map(|(id, ctl)| (*id, ctl.is_alive()))
@@ -222,14 +201,7 @@ impl PtyRegistry {
     fn kill_all(&self) -> usize {
         // Collect ids first so we can release the lock before invoking
         // `remove`, which re-acquires it.
-        let ids: Vec<u32> = self
-            .0
-            .sessions
-            .lock()
-            .expect("pty registry poisoned")
-            .keys()
-            .copied()
-            .collect();
+        let ids: Vec<u32> = self.0.sessions.lock().keys().copied().collect();
         let count = ids.len();
         for id in ids {
             // Best-effort — kill failures are non-fatal (session may be
@@ -256,19 +228,13 @@ struct CommandBufferRegistry {
 
 impl CommandBufferRegistry {
     fn insert(&self, id: u32) {
-        self.buffers
-            .lock()
-            .expect("command buffer registry poisoned")
-            .insert(id, CommandBuffer::new());
+        self.buffers.lock().insert(id, CommandBuffer::new());
     }
 
     /// Feed bytes into the session's buffer. Returns completed
     /// `(command_string, raw_len)` pairs; empty if the session is not found.
     fn feed(&self, id: u32, bytes: &[u8]) -> Vec<(String, usize)> {
-        let mut guard = self
-            .buffers
-            .lock()
-            .expect("command buffer registry poisoned");
+        let mut guard = self.buffers.lock();
         match guard.get_mut(&id) {
             Some(buf) => buf.feed(bytes),
             None => Vec::new(),
@@ -276,10 +242,7 @@ impl CommandBufferRegistry {
     }
 
     fn remove(&self, id: u32) {
-        self.buffers
-            .lock()
-            .expect("command buffer registry poisoned")
-            .remove(&id);
+        self.buffers.lock().remove(&id);
     }
 }
 
@@ -318,12 +281,7 @@ impl BusSubscriptionRegistry {
     /// Abort is a safety net — if the task is blocked or the close_rx side
     /// was already dropped, `abort()` guarantees the task stops.
     fn remove(&self, id: u64) {
-        if let Some((tx, handle)) = self
-            .subs
-            .lock()
-            .expect("bus subscription registry poisoned")
-            .remove(&id)
-        {
+        if let Some((tx, handle)) = self.subs.lock().remove(&id) {
             let _ = tx.send(());
             handle.abort();
         }
@@ -344,10 +302,7 @@ impl BusSubscriptionRegistry {
     fn remove_all(&self) -> usize {
         // Drain into a vec under the lock to avoid the lock+abort race.
         let drained: Vec<(oneshot::Sender<()>, DrainHandle)> = {
-            let mut guard = self
-                .subs
-                .lock()
-                .expect("bus subscription registry poisoned");
+            let mut guard = self.subs.lock();
             guard.drain().map(|(_, v)| v).collect()
         };
         let count = drained.len();
@@ -378,15 +333,12 @@ impl WatcherRegistry {
     /// (which closes its notify OS thread and dispatcher thread cleanly).
     /// Returns the previous watcher, if any.
     fn replace(&self, w: FsWatcher) -> Option<FsWatcher> {
-        self.current
-            .lock()
-            .expect("watcher registry poisoned")
-            .replace(w)
+        self.current.lock().replace(w)
     }
 
     /// Drop the current watcher, leaving the registry empty.
     fn clear(&self) {
-        *self.current.lock().expect("watcher registry poisoned") = None;
+        *self.current.lock() = None;
     }
 }
 
@@ -412,11 +364,11 @@ impl ProjectRoot {
     }
 
     fn get(&self) -> PathBuf {
-        self.path.lock().expect("project root poisoned").clone()
+        self.path.lock().clone()
     }
 
     fn set(&self, path: PathBuf) {
-        *self.path.lock().expect("project root poisoned") = path;
+        *self.path.lock() = path;
     }
 }
 
@@ -439,11 +391,11 @@ impl CachedConfig {
     }
 
     fn get(&self) -> RiftConfig {
-        self.inner.lock().expect("cached config poisoned").clone()
+        self.inner.lock().clone()
     }
 
     fn set(&self, cfg: RiftConfig) {
-        *self.inner.lock().expect("cached config poisoned") = cfg;
+        *self.inner.lock() = cfg;
     }
 }
 
@@ -928,10 +880,7 @@ async fn bus_subscribe(
 
     // Store the close sender AND the drain handle together, keyed by id.
     {
-        let mut guard = registry
-            .subs
-            .lock()
-            .expect("bus subscription registry poisoned");
+        let mut guard = registry.subs.lock();
         guard.insert(id, (close_tx, drain_handle));
     }
 
@@ -2038,11 +1987,7 @@ mod tests {
         });
 
         let id = registry.next_id.fetch_add(1, Ordering::SeqCst);
-        registry
-            .subs
-            .lock()
-            .expect("poisoned")
-            .insert(id, (close_tx, handle));
+        registry.subs.lock().insert(id, (close_tx, handle));
 
         // remove() must call handle.abort() — that is what we are proving.
         registry.remove(id);
@@ -2099,12 +2044,7 @@ mod tests {
 
         // Confirm the handle is registered before we trigger remove.
         assert!(
-            registry
-                .0
-                .drain_handles
-                .lock()
-                .expect("poisoned")
-                .contains_key(&id),
+            registry.0.drain_handles.lock().contains_key(&id),
             "handle must be registered before remove"
         );
 

@@ -150,6 +150,8 @@
     padding: 0 10px;
     border-right: 1px solid var(--border-subtle);
     white-space: nowrap;
+    min-width: 0;
+    flex-shrink: 1;
   }
   .seg:last-child { border-right: none; }
 
@@ -162,6 +164,8 @@
   .value {
     color: rgba(0, 0, 0, 0.92);
     font-weight: 700;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   .spacer {
     flex: 1;

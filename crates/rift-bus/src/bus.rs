@@ -23,7 +23,9 @@
 //!   captures the event for the eventual late joiner).
 
 use std::collections::VecDeque;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+
+use parking_lot::Mutex;
 
 use tokio::sync::broadcast;
 
@@ -112,11 +114,7 @@ impl RiftBus {
         // Replay first so late subscribers see this in their snapshot
         // even if the broadcast send below ends up Err (no subscribers).
         {
-            let mut replay = self
-                .inner
-                .replay
-                .lock()
-                .expect("rift-bus replay mutex poisoned");
+            let mut replay = self.inner.replay.lock();
             if replay.len() >= self.inner.replay_capacity {
                 replay.pop_front();
             }
@@ -141,11 +139,7 @@ impl RiftBus {
     ///   2. a [`Subscription`] handle for live envelopes after the snapshot.
     pub fn subscribe(&self, filter: SubscribeFilter) -> (Vec<Envelope>, Subscription) {
         let snapshot: Vec<Envelope> = {
-            let replay = self
-                .inner
-                .replay
-                .lock()
-                .expect("rift-bus replay mutex poisoned");
+            let replay = self.inner.replay.lock();
             replay
                 .iter()
                 .filter(|e| filter_matches(&filter, e))
@@ -156,13 +150,25 @@ impl RiftBus {
         (snapshot, Subscription { rx, filter })
     }
 
+    /// Return the last `limit` envelopes matching `filter` from the replay
+    /// buffer, iterating from the back. More efficient than `subscribe()`
+    /// when only the tail is needed (avoids cloning the full filtered set).
+    pub fn tail(&self, filter: &SubscribeFilter, limit: usize) -> Vec<Envelope> {
+        let replay = self.inner.replay.lock();
+        let mut result: Vec<Envelope> = replay
+            .iter()
+            .rev()
+            .filter(|e| filter_matches(filter, e))
+            .take(limit)
+            .cloned()
+            .collect();
+        result.reverse();
+        result
+    }
+
     /// How many envelopes are currently stored in the replay buffer.
     pub fn replay_len(&self) -> usize {
-        self.inner
-            .replay
-            .lock()
-            .expect("rift-bus replay mutex poisoned")
-            .len()
+        self.inner.replay.lock().len()
     }
 
     /// Number of live broadcast subscribers.
@@ -337,5 +343,45 @@ mod tests {
             bus.publish(env(Category::System, &format!("kind-{i}")));
         }
         assert!(bus.replay_len() > 0);
+    }
+
+    #[tokio::test]
+    async fn tail_returns_last_n_matching() {
+        let bus = RiftBus::default();
+        bus.publish(env(Category::Hook, "a"));
+        bus.publish(env(Category::System, "sys1"));
+        bus.publish(env(Category::Hook, "b"));
+        bus.publish(env(Category::Hook, "c"));
+        bus.publish(env(Category::System, "sys2"));
+        bus.publish(env(Category::Hook, "d"));
+
+        let tail = bus.tail(&SubscribeFilter::Category(Category::Hook), 2);
+        assert_eq!(tail.len(), 2);
+        assert_eq!(tail[0].kind, "c");
+        assert_eq!(tail[1].kind, "d");
+    }
+
+    #[tokio::test]
+    async fn tail_returns_all_when_fewer_than_limit() {
+        let bus = RiftBus::default();
+        bus.publish(env(Category::Aegis, "x"));
+        bus.publish(env(Category::Aegis, "y"));
+
+        let tail = bus.tail(&SubscribeFilter::Category(Category::Aegis), 10);
+        assert_eq!(tail.len(), 2);
+        assert_eq!(tail[0].kind, "x");
+        assert_eq!(tail[1].kind, "y");
+    }
+
+    #[tokio::test]
+    async fn tail_with_all_filter() {
+        let bus = RiftBus::with_capacity(64, 5);
+        for i in 0..10 {
+            bus.publish(env(Category::System, &format!("e{i}")));
+        }
+        let tail = bus.tail(&SubscribeFilter::All, 3);
+        assert_eq!(tail.len(), 3);
+        let kinds: Vec<&str> = tail.iter().map(|e| e.kind.as_str()).collect();
+        assert_eq!(kinds, ["e7", "e8", "e9"]);
     }
 }

@@ -494,14 +494,12 @@ fn tool_bus_history(bus: &RiftBus, payload: &Value) -> Result<Value, String> {
         },
     };
 
-    let (snapshot, _sub) = bus.subscribe(filter);
-    let take_from = snapshot.len().saturating_sub(limit);
-    let envelopes: Vec<Value> = snapshot
+    let tail = bus.tail(&filter, limit);
+    let count = tail.len();
+    let envelopes: Vec<Value> = tail
         .into_iter()
-        .skip(take_from)
         .map(|e| serde_json::to_value(e).unwrap_or(Value::Null))
         .collect();
-    let count = envelopes.len();
     Ok(json!({ "envelopes": envelopes, "count": count }))
 }
 
@@ -662,10 +660,10 @@ async fn eval_js(app_handle: &AppHandle, window_label: &str, js: &str) -> Result
     let callback_id = format!("mcp-eval-{}", uuid::Uuid::new_v4());
     let (tx, rx) = oneshot::channel::<String>();
 
-    let tx = std::sync::Mutex::new(Some(tx));
+    let tx = parking_lot::Mutex::new(Some(tx));
     let cb_id_for_listener = callback_id.clone();
     app_handle.once(&cb_id_for_listener, move |event| {
-        if let Some(sender) = tx.lock().ok().and_then(|mut g| g.take()) {
+        if let Some(sender) = tx.lock().take() {
             let _ = sender.send(event.payload().to_string());
         }
     });
