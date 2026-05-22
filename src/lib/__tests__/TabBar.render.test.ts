@@ -4,7 +4,7 @@ import TabBar from '../TabBar.svelte';
 import type { SessionTab, NotifTab, ActiveSurface } from '../TabBar.svelte';
 
 function makeSession(overrides: Partial<SessionTab> = {}): SessionTab {
-  return { id: 1, title: 'Session 1', projectPath: null, ...overrides };
+  return { id: 1, title: 'Session 1', projectPath: null, layout: { type: 'terminal', id: 1 }, ...overrides };
 }
 
 function makeNotif(overrides: Partial<NotifTab> = {}): NotifTab {

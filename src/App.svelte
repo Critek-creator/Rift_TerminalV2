@@ -11,6 +11,9 @@
     type ActiveSurface,
   } from './lib/TabBar.svelte';
   import Terminal from './lib/Terminal.svelte';
+  import TerminalGrid from './lib/TerminalGrid.svelte';
+  import { replaceLeaf, removeLeaf, collectLeafIds } from './lib/splitTypes';
+  import type { SplitNode } from './lib/splitTypes';
   import NotificationPane from './lib/NotificationPane.svelte';
   import AegisTabContent from './lib/AegisTabContent.svelte';
   import IndexTabContent from './lib/IndexTabContent.svelte';
@@ -54,7 +57,11 @@
   // ----- session tabs -----
   let nextSessionId = 1;
   let initialProjectRoot = $state<string | null>(null);
-  let sessions = $state<SessionTab[]>([{ id: 0, title: 'rift', projectPath: null }]);
+  let sessions = $state<SessionTab[]>([{ id: 0, title: 'rift', projectPath: null, layout: { type: 'terminal', id: 0 } }]);
+
+  // Tracks which pane is focused within the active session tab.
+  // Defaults to the first terminal (id 0). Updated on pane click or split.
+  let focusedSessionId = $state(0);
 
   // ----- notification tabs (§10.7 + §10.16 catalog-driven) -----
   // D-021: Tab strip is initialized from the section catalog registry.
@@ -215,24 +222,102 @@
     // §10.9 ack — promoting a tab into the side pane counts as viewing it.
     if (!wasPromoted) ackUnread(id);
   }
-  function addSession(opts?: { pickProject?: boolean }) {
+  function addSession(opts?: { pickProject?: boolean }): number | undefined {
     if (opts?.pickProject) {
       openProjectPickerForNewTab();
-      return;
+      return undefined;
     }
     const id = nextSessionId++;
     const activeSession = sessions.find(
       (s) => active.kind === 'session' && s.id === active.id,
     );
     const inheritedPath = activeSession?.projectPath ?? initialProjectRoot;
-    sessions = [...sessions, { id, title: `shell ${id + 1}`, projectPath: inheritedPath }];
+    sessions = [...sessions, { id, title: `shell ${id + 1}`, projectPath: inheritedPath, layout: { type: 'terminal', id } }];
     active = { kind: 'session', id };
+    focusedSessionId = id;
+    return id;
+  }
+
+  // Split the focused pane in the active session.
+  // Replaces the leaf with `terminalId` in the session's layout tree with a
+  // split node whose second child is a brand-new terminal leaf.
+  function handleSplit(terminalId: number, direction: 'hsplit' | 'vsplit'): void {
+    const newId = nextSessionId++;
+    const activeSession = sessions.find(
+      (s) => active.kind === 'session' && s.id === active.id,
+    );
+    if (!activeSession) return;
+
+    const inheritedPath = activeSession.projectPath ?? initialProjectRoot;
+    const newLeaf: SplitNode = { type: 'terminal', id: newId };
+    const splitNode: SplitNode = {
+      type: direction,
+      children: [{ type: 'terminal', id: terminalId }, newLeaf],
+      ratio: 0.5,
+    };
+
+    // Register the new PTY session so the Tab system tracks it.
+    // We do NOT create a new tab — the new PTY is a pane within the same tab.
+    // We add a hidden entry so Terminal.svelte can mount via the layout tree.
+    // The session list is keyed by id; layout controls which ids are rendered.
+    sessions = sessions.map((s) => {
+      if (s.id !== (active.kind === 'session' ? active.id : -1)) return s;
+      return { ...s, layout: replaceLeaf(s.layout, terminalId, splitNode) };
+    });
+
+    // Also register the new pane id with a synthetic session entry so the
+    // PTY-per-pane sessions are tracked (needed for project_swap + closeSession
+    // cleanup). We add it with the same projectPath as the parent tab but we
+    // do NOT switch the active tab to it — it renders inside the current tab.
+    const parentTabId = active.kind === 'session' ? active.id : -1;
+    const parentTab = sessions.find((s) => s.id === parentTabId);
+    if (parentTab) {
+      // Register a pane-session. This is intentionally NOT pushed into the
+      // TabBar sessions array because it is not a tab — it's a pane within
+      // the parent tab. The pane session only needs to be tracked internally
+      // for PTY lifecycle. We keep it in a separate pane-sessions map.
+      paneSessionPaths.set(newId, inheritedPath);
+    }
+
+    focusedSessionId = newId;
+  }
+
+  // Pane-to-projectPath map for pane-sessions that live inside a tab's layout
+  // tree but are not top-level SessionTab entries in the TabBar strip.
+  const paneSessionPaths = new Map<number, string | null>();
+
+  // Close a single pane within the active session's layout tree.
+  // If removing the pane collapses the tree to null (last pane), close the tab.
+  function handleClosePane(terminalId: number): void {
+    const activeId = active.kind === 'session' ? active.id : -1;
+    const targetSession = sessions.find((s) => s.id === activeId);
+    if (!targetSession) return;
+
+    const newLayout = removeLeaf(targetSession.layout, terminalId);
+    if (newLayout === null) {
+      // Last pane in the tab — close the whole tab.
+      closeSession(activeId);
+      return;
+    }
+
+    sessions = sessions.map((s) =>
+      s.id === activeId ? { ...s, layout: newLayout } : s,
+    );
+
+    paneSessionPaths.delete(terminalId);
+
+    // If the closed pane was focused, focus the first remaining leaf.
+    if (focusedSessionId === terminalId) {
+      const remaining = collectLeafIds(newLayout);
+      if (remaining.length > 0) focusedSessionId = remaining[0];
+    }
   }
 
   function openProjectInNewTab(path: string) {
     const id = nextSessionId++;
-    sessions = [...sessions, { id, title: `shell ${id + 1}`, projectPath: path }];
+    sessions = [...sessions, { id, title: `shell ${id + 1}`, projectPath: path, layout: { type: 'terminal', id } }];
     active = { kind: 'session', id };
+    focusedSessionId = id;
   }
 
   function openProjectPickerForNewTab() {
@@ -1022,6 +1107,24 @@
         e.preventDefault();
         shortcutsOpen = !shortcutsOpen;
       }
+      // Split-pane shortcuts — only when a session tab is active.
+      if (active.kind === 'session') {
+        // Ctrl+Shift+E — split focused pane horizontally (top / bottom)
+        if (e.ctrlKey && e.shiftKey && (e.key === 'E' || e.key === 'e')) {
+          e.preventDefault();
+          handleSplit(focusedSessionId, 'hsplit');
+        }
+        // Ctrl+Shift+D — split focused pane vertically (left | right)
+        if (e.ctrlKey && e.shiftKey && (e.key === 'D' || e.key === 'd')) {
+          e.preventDefault();
+          handleSplit(focusedSessionId, 'vsplit');
+        }
+        // Ctrl+Shift+W — close the focused pane
+        if (e.ctrlKey && e.shiftKey && (e.key === 'W' || e.key === 'w')) {
+          e.preventDefault();
+          handleClosePane(focusedSessionId);
+        }
+      }
     };
     window.addEventListener('keydown', onKeyDown);
 
@@ -1110,15 +1213,22 @@
     <!-- Left half: existing terminal / notification / empty surfaces + optional promoted pane -->
     <div class="cockpit-left" class:split={promoted !== null} class:full-width={cockpitCollapsed || cockpitDetached}>
       <div class="main-left">
-        <!-- session terminals — keep all alive, hide inactive ones to preserve scrollback -->
+        <!-- session terminals — keep all alive, hide inactive ones to preserve scrollback.
+             Each session renders its layout tree via TerminalGrid so split panes work
+             without requiring any backend changes. Only the active session is visible;
+             inactive ones are display:none to preserve scrollback while unmounted. -->
         {#each sessions as s (s.id)}
           <div
             class="surface"
             class:visible={active.kind === 'session' && active.id === s.id}
           >
-            <Terminal
-              visible={active.kind === 'session' && active.id === s.id}
+            <TerminalGrid
+              node={s.layout}
               projectPath={s.projectPath}
+              bind:focusedId={focusedSessionId}
+              onSplit={handleSplit}
+              onClose={handleClosePane}
+              onFocus={(id) => { focusedSessionId = id; }}
             />
           </div>
         {/each}

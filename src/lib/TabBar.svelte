@@ -7,7 +7,15 @@
   // tab off the strip → App promotes it to a fixed-width right-side pane;
   // drag the pane handle back onto the strip → demote.
 
-  export type SessionTab = { id: number; title: string; projectPath: string | null };
+  import type { SplitNode } from './splitTypes';
+
+  export type SessionTab = {
+    id: number;
+    title: string;
+    projectPath: string | null;
+    /** Recursive layout tree for split-pane support. Default is a single terminal leaf. */
+    layout: SplitNode;
+  };
   export type NotifTab = {
     id: string;
     title: string;
