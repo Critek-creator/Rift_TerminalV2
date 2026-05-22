@@ -1836,6 +1836,7 @@ pub fn run() {
             // then mounts Svelte, pulls config via notif_get_config invoke.
             for i in 0..notif_window::POOL_SIZE {
                 let label = notif_window::window_label(i);
+                #[allow(unused_mut)]
                 let mut notif_builder = tauri::WebviewWindowBuilder::new(
                     app,
                     &label,

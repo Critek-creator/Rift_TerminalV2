@@ -25,5 +25,8 @@ tracing = "0.1"
 directories = "5"
 notify = "6"
 
+[package.metadata.cargo-machete]
+ignored = ["rift-bus", "tokio", "serde", "serde_json", "tracing", "directories", "notify"]
+
 [dev-dependencies]
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "time"] }
