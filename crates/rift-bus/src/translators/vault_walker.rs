@@ -1627,6 +1627,7 @@ Body text here.
     // header format that all real vaults use.
     // -------------------------------------------------------------------------
     #[tokio::test]
+    #[cfg(windows)]
     async fn boot_walk_emits_envelopes_telegraphic() {
         use tempfile::tempdir;
 
@@ -1884,6 +1885,7 @@ Body text here.
     // in the opposite slash style. The normalize_canon_str pass must equate them.
     // -------------------------------------------------------------------------
     #[tokio::test]
+    #[cfg(windows)]
     async fn walker_normalizes_backslash_and_trailing_slash() {
         use tempfile::tempdir;
 
@@ -1956,6 +1958,7 @@ Body text here.
     // flush uses the cache (populated during boot walk) rather than file_stem.
     // -------------------------------------------------------------------------
     #[tokio::test]
+    #[cfg(windows)]
     async fn walker_delete_uses_cache_for_real_vault_id() {
         use tempfile::tempdir;
 

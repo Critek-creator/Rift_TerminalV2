@@ -109,6 +109,7 @@ jobs:
       # proc-macro-error, unic-*) are Tauri's concern, not ours — warn
       # but don't block. Actual vulnerabilities still fail the gate.
       - name: cargo deny (license + advisory)
+        if: matrix.os == 'ubuntu-latest'
         uses: EmbarkStudios/cargo-deny-action@v2
         with:
           arguments: --warn unmaintained

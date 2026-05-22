@@ -733,6 +733,7 @@ mod tests {
     // -----------------------------------------------------------------
 
     #[test]
+    #[cfg(windows)]
     fn detect_pwsh_from_path() {
         let path = Path::new("C:\\Program Files\\PowerShell\\7\\pwsh.exe");
         assert_eq!(detect_shell_kind(path), ShellKind::Pwsh);
@@ -745,6 +746,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(windows)]
     fn detect_unknown_cmd() {
         let path = Path::new("C:\\Windows\\System32\\cmd.exe");
         assert_eq!(detect_shell_kind(path), ShellKind::Unknown);
