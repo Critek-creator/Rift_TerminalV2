@@ -366,7 +366,7 @@
     font-size: var(--text-xs);
     letter-spacing: 0.1em;
     font-weight: 700;
-    transition: background var(--duration-base)ease-out;
+    transition: background var(--duration-base) ease-out;
   }
   .drag-handle:active { cursor: grabbing; }
   .drag-handle:hover { background: var(--bg-hover); }

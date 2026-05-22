@@ -363,7 +363,7 @@
     align-items: center;
     justify-content: center;
     gap: 6px;
-    transition: color 0.12s ease-out, border-color 0.12s ease-out;
+    transition: color var(--duration-base) ease-out, border-color var(--duration-base) ease-out;
   }
   .panel-tab:hover {
     color: var(--amber-warm);

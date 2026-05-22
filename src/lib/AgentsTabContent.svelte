@@ -459,7 +459,7 @@
     font-size: var(--text-xs);
     letter-spacing: 0.1em;
     font-weight: 700;
-    transition: background var(--duration-base)ease-out;
+    transition: background var(--duration-base) ease-out;
   }
   .drag-handle:active { cursor: grabbing; }
   .drag-handle:hover { background: var(--bg-hover); }
@@ -701,7 +701,7 @@
     line-height: 1;
     padding: 0 6px;
     cursor: pointer;
-    transition: background var(--duration-base)ease-out, color var(--duration-base)ease-out;
+    transition: background var(--duration-base) ease-out, color var(--duration-base) ease-out;
   }
   .card-cancel:hover:not(:disabled) {
     background: var(--term-red);
@@ -778,7 +778,7 @@
     text-transform: uppercase;
     cursor: pointer;
     padding: 0;
-    transition: color var(--duration-base)ease-out;
+    transition: color var(--duration-base) ease-out;
   }
   .archive-clear:hover { color: var(--term-red); }
   .state-body {
@@ -794,7 +794,7 @@
     align-items: baseline;
     font-size: var(--text-xs);
     padding: 1px 0;
-    transition: background var(--duration-base)ease-out;
+    transition: background var(--duration-base) ease-out;
   }
   .archive-row:hover { background: rgba(212, 137, 10, 0.06); }
   .archive-status {

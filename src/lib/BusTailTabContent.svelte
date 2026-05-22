@@ -387,17 +387,24 @@
           {@const isExpanded = expandedRows.has(rowKey)}
           {@const starred = isBookmarked(e)}
           {@const annotated = hasAnnotation(e)}
-          <!-- svelte-ignore a11y_click_events_have_key_events -->
-          <!-- svelte-ignore a11y_no_static_element_interactions -->
           <div
             class="row"
             class:expanded={isExpanded}
             class:bookmarked={starred}
             data-ts={e.ts}
+            role="button"
+            tabindex="0"
+            aria-expanded={isExpanded}
             onclick={(ev) => {
               const target = ev.target as HTMLElement;
               if (target.closest('.payload-expanded') || target.closest('.row-action')) return;
               toggleRow(rowKey);
+            }}
+            onkeydown={(ev) => {
+              if (ev.key === 'Enter' || ev.key === ' ') {
+                ev.preventDefault();
+                toggleRow(rowKey);
+              }
             }}
             title="click to {isExpanded ? 'collapse' : 'expand'}"
           >
@@ -527,7 +534,7 @@
     letter-spacing: 0.1em;
     font-weight: 700;
   }
-  .drag-handle { transition: background var(--duration-base)ease-out; }
+  .drag-handle { transition: background var(--duration-base) ease-out; }
   .drag-handle:active { cursor: grabbing; }
   .drag-handle:hover { background: var(--bg-hover); }
   .drag-handle .handle-glyph {
@@ -577,7 +584,7 @@
     padding: 2px 8px;
     cursor: pointer;
     text-transform: uppercase;
-    transition: color var(--duration-base)ease-out, background var(--duration-base)ease-out, border-color var(--duration-base)ease-out, opacity var(--duration-base)ease-out;
+    transition: color var(--duration-base) ease-out, background var(--duration-base) ease-out, border-color var(--duration-base) ease-out, opacity var(--duration-base) ease-out;
   }
   .ctl-btn:hover:not(:disabled) {
     border-color: var(--amber-bright);
@@ -709,7 +716,7 @@
     white-space: nowrap;
     cursor: pointer;
     user-select: text;
-    transition: background var(--duration-base)ease-out;
+    transition: background var(--duration-base) ease-out;
   }
   .log-body .row:hover { background: rgba(212, 137, 10, 0.06); }
   .log-body .row.expanded {
@@ -811,7 +818,7 @@
     gap: 2px;
     flex-shrink: 0;
     opacity: 0;
-    transition: opacity var(--duration-base)ease-out;
+    transition: opacity var(--duration-base) ease-out;
   }
   .log-body .row:hover .row-actions,
   .log-body .row.bookmarked .row-actions {
@@ -826,7 +833,7 @@
     cursor: pointer;
     padding: 0 2px;
     line-height: 1;
-    transition: color var(--duration-base)ease-out;
+    transition: color var(--duration-base) ease-out;
   }
   .row-action:hover {
     color: var(--amber-bright);
@@ -927,7 +934,7 @@
     user-select: none;
     font-size: var(--text-xs);
     letter-spacing: 0.04em;
-    transition: opacity var(--duration-base)ease-out;
+    transition: opacity var(--duration-base) ease-out;
   }
   .cat-row.muted .cat-name,
   .cat-row.muted .cat-count {

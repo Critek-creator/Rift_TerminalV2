@@ -231,7 +231,7 @@
     font-weight: 600;
     letter-spacing: 0.06em;
     cursor: pointer;
-    transition: color 0.12s ease-out, border-color 0.12s ease-out, background 0.12s ease-out;
+    transition: color var(--duration-base) ease-out, border-color var(--duration-base) ease-out, background var(--duration-base) ease-out;
   }
   .tag-chip:hover {
     border-color: var(--chip-color);
