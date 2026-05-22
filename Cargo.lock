@@ -3199,6 +3199,7 @@ dependencies = [
  "tauri-plugin-dialog",
  "tauri-plugin-updater",
  "tokio",
+ "toml 0.8.2",
  "tracing",
  "uuid",
  "windows-sys 0.59.0",

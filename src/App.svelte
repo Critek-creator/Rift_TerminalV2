@@ -10,7 +10,6 @@
     type NotifTab,
     type ActiveSurface,
   } from './lib/TabBar.svelte';
-  import Terminal from './lib/Terminal.svelte';
   import TerminalGrid from './lib/TerminalGrid.svelte';
   import { replaceLeaf, removeLeaf, collectLeafIds } from './lib/splitTypes';
   import type { SplitNode } from './lib/splitTypes';
@@ -42,6 +41,9 @@
   import CommandPalette from './lib/CommandPalette.svelte';
   import ShortcutOverlay from './lib/ShortcutOverlay.svelte';
   import WelcomeOverlay from './lib/WelcomeOverlay.svelte';
+  import TimelineScrubber from './lib/TimelineScrubber.svelte';
+  import CommandIntelligencePanel from './lib/CommandIntelligencePanel.svelte';
+  import { notifPriority } from './lib/notifPriority.svelte';
 
   // D-021: Tab→category mapping is now derived from the section catalog.
   // `sectionCatalog.categoryMap` builds the reverse map dynamically.
@@ -140,6 +142,12 @@
 
   // ----- correlation index -----
   const correlationIndex = new CorrelationIndex();
+
+  // ----- timeline events (for TimelineScrubber in cockpit-right) -----
+  type TimelineEvent = { id: string; command: string; startTs: number; endTs: number; lane: string; exitCode: number | null };
+  let timelineEvents = $state<TimelineEvent[]>([]);
+  const pendingCommands = new Map<string, { command: string; startTs: number; lane: string }>();
+  let timelineNow = $state(Date.now());
 
   // ----- alert rules -----
   let alertRules = $state<AlertRule[]>([]);
@@ -685,6 +693,39 @@
               unreadCount: n.enabled ? (inView ? 0 : n.unreadCount + 1) : n.unreadCount,
             };
           });
+
+          // Adaptive notification priority: seed baseline from all envelopes.
+          if (notifPriority.isEnabled()) {
+            notifPriority.recordInteraction(env.kind, 'ignore');
+          }
+
+          // Timeline scrubber: capture cmd.start/cmd.end pairs.
+          if (env.category === 'pty') {
+            const p = env.payload as Record<string, unknown>;
+            if (env.kind === 'cmd.start') {
+              const cmdId = (p.id as string) || String(env.ts);
+              pendingCommands.set(cmdId, {
+                command: (p.command as string) || '',
+                startTs: env.ts,
+                lane: (p.lane as string) || 'user',
+              });
+            } else if (env.kind === 'cmd.end') {
+              const cmdId = (p.id as string) || '';
+              const pending = pendingCommands.get(cmdId);
+              if (pending) {
+                pendingCommands.delete(cmdId);
+                timelineEvents = [...timelineEvents.slice(-200), {
+                  id: cmdId,
+                  command: pending.command,
+                  startTs: pending.startTs,
+                  endTs: env.ts,
+                  lane: pending.lane,
+                  exitCode: (p.exit_code as number) ?? null,
+                }];
+              }
+            }
+            timelineNow = Date.now();
+          }
 
           // Correlation: index every envelope that carries a correlation_id.
           correlationIndex.index(env);
@@ -1282,6 +1323,11 @@
               <SentinelTabContent severityThreshold={thresholdFor('sentinel')} onDragBack={demoteTab} />
             {:else if promotedTab.id === 'sessions'}
               <SessionsTabContent onDragBack={demoteTab} />
+            {:else if promotedTab.id === 'cmd-intelligence'}
+              <CommandIntelligencePanel
+                project={sessions.find(s => s.id === (active.kind === 'session' ? active.id : 0))?.projectPath?.split(/[\\/]/).pop() ?? null}
+                cwd={sessions.find(s => s.id === (active.kind === 'session' ? active.id : 0))?.projectPath ?? null}
+              />
             {:else}
               <NotificationPane
                 title={promotedTab.title}
@@ -1318,6 +1364,22 @@
       />
 
       <div class="cockpit-right" style="flex: 0 0 {cockpitRightWidth}px;">
+        <!-- Timeline strip — fixed 80px above graph. Shows command history as colored blocks. -->
+        <div class="timeline-pane">
+          <div class="pane-header">
+            <span>TIMELINE</span>
+            <span class="meta">{timelineEvents.length} commands</span>
+          </div>
+          <div class="timeline-body">
+            <TimelineScrubber
+              events={timelineEvents}
+              currentTs={timelineNow}
+              onSeek={() => {}}
+              viewportMinutes={5}
+            />
+          </div>
+        </div>
+
         <!-- Phase 8.4 — Graph pane (top slot). IndexGraph.svelte renders width:100%/height:100%
              inside .graph-pane; border-bottom is the horizontal divider per mockup #3. -->
         <div class="graph-pane" style="flex: 0 0 {graphHeightPct}%;">
@@ -1456,6 +1518,22 @@
     flex-direction: column;
     background: var(--bg-panel);
     min-width: 0;
+  }
+
+  .timeline-pane {
+    flex: 0 0 80px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    background: var(--bg-base);
+    border-bottom: 1px solid var(--border-subtle);
+  }
+
+  .timeline-body {
+    flex: 1;
+    overflow-x: auto;
+    overflow-y: hidden;
+    min-height: 0;
   }
 
   .graph-pane {

@@ -30,8 +30,11 @@ mod index_bridge {
         Err("Index integration not available (built without 'index' feature)".into())
     }
 }
+mod command_history;
+mod file_preview;
 mod mcp_host;
 mod notif_window;
+mod profiles;
 mod todo_scan;
 
 // Rift Terminal v2 — Tauri host crate.
@@ -352,18 +355,18 @@ impl WatcherRegistry {
 // ---------------------------------------------------------------------------
 
 #[derive(Clone)]
-struct ProjectRoot {
+pub(crate) struct ProjectRoot {
     pub(crate) path: Arc<Mutex<PathBuf>>,
 }
 
 impl ProjectRoot {
-    fn new(path: PathBuf) -> Self {
+    pub(crate) fn new(path: PathBuf) -> Self {
         Self {
             path: Arc::new(Mutex::new(path)),
         }
     }
 
-    fn get(&self) -> PathBuf {
+    pub(crate) fn get(&self) -> PathBuf {
         self.path.lock().clone()
     }
 
@@ -1575,6 +1578,8 @@ pub fn run() {
         .manage(notif_window::NotifWindowState::default())
         .manage(ShutdownNotify::default())
         .manage(TerminalReady::default())
+        .manage(profiles::ProfileStore::default())
+        .manage(command_history::CommandHistoryStore::default())
         .setup(|app| {
             // Bus is always present; the IPC server is best-effort and may
             // fail to bind (e.g. if the socket name is taken). Frontend can
@@ -1940,6 +1945,14 @@ pub fn run() {
             index_bridge::index_get_node,
             index_bridge::index_get_connections,
             index_bridge::index_get_stats,
+            profiles::profile_list,
+            profiles::profile_save,
+            profiles::profile_load,
+            profiles::profile_delete,
+            file_preview::file_preview,
+            command_history::command_history_record,
+            command_history::command_stats,
+            command_history::command_suggestions,
         ])
         .build(tauri::generate_context!())
         .expect("rift: tauri runtime failed to start")

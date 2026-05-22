@@ -141,6 +141,12 @@ const BUILTIN_TABS: TabDescriptor[] = [
     sections: [...STANDARD_SECTIONS],
     source: 'builtin',
   },
+  {
+    id: 'cmd-intelligence', title: 'analytics', icon: '◇',
+    category: undefined, detectedByDefault: true,
+    sections: [...STANDARD_SECTIONS],
+    source: 'builtin',
+  },
 ];
 
 // ---------------------------------------------------------------------------

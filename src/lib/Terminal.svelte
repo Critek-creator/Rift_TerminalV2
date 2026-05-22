@@ -11,6 +11,7 @@
   import { laneFormatGated } from './laneFormat';
   import LaneGutter from './LaneGutter.svelte';
   import TerminalSearch from './TerminalSearch.svelte';
+  import PathTooltip from './PathTooltip.svelte';
   import { subscribe as busSubscribe, type Envelope } from './bus';
 
   type PtyExited = { id: number; code: number };
@@ -34,6 +35,14 @@
   let searchOpen = $state(false);
   let resizeObs: ResizeObserver | undefined;
   let unlistenExited: UnlistenFn | undefined;
+
+  // Path intelligence tooltip state
+  type FilePreview = { exists: boolean; size_bytes: number; modified_iso: string; language_hint: string; preview_lines: string[]; is_binary: boolean };
+  let tooltipVisible = $state(false);
+  let tooltipX = $state(0);
+  let tooltipY = $state(0);
+  let tooltipPreview = $state<FilePreview | null>(null);
+  let tooltipFilename = $state('');
   let recoveryTimer: ReturnType<typeof setInterval> | undefined;
   let sessionId: number | null = null;
   let alive = false;
@@ -249,6 +258,48 @@
     // Exposed for MCP pty_read tool — do not remove without updating mcp_host.rs tool_pty_read
     // Exposed for MCP pty_read tool — do not remove without updating mcp_host.rs tool_pty_read
     (window as any).__RIFT_TERM__ = term;
+
+    // Path intelligence — detect file paths in terminal output and show hover previews.
+    const PATH_RE = /(?:[A-Za-z]:\\|\/)[^\s:*?"<>|]+\.[a-zA-Z0-9]{1,10}/g;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    term.registerLinkProvider({
+      provideLinks(lineNumber: number, callback: (links: any) => void) {
+        const line = term?.buffer.active.getLine(lineNumber);
+        if (!line) { callback(undefined); return; }
+        const text = line.translateToString();
+        const links: any[] = [];
+        let match: RegExpExecArray | null;
+        PATH_RE.lastIndex = 0;
+        while ((match = PATH_RE.exec(text)) !== null) {
+          const startX = match.index + 1;
+          const endX = startX + match[0].length - 1;
+          const filePath = match[0];
+          links.push({
+            text: filePath,
+            range: { start: { x: startX, y: lineNumber }, end: { x: endX, y: lineNumber } },
+            activate() {
+              invoke('file_preview', { path: filePath }).catch(() => {});
+            },
+            hover(e: MouseEvent) {
+              tooltipX = e.clientX + 12;
+              tooltipY = e.clientY + 12;
+              tooltipFilename = filePath.split(/[\\/]/).pop() || filePath;
+              invoke('file_preview', { path: filePath }).then((result) => {
+                tooltipPreview = result as FilePreview;
+                tooltipVisible = true;
+              }).catch(() => {
+                tooltipVisible = false;
+              });
+            },
+            leave() {
+              tooltipVisible = false;
+              tooltipPreview = null;
+            },
+          });
+        }
+        callback(links.length > 0 ? links : undefined);
+      },
+    } as any);
 
     // Phase 8.7g — Ctrl+C / Ctrl+V clipboard shortcuts.
     //
@@ -535,6 +586,14 @@
     <TerminalSearch searchAddon={search} onclose={() => { searchOpen = false; term?.focus(); }} />
   {/if}
 </div>
+
+<PathTooltip
+  x={tooltipX}
+  y={tooltipY}
+  visible={tooltipVisible}
+  preview={tooltipPreview}
+  filename={tooltipFilename}
+/>
 
 <style>
   .terminal-host {

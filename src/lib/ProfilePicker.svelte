@@ -1,0 +1,391 @@
+<script lang="ts">
+  import { onMount, onDestroy } from 'svelte';
+  import { invoke } from '@tauri-apps/api/core';
+
+  interface Props {
+    activeProfile?: string | null;
+    onSwitch?: (name: string) => void;
+    onSave?: (name: string) => void;
+  }
+
+  let { activeProfile = null, onSwitch, onSave }: Props = $props();
+
+  interface ProfileEntry {
+    name: string;
+    project_filter?: string | null;
+  }
+
+  let profiles = $state<ProfileEntry[]>([]);
+  let open = $state(false);
+  let saving = $state(false);
+  let saveInput = $state('');
+  let focusedIndex = $state(-1);
+  let triggerEl: HTMLButtonElement = $state(undefined!);
+  let dropdownEl: HTMLDivElement = $state(undefined!);
+
+  const displayName = $derived(activeProfile ?? 'default');
+
+  async function loadProfiles() {
+    try {
+      profiles = await invoke<ProfileEntry[]>('profile_list');
+    } catch {
+      profiles = [];
+    }
+  }
+
+  function toggle() {
+    open = !open;
+    if (open) {
+      loadProfiles();
+      focusedIndex = -1;
+    }
+  }
+
+  function close() {
+    open = false;
+    saving = false;
+    saveInput = '';
+    focusedIndex = -1;
+  }
+
+  function selectProfile(name: string) {
+    onSwitch?.(name);
+    close();
+  }
+
+  function startSave() {
+    saving = true;
+    saveInput = '';
+  }
+
+  function confirmSave() {
+    const name = saveInput.trim();
+    if (!name) return;
+    onSave?.(name);
+    close();
+    loadProfiles();
+  }
+
+  async function deleteProfile(name: string, e: MouseEvent) {
+    e.stopPropagation();
+    try {
+      await invoke('profile_delete', { name });
+      profiles = profiles.filter((p) => p.name !== name);
+    } catch { /* silently ignore */ }
+  }
+
+  function handleKeydown(e: KeyboardEvent) {
+    if (!open) return;
+
+    const itemCount = profiles.length + 1; // +1 for "save current"
+
+    switch (e.key) {
+      case 'Escape':
+        e.preventDefault();
+        close();
+        break;
+      case 'ArrowDown':
+        e.preventDefault();
+        focusedIndex = (focusedIndex + 1) % itemCount;
+        break;
+      case 'ArrowUp':
+        e.preventDefault();
+        focusedIndex = (focusedIndex - 1 + itemCount) % itemCount;
+        break;
+      case 'Enter':
+        e.preventDefault();
+        if (saving) {
+          confirmSave();
+        } else if (focusedIndex >= 0 && focusedIndex < profiles.length) {
+          selectProfile(profiles[focusedIndex].name);
+        } else if (focusedIndex === profiles.length) {
+          startSave();
+        }
+        break;
+    }
+  }
+
+  function handleClickOutside(e: MouseEvent) {
+    if (
+      open &&
+      triggerEl &&
+      !triggerEl.contains(e.target as Node) &&
+      dropdownEl &&
+      !dropdownEl.contains(e.target as Node)
+    ) {
+      close();
+    }
+  }
+
+  onMount(() => {
+    document.addEventListener('click', handleClickOutside, true);
+    document.addEventListener('keydown', handleKeydown);
+  });
+
+  onDestroy(() => {
+    document.removeEventListener('click', handleClickOutside, true);
+    document.removeEventListener('keydown', handleKeydown);
+  });
+</script>
+
+<div class="profile-picker">
+  <button
+    class="profile-trigger"
+    bind:this={triggerEl}
+    onclick={toggle}
+    title="Switch workspace profile"
+  >
+    <span class="profile-icon">P</span>
+    <span class="profile-name">{displayName}</span>
+  </button>
+
+  {#if open}
+    <div class="profile-dropdown" bind:this={dropdownEl}>
+      {#if profiles.length === 0 && !saving}
+        <div class="dropdown-empty">No saved profiles</div>
+      {/if}
+
+      {#each profiles as profile, i}
+        <div
+          class="dropdown-item"
+          class:focused={focusedIndex === i}
+          class:active={profile.name === activeProfile}
+          role="option"
+          aria-selected={profile.name === activeProfile}
+          tabindex="-1"
+          onclick={() => selectProfile(profile.name)}
+          onkeydown={(e) => { if (e.key === 'Enter') selectProfile(profile.name); }}
+        >
+          <span class="item-name">{profile.name}</span>
+          {#if profile.project_filter}
+            <span class="item-filter">{profile.project_filter}</span>
+          {/if}
+          {#if profile.name === activeProfile}
+            <span class="item-active-dot"></span>
+          {/if}
+          <button
+            class="item-delete"
+            onclick={(e) => deleteProfile(profile.name, e)}
+            title="Delete profile"
+          >x</button>
+        </div>
+      {/each}
+
+      <div class="dropdown-divider"></div>
+
+      {#if saving}
+        <div class="save-input-row">
+          <input
+            class="save-input"
+            type="text"
+            placeholder="profile name"
+            bind:value={saveInput}
+            onkeydown={(e) => {
+              if (e.key === 'Enter') confirmSave();
+              if (e.key === 'Escape') { saving = false; e.stopPropagation(); }
+            }}
+          />
+          <button class="save-confirm" onclick={confirmSave}>OK</button>
+        </div>
+      {:else}
+        <button
+          class="dropdown-item save-trigger"
+          class:focused={focusedIndex === profiles.length}
+          onclick={startSave}
+        >
+          <span class="item-name">Save current...</span>
+        </button>
+      {/if}
+    </div>
+  {/if}
+</div>
+
+<style>
+  .profile-picker {
+    position: relative;
+    display: inline-flex;
+  }
+
+  .profile-trigger {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-xs);
+    padding: 2px 8px;
+    background: transparent;
+    border: 1px solid var(--amber-faint);
+    border-radius: 10px;
+    color: var(--amber-dim);
+    font-size: var(--text-xs);
+    font-family: var(--font-family, 'JetBrains Mono', monospace);
+    cursor: pointer;
+    transition: border-color var(--duration-fast) var(--ease-out),
+                color var(--duration-fast) var(--ease-out);
+  }
+
+  .profile-trigger:hover {
+    border-color: var(--amber-primary);
+    color: var(--amber-bright);
+  }
+
+  .profile-icon {
+    font-weight: 700;
+    font-size: var(--text-2xs);
+    color: var(--amber-faint);
+  }
+
+  .profile-name {
+    max-width: 80px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .profile-dropdown {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    min-width: 180px;
+    max-width: 260px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.6);
+    z-index: 200;
+    padding: var(--space-xs) 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .dropdown-empty {
+    padding: var(--space-sm) var(--space-md);
+    font-size: var(--text-xs);
+    color: var(--amber-faint);
+    text-align: center;
+  }
+
+  .dropdown-item {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    padding: var(--space-xs) var(--space-md);
+    background: none;
+    border: none;
+    color: var(--amber-warm);
+    font-size: var(--text-xs);
+    font-family: var(--font-family, 'JetBrains Mono', monospace);
+    cursor: pointer;
+    text-align: left;
+    width: 100%;
+    transition: background var(--duration-fast) var(--ease-out);
+  }
+
+  .dropdown-item:hover,
+  .dropdown-item.focused {
+    background: var(--bg-hover);
+  }
+
+  .dropdown-item.active {
+    color: var(--amber-bright);
+  }
+
+  .item-name {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .item-filter {
+    font-size: var(--text-2xs);
+    padding: 0 4px;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+    color: var(--amber-faint);
+  }
+
+  .item-active-dot {
+    width: 5px;
+    height: 5px;
+    border-radius: var(--radius-full);
+    background: var(--amber-bright);
+    flex-shrink: 0;
+  }
+
+  .item-delete {
+    opacity: 0;
+    background: none;
+    border: none;
+    color: var(--term-red);
+    font-size: var(--text-xs);
+    font-family: var(--font-family, 'JetBrains Mono', monospace);
+    cursor: pointer;
+    padding: 0 2px;
+    flex-shrink: 0;
+    transition: opacity var(--duration-fast) var(--ease-out);
+  }
+
+  .dropdown-item:hover .item-delete {
+    opacity: 0.7;
+  }
+
+  .item-delete:hover {
+    opacity: 1 !important;
+  }
+
+  .dropdown-divider {
+    height: 1px;
+    background: var(--border-subtle);
+    margin: var(--space-xs) 0;
+  }
+
+  .save-trigger .item-name {
+    color: var(--amber-faint);
+    font-style: italic;
+  }
+
+  .save-input-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs);
+    padding: var(--space-xs) var(--space-sm);
+  }
+
+  .save-input {
+    flex: 1;
+    background: var(--bg-base);
+    border: 1px solid var(--border-active);
+    border-radius: var(--radius-sm);
+    color: var(--amber-bright);
+    font-size: var(--text-xs);
+    font-family: var(--font-family, 'JetBrains Mono', monospace);
+    padding: 3px 6px;
+    outline: none;
+  }
+
+  .save-input::placeholder {
+    color: var(--amber-faint);
+    opacity: 0.6;
+  }
+
+  .save-input:focus {
+    border-color: var(--amber-primary);
+  }
+
+  .save-confirm {
+    background: none;
+    border: 1px solid var(--amber-faint);
+    border-radius: var(--radius-sm);
+    color: var(--amber-dim);
+    font-size: var(--text-xs);
+    font-family: var(--font-family, 'JetBrains Mono', monospace);
+    padding: 2px 8px;
+    cursor: pointer;
+    transition: border-color var(--duration-fast) var(--ease-out),
+                color var(--duration-fast) var(--ease-out);
+  }
+
+  .save-confirm:hover {
+    border-color: var(--amber-primary);
+    color: var(--amber-bright);
+  }
+</style>

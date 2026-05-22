@@ -21,6 +21,7 @@
   // Visibility controlled by StatusLineConfig per-segment toggles.
 
   import type { StatusLineConfig } from './riftConfig';
+  import ProfilePicker from './ProfilePicker.svelte';
 
   interface Props {
     dir?: string;
@@ -124,6 +125,13 @@
       </div>
     {/if}
     <div class="seg spacer"></div>
+    <div class="seg profile-seg">
+      <ProfilePicker
+        activeProfile={null}
+        onSwitch={() => {}}
+        onSave={() => {}}
+      />
+    </div>
   </div>
 </footer>
 
@@ -192,4 +200,11 @@
 
   /* PURPLE — session clock */
   .session { background: var(--status-time); }
+
+  .profile-seg {
+    flex-shrink: 0;
+    padding: 0;
+    background: transparent;
+    position: relative;
+  }
 </style>

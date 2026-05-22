@@ -44,6 +44,7 @@ rift-aegis = { path = "../crates/rift-aegis", optional = true }
 globset = { workspace = true }
 dunce = { workspace = true }
 directories = { workspace = true }
+toml = { workspace = true }
 base64 = "0.22"
 png = "0.17"
 
