@@ -1501,6 +1501,33 @@ impl BusSubscriptionRegistryHandle {
 }
 
 // ---------------------------------------------------------------------------
+// Startup cleanup
+// ---------------------------------------------------------------------------
+
+/// Kill orphaned WebView2 crashpad-handler processes from previous Rift sessions.
+///
+/// WebView2 spawns a crashpad-handler per browser-main process. When Rift exits
+/// (or is killed during dev), the handler often outlives its parent and stays
+/// resident. Over days of development this accumulates dozens of zombie processes.
+/// Since this runs *before* Tauri creates any windows, every existing
+/// `com.abyssal.rift` crashpad-handler is guaranteed stale.
+#[cfg(windows)]
+fn cleanup_orphaned_webview2() {
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+    let script = r#"Get-CimInstance Win32_Process -Filter "Name='msedgewebview2.exe'" | Where-Object { $_.CommandLine -match 'com\.abyssal\.rift' -and $_.CommandLine -match 'crashpad-handler' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }"#;
+
+    let _ = std::process::Command::new("powershell")
+        .args(["-NoProfile", "-NonInteractive", "-Command", script])
+        .creation_flags(CREATE_NO_WINDOW)
+        .spawn();
+}
+
+#[cfg(not(windows))]
+fn cleanup_orphaned_webview2() {}
+
+// ---------------------------------------------------------------------------
 // Entry point
 // ---------------------------------------------------------------------------
 
@@ -1571,6 +1598,8 @@ pub fn run() {
 
         eprintln!("Rift crashed — dump saved to {}", path.display());
     }));
+
+    cleanup_orphaned_webview2();
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
