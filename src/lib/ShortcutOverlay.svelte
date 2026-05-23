@@ -76,21 +76,21 @@
   .overlay-header {
     display: flex;
     align-items: center;
-    gap: 10px;
-    padding: 12px 16px;
+    gap: var(--space-md);
+    padding: var(--space-12) var(--space-lg);
     border-bottom: 1px solid var(--border-subtle, rgba(255, 168, 38, 0.15));
     background: var(--bg-elevated, #1e1a14);
   }
 
   .header-icon {
-    font-size: 14px;
+    font-size: var(--text-lg);
     color: var(--amber-bright, #FFC840);
     text-shadow: var(--glow-amber-faint);
   }
 
   .header-title {
     flex: 1;
-    font-size: 11px;
+    font-size: var(--text-sm);
     font-weight: 700;
     letter-spacing: 0.14em;
     color: var(--amber-bright, #FFC840);
@@ -101,7 +101,7 @@
     border: 1px solid var(--amber-faint, #A87830);
     color: var(--amber-faint, #A87830);
     font-family: inherit;
-    font-size: 9px;
+    font-size: var(--text-2xs);
     font-weight: 700;
     letter-spacing: 0.1em;
     padding: 2px 8px;
@@ -121,14 +121,14 @@
   .overlay-body::-webkit-scrollbar-thumb { background: var(--amber-faint, #A87830); }
 
   .category-section {
-    padding: 0 16px;
+    padding: 0 var(--space-lg);
   }
   .category-section + .category-section {
-    margin-top: 12px;
+    margin-top: var(--space-12);
   }
 
   .category-label {
-    font-size: 9px;
+    font-size: var(--text-2xs);
     font-weight: 700;
     letter-spacing: 0.12em;
     color: var(--amber-faint, #A87830);
@@ -141,7 +141,7 @@
   .binding-row {
     display: flex;
     align-items: center;
-    gap: 14px;
+    gap: var(--space-14);
     padding: 5px 0;
   }
 
@@ -154,7 +154,7 @@
     border-radius: 3px;
     color: var(--amber-primary, #FFA826);
     font-family: inherit;
-    font-size: 11px;
+    font-size: var(--text-sm);
     font-weight: 600;
     padding: 2px 8px;
     white-space: nowrap;
@@ -162,6 +162,6 @@
 
   .desc {
     color: var(--term-white, #E8E4D8);
-    font-size: 12px;
+    font-size: var(--text-base);
   }
 </style>

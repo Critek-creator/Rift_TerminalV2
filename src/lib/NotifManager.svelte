@@ -107,18 +107,18 @@
     padding: 14px 18px 12px;
   }
   .manager-section-label {
-    font-size: 10px;
+    font-size: var(--text-xs);
     letter-spacing: 0.14em;
     text-transform: uppercase;
     color: var(--amber-bright);
     text-shadow: var(--glow-amber-faint);
-    margin-bottom: 10px;
+    margin-bottom: var(--space-md);
     display: flex;
     flex-direction: column;
     gap: 3px;
   }
   .manager-section-hint {
-    font-size: 9px;
+    font-size: var(--text-2xs);
     letter-spacing: 0.06em;
     color: var(--amber-faint);
     text-transform: none;
@@ -160,12 +160,12 @@
   }
   .manager-toggle input[type="checkbox"] {
     width: 14px;
-    height: 14px;
+    height: var(--space-14);
     accent-color: var(--amber-bright);
     cursor: pointer;
   }
   .manager-icon {
-    font-size: 14px;
+    font-size: var(--text-lg);
     color: var(--amber-bright);
     text-shadow: var(--glow-amber-faint);
     min-width: 18px;
@@ -174,13 +174,13 @@
   .manager-title {
     flex: 1;
     color: var(--amber-warm);
-    font-size: 12px;
+    font-size: var(--text-base);
     letter-spacing: 0.08em;
     text-transform: uppercase;
   }
   .manager-status {
     color: var(--amber-faint);
-    font-size: 9px;
+    font-size: var(--text-2xs);
     letter-spacing: 0.04em;
     font-style: italic;
   }
@@ -195,17 +195,17 @@
   }
   .manager-summary {
     color: var(--amber-faint);
-    font-size: 10px;
+    font-size: var(--text-xs);
     letter-spacing: 0.06em;
   }
   .manager-actions {
     display: flex;
-    gap: 8px;
+    gap: var(--space-8);
   }
   .manager-btn {
     padding: 5px 14px;
     font-family: inherit;
-    font-size: 11px;
+    font-size: var(--text-sm);
     letter-spacing: 0.1em;
     cursor: pointer;
     transition: color 0.12s, border-color 0.12s, background 0.12s;

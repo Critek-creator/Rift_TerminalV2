@@ -1823,6 +1823,18 @@ pub fn run() {
                 });
             }
 
+            // Agent translator — tails %TEMP%/rift-agent-events.jsonl written
+            // by the CC agent hook (tools/cc-agent-hook.mjs). Also receives
+            // events from `rift hook --category agent` CLI invocations via IPC.
+            {
+                let agent_bus = app.state::<RiftBus>().inner().clone();
+                let agent_shutdown = app.state::<ShutdownNotify>().handle();
+                tauri::async_runtime::spawn(async move {
+                    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                    rift_bus::translators::agent::spawn_agent_translator(agent_bus, agent_shutdown).await;
+                });
+            }
+
             // D-014 Phase A — MCP host subscriber (off by default).
             //
             // Reads RiftConfig.mcp; if disabled, the spawn is a no-op and no

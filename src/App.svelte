@@ -1147,6 +1147,13 @@
             try { localStorage.removeItem(MAIN_POS_KEY); } catch { /* ignore */ }
           }
         }
+        // WebView2 restores its own cached minimized/maximized state AFTER
+        // Rust setup() runs unminimize(). Re-assert here so the JS-side
+        // restore always wins the race.
+        await appWindow.unminimize();
+        await appWindow.show();
+        await appWindow.setFocus();
+
         // Save current rect immediately so a crash before any move/resize
         // still records a reasonable last-known position.
         const [pos0, size0] = await Promise.all([
@@ -1635,8 +1642,8 @@
   }
 
   .pane-header {
-    height: 32px;
-    padding: 0 14px;
+    height: var(--space-2xl);
+    padding: 0 var(--space-14);
     background: rgba(255, 168, 38, 0.05);
     border-bottom: 1px solid var(--amber-faint);
     box-shadow: 0 1px 6px rgba(0, 0, 0, 0.5);
@@ -1645,7 +1652,7 @@
     justify-content: space-between;
     color: var(--amber-bright);
     font-family: var(--font-family);
-    font-size: 10px;
+    font-size: var(--text-xs);
     font-weight: 700;
     letter-spacing: 0.1em;
     flex-shrink: 0;
@@ -1654,7 +1661,7 @@
   .pane-header .meta {
     color: var(--amber-dim);
     font-weight: 400;
-    font-size: 9px;
+    font-size: var(--text-2xs);
     letter-spacing: 0.04em;
   }
 
@@ -1665,7 +1672,7 @@
     flex-direction: column;
     min-height: 0;
     overflow-y: auto;
-    padding: 4px 0;
+    padding: var(--space-xs) 0;
   }
   .tree-body::-webkit-scrollbar { width: 5px; }
   .tree-body::-webkit-scrollbar-thumb { background: var(--amber-faint); }
@@ -1688,32 +1695,32 @@
   .empty-card {
     text-align: center;
     user-select: none;
-    padding: 32px;
+    padding: var(--space-2xl);
   }
   .empty-glyph {
     font-size: 48px;
     color: var(--amber-bright);
     text-shadow: var(--glow-amber-strong);
-    margin-bottom: 16px;
+    margin-bottom: var(--space-lg);
   }
   .empty-title {
     color: var(--amber-warm);
-    font-size: 14px;
+    font-size: var(--text-lg);
     letter-spacing: 0.18em;
     text-transform: uppercase;
-    margin-bottom: 8px;
+    margin-bottom: var(--space-8);
   }
   .empty-hint {
     color: var(--amber-dim);
-    font-size: 11px;
+    font-size: var(--text-sm);
   }
   .empty-hint kbd {
     background: var(--bg-elevated);
     border: 1px solid var(--border-subtle);
     color: var(--amber-primary);
-    padding: 1px 6px;
+    padding: 1px var(--space-sm);
     font-family: inherit;
-    font-size: 10px;
+    font-size: var(--text-xs);
   }
 
   /* D-013 — Update-available banner. Slim row, amber-bordered, sits
@@ -1724,13 +1731,13 @@
     flex-shrink: 0;
     display: flex;
     align-items: center;
-    gap: 10px;
-    padding: 0 16px;
+    gap: var(--space-md);
+    padding: 0 var(--space-lg);
     background: var(--bg-elevated);
     border-bottom: 1px solid var(--amber-primary);
     color: var(--amber-warm);
     font-family: var(--font-family);
-    font-size: 11px;
+    font-size: var(--text-sm);
     user-select: none;
   }
   .update-banner.installing {
@@ -1743,7 +1750,7 @@
   .update-glyph {
     color: var(--amber-bright);
     text-shadow: var(--glow-amber);
-    font-size: 13px;
+    font-size: var(--text-md);
   }
   .update-text {
     flex: 1;
@@ -1759,9 +1766,9 @@
     border: 1px solid var(--amber-dim);
     color: var(--amber-dim);
     font-family: inherit;
-    font-size: 10px;
+    font-size: var(--text-xs);
     letter-spacing: 0.08em;
-    padding: 3px 10px;
+    padding: 3px var(--space-md);
     cursor: pointer;
     border-radius: var(--radius-md, 4px);
     transition: color 0.12s, border-color 0.12s;

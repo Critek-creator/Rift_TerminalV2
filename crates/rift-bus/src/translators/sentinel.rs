@@ -23,7 +23,7 @@ fn sentinel_events_path() -> Option<PathBuf> {
 /// Spawn the sentinel file-tail translator.
 ///
 /// Watches `~/.sentinel/events.jsonl`. On each append, reads new lines from
-/// the last-known byte offset, parses JSON, publishes `Category::Agent`
+/// the last-known byte offset, parses JSON, publishes `Category::Sentinel`
 /// envelopes with `kind` taken from the event's `kind` field.
 ///
 /// Shuts down when `shutdown` is notified (same pattern as status translator).

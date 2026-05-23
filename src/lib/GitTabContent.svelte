@@ -446,13 +446,13 @@
   }
 
   .drag-handle {
-    height: 26px;
-    padding: 0 12px;
+    height: var(--control-sm);
+    padding: 0 var(--space-12);
     background: var(--bg-surface);
     border-bottom: 1px solid var(--border-subtle);
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: var(--space-md);
     cursor: grab;
     user-select: none;
     color: var(--amber-warm);
@@ -481,12 +481,12 @@
   }
 
   .status {
-    height: 30px;
-    padding: 0 14px;
+    height: var(--control-md);
+    padding: 0 var(--space-14);
     background: var(--bg-elevated);
     border-bottom: 1px solid var(--border-subtle);
     box-shadow: var(--depth-edge-light), var(--depth-section-sep);
-    display: flex; align-items: center; gap: 10px;
+    display: flex; align-items: center; gap: var(--space-md);
     color: var(--amber-warm);
     font-size: var(--text-sm); letter-spacing: 0.1em; font-weight: 700;
   }
@@ -494,7 +494,7 @@
     color: var(--amber-bright);
     text-shadow: var(--glow-amber-faint);
   }
-  .status .icon { margin-right: 8px; opacity: 0.85; }
+  .status .icon { margin-right: var(--space-8); opacity: 0.85; }
   .status .branch {
     color: var(--amber-warm);
     font-weight: 700;
@@ -521,7 +521,7 @@
     font-size: var(--text-2xs);
     letter-spacing: 0.1em;
     font-weight: 700;
-    padding: 2px 8px;
+    padding: 2px var(--space-8);
     cursor: pointer;
     text-transform: uppercase;
     transition: color var(--duration-base) ease-out, background var(--duration-base) ease-out, border-color var(--duration-base) ease-out, box-shadow var(--duration-base) ease-out, opacity var(--duration-base) ease-out;
@@ -552,8 +552,8 @@
   .actions {
     display: flex;
     align-items: center;
-    gap: 8px;
-    padding: 6px 14px;
+    gap: var(--space-8);
+    padding: var(--space-sm) var(--space-14);
     border-bottom: 1px solid var(--border-subtle);
     background: var(--bg-elevated);
     flex-wrap: wrap;
@@ -561,8 +561,8 @@
   .action-banner {
     display: inline-flex;
     align-items: center;
-    gap: 8px;
-    padding: 2px 8px;
+    gap: var(--space-8);
+    padding: 2px var(--space-8);
     border: 1px solid var(--term-green, #4FE855);
     color: var(--term-green, #4FE855);
     font-size: var(--text-2xs);
@@ -598,12 +598,12 @@
   }
 
   .commit-form {
-    padding: 8px 14px 10px;
+    padding: var(--space-8) var(--space-14) var(--space-md);
     border-bottom: 1px solid var(--border-subtle);
     background: var(--bg-panel);
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: var(--space-sm);
   }
   .commit-input {
     background: var(--bg-base);
@@ -611,7 +611,7 @@
     color: var(--amber-warm);
     font-family: inherit;
     font-size: var(--text-sm);
-    padding: 6px 8px;
+    padding: var(--space-sm) var(--space-8);
     resize: vertical;
     min-height: 32px;
   }
@@ -622,14 +622,14 @@
   }
   .commit-buttons {
     display: flex;
-    gap: 6px;
+    gap: var(--space-sm);
     justify-content: flex-end;
   }
 
   .chip {
     display: inline-flex;
     align-items: center;
-    padding: 1px 6px;
+    padding: 1px var(--space-sm);
     border: 1px solid var(--amber-faint);
     color: var(--amber-warm);
     font-size: var(--text-2xs);
@@ -649,10 +649,10 @@
 
   .strip {
     min-height: 28px;
-    padding: 4px 14px;
+    padding: var(--space-xs) var(--space-14);
     border-bottom: 1px solid var(--border-subtle);
     box-shadow: var(--depth-edge-light);
-    display: flex; align-items: center; gap: 10px;
+    display: flex; align-items: center; gap: var(--space-md);
     background: linear-gradient(to bottom, rgba(212, 137, 10, 0.05), transparent);
     color: var(--amber-dim);
     font-size: var(--text-xs);
@@ -681,7 +681,7 @@
   .log-body {
     flex: 1;
     overflow-y: auto;
-    padding: 6px 16px 10px;
+    padding: var(--space-sm) var(--space-lg) var(--space-md);
     color: var(--amber-warm);
     font-size: var(--text-sm);
     box-shadow: var(--depth-inset);
@@ -695,7 +695,7 @@
   .empty {
     color: var(--amber-faint);
     font-style: italic;
-    padding: 6px 0;
+    padding: var(--space-sm) 0;
   }
   .empty.error { color: var(--term-red); font-style: normal; }
 
@@ -705,18 +705,18 @@
     font-weight: 700;
     letter-spacing: 0.14em;
     text-transform: uppercase;
-    padding: 6px 0 2px;
+    padding: var(--space-sm) 0 2px;
     border-bottom: 1px dashed var(--border-subtle);
-    margin-top: 4px;
+    margin-top: var(--space-xs);
   }
   .group-header:first-of-type { margin-top: 0; }
 
   .row {
     display: grid;
     grid-template-columns: 24px 1fr;
-    gap: 12px;
+    gap: var(--space-12);
     align-items: baseline;
-    padding: 2px 4px;
+    padding: 2px var(--space-xs);
     background: transparent;
     border: none;
     border-left: 2px solid transparent;
@@ -762,15 +762,15 @@
     border-bottom: 1px solid var(--border-subtle);
   }
   .state-body {
-    padding: 10px 16px 14px;
+    padding: var(--space-md) var(--space-lg) var(--space-14);
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: var(--space-xs);
   }
   .commit-row {
     display: flex;
     align-items: baseline;
-    gap: 10px;
+    gap: var(--space-md);
   }
   .commit-hash {
     color: var(--amber-bright);
@@ -790,5 +790,5 @@
     font-size: var(--text-xs);
     letter-spacing: 0.04em;
   }
-  .commit-sep { margin: 0 6px; }
+  .commit-sep { margin: 0 var(--space-sm); }
 </style>

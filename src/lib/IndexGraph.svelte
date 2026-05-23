@@ -625,7 +625,7 @@
     height: 100%;
     background: var(--bg-base);
     font-family: var(--font-family);
-    font-size: 12px;
+    font-size: var(--text-base);
     color: var(--amber-warm);
     user-select: none;
   }
@@ -634,8 +634,8 @@
   .browser-header {
     display: flex;
     align-items: center;
-    gap: 8px;
-    padding: 8px 12px;
+    gap: var(--space-8);
+    padding: var(--space-8) var(--space-12);
     background: var(--bg-surface);
     border-bottom: 1px solid var(--border-subtle);
     flex-shrink: 0;
@@ -645,13 +645,13 @@
     gap: 0;
   }
   .mode-btn {
-    padding: 3px 10px;
+    padding: 3px var(--space-md);
     border: 1px solid var(--border-subtle);
     border-radius: var(--radius-md, 4px);
     background: var(--bg-elevated);
     color: var(--amber-faint);
     font-family: inherit;
-    font-size: 9px;
+    font-size: var(--text-2xs);
     font-weight: 700;
     letter-spacing: 0.1em;
     cursor: pointer;
@@ -671,13 +671,13 @@
     background: var(--bg-hover);
   }
   .browser-title {
-    font-size: 9px;
+    font-size: var(--text-2xs);
     font-weight: 700;
     letter-spacing: 0.14em;
     color: var(--amber-dim);
   }
   .browser-count {
-    font-size: 9px;
+    font-size: var(--text-2xs);
     font-weight: 700;
     color: var(--bg-base);
     background: var(--amber-dim);
@@ -689,14 +689,14 @@
   .browser-search {
     flex: 1;
     min-width: 0;
-    height: 26px;
+    height: var(--control-sm);
     background: var(--bg-base);
     border: 1px solid var(--border-subtle);
     border-radius: var(--radius-md, 4px);
     color: var(--amber-warm);
     font-family: inherit;
-    font-size: 11px;
-    padding: 0 10px;
+    font-size: var(--text-sm);
+    padding: 0 var(--space-md);
     outline: none;
     transition: border-color 0.15s, box-shadow 0.15s;
   }
@@ -714,8 +714,8 @@
   .kind-chips {
     display: flex;
     flex-wrap: wrap;
-    gap: 4px;
-    padding: 6px 12px 8px;
+    gap: var(--space-xs);
+    padding: var(--space-sm) var(--space-12) var(--space-8);
     background: var(--bg-surface);
     border-bottom: 1px solid var(--border-subtle);
     flex-shrink: 0;
@@ -723,14 +723,14 @@
   .kind-chip {
     display: flex;
     align-items: center;
-    gap: 4px;
-    padding: 3px 8px;
+    gap: var(--space-xs);
+    padding: 3px var(--space-8);
     border: 1px solid var(--border-subtle);
     border-radius: 12px;
     background: var(--bg-elevated);
     color: var(--amber-dim);
     font-family: inherit;
-    font-size: 9px;
+    font-size: var(--text-2xs);
     font-weight: 600;
     letter-spacing: 0.06em;
     cursor: pointer;
@@ -776,8 +776,8 @@
   .recents-header {
     display: flex;
     align-items: center;
-    gap: 6px;
-    padding: 6px 12px;
+    gap: var(--space-sm);
+    padding: var(--space-sm) var(--space-12);
     font-size: var(--section-header-size, 11px);
     font-weight: 700;
     letter-spacing: var(--section-header-spacing, 0.1em);
@@ -787,7 +787,7 @@
     background: var(--bg-surface);
   }
   .recents-glyph {
-    font-size: 10px;
+    font-size: var(--text-xs);
     text-shadow: var(--glow-amber);
   }
   .recent-row {
@@ -813,10 +813,10 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 8px;
-    padding: 24px 12px;
+    gap: var(--space-8);
+    padding: var(--space-24) var(--space-12);
     color: var(--amber-faint);
-    font-size: 11px;
+    font-size: var(--text-sm);
     font-style: italic;
   }
   .loading-glyph {
@@ -833,15 +833,15 @@
   .category-header {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--space-8);
     width: 100%;
-    padding: 7px 12px;
+    padding: 7px var(--space-12);
     background: var(--bg-surface);
     border: none;
     border-bottom: 1px solid var(--border-subtle);
     color: var(--amber-dim);
     font-family: inherit;
-    font-size: 10px;
+    font-size: var(--text-xs);
     font-weight: 700;
     letter-spacing: 0.1em;
     cursor: pointer;
@@ -853,7 +853,7 @@
     background: var(--bg-hover);
   }
   .category-chevron {
-    font-size: 10px;
+    font-size: var(--text-xs);
     transition: transform 0.15s ease;
     display: inline-block;
     width: 12px;
@@ -863,7 +863,7 @@
   .category-glyph { font-size: 11px; }
   .category-label { flex: 1; }
   .category-count {
-    font-size: 9px;
+    font-size: var(--text-2xs);
     color: var(--amber-faint);
     font-weight: 400;
   }
@@ -877,15 +877,15 @@
   .vault-row {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--space-8);
     width: 100%;
-    padding: 5px 12px 5px 22px;
+    padding: 5px var(--space-12) 5px 22px;
     background: transparent;
     border: none;
     border-left: 2px solid transparent;
     color: var(--amber-warm);
     font-family: inherit;
-    font-size: 11px;
+    font-size: var(--text-sm);
     cursor: pointer;
     text-align: left;
     transition: background 0.1s, border-color 0.1s, color 0.1s;
@@ -935,7 +935,7 @@
 
   /* Vault row elements */
   .vault-glyph {
-    font-size: 10px;
+    font-size: var(--text-xs);
     width: 14px;
     text-align: center;
     flex-shrink: 0;
@@ -953,19 +953,19 @@
     text-overflow: ellipsis;
     white-space: nowrap;
     color: var(--amber-dim);
-    font-size: 10px;
+    font-size: var(--text-xs);
   }
   .vault-age {
-    font-size: 9px;
+    font-size: var(--text-2xs);
     color: var(--amber-faint);
     font-style: italic;
     flex-shrink: 0;
   }
   .vault-refs {
-    font-size: 9px;
+    font-size: var(--text-2xs);
     color: var(--amber-faint);
     flex-shrink: 0;
-    padding: 0 4px;
+    padding: 0 var(--space-xs);
     border: 1px solid var(--border-subtle);
     line-height: 14px;
   }
@@ -981,14 +981,14 @@
 
   /* Selected vault detail */
   .vault-detail {
-    padding: 6px 10px 8px 42px;
+    padding: var(--space-sm) var(--space-md) var(--space-8) 42px;
     background: var(--bg-surface);
     border-left: 2px solid var(--amber-dim);
-    font-size: 10px;
+    font-size: var(--text-xs);
   }
   .detail-row {
     display: flex;
-    gap: 8px;
+    gap: var(--space-8);
     padding: 2px 0;
     align-items: baseline;
   }
@@ -1010,14 +1010,14 @@
   .detail-links {
     display: flex;
     flex-wrap: wrap;
-    gap: 4px;
+    gap: var(--space-xs);
     white-space: normal;
   }
   .detail-link {
-    padding: 1px 6px;
+    padding: 1px var(--space-sm);
     border: 1px solid var(--border-subtle);
     cursor: pointer;
-    font-size: 9px;
+    font-size: var(--text-2xs);
     transition: border-color 0.12s, background 0.12s;
   }
   .detail-link:hover {
@@ -1032,12 +1032,12 @@
     z-index: 5000;
     display: flex;
     align-items: center;
-    gap: 6px;
-    padding: 4px 10px;
+    gap: var(--space-sm);
+    padding: var(--space-xs) var(--space-md);
     background: var(--bg-elevated);
     border: 1px solid var(--amber-dim);
     font-family: var(--font-family);
-    font-size: 11px;
+    font-size: var(--text-sm);
     color: var(--amber-bright);
     box-shadow: 0 2px 12px rgba(0, 0, 0, 0.5);
     opacity: 0.92;

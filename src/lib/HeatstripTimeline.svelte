@@ -290,7 +290,7 @@
   .heatstrip-wrap {
     position: relative;
     width: 100%;
-    height: 16px;
+    height: var(--space-lg);
     flex-shrink: 0;
     border-radius: var(--radius-md, 4px);
     overflow: hidden;
@@ -302,7 +302,7 @@
   .heatstrip-canvas {
     display: block;
     width: 100%;
-    height: 16px;
+    height: var(--space-lg);
   }
 
   .heatstrip-tooltip {
@@ -313,7 +313,7 @@
     border: 1px solid var(--border-subtle, #2a2418);
     color: var(--amber-warm, #F0A030);
     font-family: var(--font-family, 'JetBrains Mono', monospace);
-    font-size: 9px;
+    font-size: var(--text-2xs);
     letter-spacing: 0.04em;
     padding: 2px 6px;
     white-space: nowrap;

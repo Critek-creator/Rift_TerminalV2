@@ -448,10 +448,29 @@
       term?.write(new Uint8Array(chunk));
     };
 
+    // Guard: start the PTY with at least 80×24 so the shell prompt always
+    // has a usable buffer. If fit() couldn't compute real dimensions (host
+    // still 0-sized because WebView2 window hasn't unminimized yet, or
+    // flex layout hasn't settled), xterm may report tiny rows/cols. Starting
+    // a PTY at 2×1 loses the prompt — the shell writes it, but xterm's
+    // tiny ring buffer discards the bytes. Clamping here ensures the
+    // prompt survives; the recovery timer + ResizeObserver correct to real
+    // dimensions once layout settles.
+    const startRows = Math.max(term.rows, 24);
+    const startCols = Math.max(term.cols, 80);
+
+    // Sync xterm's viewport to match what we'll tell the PTY. Without
+    // this, the PTY writes 80-col output but xterm renders in a 2-col
+    // viewport, causing garbled wrapping until the recovery timer
+    // corrects both sides. Aligning up-front eliminates the flash.
+    if (term.rows !== startRows || term.cols !== startCols) {
+      term.resize(startCols, startRows);
+    }
+
     try {
       sessionId = await invoke<number>('pty_start', {
-        rows: term.rows,
-        cols: term.cols,
+        rows: startRows,
+        cols: startCols,
         onChunk,
         cwd: projectPath ?? undefined,
       });
@@ -491,6 +510,19 @@
       if ((term && term.rows > 1 && term.cols > 1) || recoveryAttempts >= 15) {
         clearInterval(recoveryTimer);
         recoveryTimer = undefined;
+        // Last-resort prompt recovery: if the terminal buffer is still
+        // empty after all recovery attempts, the shell's initial prompt
+        // was lost (written before xterm had a usable buffer). Send
+        // Ctrl+L (form feed) — the universal clear-and-redraw signal —
+        // to force the shell to re-emit its prompt.
+        if (sessionId !== null && alive && term) {
+          const line = term.buffer.active.getLine(0);
+          const text = line?.translateToString().trim() ?? '';
+          if (!text) {
+            const ctrlL = Array.from(encoder.encode('\x0c'));
+            invoke('pty_write', { id: sessionId, bytes: ctrlL }).catch(() => {});
+          }
+        }
       }
     }, 200);
 
@@ -600,7 +632,7 @@
     position: relative;
     flex: 1;
     background: var(--bg-base);
-    padding: 8px;
+    padding: var(--space-8);
     overflow: hidden;
     min-height: 0;
   }

@@ -574,12 +574,12 @@
     max-width: 280px;
     box-shadow: var(--shadow-flyout);
     pointer-events: none;
-    font-size: 10px;
+    font-size: var(--text-xs);
   }
 
   .tooltip-tool {
     font-weight: 700;
-    font-size: 11px;
+    font-size: var(--text-sm);
     letter-spacing: 0.06em;
     margin-bottom: 4px;
     padding-bottom: 4px;
@@ -589,13 +589,13 @@
   .tooltip-row {
     display: flex;
     justify-content: space-between;
-    gap: 12px;
+    gap: var(--space-12);
     padding: 1px 0;
   }
 
   .tooltip-k {
     color: var(--amber-faint);
-    font-size: 9px;
+    font-size: var(--text-2xs);
     text-transform: uppercase;
     letter-spacing: 0.06em;
   }
@@ -608,7 +608,7 @@
 
   .corr-id {
     color: var(--term-purple);
-    font-size: 9px;
+    font-size: var(--text-2xs);
     font-family: var(--font-family);
   }
 
@@ -629,7 +629,7 @@
   .detail-header {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: var(--space-12);
     padding: 6px 14px;
     border-bottom: 1px solid var(--border-subtle);
     flex-shrink: 0;
@@ -637,12 +637,12 @@
 
   .detail-title {
     font-weight: 700;
-    font-size: 11px;
+    font-size: var(--text-sm);
     letter-spacing: 0.06em;
   }
 
   .detail-status {
-    font-size: 9px;
+    font-size: var(--text-2xs);
     font-weight: 700;
     letter-spacing: 0.08em;
     padding: 1px 6px;
@@ -651,7 +651,7 @@
 
   .detail-dur {
     color: var(--amber-dim);
-    font-size: 10px;
+    font-size: var(--text-xs);
     font-variant-numeric: tabular-nums;
   }
 
@@ -661,7 +661,7 @@
     border: 1px solid var(--border-subtle);
     color: var(--amber-faint);
     font-family: var(--font-family);
-    font-size: 10px;
+    font-size: var(--text-xs);
     padding: 1px 6px;
     cursor: pointer;
     border-radius: var(--radius-sm);
@@ -682,12 +682,12 @@
     padding: 8px 14px 12px;
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: var(--space-8);
   }
 
   .detail-section-title {
     color: var(--amber-warm);
-    font-size: 9px;
+    font-size: var(--text-2xs);
     font-weight: 700;
     letter-spacing: 0.12em;
     margin-bottom: 4px;
@@ -699,7 +699,7 @@
     border-radius: var(--radius-sm);
     padding: 8px 10px;
     font-family: var(--font-family);
-    font-size: 10px;
+    font-size: var(--text-xs);
     color: var(--amber-dim);
     white-space: pre-wrap;
     word-break: break-all;
@@ -721,7 +721,7 @@
   .empty-title {
     color: var(--term-blue);
     font-weight: 700;
-    font-size: 11px;
+    font-size: var(--text-sm);
     letter-spacing: 0.1em;
     text-transform: uppercase;
     margin-bottom: 6px;
@@ -729,7 +729,7 @@
 
   .empty-desc {
     color: var(--amber-dim);
-    font-size: 10px;
+    font-size: var(--text-xs);
     max-width: 320px;
     text-align: center;
     line-height: 1.5;

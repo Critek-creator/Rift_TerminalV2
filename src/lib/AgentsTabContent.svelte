@@ -421,14 +421,14 @@
 <style>
   .connecting-state {
     color: var(--amber-faint);
-    padding: 1rem 14px;
+    padding: 1rem var(--space-14);
     font-style: italic;
     font-size: var(--text-sm);
     letter-spacing: 0.04em;
   }
   .connect-error {
     color: var(--term-red);
-    padding: 8px 14px;
+    padding: var(--space-8) var(--space-14);
     font-style: italic;
     font-size: var(--text-sm);
     letter-spacing: 0.04em;
@@ -446,13 +446,13 @@
   }
 
   .drag-handle {
-    height: 26px;
-    padding: 0 12px;
+    height: var(--control-sm);
+    padding: 0 var(--space-12);
     background: var(--bg-surface);
     border-bottom: 1px solid var(--border-subtle);
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: var(--space-md);
     cursor: grab;
     user-select: none;
     color: var(--amber-warm);
@@ -480,12 +480,12 @@
   }
 
   .status {
-    height: 30px;
-    padding: 0 14px;
+    height: var(--control-md);
+    padding: 0 var(--space-14);
     background: var(--bg-elevated);
     border-bottom: 1px solid var(--border-subtle);
     box-shadow: var(--depth-edge-light), var(--depth-section-sep);
-    display: flex; align-items: center; gap: 14px;
+    display: flex; align-items: center; gap: var(--space-14);
     color: var(--amber-warm);
     font-size: var(--text-sm); letter-spacing: 0.1em; font-weight: 700;
   }
@@ -493,7 +493,7 @@
     color: var(--term-purple);
     text-shadow: 0 0 6px rgba(176, 120, 232, 0.4);
   }
-  .status .icon { margin-right: 8px; opacity: 0.85; }
+  .status .icon { margin-right: var(--space-8); opacity: 0.85; }
   .status .state {
     color: var(--amber-dim);
     font-weight: 400;
@@ -501,18 +501,18 @@
   }
 
   .heatstrip-row {
-    padding: 4px 14px;
+    padding: var(--space-xs) var(--space-14);
     background: var(--bg-elevated);
     border-bottom: 1px solid var(--border-subtle);
     flex-shrink: 0;
   }
 
   .strip {
-    height: 26px;
-    padding: 0 14px;
+    height: var(--control-sm);
+    padding: 0 var(--space-14);
     border-bottom: 1px solid var(--border-subtle);
     box-shadow: var(--depth-edge-light);
-    display: flex; align-items: center; gap: 8px;
+    display: flex; align-items: center; gap: var(--space-8);
     background: linear-gradient(to bottom, rgba(176, 120, 232, 0.05), transparent);
     color: var(--amber-dim);
     font-size: var(--text-xs);
@@ -524,8 +524,8 @@
   .strip-event {
     display: inline-flex;
     align-items: center;
-    gap: 4px;
-    padding: 1px 6px;
+    gap: var(--space-xs);
+    padding: 1px var(--space-sm);
     border: 1px solid var(--term-purple);
     color: var(--term-purple);
     font-size: var(--text-2xs);
@@ -547,7 +547,7 @@
   .strip-overflow {
     color: var(--amber-faint);
     font-style: italic;
-    margin-left: 4px;
+    margin-left: var(--space-xs);
   }
 
   .log {
@@ -569,7 +569,7 @@
   .log-body {
     flex: 1;
     overflow-y: auto;
-    padding: 10px 16px;
+    padding: var(--space-md) var(--space-lg);
     color: var(--amber-warm);
     font-size: var(--text-sm);
     line-height: 1.5;
@@ -586,7 +586,7 @@
 
   .capability-card {
     border: 1px dashed var(--border-subtle);
-    padding: 12px 14px;
+    padding: var(--space-12) var(--space-14);
     background: rgba(176, 120, 232, 0.05);
     color: var(--amber-warm);
     font-size: var(--text-sm);
@@ -598,11 +598,11 @@
     font-size: var(--text-sm);
     letter-spacing: 0.1em;
     text-transform: uppercase;
-    margin-bottom: 8px;
+    margin-bottom: var(--space-8);
   }
   .cap-subtitle {
     color: var(--amber-warm);
-    margin-bottom: 10px;
+    margin-bottom: var(--space-md);
   }
   .cap-protocol {
     color: var(--amber-dim);
@@ -614,20 +614,20 @@
   }
   .cap-protocol ul {
     list-style: none;
-    padding: 6px 0 8px;
+    padding: var(--space-sm) 0 var(--space-8);
     margin: 0;
     display: flex;
     flex-direction: column;
     gap: 2px;
   }
   .cap-protocol li {
-    padding-left: 12px;
+    padding-left: var(--space-12);
     position: relative;
   }
   .cap-protocol li::before {
     content: '·';
     position: absolute;
-    left: 4px;
+    left: var(--space-xs);
     color: var(--amber-faint);
   }
   .cap-payload { color: var(--amber-faint); font-style: italic; }
@@ -635,11 +635,11 @@
   .card {
     border: 1px solid var(--term-purple);
     background: rgba(176, 120, 232, 0.06);
-    padding: 8px 10px;
-    margin-bottom: 6px;
+    padding: var(--space-8) var(--space-md);
+    margin-bottom: var(--space-sm);
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: var(--space-xs);
   }
   .card.inactive {
     border-color: var(--amber-faint);
@@ -652,7 +652,7 @@
   .card-row {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--space-8);
   }
   .card-name {
     color: var(--term-purple);
@@ -663,7 +663,7 @@
   .card-kind {
     color: var(--amber-warm);
     border: 1px solid var(--amber-faint);
-    padding: 0 4px;
+    padding: 0 var(--space-xs);
     font-size: var(--text-2xs);
     font-weight: 600;
     letter-spacing: 0.06em;
@@ -680,7 +680,7 @@
     font-weight: 700;
     letter-spacing: 0.08em;
     text-transform: uppercase;
-    padding: 1px 6px;
+    padding: 1px var(--space-sm);
     border: 1px solid currentColor;
   }
   .card-running {
@@ -699,7 +699,7 @@
     font-family: inherit;
     font-size: var(--text-lg);
     line-height: 1;
-    padding: 0 6px;
+    padding: 0 var(--space-sm);
     cursor: pointer;
     transition: background var(--duration-base) ease-out, color var(--duration-base) ease-out;
   }
@@ -731,7 +731,7 @@
     color: var(--amber-warm);
     font-size: var(--text-xs);
     background: var(--bg-surface);
-    padding: 4px 8px;
+    padding: var(--space-xs) var(--space-8);
     border-left: 2px solid var(--term-purple);
     overflow: hidden;
     text-overflow: ellipsis;
@@ -782,7 +782,7 @@
   }
   .archive-clear:hover { color: var(--term-red); }
   .state-body {
-    padding: 10px 16px 14px;
+    padding: var(--space-md) var(--space-lg) var(--space-14);
     display: flex;
     flex-direction: column;
     gap: 2px;
@@ -790,7 +790,7 @@
   .archive-row {
     display: grid;
     grid-template-columns: 80px 1fr 60px 80px;
-    gap: 10px;
+    gap: var(--space-md);
     align-items: baseline;
     font-size: var(--text-xs);
     padding: 1px 0;
@@ -823,7 +823,7 @@
     color: var(--amber-faint);
     font-style: italic;
     font-size: var(--text-2xs);
-    padding-top: 4px;
+    padding-top: var(--space-xs);
   }
 
 </style>

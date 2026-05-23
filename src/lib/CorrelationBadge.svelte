@@ -62,7 +62,7 @@
     border: 1px solid var(--border-blue-tint);
     color: var(--term-blue);
     font-family: var(--font-family);
-    font-size: 9px;
+    font-size: var(--text-2xs);
     font-weight: 600;
     padding: 0 4px;
     border-radius: 3px;
@@ -82,14 +82,14 @@
     background: var(--bg-elevated);
     border: 1px solid var(--border-subtle);
     border-radius: var(--radius-md, 4px);
-    padding: 8px 10px;
+    padding: var(--space-8) var(--space-md);
     min-width: 240px;
     max-width: 360px;
     box-shadow: var(--shadow-flyout);
   }
   .corr-flyout-title {
     color: var(--amber-warm);
-    font-size: 10px;
+    font-size: var(--text-xs);
     font-weight: 700;
     letter-spacing: 0.08em;
     text-transform: uppercase;
@@ -100,9 +100,9 @@
   .corr-event {
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: var(--space-sm);
     padding: 2px 0;
-    font-size: 10px;
+    font-size: var(--text-xs);
   }
   .corr-dot {
     width: 6px;
@@ -112,12 +112,12 @@
   }
   .corr-ts {
     color: var(--amber-faint);
-    font-size: 9px;
+    font-size: var(--text-2xs);
     flex-shrink: 0;
   }
   .corr-cat {
     font-weight: 600;
-    font-size: 9px;
+    font-size: var(--text-2xs);
     text-transform: uppercase;
     letter-spacing: 0.04em;
     flex-shrink: 0;

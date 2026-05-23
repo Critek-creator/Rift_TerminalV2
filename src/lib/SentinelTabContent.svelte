@@ -283,7 +283,7 @@
 <style>
   .connecting-state {
     color: var(--amber-faint);
-    padding: 1rem 14px;
+    padding: 1rem var(--space-14);
     font-style: italic;
     font-size: var(--text-sm);
     letter-spacing: 0.04em;
@@ -301,13 +301,13 @@
   }
 
   .drag-handle {
-    height: 26px;
-    padding: 0 12px;
+    height: var(--control-sm);
+    padding: 0 var(--space-12);
     background: var(--bg-surface);
     border-bottom: 1px solid var(--border-subtle);
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: var(--space-md);
     cursor: grab;
     user-select: none;
     color: var(--amber-warm);
@@ -335,23 +335,23 @@
   }
 
   .status {
-    height: 30px;
-    padding: 0 14px;
+    height: var(--control-md);
+    padding: 0 var(--space-14);
     background: var(--bg-elevated);
     border-bottom: 1px solid var(--border-subtle);
     box-shadow: var(--depth-edge-light), var(--depth-section-sep);
-    display: flex; align-items: center; gap: 14px;
+    display: flex; align-items: center; gap: var(--space-14);
     color: var(--amber-warm);
     font-size: var(--text-sm); letter-spacing: 0.1em; font-weight: 700;
   }
   .status .title { color: var(--term-red); text-shadow: 0 0 4px rgba(255, 72, 72, 0.35); }
-  .status .icon { margin-right: 8px; opacity: 0.85; }
+  .status .icon { margin-right: var(--space-8); opacity: 0.85; }
   .status .state { color: var(--amber-dim); font-weight: 400; letter-spacing: 0.04em; }
   .status .spacer { flex: 1; }
 
   .ctrl-btn {
     background: none; border: 1px solid var(--border-subtle);
-    color: var(--amber-warm); padding: 1px 8px;
+    color: var(--amber-warm); padding: 1px var(--space-8);
     font-family: inherit; font-size: var(--text-xs); cursor: pointer;
     transition: background var(--duration-base), border-color var(--duration-base);
   }
@@ -360,10 +360,10 @@
 
   .strip {
     height: 26px;
-    padding: 0 14px;
+    padding: 0 var(--space-14);
     border-bottom: 1px solid var(--border-subtle);
     box-shadow: var(--depth-edge-light);
-    display: flex; align-items: center; gap: 14px;
+    display: flex; align-items: center; gap: var(--space-14);
     background: linear-gradient(to bottom, rgba(255, 72, 72, 0.04), transparent);
     color: var(--amber-dim);
     font-size: var(--text-xs);
@@ -372,9 +372,9 @@
   }
   .strip-label { color: var(--term-red); font-weight: 700; }
   .strip-empty { color: var(--amber-faint); font-style: italic; letter-spacing: 0.04em; }
-  .strip-events { display: flex; gap: 6px; flex: 1; overflow: hidden; }
+  .strip-events { display: flex; gap: var(--space-sm); flex: 1; overflow: hidden; }
   .strip-event {
-    padding: 1px 6px;
+    padding: 1px var(--space-sm);
     border: 1px solid;
     font-size: var(--text-2xs);
     font-weight: 600;
@@ -406,7 +406,7 @@
     overflow-y: auto;
     overflow-x: hidden;
     min-width: 0;
-    padding: 10px 16px;
+    padding: var(--space-md) var(--space-lg);
     font-size: var(--text-sm);
     line-height: 1.5;
     box-shadow: var(--depth-inset);
@@ -416,7 +416,7 @@
 
   .error-state {
     color: var(--term-red);
-    padding: 12px 14px;
+    padding: var(--space-12) var(--space-14);
     font-size: var(--text-sm);
     letter-spacing: 0.04em;
     border-bottom: 1px solid rgba(255, 72, 72, 0.2);
@@ -425,29 +425,29 @@
 
   .empty-card {
     border: 1px dashed var(--border-subtle);
-    padding: 24px 20px;
+    padding: var(--space-24) var(--space-xl);
     text-align: center;
     color: var(--amber-faint);
-    margin: 12px 0;
+    margin: var(--space-12) 0;
   }
   .empty-glyph {
-    font-size: 32px;
+    font-size: var(--space-2xl);
     color: var(--term-red);
     opacity: 0.5;
-    margin-bottom: 12px;
+    margin-bottom: var(--space-12);
   }
   .empty-title {
     color: var(--amber-warm);
     font-weight: 700;
     font-size: var(--text-base);
     letter-spacing: 0.08em;
-    margin-bottom: 8px;
+    margin-bottom: var(--space-8);
   }
   .empty-desc {
     font-size: var(--text-sm);
     line-height: 1.6;
     max-width: 320px;
-    margin: 0 auto 8px;
+    margin: 0 auto var(--space-8);
     color: var(--amber-dim);
   }
   .empty-hint {
@@ -459,8 +459,8 @@
   .all-clear {
     display: flex;
     align-items: center;
-    gap: 10px;
-    padding: 16px;
+    gap: var(--space-md);
+    padding: var(--space-lg);
     color: var(--term-green);
     font-size: var(--text-base);
     font-weight: 600;
@@ -471,7 +471,7 @@
   .row {
     display: flex;
     align-items: baseline;
-    gap: 8px;
+    gap: var(--space-8);
     padding: 3px 0;
     border-bottom: 1px solid rgba(168, 120, 48, 0.06);
     min-width: 0;
@@ -528,7 +528,7 @@
     border-bottom: 1px solid var(--border-subtle);
     box-shadow: var(--depth-edge-light), var(--depth-section-sep);
   }
-  .state-body { padding: 10px 16px; }
+  .state-body { padding: var(--space-md) var(--space-lg); }
   .k-row {
     display: flex;
     justify-content: space-between;

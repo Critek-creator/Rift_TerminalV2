@@ -308,13 +308,13 @@
   }
 
   .drag-handle {
-    height: 26px;
-    padding: 0 12px;
+    height: var(--control-sm);
+    padding: 0 var(--space-12);
     background: var(--bg-surface);
     border-bottom: 1px solid var(--border-subtle);
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: var(--space-md);
     cursor: grab;
     user-select: none;
     color: var(--amber-warm);
@@ -342,12 +342,12 @@
   }
 
   .status {
-    height: 30px;
-    padding: 0 14px;
+    height: var(--control-md);
+    padding: 0 var(--space-14);
     background: var(--bg-elevated);
     border-bottom: 1px solid var(--border-subtle);
     box-shadow: var(--depth-edge-light), var(--depth-section-sep);
-    display: flex; align-items: center; gap: 14px;
+    display: flex; align-items: center; gap: var(--space-14);
     color: var(--amber-warm);
     font-size: var(--text-sm); letter-spacing: 0.1em; font-weight: 700;
   }
@@ -357,7 +357,7 @@
   .status .spacer { flex: 1; }
 
   .heatstrip-row {
-    padding: 4px 14px;
+    padding: var(--space-xs) var(--space-14);
     background: var(--bg-elevated);
     border-bottom: 1px solid var(--border-subtle);
     flex-shrink: 0;
@@ -368,7 +368,7 @@
     padding: 0 14px;
     border-bottom: 1px solid var(--border-subtle);
     box-shadow: var(--depth-edge-light);
-    display: flex; align-items: center; gap: 14px;
+    display: flex; align-items: center; gap: var(--space-14);
     background: linear-gradient(to bottom, rgba(111, 224, 224, 0.06), transparent);
     color: var(--amber-dim);
     font-size: var(--text-xs);
@@ -377,7 +377,7 @@
   }
   .strip-label { color: var(--term-cyan); font-weight: 700; }
   .strip-empty { color: var(--amber-faint); font-style: italic; letter-spacing: 0.04em; }
-  .strip-events { display: flex; gap: 6px; flex: 1; overflow: hidden; }
+  .strip-events { display: flex; gap: var(--space-sm); flex: 1; overflow: hidden; }
   .strip-event {
     padding: 1px 6px;
     border: 1px solid;
@@ -411,7 +411,7 @@
     overflow-y: auto;
     overflow-x: hidden;
     min-width: 0;
-    padding: 10px 16px;
+    padding: var(--space-md) var(--space-lg);
     color: var(--amber-warm);
     font-size: var(--text-sm);
     line-height: 1.5;
@@ -421,7 +421,7 @@
   .log-body::-webkit-scrollbar-thumb { background: var(--amber-faint); }
   .error-state {
     color: var(--term-red);
-    padding: 12px 14px;
+    padding: var(--space-12) var(--space-14);
     font-size: var(--text-sm);
     letter-spacing: 0.04em;
     border-bottom: 1px solid rgba(255, 72, 72, 0.2);
@@ -429,7 +429,7 @@
   }
   .empty-card {
     border: 1px dashed var(--border-subtle);
-    padding: 12px 14px;
+    padding: var(--space-12) var(--space-14);
     background: rgba(111, 224, 224, 0.05);
     color: var(--amber-warm);
     font-size: var(--text-sm);
@@ -441,7 +441,7 @@
     font-size: var(--text-sm);
     letter-spacing: 0.1em;
     text-transform: uppercase;
-    margin-bottom: 6px;
+    margin-bottom: var(--space-sm);
   }
   .empty-desc {
     color: var(--amber-dim);
@@ -451,7 +451,7 @@
   .log-body .row {
     display: grid;
     grid-template-columns: 70px 60px minmax(0, 1fr);
-    gap: 8px;
+    gap: var(--space-8);
     align-items: baseline;
     padding: 1px 0;
     white-space: nowrap;
@@ -484,7 +484,7 @@
   }
   .state-body {
     padding: 10px 16px 14px;
-    display: flex; flex-direction: column; gap: 4px;
+    display: flex; flex-direction: column; gap: var(--space-xs);
   }
   .k-row {
     display: flex; align-items: center; justify-content: space-between;
@@ -505,8 +505,8 @@
   .histo-kind { font-weight: 600; }
   .histo-count { color: var(--amber-warm); font-weight: 700; font-variant-numeric: tabular-nums; }
   .dir-section {
-    margin-top: 6px;
-    padding-top: 6px;
+    margin-top: var(--space-sm);
+    padding-top: var(--space-sm);
     border-top: 1px solid var(--border-subtle);
     display: flex; flex-direction: column; gap: 2px;
   }

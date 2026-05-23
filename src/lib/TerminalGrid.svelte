@@ -11,6 +11,7 @@
   // Terminal.svelte's onMount → pty_start. The grid is purely a layout concern.
 
   import Terminal from './Terminal.svelte';
+  import TerminalGrid from './TerminalGrid.svelte';
   import type { SplitNode } from './splitTypes';
 
   interface Props {
@@ -42,7 +43,7 @@
   // On first render the ratio from the SplitNode is used as the default.
   // -------------------------------------------------------------------------
 
-  /** Resolved ratio for THIS node (only relevant when node is a split). */
+  // svelte-ignore state_referenced_locally
   let ratio = $state(node.type !== 'terminal' ? node.ratio : 0.5);
 
   // Drag state for the inline splitter bar.
@@ -173,7 +174,7 @@
       class="pane-child"
       style="flex: {ratio} 1 0%; min-{node.type === 'vsplit' ? 'width' : 'height'}: 0;"
     >
-      <svelte:self
+      <TerminalGrid
         node={node.children[0]}
         {projectPath}
         bind:focusedId
@@ -200,7 +201,7 @@
       class="pane-child"
       style="flex: {1 - ratio} 1 0%; min-{node.type === 'vsplit' ? 'width' : 'height'}: 0;"
     >
-      <svelte:self
+      <TerminalGrid
         node={node.children[1]}
         {projectPath}
         bind:focusedId
@@ -322,7 +323,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 12px;
+    font-size: var(--text-base);
     line-height: 1;
     background: rgba(30, 26, 20, 0.85);
     color: var(--amber-dim, #A87830);

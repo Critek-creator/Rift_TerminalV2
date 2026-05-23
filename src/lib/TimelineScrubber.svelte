@@ -16,6 +16,7 @@
   }
 
   let { events, currentTs, onSeek, viewportMinutes: initialViewport = 5 }: Props = $props();
+  // svelte-ignore state_referenced_locally
   let activeViewportMinutes = $state(initialViewport);
 
   const LANE_COLORS: Record<string, string> = {

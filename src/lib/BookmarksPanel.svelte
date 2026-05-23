@@ -349,20 +349,20 @@
   }
   .panel-tab {
     flex: 1;
-    padding: 6px 12px;
+    padding: var(--space-sm) var(--space-12);
     background: transparent;
     border: none;
     border-bottom: 2px solid transparent;
     color: var(--amber-dim);
     font-family: var(--font-family);
-    font-size: 9px;
+    font-size: var(--text-2xs);
     font-weight: 700;
     letter-spacing: 0.1em;
     cursor: pointer;
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 6px;
+    gap: var(--space-sm);
     transition: color var(--duration-base) ease-out, border-color var(--duration-base) ease-out;
   }
   .panel-tab:hover {
@@ -377,8 +377,8 @@
     align-items: center;
     justify-content: center;
     min-width: 16px;
-    height: 14px;
-    padding: 0 4px;
+    height: var(--space-14);
+    padding: 0 var(--space-xs);
     background: rgba(255, 168, 38, 0.15);
     border-radius: 7px;
     font-size: 8px;
@@ -387,7 +387,7 @@
   }
 
   .panel-search {
-    padding: 6px 10px;
+    padding: var(--space-sm) var(--space-md);
     border-bottom: 1px solid var(--border-subtle);
   }
   .search-input {
@@ -397,8 +397,8 @@
     border-radius: var(--radius-sm);
     color: var(--amber-warm);
     font-family: var(--font-family);
-    font-size: 10px;
-    padding: 4px 8px;
+    font-size: var(--text-xs);
+    padding: var(--space-xs) var(--space-8);
     line-height: 1.4;
   }
   .search-input::placeholder {
@@ -413,14 +413,14 @@
   .panel-body {
     flex: 1;
     overflow-y: auto;
-    padding: 6px 10px 10px;
+    padding: var(--space-sm) var(--space-md) var(--space-md);
   }
 
   .empty-state {
     color: var(--amber-faint);
-    font-size: 10px;
+    font-size: var(--text-xs);
     font-style: italic;
-    padding: 8px 4px;
+    padding: var(--space-8) var(--space-xs);
     line-height: 1.5;
   }
 
@@ -435,8 +435,8 @@
   .bm-row-main {
     display: flex;
     align-items: center;
-    gap: 6px;
-    font-size: 10px;
+    gap: var(--space-sm);
+    font-size: var(--text-xs);
   }
   .bm-icon {
     flex-shrink: 0;
@@ -448,7 +448,7 @@
     border: none;
     color: var(--amber-bright);
     font-family: var(--font-family);
-    font-size: 12px;
+    font-size: var(--text-base);
     cursor: pointer;
     padding: 0;
     line-height: 1;
@@ -467,12 +467,12 @@
   .bm-ts {
     color: var(--amber-faint);
     font-variant-numeric: tabular-nums;
-    font-size: 9px;
+    font-size: var(--text-2xs);
     flex-shrink: 0;
   }
   .bm-cat {
     font-weight: 700;
-    font-size: 9px;
+    font-size: var(--text-2xs);
     letter-spacing: 0.06em;
     text-transform: uppercase;
     flex-shrink: 0;
@@ -492,7 +492,7 @@
     border: none;
     color: var(--amber-faint);
     font-family: var(--font-family);
-    font-size: 9px;
+    font-size: var(--text-2xs);
     cursor: pointer;
     padding: 0 2px;
   }
@@ -509,12 +509,12 @@
   }
   .bm-tags {
     display: flex;
-    gap: 4px;
+    gap: var(--space-xs);
     flex-wrap: wrap;
   }
   .bm-tag {
     display: inline-flex;
-    padding: 0 4px;
+    padding: 0 var(--space-xs);
     border: 1px solid;
     border-radius: 2px;
     font-size: 8px;
@@ -524,7 +524,7 @@
   }
   .bm-note {
     color: var(--amber-dim);
-    font-size: 9px;
+    font-size: var(--text-2xs);
     font-style: italic;
     line-height: 1.4;
     overflow: hidden;
@@ -537,8 +537,8 @@
   .sq-row {
     display: flex;
     align-items: center;
-    gap: 8px;
-    padding: 4px 0;
+    gap: var(--space-8);
+    padding: var(--space-xs) 0;
     border-bottom: 1px solid rgba(42, 36, 24, 0.5);
   }
   .sq-row:last-child {
@@ -546,30 +546,30 @@
   }
   .sq-name {
     color: var(--amber-warm);
-    font-size: 10px;
+    font-size: var(--text-xs);
     font-weight: 600;
     flex-shrink: 0;
   }
   .sq-meta {
     flex: 1;
     color: var(--amber-faint);
-    font-size: 9px;
+    font-size: var(--text-2xs);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
   .sq-actions {
     display: flex;
-    gap: 4px;
+    gap: var(--space-xs);
     flex-shrink: 0;
   }
 
   .sq-form {
     display: flex;
     flex-direction: column;
-    gap: 4px;
-    margin-top: 6px;
-    padding: 8px;
+    gap: var(--space-xs);
+    margin-top: var(--space-sm);
+    padding: var(--space-8);
     background: rgba(212, 137, 10, 0.05);
     border: 1px dashed var(--border-subtle);
     border-radius: var(--radius-sm);
@@ -577,11 +577,11 @@
   .sq-form-actions {
     display: flex;
     justify-content: flex-end;
-    gap: 4px;
-    margin-top: 4px;
+    gap: var(--space-xs);
+    margin-top: var(--space-xs);
   }
   .add-query-btn {
-    margin-top: 6px;
+    margin-top: var(--space-sm);
     width: 100%;
   }
 </style>

@@ -111,7 +111,7 @@
     border: none;
     color: var(--term-white, #E8E4D8);
     font-family: 'JetBrains Mono', monospace;
-    font-size: 12px;
+    font-size: var(--text-base);
     width: 200px;
     padding: 3px 6px;
     outline: none;
@@ -126,7 +126,7 @@
     border: 1px solid transparent;
     color: var(--amber-faint, #A87830);
     font-family: 'JetBrains Mono', monospace;
-    font-size: 11px;
+    font-size: var(--text-sm);
     padding: 2px 5px;
     cursor: pointer;
     border-radius: 3px;
@@ -148,7 +148,7 @@
   }
 
   .nav {
-    font-size: 9px;
+    font-size: var(--text-2xs);
     padding: 2px 4px;
   }
 </style>

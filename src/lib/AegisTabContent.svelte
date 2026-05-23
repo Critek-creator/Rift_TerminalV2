@@ -353,13 +353,13 @@
 
   /* Phase 3.5a drag handle */
   .drag-handle {
-    height: 26px;
+    height: var(--control-sm);
     padding: 0 12px;
     background: var(--bg-surface);
     border-bottom: 1px solid var(--border-subtle);
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: var(--space-md);
     cursor: grab;
     user-select: none;
     color: var(--amber-warm);
@@ -389,14 +389,14 @@
 
   /* Section 1: Status header */
   .status {
-    height: 30px;
+    height: var(--control-md);
     padding: 0 14px;
     background: var(--bg-elevated);
     border-bottom: 1px solid var(--border-subtle);
     box-shadow: var(--depth-edge-light), var(--depth-section-sep);
     display: flex;
     align-items: center;
-    gap: 14px;
+    gap: var(--space-14);
     color: var(--amber-warm);
     font-size: var(--text-sm);
     letter-spacing: 0.1em;
@@ -422,13 +422,13 @@
 
   /* Section 2: Live activity strip */
   .strip {
-    height: 26px;
+    height: var(--control-sm);
     padding: 0 14px;
     border-bottom: 1px solid var(--border-subtle);
     box-shadow: var(--depth-edge-light);
     display: flex;
     align-items: center;
-    gap: 14px;
+    gap: var(--space-14);
     background: linear-gradient(to bottom, rgba(212, 137, 10, 0.05), transparent);
     color: var(--amber-dim);
     font-size: var(--text-xs);
@@ -438,7 +438,7 @@
   }
   .strip-label { color: var(--accent); font-weight: 700; }
   .strip-empty { color: var(--amber-faint); font-style: italic; letter-spacing: 0.04em; }
-  .strip-events { display: flex; gap: 6px; flex: 1; overflow: hidden; }
+  .strip-events { display: flex; gap: var(--space-sm); flex: 1; overflow: hidden; }
   .strip-event {
     padding: 1px 6px;
     border: 1px solid var(--accent);
@@ -513,7 +513,7 @@
     padding: 10px 16px 14px;
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: var(--space-xs);
   }
   .row.k-row {
     display: flex;
@@ -543,7 +543,7 @@
   .rs-tags {
     display: flex;
     flex-wrap: wrap;
-    gap: 4px;
+    gap: var(--space-xs);
   }
   /* Scoped rule-source tag — amber-bordered small box per §10.1 style */
   .aegis-rule-source-tag {
@@ -561,7 +561,7 @@
     margin-top: 6px;
     display: flex;
     align-items: baseline;
-    gap: 8px;
+    gap: var(--space-8);
     font-size: var(--text-xs);
   }
   .skill-path-label {
@@ -582,7 +582,7 @@
   .quick-actions {
     display: flex;
     flex-direction: row;
-    gap: 6px;
+    gap: var(--space-sm);
     margin-top: 10px;
     padding-top: 8px;
     border-top: 1px solid var(--border-subtle);

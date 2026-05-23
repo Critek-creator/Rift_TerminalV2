@@ -158,8 +158,8 @@
   .welcome-header {
     display: flex;
     align-items: center;
-    gap: 10px;
-    padding: 14px 18px;
+    gap: var(--space-md);
+    padding: var(--space-14) var(--space-lg);
     border-bottom: 1px solid var(--border-subtle, rgba(255, 168, 38, 0.15));
     background: var(--bg-elevated, #1e1a14);
   }
@@ -172,7 +172,7 @@
 
   .header-title {
     flex: 1;
-    font-size: 11px;
+    font-size: var(--text-sm);
     font-weight: 700;
     letter-spacing: 0.14em;
     color: var(--amber-bright, #FFC840);
@@ -183,10 +183,10 @@
     border: 1px solid var(--amber-faint, #A87830);
     color: var(--amber-faint, #A87830);
     font-family: inherit;
-    font-size: 9px;
+    font-size: var(--text-2xs);
     font-weight: 700;
     letter-spacing: 0.1em;
-    padding: 2px 10px;
+    padding: 2px var(--space-md);
     cursor: pointer;
     transition: color 0.12s, border-color 0.12s;
   }
@@ -198,12 +198,12 @@
   .welcome-body {
     flex: 1;
     overflow-y: auto;
-    padding: 20px 24px;
+    padding: var(--space-xl) var(--space-24);
     min-height: 260px;
   }
 
   .step-title {
-    margin: 0 0 12px;
+    margin: 0 0 var(--space-12);
     font-size: 16px;
     font-weight: 700;
     color: var(--amber-bright, #FFC840);
@@ -212,9 +212,9 @@
 
   .step p {
     color: var(--term-white, #E8E4D8);
-    font-size: 13px;
+    font-size: var(--text-md);
     line-height: 1.6;
-    margin: 0 0 10px;
+    margin: 0 0 var(--space-md);
   }
   .step p strong {
     color: var(--amber-warm, #E8B840);
@@ -222,34 +222,34 @@
 
   .hint {
     color: var(--amber-faint, #A87830);
-    font-size: 10px;
+    font-size: var(--text-xs);
     font-style: italic;
-    margin-top: 14px;
+    margin-top: var(--space-14);
   }
 
   .lane-grid {
     display: grid;
     grid-template-columns: 10px 1fr 10px 1fr;
-    gap: 6px 10px;
+    gap: var(--space-sm) var(--space-md);
     align-items: center;
-    padding: 8px 0;
+    padding: var(--space-8) 0;
   }
   .lane-dot {
-    width: 8px;
-    height: 8px;
+    width: var(--space-8);
+    height: var(--space-8);
     border-radius: 50%;
   }
   .lane-label {
     color: var(--term-white, #E8E4D8);
-    font-size: 11px;
+    font-size: var(--text-sm);
   }
 
   .tag-example {
     display: inline-block;
-    font-size: 9px;
+    font-size: var(--text-2xs);
     font-weight: 700;
     letter-spacing: 0.08em;
-    padding: 1px 6px;
+    padding: 1px var(--space-sm);
     border: 1px solid var(--amber-faint, #A87830);
     border-radius: 2px;
     color: var(--amber-warm, #E8B840);
@@ -259,18 +259,18 @@
   .tab-list {
     display: flex;
     flex-direction: column;
-    gap: 6px;
-    padding: 6px 0;
+    gap: var(--space-sm);
+    padding: var(--space-sm) 0;
   }
   .tab-item {
     color: var(--term-white, #E8E4D8);
-    font-size: 12px;
+    font-size: var(--text-base);
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--space-8);
   }
   .tab-icon {
-    font-size: 13px;
+    font-size: var(--text-md);
     width: 18px;
     text-align: center;
     color: var(--amber-bright, #FFC840);
@@ -279,15 +279,15 @@
   .tip-list {
     display: flex;
     flex-direction: column;
-    gap: 6px;
-    padding: 6px 0;
+    gap: var(--space-sm);
+    padding: var(--space-sm) 0;
   }
   .tip {
     color: var(--term-white, #E8E4D8);
-    font-size: 12px;
+    font-size: var(--text-base);
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: var(--space-md);
   }
   .tip kbd {
     display: inline-block;
@@ -298,27 +298,27 @@
     border-radius: 3px;
     color: var(--amber-primary, #FFA826);
     font-family: inherit;
-    font-size: 11px;
+    font-size: var(--text-sm);
     font-weight: 600;
-    padding: 2px 8px;
+    padding: 2px var(--space-8);
   }
 
   .welcome-footer {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 12px 18px;
+    padding: var(--space-12) var(--space-lg);
     border-top: 1px solid var(--border-subtle, rgba(255, 168, 38, 0.15));
     background: var(--bg-elevated, #1e1a14);
   }
 
   .step-dots {
     display: flex;
-    gap: 6px;
+    gap: var(--space-sm);
   }
   .dot {
-    width: 8px;
-    height: 8px;
+    width: var(--space-8);
+    height: var(--space-8);
     border-radius: 50%;
     background: var(--amber-faint, #A87830);
     border: none;
@@ -333,17 +333,17 @@
 
   .step-nav {
     display: flex;
-    gap: 8px;
+    gap: var(--space-8);
   }
   .nav-btn {
     background: transparent;
     border: 1px solid var(--amber-faint, #A87830);
     color: var(--amber-faint, #A87830);
     font-family: inherit;
-    font-size: 10px;
+    font-size: var(--text-xs);
     font-weight: 700;
     letter-spacing: 0.1em;
-    padding: 5px 16px;
+    padding: 5px var(--space-lg);
     cursor: pointer;
     transition: color 0.12s, border-color 0.12s, background 0.12s;
   }

@@ -1026,7 +1026,7 @@
   :global(.node-glyph) {
     fill: var(--amber-warm);
     font-family: var(--font-family);
-    font-size: 10px;
+    font-size: var(--text-xs);
     font-weight: 700;
     text-anchor: middle;
     dominant-baseline: middle;
@@ -1051,7 +1051,7 @@
   :global(.tree-node-label) {
     fill: var(--amber-dim);
     font-family: var(--font-family);
-    font-size: 10px;
+    font-size: var(--text-xs);
     font-weight: 500;
     dominant-baseline: middle;
     pointer-events: none;
@@ -1096,7 +1096,7 @@
     border-radius: 3px;
     padding: 4px 7px;
     font-family: var(--font-family);
-    font-size: 9px;
+    font-size: var(--text-2xs);
     color: var(--amber-primary);
     white-space: nowrap;
     pointer-events: none;
@@ -1127,11 +1127,11 @@
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 8px;
-    padding: 32px 16px;
+    gap: var(--space-8);
+    padding: var(--space-2xl) var(--space-lg);
     color: var(--amber-faint);
     font-family: var(--font-family);
-    font-size: 11px;
+    font-size: var(--text-sm);
     font-style: italic;
   }
   .unavail-glyph {
@@ -1144,7 +1144,7 @@
     letter-spacing: 0.08em;
   }
   .unavail-detail {
-    font-size: 9px;
+    font-size: var(--text-2xs);
     text-align: center;
     max-width: 240px;
     word-break: break-all;
@@ -1160,13 +1160,13 @@
     z-index: 5000;
     display: flex;
     align-items: center;
-    gap: 8px;
-    padding: 4px 10px;
+    gap: var(--space-8);
+    padding: var(--space-xs) var(--space-md);
     background: rgba(15, 12, 6, 0.94);
     border: 1px solid var(--amber-bright);
     border-radius: 12px;
     font-family: var(--font-family);
-    font-size: 11px;
+    font-size: var(--text-sm);
     color: var(--amber-warm);
     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5),
                 0 0 12px rgba(255, 168, 38, 0.45);

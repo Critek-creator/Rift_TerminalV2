@@ -60,11 +60,11 @@
   .aegis-row {
     display: grid;
     grid-template-columns: 70px 52px 1fr;
-    gap: 10px;
+    gap: var(--space-md);
     align-items: baseline;
     padding: 2px 0;
     font-family: var(--font-family);
-    font-size: 11px;
+    font-size: var(--text-sm);
     line-height: 1.5;
     white-space: nowrap;
   }
@@ -75,7 +75,7 @@
   .ts {
     color: var(--amber-faint);
     font-variant-numeric: tabular-nums;
-    font-size: 10px;
+    font-size: var(--text-xs);
     flex-shrink: 0;
   }
 
@@ -85,7 +85,7 @@
     padding: 0 4px;
     border: 1px solid var(--amber-primary, #FFA826);
     color: var(--amber-primary, #FFA826);
-    font-size: 9px;
+    font-size: var(--text-2xs);
     font-weight: 700;
     letter-spacing: 0.08em;
     line-height: 1.6;
@@ -95,7 +95,7 @@
 
   .label {
     color: var(--amber-dim);
-    font-size: 10px;
+    font-size: var(--text-xs);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;

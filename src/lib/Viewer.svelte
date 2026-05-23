@@ -514,19 +514,19 @@
   .viewer-status {
     display: flex;
     align-items: center;
-    gap: 10px;
-    padding: 8px 14px;
+    gap: var(--space-md);
+    padding: var(--space-8) var(--space-14);
     border-bottom: 1px solid var(--border-subtle);
     background: linear-gradient(to bottom, var(--bg-elevated), var(--bg-surface));
     box-shadow: var(--depth-edge-light, none), var(--depth-section-sep, none);
     flex-shrink: 0;
-    font-size: 11px;
+    font-size: var(--text-sm);
     flex-wrap: wrap;
   }
 
   .viewer-path {
     color: var(--amber-dim);
-    font-size: 10px;
+    font-size: var(--text-xs);
     letter-spacing: 0.04em;
     flex: 1;
     min-width: 0;
@@ -537,14 +537,14 @@
 
   .viewer-dirty {
     color: var(--amber-bright);
-    font-size: 14px;
+    font-size: var(--text-lg);
     line-height: 1;
     text-shadow: var(--glow-amber-faint);
   }
 
   .viewer-saved {
     color: var(--term-green);
-    font-size: 10px;
+    font-size: var(--text-xs);
     letter-spacing: 0.1em;
     text-transform: uppercase;
     animation: viewer-flash 1.2s ease-out forwards;
@@ -558,7 +558,7 @@
 
   .viewer-mode {
     color: var(--amber-faint);
-    font-size: 9px;
+    font-size: var(--text-2xs);
     letter-spacing: 0.12em;
     text-transform: uppercase;
     border: 1px solid var(--border-subtle);
@@ -572,11 +572,11 @@
   .viewer-btn-cancel,
   .viewer-btn-retry {
     font-family: inherit;
-    font-size: 10px;
+    font-size: var(--text-xs);
     font-weight: 500;
     letter-spacing: 0.06em;
     cursor: pointer;
-    padding: 3px 10px;
+    padding: 3px var(--space-md);
     border-radius: var(--radius-md, 4px);
     transition: color 0.12s ease-out, background 0.12s ease-out, border-color 0.12s ease-out, box-shadow 0.12s ease-out, opacity 0.12s ease-out;
   }
@@ -634,9 +634,9 @@
      unbroken tokens (URLs, base64) break too. */
   .viewer-pre {
     margin: 0;
-    padding: 12px;
+    padding: var(--space-12);
     font-family: var(--font-family);
-    font-size: 12px;
+    font-size: var(--text-base);
     line-height: 1.55;
     /* Let Shiki's theme colors show through; only override font/spacing. */
     background: transparent !important;
@@ -648,7 +648,7 @@
   /* Shiki wraps output in a <pre><code> — make code inherit our font. */
   .viewer-pre :global(code) {
     font-family: var(--font-family);
-    font-size: 12px;
+    font-size: var(--text-base);
     line-height: 1.55;
     white-space: pre-wrap;
     overflow-wrap: anywhere;
@@ -693,14 +693,14 @@
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 8px;
-    padding: 48px 16px;
+    gap: var(--space-8);
+    padding: 48px var(--space-lg);
     color: var(--amber-faint);
-    font-size: 11px;
+    font-size: var(--text-sm);
     font-style: italic;
   }
   .viewer-loading-glyph {
-    font-size: 20px;
+    font-size: var(--space-xl);
     opacity: 0.5;
   }
 
@@ -710,10 +710,10 @@
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 12px;
-    padding: 48px 24px;
+    gap: var(--space-12);
+    padding: 48px var(--space-24);
     color: var(--term-red);
-    font-size: 11px;
+    font-size: var(--text-sm);
     text-align: center;
   }
   .viewer-error-glyph {
@@ -730,7 +730,7 @@
     background: var(--bg-elevated);
     border: 1px solid var(--term-red);
     color: var(--term-red);
-    margin-top: 4px;
+    margin-top: var(--space-xs);
   }
   .viewer-btn-retry:hover {
     background: rgba(204, 51, 51, 0.12);

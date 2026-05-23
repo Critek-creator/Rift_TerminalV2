@@ -251,7 +251,7 @@
 
   /* ---- local titlebar ---- */
   .titlebar {
-    height: 32px;
+    height: var(--control-lg);
     background: var(--bg-elevated);
     border-bottom: 1px solid var(--border-subtle);
     display: flex;
@@ -264,7 +264,7 @@
   .brand {
     color: var(--amber-primary);
     font-weight: 700;
-    font-size: 12px;
+    font-size: var(--text-base);
     letter-spacing: 0.15em;
     text-shadow: var(--glow-amber);
   }
@@ -276,7 +276,7 @@
 
   .sub {
     color: var(--amber-dim);
-    font-size: 10px;
+    font-size: var(--text-xs);
     font-weight: 400;
     letter-spacing: 0.12em;
     margin-left: 4px;
@@ -289,7 +289,7 @@
 
   .controls {
     display: flex;
-    gap: 8px;
+    gap: var(--space-8);
     align-items: center;
   }
 
@@ -298,7 +298,7 @@
     background: transparent;
     border: 1px solid var(--amber-dim);
     color: var(--amber-dim);
-    font-size: 9px;
+    font-size: var(--text-2xs);
     line-height: 12px;
     text-align: center;
     cursor: pointer;
@@ -315,7 +315,7 @@
   .btn.close {
     width: 14px;
     padding: 0;
-    font-size: 10px;
+    font-size: var(--text-xs);
   }
 
   .btn.close:hover {
@@ -354,8 +354,8 @@
 
   /* ---- pane header — matches App.svelte .pane-header exactly ---- */
   .pane-header {
-    height: 24px;
-    padding: 0 10px;
+    height: var(--space-24);
+    padding: 0 var(--space-md);
     background: var(--bg-elevated);
     border-bottom: 1px solid var(--border-subtle);
     display: flex;
@@ -363,7 +363,7 @@
     justify-content: space-between;
     color: var(--amber-warm);
     font-family: var(--font-family);
-    font-size: 9px;
+    font-size: var(--text-2xs);
     font-weight: 700;
     letter-spacing: 0.12em;
     flex-shrink: 0;
@@ -373,7 +373,7 @@
   .pane-header .meta {
     color: var(--amber-faint);
     font-weight: 400;
-    font-size: 9px;
+    font-size: var(--text-2xs);
     letter-spacing: 0.04em;
   }
 

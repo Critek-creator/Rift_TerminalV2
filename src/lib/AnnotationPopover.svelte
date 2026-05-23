@@ -151,22 +151,22 @@
   }
 
   .popover-header {
-    padding: 8px 12px;
+    padding: var(--space-8) 12px;
     background: var(--bg-surface);
     border-bottom: 1px solid var(--border-subtle);
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: var(--space-md);
   }
   .popover-title {
     color: var(--amber-bright);
-    font-size: 10px;
+    font-size: var(--text-xs);
     font-weight: 700;
     letter-spacing: 0.1em;
   }
   .popover-kind {
     color: var(--amber-faint);
-    font-size: 9px;
+    font-size: var(--text-2xs);
     letter-spacing: 0.04em;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -174,10 +174,10 @@
   }
 
   .popover-body {
-    padding: 10px 12px;
+    padding: var(--space-md) 12px;
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: var(--space-md);
   }
 
   .note-input {
@@ -187,8 +187,8 @@
     border-radius: var(--radius-sm);
     color: var(--amber-warm);
     font-family: var(--font-family);
-    font-size: 11px;
-    padding: 8px;
+    font-size: var(--text-sm);
+    padding: var(--space-8);
     resize: vertical;
     min-height: 48px;
     line-height: 1.45;
@@ -205,18 +205,18 @@
   .tag-section {
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: var(--space-sm);
   }
   .tag-label {
     color: var(--amber-dim);
-    font-size: 9px;
+    font-size: var(--text-2xs);
     font-weight: 700;
     letter-spacing: 0.1em;
   }
   .tag-chips {
     display: flex;
     flex-wrap: wrap;
-    gap: 4px;
+    gap: var(--space-xs);
   }
   .tag-chip {
     display: inline-flex;
@@ -227,7 +227,7 @@
     border-radius: var(--radius-sm);
     color: var(--amber-dim);
     font-family: var(--font-family);
-    font-size: 9px;
+    font-size: var(--text-2xs);
     font-weight: 600;
     letter-spacing: 0.06em;
     cursor: pointer;
@@ -244,11 +244,11 @@
   }
 
   .popover-footer {
-    padding: 8px 12px;
+    padding: var(--space-8) 12px;
     border-top: 1px solid var(--border-subtle);
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: var(--space-sm);
   }
   .spacer {
     flex: 1;

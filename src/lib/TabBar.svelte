@@ -487,7 +487,7 @@
   .group { display: flex; align-items: stretch; gap: 2px; }
   .group.right {
     margin-left: auto;
-    padding-left: 6px;
+    padding-left: var(--space-sm);
     border-left: 2px solid var(--border-active);
     box-shadow: inset 1px 0 8px rgba(0, 0, 0, 0.3);
   }
@@ -495,17 +495,17 @@
   .tab {
     display: flex;
     align-items: center;
-    gap: 8px;
-    padding: 0 18px;
-    height: calc(100% - 4px);
-    margin-top: 4px;
+    gap: var(--space-8);
+    padding: 0 var(--space-lg);
+    height: calc(100% - var(--space-xs));
+    margin-top: var(--space-xs);
     border: 1px solid var(--border-subtle);
     border-bottom: none;
-    border-radius: 4px 4px 0 0;
+    border-radius: var(--space-xs) var(--space-xs) 0 0;
     background: var(--bg-elevated);
     color: var(--amber-warm);
     font-family: inherit;
-    font-size: 12px;
+    font-size: var(--text-base);
     font-weight: 500;
     cursor: pointer;
     position: relative;
@@ -523,7 +523,7 @@
     position: absolute;
     inset: 0 0 auto 0;
     height: 2px;
-    border-radius: 4px 4px 0 0;
+    border-radius: var(--space-xs) var(--space-xs) 0 0;
     background: var(--amber-dim);
     opacity: 0.7;
   }
@@ -545,7 +545,7 @@
     position: absolute;
     inset: -1px 0 auto 0;
     height: 3px;
-    border-radius: 4px 4px 0 0;
+    border-radius: var(--space-xs) var(--space-xs) 0 0;
     background: var(--amber-bright);
     box-shadow: 0 0 12px rgba(255, 200, 64, 0.6), 0 0 4px rgba(255, 200, 64, 0.4);
   }
@@ -596,10 +596,10 @@
     border: 1px solid var(--amber-primary);
     border-radius: 2px;
     font-family: inherit;
-    font-size: 12px;
+    font-size: var(--text-base);
     font-weight: 500;
-    padding: 0 4px;
-    height: 20px;
+    padding: 0 var(--space-xs);
+    height: var(--space-xl);
     width: 100px;
     outline: none;
     box-shadow: 0 0 6px rgba(255, 168, 38, 0.3);
@@ -639,12 +639,12 @@
     display: none;
     margin-left: 2px;
     padding: 0 3px;
-    height: 16px;
-    line-height: 16px;
+    height: var(--space-lg);
+    line-height: var(--space-lg);
     background: transparent;
     border: 1px solid var(--amber-faint);
     color: var(--amber-faint);
-    font-size: 9px;
+    font-size: var(--text-2xs);
     font-family: inherit;
     cursor: pointer;
     border-radius: 2px;
@@ -657,14 +657,14 @@
     background: rgba(108, 182, 255, 0.08);
   }
 
-  .icon { font-size: 11px; opacity: 0.85; transition: opacity 0.12s; }
+  .icon { font-size: var(--text-sm); opacity: 0.85; transition: opacity 0.12s; }
   .tab.active .icon { opacity: 1; color: var(--amber-bright); }
 
   /* Close button — 18×18 click target, smooth red transition */
   .close {
-    margin-left: 4px;
+    margin-left: var(--space-xs);
     color: var(--amber-dim);
-    font-size: 12px;
+    font-size: var(--text-base);
     width: 18px;
     height: 18px;
     line-height: 18px;
@@ -684,8 +684,8 @@
     background: transparent;
     border: 1px solid transparent;
     border-bottom: none;
-    border-radius: 4px 4px 0 0;
-    margin-top: 4px;
+    border-radius: var(--space-xs) var(--space-xs) 0 0;
+    margin-top: var(--space-xs);
     color: var(--amber-warm);
     cursor: pointer;
     font-size: 15px;
@@ -711,12 +711,12 @@
     background: transparent;
     border: 1px solid transparent;
     border-bottom: none;
-    border-radius: 4px 4px 0 0;
-    margin-top: 4px;
+    border-radius: var(--space-xs) var(--space-xs) 0 0;
+    margin-top: var(--space-xs);
     margin-left: 2px;
     color: var(--amber-faint);
     cursor: pointer;
-    font-size: 14px;
+    font-size: var(--text-lg);
     font-family: inherit;
     transition: color 0.12s, background 0.12s, border-color 0.12s;
   }
@@ -727,7 +727,7 @@
   }
   .cockpit-toggle {
     border-left: 1px solid var(--border-subtle);
-    margin-left: 4px;
+    margin-left: var(--space-xs);
     padding-left: 2px;
   }
   .cockpit-toggle.collapsed {
@@ -737,15 +737,15 @@
   .badge {
     background: var(--amber-bright);
     color: var(--bg-base);
-    font-size: 9px;
+    font-size: var(--text-2xs);
     font-weight: 700;
     padding: 1px 5px;
     margin-left: 2px;
-    min-width: 16px;
+    min-width: var(--space-lg);
     text-align: center;
     letter-spacing: 0.04em;
-    line-height: 14px;
-    border-radius: 8px;
+    line-height: var(--space-14);
+    border-radius: var(--space-8);
     box-shadow: 0 0 6px rgba(255, 200, 64, 0.4);
     animation: badge-pulse 2s ease-in-out infinite;
   }

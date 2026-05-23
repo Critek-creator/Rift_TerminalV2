@@ -348,7 +348,7 @@
   }
   .connect-error {
     color: var(--term-red);
-    padding: 8px 14px;
+    padding: var(--space-8) var(--space-14);
     font-style: italic;
     font-size: var(--text-sm);
     letter-spacing: 0.04em;
@@ -368,13 +368,13 @@
 
   /* Phase 3.5a drag handle */
   .drag-handle {
-    height: 26px;
+    height: var(--control-sm);
     padding: 0 12px;
     background: var(--bg-surface);
     border-bottom: 1px solid var(--border-subtle);
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: var(--space-md);
     cursor: grab;
     user-select: none;
     color: var(--amber-warm);
@@ -407,22 +407,22 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: 24px;
+    padding: var(--space-24);
   }
   .index-card {
-    padding: 16px 18px;
+    padding: var(--space-lg) 18px;
     border: 1px dashed rgba(74, 212, 212, 0.3);
     background: var(--bg-panel, rgba(0, 0, 0, 0.3));
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: var(--space-sm);
     max-width: 320px;
     opacity: 0.75;
   }
   .index-card-heading {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--space-8);
     color: var(--accent);
     font-size: var(--text-xs);
     font-weight: 700;
@@ -450,14 +450,14 @@
 
   /* Section 1: Status header */
   .status {
-    height: 30px;
+    height: var(--control-md);
     padding: 0 14px;
     background: var(--bg-elevated);
     border-bottom: 1px solid var(--border-subtle);
     box-shadow: var(--depth-edge-light), var(--depth-section-sep);
     display: flex;
     align-items: center;
-    gap: 14px;
+    gap: var(--space-14);
     color: var(--accent);
     font-size: var(--text-sm);
     letter-spacing: 0.1em;
@@ -482,13 +482,13 @@
 
   /* Section 2: Live activity strip */
   .strip {
-    height: 26px;
+    height: var(--control-sm);
     padding: 0 14px;
     border-bottom: 1px solid var(--border-subtle);
     box-shadow: var(--depth-edge-light);
     display: flex;
     align-items: center;
-    gap: 14px;
+    gap: var(--space-14);
     background: linear-gradient(to bottom, rgba(74, 212, 212, 0.06), transparent);
     color: var(--amber-dim);
     font-size: var(--text-xs);
@@ -498,7 +498,7 @@
   }
   .strip-label { color: var(--accent); font-weight: 700; }
   .strip-empty { color: var(--amber-faint); font-style: italic; letter-spacing: 0.04em; }
-  .strip-events { display: flex; gap: 6px; flex: 1; overflow: hidden; }
+  .strip-events { display: flex; gap: var(--space-sm); flex: 1; overflow: hidden; }
   .strip-event {
     padding: 1px 6px;
     border: 1px solid var(--accent);
@@ -533,7 +533,7 @@
   .log-body {
     flex: 1;
     overflow-y: auto;
-    padding: 10px 16px;
+    padding: var(--space-md) var(--space-lg);
     color: var(--amber-warm);
     font-size: var(--text-sm);
     box-shadow: var(--depth-inset);
@@ -570,10 +570,10 @@
     border-bottom: 1px solid var(--border-subtle);
   }
   .state-body {
-    padding: 10px 16px 14px;
+    padding: var(--space-md) var(--space-lg) var(--space-14);
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: var(--space-xs);
   }
   .row.k-row {
     display: flex;
@@ -602,7 +602,7 @@
   .vk-tags {
     display: flex;
     flex-wrap: wrap;
-    gap: 4px;
+    gap: var(--space-xs);
   }
   .vk-tag {
     padding: 1px 6px;
@@ -614,7 +614,7 @@
     background: rgba(74, 212, 212, 0.06);
     display: flex;
     align-items: center;
-    gap: 4px;
+    gap: var(--space-xs);
   }
   .vk-count {
     color: var(--amber-warm);
@@ -625,15 +625,15 @@
   .search-bar {
     display: flex;
     align-items: center;
-    gap: 6px;
-    padding: 4px 14px;
+    gap: var(--space-sm);
+    padding: var(--space-xs) var(--space-14);
     border-bottom: 1px solid var(--border-subtle);
     background: var(--bg-surface);
     flex-shrink: 0;
   }
   .search-input {
     flex: 1;
-    background: var(--bg-primary, var(--bg-base));
+    background: var(--bg-base);
     border: 1px solid var(--amber-faint);
     color: var(--term-white);
     font-family: var(--font-family);

@@ -178,8 +178,8 @@
     border-bottom: 1px solid var(--border-subtle, rgba(255, 168, 38, 0.15));
     color: var(--term-white, #E8E4D8);
     font-family: 'JetBrains Mono', monospace;
-    font-size: 14px;
-    padding: 12px 16px;
+    font-size: var(--text-lg);
+    padding: var(--space-12) var(--space-lg);
     outline: none;
   }
   input::placeholder {
@@ -193,8 +193,8 @@
   }
 
   .category-header {
-    padding: 8px 16px 4px;
-    font-size: 9px;
+    padding: var(--space-8) var(--space-lg) var(--space-xs);
+    font-size: var(--text-2xs);
     font-weight: 700;
     letter-spacing: 0.12em;
     color: var(--amber-faint, #A87830);
@@ -204,10 +204,10 @@
   .entry {
     display: flex;
     align-items: center;
-    gap: 10px;
-    padding: 6px 16px;
+    gap: var(--space-md);
+    padding: var(--space-sm) var(--space-lg);
     cursor: default;
-    font-size: 13px;
+    font-size: var(--text-md);
     color: var(--term-white, #E8E4D8);
   }
   .entry.actionable {
@@ -223,7 +223,7 @@
   .entry-icon {
     width: 20px;
     text-align: center;
-    font-size: 14px;
+    font-size: var(--text-lg);
     flex-shrink: 0;
   }
 
@@ -235,7 +235,7 @@
   }
 
   .entry-badge {
-    font-size: 9px;
+    font-size: var(--text-2xs);
     font-weight: 700;
     letter-spacing: 0.08em;
     text-transform: uppercase;
@@ -246,9 +246,9 @@
   }
 
   .empty {
-    padding: 16px;
+    padding: var(--space-lg);
     text-align: center;
     color: var(--amber-faint, #A87830);
-    font-size: 12px;
+    font-size: var(--text-base);
   }
 </style>

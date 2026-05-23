@@ -32,14 +32,19 @@ pub struct Cli {
 
 #[derive(Subcommand, Debug)]
 pub enum Cmd {
-    /// Publish a hook event to the running Rift instance.
+    /// Publish an event to the running Rift instance.
     ///
     /// Reads stdin (when piped) as the payload — JSON if it parses,
     /// otherwise wrapped as `{ "stdin": "<text>" }`. `--payload` overrides
     /// stdin. `--no-stdin` skips stdin even when one is connected.
     Hook {
-        /// Event kind (e.g. "PreToolUse", "PostToolUse", "UserPromptSubmit").
+        /// Event kind (e.g. "PreToolUse", "agent.start", "agent.end").
         kind: String,
+
+        /// Bus category (default: "hook"). Use "agent" to publish agent
+        /// lifecycle events that the Agents tab receives.
+        #[arg(long, default_value = "hook")]
+        category: String,
 
         #[arg(long, value_name = "JSON")]
         payload: Option<String>,
@@ -76,13 +81,23 @@ pub fn resolve_socket(arg: Option<&str>) -> Result<String> {
 }
 
 /// Open a connection to a running Rift instance and publish a single
-/// hook envelope. Lifted to a free function so integration tests can
-/// drive it directly without spawning a subprocess.
+/// envelope. Lifted to a free function so integration tests can drive
+/// it directly without spawning a subprocess.
 pub async fn publish_hook(socket: &str, kind: &str, payload: serde_json::Value) -> Result<()> {
+    publish_event(socket, Category::Hook, kind, payload).await
+}
+
+/// Publish an envelope with an explicit category.
+pub async fn publish_event(
+    socket: &str,
+    category: Category,
+    kind: &str,
+    payload: serde_json::Value,
+) -> Result<()> {
     let mut client = IpcClient::connect(socket)
         .await
         .with_context(|| format!("connect to {socket}"))?;
-    let mut env = Envelope::new(Category::Hook, kind);
+    let mut env = Envelope::new(category, kind);
     env.payload = payload;
     client.send(&env).await.context("publish envelope")?;
     Ok(())
@@ -101,11 +116,13 @@ pub async fn execute(cli: Cli) -> Result<()> {
     match cli.cmd {
         Cmd::Hook {
             kind,
+            category,
             payload,
             no_stdin,
         } => {
             let payload = read_payload(payload.as_deref(), no_stdin)?;
-            publish_hook(&socket, &kind, payload).await
+            let cat = parse_category(&category);
+            publish_event(&socket, cat, &kind, payload).await
         }
         Cmd::Status => {
             // Connecting establishes the round-trip; on success we know
@@ -116,6 +133,22 @@ pub async fn execute(cli: Cli) -> Result<()> {
             println!("rift: connected to {socket}");
             Ok(())
         }
+    }
+}
+
+fn parse_category(s: &str) -> Category {
+    match s {
+        "pty" => Category::Pty,
+        "hook" => Category::Hook,
+        "agent" => Category::Agent,
+        "fs" => Category::Fs,
+        "index" => Category::Index,
+        "aegis" => Category::Aegis,
+        "status" => Category::Status,
+        "system" => Category::System,
+        "mcp" => Category::Mcp,
+        "sentinel" => Category::Sentinel,
+        _ => Category::Hook,
     }
 }
 
@@ -233,10 +266,12 @@ mod tests {
         match cli.cmd {
             Cmd::Hook {
                 kind,
+                category,
                 payload,
                 no_stdin,
             } => {
                 assert_eq!(kind, "PreToolUse");
+                assert_eq!(category, "hook");
                 assert_eq!(payload.as_deref(), Some(r#"{"k":1}"#));
                 assert!(!no_stdin);
             }

@@ -136,7 +136,7 @@
     flex-shrink: 0;
     background: var(--bg-surface);
     border-top: 1px solid var(--border-subtle);
-    font-size: 11px;
+    font-size: var(--text-sm);
     line-height: 1;
     user-select: none;
   }
@@ -150,8 +150,8 @@
   .seg {
     display: flex;
     align-items: center;
-    gap: 6px;
-    padding: 0 10px;
+    gap: var(--space-sm);
+    padding: 0 var(--space-md);
     border-right: 1px solid var(--border-subtle);
     white-space: nowrap;
     min-width: 0;
@@ -162,7 +162,7 @@
   .label {
     color: rgba(0, 0, 0, 0.65);
     font-weight: 700;
-    font-size: 9px;
+    font-size: var(--text-2xs);
     letter-spacing: 0.1em;
   }
   .value {

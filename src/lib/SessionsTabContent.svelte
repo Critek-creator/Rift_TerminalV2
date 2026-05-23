@@ -375,13 +375,13 @@
   }
 
   .drag-handle {
-    height: 26px;
-    padding: 0 12px;
+    height: var(--control-sm);
+    padding: 0 var(--space-12);
     background: var(--bg-surface);
     border-bottom: 1px solid var(--border-subtle);
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: var(--space-md);
     cursor: grab;
     user-select: none;
     color: var(--amber-warm);
@@ -410,12 +410,12 @@
   }
 
   .status {
-    height: 30px;
-    padding: 0 14px;
+    height: var(--control-md);
+    padding: 0 var(--space-14);
     background: var(--bg-elevated);
     border-bottom: 1px solid var(--border-subtle);
     box-shadow: var(--depth-edge-light), var(--depth-section-sep);
-    display: flex; align-items: center; gap: 14px;
+    display: flex; align-items: center; gap: var(--space-14);
     color: var(--amber-warm);
     font-size: var(--text-sm); letter-spacing: 0.1em; font-weight: 700;
   }
@@ -423,7 +423,7 @@
     color: var(--amber-bright);
     text-shadow: var(--glow-amber-faint);
   }
-  .status .icon { margin-right: 8px; opacity: 0.85; }
+  .status .icon { margin-right: var(--space-8); opacity: 0.85; }
   .status .state { color: var(--amber-dim); font-weight: 400; letter-spacing: 0.04em; }
   .status .spacer { flex: 1; }
   .ctl-btn {
@@ -434,7 +434,7 @@
     font-size: var(--text-2xs);
     letter-spacing: 0.1em;
     font-weight: 700;
-    padding: 2px 8px;
+    padding: 2px var(--space-8);
     cursor: pointer;
     text-transform: uppercase;
     transition: color var(--duration-base) ease-out, background var(--duration-base) ease-out, border-color var(--duration-base) ease-out, opacity var(--duration-base) ease-out;
@@ -451,7 +451,7 @@
 
   .error-state {
     color: var(--term-red);
-    padding: 12px 14px;
+    padding: var(--space-12) var(--space-14);
     font-size: var(--text-sm);
     letter-spacing: 0.04em;
     border-bottom: 1px solid rgba(255, 72, 72, 0.2);
@@ -479,7 +479,7 @@
     overflow-y: auto;
     overflow-x: hidden;
     min-width: 0;
-    padding: 10px 16px;
+    padding: var(--space-md) var(--space-lg);
     color: var(--amber-warm);
     font-size: var(--text-sm);
     line-height: 1.5;
@@ -490,7 +490,7 @@
 
   .empty-card {
     border: 1px dashed var(--border-subtle);
-    padding: 12px 14px;
+    padding: var(--space-12) var(--space-14);
     background: rgba(212, 137, 10, 0.05);
     color: var(--amber-warm);
     font-size: var(--text-sm);
@@ -502,7 +502,7 @@
     font-size: var(--text-sm);
     letter-spacing: 0.1em;
     text-transform: uppercase;
-    margin-bottom: 6px;
+    margin-bottom: var(--space-sm);
   }
   .empty-desc {
     color: var(--amber-dim);
@@ -522,7 +522,7 @@
 
   /* Selection hint bar */
   .selection-hint {
-    padding: 6px 16px;
+    padding: var(--space-sm) var(--space-lg);
     font-size: var(--text-xs);
     color: var(--amber-dim);
     background: rgba(108, 182, 255, 0.06);
@@ -538,8 +538,8 @@
   .session-row {
     display: flex;
     align-items: center;
-    gap: 14px;
-    padding: 8px 4px;
+    gap: var(--space-14);
+    padding: var(--space-8) var(--space-xs);
     border-bottom: 1px solid rgba(255, 168, 38, 0.06);
     cursor: pointer;
     transition: background var(--duration-base) ease-out;
@@ -562,7 +562,7 @@
     color: var(--term-blue);
     border: 1px solid rgba(108, 182, 255, 0.4);
     border-radius: var(--radius-sm, 2px);
-    padding: 1px 4px;
+    padding: 1px var(--space-xs);
     flex-shrink: 0;
   }
   .session-date {
@@ -593,7 +593,7 @@
   .log-body .row {
     display: grid;
     grid-template-columns: 14px 85px 60px 140px minmax(0, 1fr);
-    gap: 8px;
+    gap: var(--space-8);
     align-items: baseline;
     padding: 1px 0;
     white-space: nowrap;
@@ -608,7 +608,7 @@
       "caret ts    cat   kind"
       "pl    pl    pl    pl";
     background: rgba(212, 137, 10, 0.05);
-    padding: 4px 0 6px;
+    padding: var(--space-xs) 0 var(--space-sm);
     white-space: normal;
   }
   .log-body .row.expanded .caret { grid-area: caret; color: var(--amber-bright); }
@@ -645,8 +645,8 @@
   }
   .log-body .payload-expanded {
     grid-area: pl;
-    margin: 4px 0 0 22px;
-    padding: 6px 8px;
+    margin: var(--space-xs) 0 0 22px;
+    padding: var(--space-sm) var(--space-8);
     background: var(--bg-base);
     border: 1px solid var(--border-subtle);
     color: var(--amber-warm);

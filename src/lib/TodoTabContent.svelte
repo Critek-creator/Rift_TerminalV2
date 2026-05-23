@@ -324,13 +324,13 @@
   }
 
   .drag-handle {
-    height: 26px;
-    padding: 0 12px;
+    height: var(--control-sm);
+    padding: 0 var(--space-12);
     background: var(--bg-surface);
     border-bottom: 1px solid var(--border-subtle);
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: var(--space-md);
     cursor: grab;
     user-select: none;
     color: var(--amber-warm);
@@ -359,12 +359,12 @@
   }
 
   .status {
-    height: 30px;
-    padding: 0 14px;
+    height: var(--control-md);
+    padding: 0 var(--space-14);
     background: var(--bg-elevated);
     border-bottom: 1px solid var(--border-subtle);
     box-shadow: var(--depth-edge-light), var(--depth-section-sep);
-    display: flex; align-items: center; gap: 14px;
+    display: flex; align-items: center; gap: var(--space-14);
     color: var(--amber-warm);
     font-size: var(--text-sm); letter-spacing: 0.1em; font-weight: 700;
   }
@@ -405,10 +405,10 @@
 
   .strip {
     min-height: 32px;
-    padding: 4px 14px;
+    padding: var(--space-xs) var(--space-14);
     border-bottom: 1px solid var(--border-subtle);
     box-shadow: var(--depth-edge-light);
-    display: flex; align-items: center; gap: 10px;
+    display: flex; align-items: center; gap: var(--space-md);
     background: linear-gradient(to bottom, rgba(212, 137, 10, 0.05), transparent);
     color: var(--amber-dim);
     font-size: var(--text-xs);
@@ -419,13 +419,13 @@
   .filter-row {
     display: flex;
     flex-wrap: wrap;
-    gap: 6px;
+    gap: var(--space-sm);
     flex: 1;
   }
   .chip {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
+    gap: var(--space-sm);
     padding: 2px 8px;
     border: 1px solid var(--chip-color, var(--amber-faint));
     color: var(--chip-color, var(--amber-warm));
@@ -468,7 +468,7 @@
   .log-body {
     flex: 1;
     overflow-y: auto;
-    padding: 6px 16px;
+    padding: var(--space-sm) var(--space-lg);
     color: var(--amber-warm);
     font-size: var(--text-sm);
     box-shadow: var(--depth-inset);
@@ -508,7 +508,7 @@
   .row-main {
     display: grid;
     grid-template-columns: 60px 1fr 1.4fr;
-    gap: 12px;
+    gap: var(--space-12);
     align-items: baseline;
     padding: 3px 4px;
     background: transparent;
@@ -625,6 +625,6 @@
     color: var(--amber-faint);
     font-style: italic;
     font-size: var(--text-2xs);
-    margin-top: 6px;
+    margin-top: var(--space-sm);
   }
 </style>

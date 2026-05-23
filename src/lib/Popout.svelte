@@ -244,7 +244,7 @@
   }
 
   .card-title {
-    font-size: 13px;
+    font-size: var(--text-md);
     font-weight: 700;
     letter-spacing: 0.18em;
     text-transform: uppercase;
@@ -331,23 +331,23 @@
   .text-body {
     white-space: pre-wrap;
     line-height: 1.5;
-    font-size: 12px;
+    font-size: var(--text-base);
     color: var(--amber-warm);
     margin: 0;
   }
 
   .card-actions {
     display: flex;
-    gap: 8px;
+    gap: var(--space-8);
     justify-content: flex-end;
     margin-top: 16px;
   }
 
   .btn-cancel,
   .btn-confirm {
-    padding: 4px 12px;
+    padding: var(--space-xs) var(--space-12);
     font-family: inherit;
-    font-size: 11px;
+    font-size: var(--text-sm);
     letter-spacing: 0.08em;
     font-weight: 600;
     cursor: pointer;

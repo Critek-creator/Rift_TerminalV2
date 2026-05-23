@@ -721,7 +721,7 @@
         <div class="k">identifier</div>
         <div class="v">{appIdentifier}</div>
       </div>
-      <div class="row" style="margin-top: 8px; gap: 6px;">
+      <div class="row" style="margin-top: 8px; gap: var(--space-sm);">
         <button
           type="button"
           class="btn"
@@ -742,7 +742,7 @@
         <div class="hint">No JS errors recorded.</div>
       {:else}
         <div class="hint">{jsCrashCount} error{jsCrashCount === 1 ? '' : 's'} recorded.</div>
-        <div class="row" style="margin-top: 6px; gap: 6px;">
+        <div class="row" style="margin-top: 6px; gap: var(--space-sm);">
           <button
             type="button"
             class="btn"
@@ -1507,7 +1507,7 @@
     font-size: var(--text-xs);
     font-weight: 700;
     letter-spacing: 0.12em;
-    padding: 10px 14px 8px;
+    padding: var(--space-md) var(--space-14) var(--space-8);
     cursor: pointer;
     transition: color var(--duration-base) var(--ease-out),
                 border-color var(--duration-base) var(--ease-out),
@@ -1674,7 +1674,7 @@
     text-transform: uppercase;
     font-weight: 600;
     padding: 0 var(--space-md);
-    height: 32px;
+    height: var(--control-lg);
     cursor: pointer;
     transition: color var(--duration-base) var(--ease-out),
                 border-color var(--duration-base) var(--ease-out),
@@ -1758,7 +1758,7 @@
   .banner-inline {
     display: inline-flex;
     align-items: center;
-    height: 32px;
+    height: var(--control-lg);
     padding: 0 var(--space-md);
     border: 1px solid var(--term-green);
     border-radius: var(--radius-md);
@@ -1964,7 +1964,7 @@
     letter-spacing: 0.06em;
     text-transform: uppercase;
     padding: 0 var(--space-md);
-    height: 32px;
+    height: var(--control-lg);
     cursor: pointer;
     transition: box-shadow var(--duration-base) var(--ease-out);
     user-select: none;
@@ -2069,7 +2069,7 @@
     border-radius: var(--radius-md);
     font-size: var(--text-sm);
     width: 24px;
-    height: 24px;
+    height: var(--space-24);
     cursor: pointer;
     transition: background var(--duration-base) var(--ease-out),
                 border-color var(--duration-base) var(--ease-out);

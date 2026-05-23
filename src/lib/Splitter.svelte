@@ -163,7 +163,7 @@
   }
   .splitter-vertical:hover::after {
     width: 2px;
-    height: 24px;
+    height: var(--space-24);
     background: var(--amber-primary, #FFA826);
   }
   .splitter-horizontal:hover::after {

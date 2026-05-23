@@ -121,7 +121,7 @@
 
 <style>
   .titlebar {
-    height: 32px;
+    height: var(--control-lg);
     /* Subtle two-stop gradient: slightly lighter warm tone at the very top fades
        into the flat bg-elevated — gives the bar a thin "lit edge" without flash. */
     background: linear-gradient(
@@ -142,7 +142,7 @@
   .brand {
     color: var(--amber-bright);
     font-weight: 700;
-    font-size: 12px;
+    font-size: var(--text-base);
     letter-spacing: 0.15em;
     text-shadow: var(--glow-amber-strong);
   }
@@ -156,7 +156,7 @@
 
   .controls {
     display: flex;
-    gap: 4px;
+    gap: var(--space-xs);
     align-items: center;
   }
 
@@ -168,7 +168,7 @@
     cursor: pointer;
     padding: 0;
     font-family: inherit;
-    font-size: 10px;
+    font-size: var(--text-xs);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -194,9 +194,9 @@
   .btn.settings,
   .btn.detach {
     width: auto;
-    height: 24px;
+    height: var(--space-24);
     padding: 0 10px;
-    font-size: 9px;
+    font-size: var(--text-2xs);
     font-weight: 600;
     letter-spacing: 0.08em;
     border-radius: var(--radius-md, 4px);
@@ -248,7 +248,7 @@
     width: 28px;
     height: 28px;
     border-radius: 2px;
-    font-size: 12px;
+    font-size: var(--text-base);
     line-height: 1;
     /* No border, no background — invisible at rest */
   }

@@ -5,6 +5,7 @@
 //! (§9 Integration Decoupling Principle — translators are the enforced
 //! boundary).
 
+pub mod agent;
 pub mod commands;
 pub mod errors;
 pub mod fs;
