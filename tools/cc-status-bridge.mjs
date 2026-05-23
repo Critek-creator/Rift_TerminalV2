@@ -31,6 +31,15 @@ if (!input.trim()) {
   process.exit(0);
 }
 
+// Parse new fields for enrichment
+let effortLevel = "";
+let thinkingEnabled = null;
+try {
+  const parsed = JSON.parse(input);
+  effortLevel = parsed?.effort?.level || "";
+  thinkingEnabled = parsed?.thinking?.enabled ?? null;
+} catch { /* best-effort */ }
+
 // Tee to temp file for Rift's status translator
 try {
   writeFileSync(STATUS_FILE, input);
@@ -45,21 +54,38 @@ const runners = [
   { cmd: "npx", args: ["-y", "ccstatusline@latest"] },
 ];
 
+let statusOutput = "";
 for (const { cmd, args } of runners) {
   try {
-    const output = execFileSync(cmd, args, {
+    statusOutput = execFileSync(cmd, args, {
       input,
       encoding: "utf8",
       stdio: ["pipe", "pipe", "ignore"],
       timeout: 10_000,
       windowsHide: true,
     });
-    process.stdout.write(output);
-    process.exit(0);
+    break;
   } catch {
     // Try next runner
   }
 }
 
-// If neither worked, output nothing — CC shows a blank status line
+// Append effort + thinking segments if ccstatusline didn't surface them
+const segments = [];
+if (effortLevel && !statusOutput.includes(effortLevel)) {
+  segments.push(`effort:${effortLevel}`);
+}
+if (thinkingEnabled !== null && !statusOutput.includes("thinking")) {
+  segments.push(thinkingEnabled ? "thinking:on" : "thinking:off");
+}
+
+if (segments.length > 0 && statusOutput.trim()) {
+  statusOutput = statusOutput.trimEnd() + " | " + segments.join(" | ") + "\n";
+} else if (segments.length > 0) {
+  statusOutput = segments.join(" | ") + "\n";
+}
+
+if (statusOutput) {
+  process.stdout.write(statusOutput);
+}
 process.exit(0);
