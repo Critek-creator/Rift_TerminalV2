@@ -10,10 +10,10 @@ members = [
 ]
 
 [workspace.package]
-version = "0.2.2"
+version = "1.0.0"
 edition = "2021"
 authors = ["Abyssal Arts"]
-license = "Proprietary"
+license = "MIT"
 repository = "https://github.com/Critek-creator/Rift_TerminalV2"
 rust-version = "1.77"
 
