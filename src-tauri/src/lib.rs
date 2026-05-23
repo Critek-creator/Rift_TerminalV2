@@ -1817,57 +1817,15 @@ pub fn run() {
             // the user has detached for the first time.
             cockpit_window::publish_cockpit_state(app.state::<RiftBus>().inner(), false);
 
-            // Phase 8.7d — Pre-create the cockpit-detached window at setup
-            // (hidden) instead of on-demand at command-time.
-            //
-            // Why: Tauri 2.10 has a documented WebView2 race (wry#1418) where
-            // __TAURI_INTERNALS__ injection fails for windows created at
-            // runtime via WebviewWindowBuilder — the cockpit page rendered
-            // empty because getCurrentWindow() threw `metadata is undefined`.
-            // Pre-creating during setup() makes the runtime injection happen
-            // when Tauri's IPC layer is fully wired, so the runtime is ready
-            // before any user JS runs in the cockpit. cockpit_detach then
-            // just calls .show() / cockpit_reattach calls .hide() — no
-            // build/destroy, no race.
-            //
-            // visible(false) keeps it off-screen until the user clicks
-            // Detach GUI. Position-restore from localStorage still works
-            // because CockpitDetached.svelte's onMount runs the first time
-            // the window is shown.
-            // Build the window. `drag_and_drop(false)` is gated on Windows
-            // because the WebView2 dragover-swallow bug it works around is
-            // Windows-specific (and the builder method itself only exists in
-            // Tauri's Windows backend — calling it on linux/macOS is a
-            // compile error). On non-Windows wry doesn't swallow the events,
-            // so the runtime-default behaviour is what we want anyway.
-            let cockpit_builder = tauri::WebviewWindowBuilder::new(
-                app,
-                "cockpit-detached",
-                tauri::WebviewUrl::App("cockpit-detached.html".into()),
-            )
-            .title("Rift — Cockpit")
-            // Phase 8.7d: bumped from 480×800 to 720×900 so the graph + tree
-            // split (mirroring main cockpit) has room without the user having
-            // to resize on first detach. Still portrait-leaning for second-
-            // monitor side-stack use case (§11). User can resize freely —
-            // saved size persists via CockpitDetached.svelte localStorage.
-            .inner_size(720.0, 900.0)
-            .min_inner_size(420.0, 600.0)
-            .decorations(false)
-            .resizable(true)
-            .visible(false);
+            // Cockpit-detached window is now built on-demand by
+            // cockpit_window::cockpit_detach to avoid the ~1.7 GB WebView2
+            // process cost at startup when the user hasn't detached yet.
 
-            #[cfg(windows)]
-            let cockpit_builder = cockpit_builder.drag_and_drop(false);
-
-            cockpit_builder.build()?;
-
-            // Notification tab detach-to-window pool — pre-build POOL_SIZE
-            // hidden windows so __TAURI_INTERNALS__ IPC bridge is injected.
-            // JS doesn't fully init in hidden WebView2 windows, so
-            // notif_detach force-reloads the page when showing. The window
-            // then mounts Svelte, pulls config via notif_get_config invoke.
-            for i in 0..notif_window::POOL_SIZE {
+            // Pre-build PRE_BUILT notification windows at startup to avoid
+            // the wry#1418 __TAURI_INTERNALS__ race on the most common case.
+            // Additional windows (up to POOL_SIZE) are created on-demand by
+            // notif_detach and destroyed on dock to reclaim memory.
+            for i in 0..notif_window::PRE_BUILT {
                 let label = notif_window::window_label(i);
                 #[allow(unused_mut)]
                 let mut notif_builder = tauri::WebviewWindowBuilder::new(

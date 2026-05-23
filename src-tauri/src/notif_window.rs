@@ -1,10 +1,9 @@
 // notif_window.rs — Notification tab detach-to-window.
 //
-// Hybrid architecture: windows are PRE-BUILT during setup() so the
-// __TAURI_INTERNALS__ IPC bridge is injected. But hidden WebView2
-// windows don't initialize JS, so notif_detach force-reloads the page
-// before showing. The freshly-loaded Svelte component pulls its config
-// via invoke('notif_get_config') — no event timing dependency.
+// PRE_BUILT windows are created at setup() to guarantee the
+// __TAURI_INTERNALS__ IPC bridge. Additional windows (up to POOL_SIZE)
+// are created on-demand by notif_detach and destroyed on dock to
+// reclaim WebView2 memory (~1.7 GB per process).
 
 use parking_lot::Mutex;
 
@@ -18,9 +17,34 @@ use tauri::{AppHandle, Emitter, EventTarget, Manager, State};
 // ---------------------------------------------------------------------------
 
 pub const POOL_SIZE: usize = 4;
+pub const PRE_BUILT: usize = 1;
 
 pub fn window_label(slot: usize) -> String {
     format!("notif-detached-{slot}")
+}
+
+pub fn build_notif_window(app: &AppHandle, label: &str) -> Result<tauri::WebviewWindow, String> {
+    #[allow(unused_mut)]
+    let mut builder = tauri::WebviewWindowBuilder::new(
+        app,
+        label,
+        tauri::WebviewUrl::App("notif-detached.html".into()),
+    )
+    .title("Rift — Notification")
+    .inner_size(500.0, 650.0)
+    .min_inner_size(360.0, 400.0)
+    .decorations(false)
+    .resizable(true)
+    .visible(false);
+
+    #[cfg(windows)]
+    {
+        builder = builder.drag_and_drop(false);
+    }
+
+    builder
+        .build()
+        .map_err(|e| format!("notif_window: failed to build '{label}': {e}"))
 }
 
 // ---------------------------------------------------------------------------
@@ -133,14 +157,14 @@ pub fn notif_detach(
     let bus = app.state::<RiftBus>().inner().clone();
     let label = window_label(slot);
 
-    let win = app.get_webview_window(&label).ok_or_else(|| {
-        let mut slots = state.slots.lock();
-        slots[slot] = None;
-        let msg =
-            format!("notif_detach: window '{label}' not found — setup-time build may have failed");
-        publish_error(&bus, "tauri.command.notif_detach", &msg, None);
-        msg
-    })?;
+    let win = match app.get_webview_window(&label) {
+        Some(w) => w,
+        None => build_notif_window(&app, &label).inspect_err(|e| {
+            let mut slots = state.slots.lock();
+            slots[slot] = None;
+            publish_error(&bus, "tauri.command.notif_detach", e, None);
+        })?,
+    };
 
     // Store config BEFORE reload — the window pulls it on mount.
     let payload = ConfigurePayload {
@@ -222,7 +246,11 @@ fn dock_slot(app: &AppHandle, state: &NotifWindowState, slot: usize) {
 
     let label = window_label(slot);
     if let Some(win) = app.get_webview_window(&label) {
-        let _ = win.hide();
+        if slot < PRE_BUILT {
+            let _ = win.hide();
+        } else {
+            let _ = win.destroy();
+        }
     }
 
     if let Some(tid) = &tab_id {

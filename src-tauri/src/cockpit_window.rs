@@ -53,9 +53,33 @@ const WINDOW_LABEL: &str = "cockpit-detached";
 const EVENT_DETACHED: &str = "cockpit_detached";
 const EVENT_REATTACHED: &str = "cockpit_reattached";
 
-// Default window size lives in lib.rs setup() now (Phase 8.7d show/hide
-// architecture). The cockpit is pre-built once at app start; this module
-// only handles show/hide commands.
+// ---------------------------------------------------------------------------
+// Builder
+// ---------------------------------------------------------------------------
+
+pub fn build_cockpit_window(app: &AppHandle) -> Result<tauri::WebviewWindow, String> {
+    #[allow(unused_mut)]
+    let mut builder = tauri::WebviewWindowBuilder::new(
+        app,
+        WINDOW_LABEL,
+        tauri::WebviewUrl::App("cockpit-detached.html".into()),
+    )
+    .title("Rift — Cockpit")
+    .inner_size(720.0, 900.0)
+    .min_inner_size(420.0, 600.0)
+    .decorations(false)
+    .resizable(true)
+    .visible(false);
+
+    #[cfg(windows)]
+    {
+        builder = builder.drag_and_drop(false);
+    }
+
+    builder
+        .build()
+        .map_err(|e| format!("cockpit_window: failed to build '{WINDOW_LABEL}': {e}"))
+}
 
 // ---------------------------------------------------------------------------
 // Helper: emit an event to the main window only
@@ -76,17 +100,12 @@ fn emit_to_main(app: &AppHandle, event: &str) {
 // Tauri commands
 // ---------------------------------------------------------------------------
 
-/// Show the (pre-built) detached cockpit window.
+/// Show the detached cockpit window, building it on-demand if needed.
 ///
-/// Phase 8.7d architecture: the cockpit-detached window is created at app
-/// setup() in `lib.rs` with `visible(false)` to avoid the wry#1418 race
-/// where __TAURI_INTERNALS__ is not injected into webviews built after
-/// startup. This command no longer builds — it just shows the existing window.
-///
-/// Guards against double-detach atomically. On first detach in this session,
-/// also registers the close-requested listener that intercepts the X button
-/// and hides the window instead of destroying it (so re-detach reuses the
-/// same fully-initialized webview).
+/// The window is created on first detach (not at startup) to avoid the
+/// ~1.7 GB WebView2 process cost when the user hasn't detached. Once
+/// built, it persists for the session — subsequent detach/reattach cycles
+/// use show/hide on the same window.
 #[tauri::command]
 pub fn cockpit_detach(app: AppHandle, state: State<'_, CockpitWindowState>) -> Result<(), String> {
     // Atomic double-detach guard: only proceed if we flip false → true.
@@ -97,17 +116,13 @@ pub fn cockpit_detach(app: AppHandle, state: State<'_, CockpitWindowState>) -> R
 
     let bus = app.state::<rift_bus::RiftBus>().inner().clone();
 
-    let win = app.get_webview_window(WINDOW_LABEL).ok_or_else(|| {
-        // Window should exist — pre-built at setup(). If it's missing, the
-        // setup builder failed silently; clear the flag so a retry is possible.
-        state.is_detached.store(false, Ordering::SeqCst);
-        let msg = format!(
-            "cockpit_detach: cockpit window '{WINDOW_LABEL}' not found in registry — \
-             setup-time build may have failed"
-        );
-        publish_error(&bus, "tauri.command.cockpit_detach", &msg, None);
-        msg
-    })?;
+    let win = match app.get_webview_window(WINDOW_LABEL) {
+        Some(w) => w,
+        None => build_cockpit_window(&app).inspect_err(|e| {
+            state.is_detached.store(false, Ordering::SeqCst);
+            publish_error(&bus, "tauri.command.cockpit_detach", e, None);
+        })?,
+    };
 
     // First-detach-only setup: force-reload + register close interceptor.
     // Hidden WebView2 windows defer JS execution, so the initial page load
