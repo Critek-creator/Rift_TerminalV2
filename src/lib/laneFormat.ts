@@ -84,7 +84,7 @@ function ansiFg(r: number, g: number, b: number): string {
  * @returns The tagged + colored string. No leading or trailing newline
  *          is added — caller controls cursor placement.
  */
-export function laneFormat(lane: Lane, message: string): string {
+function laneFormat(lane: Lane, message: string): string {
   const style = LANE_STYLES[lane];
   const fg = ansiFg(style.rgb[0], style.rgb[1], style.rgb[2]);
   const italic = style.italic ? ANSI_ITALIC : '';

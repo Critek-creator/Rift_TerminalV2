@@ -333,6 +333,12 @@
       }
       pendingUpdates.clear();
       pendingDeletes.clear();
+      if (dragActive || dragNode) {
+        document.removeEventListener('mousemove', onDocMouseMove);
+        document.removeEventListener('mouseup', onDocMouseUp);
+        dragActive = false;
+        dragNode = null;
+      }
       void (async () => { await unsub?.(); })();
     };
   });

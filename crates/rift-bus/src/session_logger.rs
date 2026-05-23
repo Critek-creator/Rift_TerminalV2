@@ -15,6 +15,7 @@ use tokio::sync::Notify;
 
 use crate::bus::{BusError, RiftBus, SubscribeFilter};
 use crate::config::{sessions_dir, SessionConfig};
+use crate::envelope::Envelope;
 
 /// Generate a filesystem-safe session identifier from the current UTC time.
 ///
@@ -126,6 +127,27 @@ fn ymd_to_days(y: i32, m: u32, d: u32) -> i64 {
     era * 146097 + doe as i64 - 719468
 }
 
+/// Redact sensitive fields from envelopes before persistence.
+///
+/// Currently handles `mcp.handshake` which may carry a raw auth token
+/// in its payload. Returns a new envelope with `token` replaced by
+/// `"[REDACTED]"`.
+fn redact_envelope(env: &Envelope) -> Envelope {
+    if env.kind == "mcp.handshake" {
+        let mut redacted = env.clone();
+        if let serde_json::Value::Object(ref mut map) = redacted.payload {
+            if map.contains_key("token") {
+                map.insert(
+                    "token".to_string(),
+                    serde_json::Value::String("[REDACTED]".to_string()),
+                );
+            }
+        }
+        return redacted;
+    }
+    env.clone()
+}
+
 /// Run the session logger. Subscribes to the bus and writes every envelope
 /// as a JSON line to `<sessions_dir>/<session_id>.jsonl`.
 ///
@@ -189,7 +211,8 @@ pub async fn spawn_session_logger(bus: RiftBus, cfg: SessionConfig, shutdown: Ar
         if capped {
             break;
         }
-        if let Ok(line) = serde_json::to_string(env) {
+        let env = redact_envelope(env);
+        if let Ok(line) = serde_json::to_string(&env) {
             let line_bytes = line.len() as u64 + 1; // +1 for newline
             if written_bytes + line_bytes > max_bytes {
                 capped = true;
@@ -220,6 +243,7 @@ pub async fn spawn_session_logger(bus: RiftBus, cfg: SessionConfig, shutdown: Ar
                         if capped {
                             continue;
                         }
+                        let env = redact_envelope(&env);
                         let line = match serde_json::to_string(&env) {
                             Ok(l) => l,
                             Err(_) => continue,
@@ -317,6 +341,31 @@ mod tests {
         cleanup_old_sessions(dir.path(), 1);
         assert!(!dir.path().join("2020-01-01_00-00-00.jsonl").exists());
         assert!(dir.path().join("2099-12-31_23-59-59.jsonl").exists());
+    }
+
+    #[test]
+    fn redact_mcp_handshake_token() {
+        let env = Envelope::new(Category::Mcp, "mcp.handshake")
+            .with_payload(&serde_json::json!({
+                "server": "test-server",
+                "token": "super-secret-token-12345"
+            }))
+            .unwrap();
+        let redacted = redact_envelope(&env);
+        assert_eq!(redacted.payload["token"], "[REDACTED]");
+        assert_eq!(redacted.payload["server"], "test-server");
+    }
+
+    #[test]
+    fn redact_leaves_non_handshake_unchanged() {
+        let env = Envelope::new(Category::Mcp, "mcp.invoke")
+            .with_payload(&serde_json::json!({
+                "tool": "read_file",
+                "token": "should-stay"
+            }))
+            .unwrap();
+        let redacted = redact_envelope(&env);
+        assert_eq!(redacted.payload["token"], "should-stay");
     }
 
     #[tokio::test]

@@ -1455,7 +1455,7 @@
         <div class="graph-pane" style="flex: 0 0 {graphHeightPct}%;">
           <div class="pane-header">
             <span>INDEX</span>
-            <span class="meta">vault graph · fixture</span>
+            <span class="meta">vault graph · live</span>
           </div>
           <div class="graph-body">
             <IndexGraph />

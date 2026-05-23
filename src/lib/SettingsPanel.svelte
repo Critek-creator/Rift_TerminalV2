@@ -183,6 +183,7 @@
     if (!config) return;
     savingAlerts = true;
     saveBanner = null;
+    const prevRules = [...alertRules];
     try {
       const next: RiftConfig = {
         ...config,
@@ -193,6 +194,7 @@
       broadcastConfigChanged();
       saveBanner = { section: 'alerts', ok: true, msg: 'alert rules saved' };
     } catch (err) {
+      alertRules = prevRules;
       saveBanner = { section: 'alerts', ok: false, msg: String(err) };
     } finally {
       savingAlerts = false;
@@ -232,6 +234,8 @@
     if (!config) return;
     savingTree = true;
     saveBanner = null;
+    const prevHeatmapEnabled = treeHeatmapEnabled;
+    const prevHeatmapWindow = treeHeatmapWindow;
     try {
       const next: RiftConfig = {
         ...config,
@@ -245,6 +249,8 @@
       broadcastConfigChanged();
       saveBanner = { section: 'tree', ok: true, msg: 'tree settings saved' };
     } catch (err) {
+      treeHeatmapEnabled = prevHeatmapEnabled;
+      treeHeatmapWindow = prevHeatmapWindow;
       saveBanner = { section: 'tree', ok: false, msg: String(err) };
     } finally {
       savingTree = false;
@@ -270,6 +276,8 @@
     if (!config) return;
     savingNotif = true;
     saveBanner = null;
+    const prevThreshold = notifDefaultThreshold;
+    const prevPerTab = { ...notifPerTab };
     try {
       const next: RiftConfig = {
         ...config,
@@ -283,6 +291,8 @@
       broadcastConfigChanged();
       saveBanner = { section: 'notif', ok: true, msg: 'notification filters saved' };
     } catch (err) {
+      notifDefaultThreshold = prevThreshold;
+      notifPerTab = prevPerTab;
       saveBanner = { section: 'notif', ok: false, msg: String(err) };
     } finally {
       savingNotif = false;
@@ -323,6 +333,7 @@
     if (!config) return;
     savingMcp = true;
     saveBanner = null;
+    const prevMcp = { ...config.mcp };
     try {
       const next: RiftConfig = {
         ...config,
@@ -342,6 +353,8 @@
       await refreshMcpStatus();
       saveBanner = { section: 'mcp', ok: true, msg: 'mcp settings saved' };
     } catch (err) {
+      // Rollback config.mcp to pre-toggle state so checkbox reverts.
+      if (config) config = { ...config, mcp: prevMcp };
       saveBanner = { section: 'mcp', ok: false, msg: String(err) };
     } finally {
       savingMcp = false;
@@ -521,6 +534,8 @@
     if (!config) return;
     savingFs = true;
     saveBanner = null;
+    const prevIgnoreText = fsIgnoreText;
+    const prevMaxDepth = fsMaxDepth;
     try {
       const next: RiftConfig = {
         ...config,
@@ -538,6 +553,8 @@
       broadcastConfigChanged();
       saveBanner = { section: 'fs', ok: true, msg: 'filesystem settings saved' };
     } catch (err) {
+      fsIgnoreText = prevIgnoreText;
+      fsMaxDepth = prevMaxDepth;
       saveBanner = { section: 'fs', ok: false, msg: String(err) };
     } finally {
       savingFs = false;
@@ -548,6 +565,13 @@
     if (!config) return;
     savingTerminal = true;
     saveBanner = null;
+    const prevShellKind = termShellKind;
+    const prevCustomPath = termCustomPath;
+    const prevFontSize = termFontSize;
+    const prevFontFamily = termFontFamily;
+    const prevLineHeight = termLineHeight;
+    const prevScrollback = termScrollback;
+    const prevLanesEnabled = termLanesEnabled;
     try {
       const next: RiftConfig = {
         ...config,
@@ -569,6 +593,13 @@
         msg: 'terminal saved · shell change applies to new sessions',
       };
     } catch (err) {
+      termShellKind = prevShellKind;
+      termCustomPath = prevCustomPath;
+      termFontSize = prevFontSize;
+      termFontFamily = prevFontFamily;
+      termLineHeight = prevLineHeight;
+      termScrollback = prevScrollback;
+      termLanesEnabled = prevLanesEnabled;
       saveBanner = { section: 'terminal', ok: false, msg: String(err) };
     } finally {
       savingTerminal = false;
@@ -579,6 +610,12 @@
     if (!config) return;
     savingStatusline = true;
     saveBanner = null;
+    const prevSl = {
+      dir: slShowDir, git: slShowGit, repo: slShowRepo,
+      session: slShowSession, skill: slShowSkill, effort: slShowEffort,
+      model: slShowModel, ctx: slShowCtx, sessionUse: slShowSessionUse,
+      week: slShowWeek,
+    };
     try {
       const next: RiftConfig = {
         ...config,
@@ -601,6 +638,10 @@
       broadcastConfigChanged();
       saveBanner = { section: 'statusline', ok: true, msg: 'status line saved' };
     } catch (err) {
+      slShowDir = prevSl.dir; slShowGit = prevSl.git; slShowRepo = prevSl.repo;
+      slShowSession = prevSl.session; slShowSkill = prevSl.skill; slShowEffort = prevSl.effort;
+      slShowModel = prevSl.model; slShowCtx = prevSl.ctx; slShowSessionUse = prevSl.sessionUse;
+      slShowWeek = prevSl.week;
       saveBanner = { section: 'statusline', ok: false, msg: String(err) };
     } finally {
       savingStatusline = false;
@@ -611,6 +652,9 @@
     if (!config) return;
     savingIndex = true;
     saveBanner = null;
+    const prevSyncMode = indexSyncMode;
+    const prevLabelVis = indexLabelVisibility;
+    const prevDensity = indexDensity;
     try {
       const next: RiftConfig = {
         ...config,
@@ -626,6 +670,9 @@
       broadcastConfigChanged();
       saveBanner = { section: 'index', ok: true, msg: 'index settings saved' };
     } catch (err) {
+      indexSyncMode = prevSyncMode;
+      indexLabelVisibility = prevLabelVis;
+      indexDensity = prevDensity;
       saveBanner = { section: 'index', ok: false, msg: String(err) };
     } finally {
       savingIndex = false;

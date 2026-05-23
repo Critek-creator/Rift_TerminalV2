@@ -17,7 +17,7 @@
     timestamp: number;
     category: string;
     kind: string;
-    payload: any;
+    payload: unknown;
   }
 
   type ViewMode = 'list' | 'replay' | 'select-baseline' | 'select-compare' | 'compare';

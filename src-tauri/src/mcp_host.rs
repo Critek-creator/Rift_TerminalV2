@@ -15,8 +15,10 @@
 //! Spec: `decisions/D-014_rift_mcp_v1_plan.md` (locked v1.1 — 2026-04-29).
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::Duration;
 
+use parking_lot::Mutex as ParkingMutex;
 use rift_bus::{
     build_tree, publish_error, read_text, save_config, write_text, Category, Envelope, McpConfig,
     RiftBus, ShellPref, SubscribeFilter,
@@ -74,6 +76,11 @@ pub fn spawn_mcp_host(
         publish_error(&bus, "mcp_host.discovery", e.to_string(), None);
     }
 
+    // Defence-in-depth: tool dispatch is gated on a successful handshake.
+    // Without this, any local process with bus access could invoke tools
+    // before authenticating via the token handshake.
+    let handshake_complete = Arc::new(ParkingMutex::new(false));
+
     let bus_for_task = bus.clone();
     let cfg_for_task = cfg;
     tauri::async_runtime::spawn(async move {
@@ -84,6 +91,7 @@ pub fn spawn_mcp_host(
             token_present,
             pty_registry,
             app_handle,
+            handshake_complete,
         )
         .await;
     });
@@ -96,6 +104,7 @@ async fn run_subscriber(
     token_present: bool,
     pty_registry: PtyRegistry,
     app_handle: AppHandle,
+    handshake_complete: Arc<ParkingMutex<bool>>,
 ) {
     let (snapshot, mut sub) = bus.subscribe(SubscribeFilter::Category(Category::Mcp));
     // Only one bus_tail stream can be active at a time (v1 limitation).
@@ -113,6 +122,7 @@ async fn run_subscriber(
             &app_handle,
             &env,
             &bus_tail_handle,
+            &handshake_complete,
         )
         .await;
     }
@@ -129,6 +139,7 @@ async fn run_subscriber(
                     &app_handle,
                     &env,
                     &bus_tail_handle,
+                    &handshake_complete,
                 )
                 .await
             }
@@ -150,6 +161,7 @@ async fn handle_envelope(
     app_handle: &AppHandle,
     env: &Envelope,
     bus_tail_handle: &tokio::sync::Mutex<Option<tauri::async_runtime::JoinHandle<()>>>,
+    handshake_complete: &Arc<ParkingMutex<bool>>,
 ) {
     // Ignore our own outbound envelopes (responses, audit, errors). The
     // subscriber sees everything in Category::Mcp, including what we publish.
@@ -163,7 +175,7 @@ async fn handle_envelope(
     }
 
     if kind == "mcp.handshake" {
-        handle_handshake(bus, env, token_present);
+        handle_handshake(bus, env, token_present, handshake_complete);
         return;
     }
 
@@ -183,6 +195,18 @@ async fn handle_envelope(
                 "ts": env.ts,
             }),
         );
+
+        // Defence-in-depth: reject tool invocations before handshake.
+        if !*handshake_complete.lock() {
+            tracing::warn!("mcp_host: rejecting {tool_name} — handshake not completed");
+            publish_response(
+                bus,
+                tool_name,
+                request_id,
+                Err("MCP handshake required before tool invocation".into()),
+            );
+            return;
+        }
 
         // Streaming tools (D-014 Phase A.1): spawn a subscribe-publish task
         // and return a start-ack synchronously. Subsequent envelopes flow
@@ -219,7 +243,12 @@ async fn handle_envelope(
     }
 }
 
-fn handle_handshake(bus: &RiftBus, env: &Envelope, token_present: bool) {
+fn handle_handshake(
+    bus: &RiftBus,
+    env: &Envelope,
+    token_present: bool,
+    handshake_complete: &Arc<ParkingMutex<bool>>,
+) {
     let provided = env
         .payload
         .get("token")
@@ -253,6 +282,7 @@ fn handle_handshake(bus: &RiftBus, env: &Envelope, token_present: bool) {
     };
 
     if constant_time_eq(provided.as_bytes(), on_disk.as_bytes()) {
+        *handshake_complete.lock() = true;
         publish_audit(
             bus,
             "mcp.handshake.ack",
@@ -1093,7 +1123,8 @@ fn tool_rift_config_set(
 }
 
 /// Escape a string for safe interpolation into a JavaScript single-quoted literal.
-/// Handles backslash, quotes, backticks, newlines, carriage returns, and null bytes.
+/// Handles backslash, quotes, backticks, newlines, carriage returns, null bytes,
+/// and Unicode directional override / isolate characters (visual spoofing defence).
 fn escape_js_string(s: &str) -> String {
     let mut out = String::with_capacity(s.len() + 8);
     for ch in s.chars() {
@@ -1105,6 +1136,16 @@ fn escape_js_string(s: &str) -> String {
             '\n' => out.push_str("\\n"),
             '\r' => out.push_str("\\r"),
             '\0' => out.push_str("\\0"),
+            // Strip Unicode bidi override / mark / isolate characters that
+            // could cause visual spoofing in error messages or eval output.
+            '\u{200E}' // LEFT-TO-RIGHT MARK
+            | '\u{200F}' // RIGHT-TO-LEFT MARK
+            | '\u{202E}' // RIGHT-TO-LEFT OVERRIDE
+            | '\u{2066}' // LEFT-TO-RIGHT ISOLATE
+            | '\u{2067}' // RIGHT-TO-LEFT ISOLATE
+            | '\u{2068}' // FIRST STRONG ISOLATE
+            | '\u{2069}' // POP DIRECTIONAL ISOLATE
+            => {} // stripped — intentionally produces no output
             other => out.push(other),
         }
     }

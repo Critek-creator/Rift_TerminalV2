@@ -5,6 +5,21 @@
   import { Terminal as XTerm } from '@xterm/xterm';
   import { FitAddon } from '@xterm/addon-fit';
   import { SearchAddon } from '@xterm/addon-search';
+
+  /** Local mirror of xterm's non-exported ILink / ILinkProvider interfaces.
+   *  Matches @xterm/xterm typings/xterm.d.ts so registerLinkProvider accepts
+   *  our object without `as any`. */
+  interface RiftLink {
+    range: { start: { x: number; y: number }; end: { x: number; y: number } };
+    text: string;
+    activate(event: MouseEvent, text: string): void;
+    hover?(event: MouseEvent, text: string): void;
+    leave?(event: MouseEvent, text: string): void;
+    dispose?(): void;
+  }
+  interface RiftLinkProvider {
+    provideLinks(bufferLineNumber: number, callback: (links: RiftLink[] | undefined) => void): void;
+  }
   import '@xterm/xterm/css/xterm.css';
   import { deferredFit } from './terminal-fit-timing';
   import { TREE_PATH_MIME, RIFT_VAULT_DROP_EVENT, type RiftVaultDropDetail } from './dragMime';
@@ -43,6 +58,8 @@
   let tooltipY = $state(0);
   let tooltipPreview = $state<FilePreview | null>(null);
   let tooltipFilename = $state('');
+  let hoverTimer: ReturnType<typeof setTimeout> | null = null;
+  let hoverPendingPath: string | null = null;
   let recoveryTimer: ReturnType<typeof setInterval> | undefined;
   let sessionId: number | null = null;
   let alive = false;
@@ -256,18 +273,17 @@
     term.open(host);
 
     // Exposed for MCP pty_read tool — do not remove without updating mcp_host.rs tool_pty_read
-    // Exposed for MCP pty_read tool — do not remove without updating mcp_host.rs tool_pty_read
-    (window as any).__RIFT_TERM__ = term;
+    window.__RIFT_TERM__ = term;
 
     // Path intelligence — detect file paths in terminal output and show hover previews.
     const PATH_RE = /(?:[A-Za-z]:\\|\/)[^\s:*?"<>|]+\.[a-zA-Z0-9]{1,10}/g;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    term.registerLinkProvider({
-      provideLinks(lineNumber: number, callback: (links: any) => void) {
-        const line = term?.buffer.active.getLine(lineNumber);
+
+    const linkProvider: RiftLinkProvider = {
+      provideLinks(bufferLineNumber: number, callback: (links: RiftLink[] | undefined) => void) {
+        const line = term?.buffer.active.getLine(bufferLineNumber);
         if (!line) { callback(undefined); return; }
         const text = line.translateToString();
-        const links: any[] = [];
+        const links: RiftLink[] = [];
         let match: RegExpExecArray | null;
         PATH_RE.lastIndex = 0;
         while ((match = PATH_RE.exec(text)) !== null) {
@@ -276,22 +292,33 @@
           const filePath = match[0];
           links.push({
             text: filePath,
-            range: { start: { x: startX, y: lineNumber }, end: { x: endX, y: lineNumber } },
-            activate() {
+            range: { start: { x: startX, y: bufferLineNumber }, end: { x: endX, y: bufferLineNumber } },
+            activate(_event: MouseEvent, _text: string) {
               invoke('file_preview', { path: filePath }).catch(() => {});
             },
-            hover(e: MouseEvent) {
+            hover(e: MouseEvent, _text: string) {
               tooltipX = e.clientX + 12;
               tooltipY = e.clientY + 12;
               tooltipFilename = filePath.split(/[\\/]/).pop() || filePath;
-              invoke('file_preview', { path: filePath }).then((result) => {
-                tooltipPreview = result as FilePreview;
-                tooltipVisible = true;
-              }).catch(() => {
-                tooltipVisible = false;
-              });
+              // Debounce: cancel any pending fetch, skip if same path already in-flight.
+              if (hoverTimer !== null) { clearTimeout(hoverTimer); hoverTimer = null; }
+              if (hoverPendingPath === filePath) return;
+              hoverPendingPath = filePath;
+              hoverTimer = setTimeout(() => {
+                hoverTimer = null;
+                invoke('file_preview', { path: filePath }).then((result) => {
+                  tooltipPreview = result as FilePreview;
+                  tooltipVisible = true;
+                }).catch(() => {
+                  tooltipVisible = false;
+                }).finally(() => {
+                  hoverPendingPath = null;
+                });
+              }, 150);
             },
-            leave() {
+            leave(_event: MouseEvent, _text: string) {
+              if (hoverTimer !== null) { clearTimeout(hoverTimer); hoverTimer = null; }
+              hoverPendingPath = null;
               tooltipVisible = false;
               tooltipPreview = null;
             },
@@ -299,7 +326,8 @@
         }
         callback(links.length > 0 ? links : undefined);
       },
-    } as any);
+    };
+    term.registerLinkProvider(linkProvider);
 
     // Phase 8.7g — Ctrl+C / Ctrl+V clipboard shortcuts.
     //
@@ -592,13 +620,14 @@
     }
     unlistenExited?.();
     unsubscribeLane?.().catch(() => {});
+    if (hoverTimer !== null) { clearTimeout(hoverTimer); hoverTimer = null; }
     if (recoveryTimer) clearInterval(recoveryTimer);
     resizeObs?.disconnect();
     host?.removeEventListener(RIFT_VAULT_DROP_EVENT, onTermVaultDrop);
     search?.dispose();
     fit?.dispose();
     term?.dispose();
-    delete (window as any).__RIFT_TERM__;
+    delete window.__RIFT_TERM__;
   });
 </script>
 

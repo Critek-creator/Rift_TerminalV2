@@ -1,13 +1,6 @@
 import type { AlertRule, AlertAction } from './riftConfig';
 import type { SparklineBuffer } from './SparklineBuffer';
-import { kindToSeverity, type SeverityLevel } from './notifFilter';
-
-const SEVERITY_RANK: Record<SeverityLevel, number> = {
-  debug: 0,
-  info: 1,
-  warn: 2,
-  error: 3,
-};
+import { kindToSeverity, SEVERITY_RANK } from './notifFilter';
 
 export function evaluateRule(
   rule: AlertRule,

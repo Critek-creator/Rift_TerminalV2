@@ -4,7 +4,7 @@
 import type { SeverityLevel } from './riftConfig';
 export type { SeverityLevel };
 
-const SEVERITY_RANK: Record<SeverityLevel, number> = {
+export const SEVERITY_RANK: Record<SeverityLevel, number> = {
   debug: 0,
   info: 1,
   warn: 2,

@@ -126,8 +126,21 @@ pub fn profile_save(
     if name.trim().is_empty() {
         return Err("profile_save: name cannot be empty".to_string());
     }
+    const MAX_NAME_LEN: usize = 200;
+    if name.len() > MAX_NAME_LEN {
+        return Err(format!(
+            "profile_save: name exceeds {MAX_NAME_LEN} characters"
+        ));
+    }
     store.ensure_loaded()?;
     let mut profiles = store.inner.lock();
+    const MAX_PROFILES: usize = 100;
+    // Only enforce the cap when creating a new profile, not when updating.
+    if !profiles.iter().any(|p| p.name == name) && profiles.len() >= MAX_PROFILES {
+        return Err(format!(
+            "profile_save: maximum of {MAX_PROFILES} profiles reached"
+        ));
+    }
     if let Some(existing) = profiles.iter_mut().find(|p| p.name == name) {
         existing.state = state;
         existing.project_filter = project_filter;

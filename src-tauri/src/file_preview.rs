@@ -61,19 +61,25 @@ pub fn file_preview(
 
 fn resolve_path(path: &str, project_root: &Path) -> PathBuf {
     let p = PathBuf::from(path);
-    if p.is_absolute() {
-        return p;
+    // Always resolve relative to project root — even absolute paths must be
+    // confined within it (prevents path-traversal via absolute path bypass).
+    let candidate = if p.is_absolute() {
+        p
+    } else {
+        project_root.join(&p)
+    };
+    let root_canonical = match std::fs::canonicalize(project_root) {
+        Ok(r) => r,
+        Err(_) => return project_root.to_path_buf(),
+    };
+    let canonical = match std::fs::canonicalize(&candidate) {
+        Ok(c) => c,
+        Err(_) => return project_root.to_path_buf(),
+    };
+    if !canonical.starts_with(&root_canonical) {
+        return project_root.to_path_buf();
     }
-    let joined = project_root.join(&p);
-    if let (Ok(canonical), Ok(root_canonical)) = (
-        std::fs::canonicalize(&joined),
-        std::fs::canonicalize(project_root),
-    ) {
-        if !canonical.starts_with(&root_canonical) {
-            return PathBuf::new();
-        }
-    }
-    joined
+    candidate
 }
 
 fn format_modified(meta: &std::fs::Metadata) -> String {
@@ -206,21 +212,52 @@ mod tests {
     }
 
     #[test]
-    fn resolve_absolute_unchanged() {
-        let root = PathBuf::from("/project");
-        let abs = if cfg!(windows) {
-            "C:\\Users\\test\\file.rs"
-        } else {
-            "/absolute/file.rs"
-        };
-        let resolved = resolve_path(abs, &root);
-        assert_eq!(resolved, PathBuf::from(abs));
+    fn resolve_absolute_outside_root_is_blocked() {
+        // An absolute path outside the project root must be rejected —
+        // resolve_path falls back to project_root (which then fails exists()).
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("project");
+        std::fs::create_dir_all(&root).unwrap();
+        let outside = dir.path().join("outside.txt");
+        std::fs::write(&outside, "secret").unwrap();
+        let resolved = resolve_path(outside.to_str().unwrap(), &root);
+        // Must NOT equal the outside path — should fall back to root.
+        assert_ne!(resolved, outside);
+    }
+
+    #[test]
+    fn resolve_absolute_inside_root_allowed() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().to_path_buf();
+        let inside = root.join("child.txt");
+        std::fs::write(&inside, "ok").unwrap();
+        let resolved = resolve_path(inside.to_str().unwrap(), &root);
+        assert_eq!(resolved, inside);
     }
 
     #[test]
     fn resolve_relative_joins_root() {
-        let root = PathBuf::from("/project");
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().to_path_buf();
+        let child = root.join("src");
+        std::fs::create_dir_all(&child).unwrap();
+        std::fs::write(child.join("main.rs"), "fn main(){}").unwrap();
         let resolved = resolve_path("src/main.rs", &root);
-        assert_eq!(resolved, PathBuf::from("/project/src/main.rs"));
+        assert_eq!(resolved, root.join("src/main.rs"));
+    }
+
+    #[test]
+    fn resolve_traversal_blocked() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("project");
+        std::fs::create_dir_all(&root).unwrap();
+        let secret = dir.path().join("secret.txt");
+        std::fs::write(&secret, "nope").unwrap();
+        let resolved = resolve_path("../secret.txt", &root);
+        // Must not resolve to the actual secret file.
+        assert_ne!(
+            std::fs::canonicalize(&resolved).ok(),
+            std::fs::canonicalize(&secret).ok()
+        );
     }
 }

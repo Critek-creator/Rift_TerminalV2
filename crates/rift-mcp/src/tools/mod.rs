@@ -177,7 +177,7 @@ pub fn tool_catalog() -> Vec<ToolSpec> {
         },
         ToolSpec {
             name: "js_eval",
-            description: "Evaluate JavaScript in the named Rift webview and return the result. Requires BOTH `mcp.allow_inspection = true` AND `mcp.allow_js_eval = true` in config.",
+            description: "Evaluate JavaScript in the named Rift webview and return the result. WARNING: Executes arbitrary JavaScript in the Rift webview with full Tauri IPC access. Equivalent to RCE. Requires both allow_inspection and allow_js_eval config flags.",
             input_schema: json!({
                 "type": "object",
                 "properties": {

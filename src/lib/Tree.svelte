@@ -591,6 +591,14 @@
       mounted = false;
       unsubscribeFn?.().catch(() => {});
       unsubscribeSysFn?.().catch(() => {});
+      // Clean up drag listeners if component unmounts mid-drag.
+      if (treeDragActive || treeDragNode) {
+        document.removeEventListener('mousemove', onTreeDocMouseMove);
+        document.removeEventListener('mouseup', onTreeDocMouseUp);
+        document.body.style.cursor = '';
+        treeDragNode = null;
+        treeDragActive = false;
+      }
     };
   });
 

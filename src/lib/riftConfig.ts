@@ -7,16 +7,16 @@ export interface ProjectEntry {
   last_used_ms: number;
 }
 
-export interface FsConfig {
+interface FsConfig {
   ignore_globs: string[];
   max_depth: number;
 }
 
-export interface CockpitConfig {
+interface CockpitConfig {
   detached_pos?: { x: number; y: number; width: number; height: number } | null;
 }
 
-export interface IndexConfig {
+interface IndexConfig {
   ignore_globs: string[];
   sync_mode: string;
   camera_transform?: unknown;
@@ -59,13 +59,13 @@ export interface NotifFilterConfig {
   per_tab: Record<string, SeverityLevel>;
 }
 
-export interface SessionConfig {
+interface SessionConfig {
   enabled: boolean;
   retention_days: number;
   max_file_size_mb: number;
 }
 
-export interface TreeConfig {
+interface TreeConfig {
   heatmap_enabled: boolean;
   heatmap_window_minutes: number;
 }
@@ -96,7 +96,7 @@ export interface AlertRule {
   enabled: boolean;
 }
 
-export interface AlertsConfig {
+interface AlertsConfig {
   rules: AlertRule[];
 }
 

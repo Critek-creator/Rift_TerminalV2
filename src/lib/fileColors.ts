@@ -1,4 +1,4 @@
-export type FileColorCategory = 'rust' | 'script' | 'frontend' | 'config' | 'docs' | 'media' | 'default';
+type FileColorCategory = 'rust' | 'script' | 'frontend' | 'config' | 'docs' | 'media' | 'default';
 
 const EXT_MAP: Record<string, FileColorCategory> = {
   // Rust

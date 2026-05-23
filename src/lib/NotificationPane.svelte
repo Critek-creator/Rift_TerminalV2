@@ -319,6 +319,7 @@
       produces sentinel.* envelopes on a documented schema. Then this card
       becomes a live subscriber.
     -->
+    {#if categoryFilter === 'sentinel'}
     <div class="sentinel-card">
       <div class="sentinel-heading">Sentinel</div>
       <div class="sentinel-status">integration not loaded</div>
@@ -327,6 +328,7 @@
         when a Sentinel translator self-registers and emits sentinel.* envelopes.
       </div>
     </div>
+    {/if}
   </footer>
 </section>
 

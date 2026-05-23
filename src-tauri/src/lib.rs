@@ -546,7 +546,9 @@ async fn pty_start(
         None => app
             .try_state::<ProjectRoot>()
             .map(|r| r.inner().get())
-            .unwrap_or_else(|| std::env::current_dir().unwrap_or_default()),
+            .unwrap_or_else(|| {
+                std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."))
+            }),
     };
     opts = opts.with_cwd(effective_cwd);
     let (mut output, control) = PtySession::spawn_with_options(opts).map_err(|e| {

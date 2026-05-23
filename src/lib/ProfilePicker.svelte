@@ -20,6 +20,7 @@
   let focusedIndex = $state(-1);
   let triggerEl: HTMLButtonElement = $state(undefined!);
   let dropdownEl: HTMLDivElement = $state(undefined!);
+  let errorMsg = $state('');
 
   const displayName = $derived(activeProfile ?? 'default');
 
@@ -46,11 +47,18 @@
     focusedIndex = -1;
   }
 
+  function showError(msg: string) {
+    errorMsg = msg;
+    setTimeout(() => { errorMsg = ''; }, 3000);
+  }
+
   async function selectProfile(name: string) {
     try {
       await invoke('profile_load', { name });
     } catch (err) {
       console.warn('profile_load failed:', err);
+      showError('Failed to load profile');
+      return;
     }
     close();
   }
@@ -68,6 +76,8 @@
       await invoke('profile_save', { name, state, projectFilter: null });
     } catch (err) {
       console.warn('profile_save failed:', err);
+      showError('Failed to save profile');
+      return;
     }
     close();
     loadProfiles();
@@ -78,7 +88,10 @@
     try {
       await invoke('profile_delete', { name });
       profiles = profiles.filter((p) => p.name !== name);
-    } catch { /* silently ignore */ }
+    } catch (err) {
+      console.warn('profile_delete failed:', err);
+      showError('Failed to delete profile');
+    }
   }
 
   function handleKeydown(e: KeyboardEvent) {
@@ -148,6 +161,9 @@
 
   {#if open}
     <div class="profile-dropdown" bind:this={dropdownEl}>
+      {#if errorMsg}
+        <div class="dropdown-error">{errorMsg}</div>
+      {/if}
       {#if profiles.length === 0 && !saving}
         <div class="dropdown-empty">No saved profiles</div>
       {/if}
@@ -261,6 +277,15 @@
     padding: var(--space-xs) 0;
     display: flex;
     flex-direction: column;
+  }
+
+  .dropdown-error {
+    padding: var(--space-xs) var(--space-md);
+    font-size: var(--text-xs);
+    color: var(--term-red);
+    text-align: center;
+    background: rgba(255, 72, 72, 0.08);
+    border-bottom: 1px solid rgba(255, 72, 72, 0.2);
   }
 
   .dropdown-empty {

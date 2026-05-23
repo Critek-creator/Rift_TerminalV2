@@ -150,36 +150,6 @@ function mark(path: string, _kind: 'create' | 'write' | 'delete' | 'rename'): vo
   startDecayLoop();
 }
 
-/**
- * Cycle the state of a path on user click:
- * `ambient` / `recent` → `active` → `background` → `ambient`.
- */
-function cycle(path: string): void {
-  const existing = entries.get(path) ?? AMBIENT_DEFAULT;
-  let next: ActivityEntry;
-
-  switch (existing.state) {
-    case 'ambient':
-    case 'recent':
-      next = { state: 'active', glowIntensity: 1.0, lastTouchMs: Date.now() };
-      break;
-    case 'active':
-      next = { state: 'background', glowIntensity: 0, lastTouchMs: Date.now() };
-      break;
-    case 'background':
-      next = { state: 'ambient', glowIntensity: 0, lastTouchMs: Date.now() };
-      break;
-    default: {
-      // Exhaustive guard — unreachable with current ActivityState values.
-      const _exhaustive: never = existing.state;
-      next = { state: 'ambient', glowIntensity: 0, lastTouchMs: Date.now() };
-      void _exhaustive;
-    }
-  }
-
-  entries = new Map(entries).set(path, next);
-}
-
 /** Return the activity entry for `path`, or the ambient default if unseen. */
 function getEntry(path: string): ActivityEntry {
   return entries.get(path) ?? AMBIENT_DEFAULT;
@@ -273,9 +243,7 @@ function pruneHeatLog(windowMs: number): void {
  * participant. Clicking marks the file as seen and the glow goes away;
  * unclicked entries decay naturally per the existing decay loop.
  *
- * Distinct from `cycle` (which advances through pin states — still
- * exported for any future shift-click "pin to keep visible" gesture)
- * and from `clear` (which wipes all entries on project swap).
+ * Distinct from `clear` (which wipes all entries on project swap).
  *
  * No-op if the path has no entry, or is already in a no-glow state
  * (`ambient` or `background`) — idempotent. Activity envelopes from
@@ -295,7 +263,6 @@ function dismiss(path: string): void {
 
 export const treeActivity = {
   mark,
-  cycle,
   dismiss,
   getEntry,
   getHeat,

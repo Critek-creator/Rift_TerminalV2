@@ -36,7 +36,6 @@
 
   export type ActiveSurface =
     | { kind: 'session'; id: number }
-    | { kind: 'notification'; id: string }
     | { kind: 'empty' };
 
   interface Props {
@@ -188,9 +187,6 @@
 
   function isActiveSession(id: number) {
     return active.kind === 'session' && active.id === id;
-  }
-  function isActiveNotif(id: string) {
-    return active.kind === 'notification' && active.id === id;
   }
   function isPromoted(id: string) {
     return promotedId === id;
@@ -396,7 +392,6 @@
       <button
         type="button"
         class="tab notif"
-        class:active={isActiveNotif(tab.id)}
         class:disabled={!tab.enabled}
         class:promoted={isPromoted(tab.id)}
         class:promoted-cyan={isPromoted(tab.id) && tab.id === 'hooks'}
@@ -404,7 +399,7 @@
         class:detached={isDetached(tab.id)}
         class:live={isLive(tab) && tab.enabled}
         class:reorder-target={reorderHoverId === tab.id}
-        aria-current={isActiveNotif(tab.id) ? 'page' : 'false'}
+        aria-current="false"
         draggable={tab.enabled && !isDetached(tab.id)}
         onclick={() => onNotifClick(tab)}
         ondragstart={(e) => onNotifDragStart(e, tab)}
@@ -777,16 +772,6 @@
     box-shadow: 0 0 6px var(--amber-bright);
     animation: notif-live-pulse 1.4s ease-in-out infinite;
     pointer-events: none;
-  }
-  /* When the tab is also active, the ::after from .tab.active is already
-     rendering a bottom gradient; override to the live-pulse variant. */
-  .tab.notif.live.active::after {
-    inset: auto 0 0 0;
-    height: 2px;
-    background: var(--amber-bright);
-    border: none;
-    box-shadow: 0 0 10px rgba(245, 158, 11, 0.55);
-    animation: notif-live-pulse 1.4s ease-in-out infinite;
   }
   @keyframes notif-live-pulse {
     0%, 100% { opacity: 1;   box-shadow: 0 0 6px  var(--amber-bright); }

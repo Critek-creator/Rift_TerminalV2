@@ -17,15 +17,9 @@
  */
 
 import type { SeverityLevel } from './riftConfig';
+import { SEVERITY_RANK } from './notifFilter';
 
 const BUCKET_COUNT = 60;
-
-const SEVERITY_RANK: Record<SeverityLevel, number> = {
-  debug: 0,
-  info: 1,
-  warn: 2,
-  error: 3,
-};
 
 export interface HeatstripBucket {
   /** Total event count in this minute. */
