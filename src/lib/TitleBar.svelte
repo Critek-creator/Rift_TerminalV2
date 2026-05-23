@@ -200,7 +200,8 @@
     font-weight: 600;
     letter-spacing: 0.08em;
     border-radius: var(--radius-md, 4px);
-    border: 1px solid transparent;
+    border: 1px solid var(--border-subtle);
+    background: var(--bg-elevated);
     box-shadow: inset 0 -1px 0 transparent;
   }
   .btn.project:hover,
@@ -244,8 +245,8 @@
   /* These three sit tight together with no borders at rest — background
      fills in on hover exactly like VS Code / modern Electron apps. */
   .btn.winctrl {
-    width: 18px;
-    height: 22px;
+    width: 28px;
+    height: 28px;
     border-radius: 2px;
     font-size: 12px;
     line-height: 1;

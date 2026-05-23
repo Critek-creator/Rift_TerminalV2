@@ -31,6 +31,8 @@ const defaultProps = {
   onActivateNotif: noop,
   onCloseSession: noop,
   onAddSession: noop,
+  onReorderSession: noop,
+  onRenameSession: noop,
   onToggleNotif: noop,
   onPromote: noop,
   onDemote: noop,

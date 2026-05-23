@@ -144,6 +144,23 @@
     class:focused={focusedId === node.id}
     onclick={() => handleFocusClick(node.id)}
   >
+    <div class="pane-toolbar">
+      <button
+        class="pane-tool-btn"
+        title="Split horizontal (top/bottom) — Ctrl+Shift+E"
+        onclick={(e) => { e.stopPropagation(); onSplit(node.id, 'hsplit'); }}
+      >⬓</button>
+      <button
+        class="pane-tool-btn"
+        title="Split vertical (left/right) — Ctrl+Shift+D"
+        onclick={(e) => { e.stopPropagation(); onSplit(node.id, 'vsplit'); }}
+      >⬒</button>
+      <button
+        class="pane-tool-btn pane-tool-close"
+        title="Close pane — Ctrl+Shift+W"
+        onclick={(e) => { e.stopPropagation(); onClose(node.id); }}
+      >✕</button>
+    </div>
     <Terminal visible={true} {projectPath} />
   </div>
 {:else}
@@ -277,5 +294,52 @@
   }
   .pane-splitter-vertical::before {
     inset: 0 -3px;
+  }
+
+  /* Pane toolbar — hover-reveal split/close buttons in top-right of leaf. */
+  .pane-toolbar {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    z-index: 5;
+    display: flex;
+    gap: 2px;
+    opacity: 0;
+    transition: opacity 0.15s;
+    pointer-events: none;
+  }
+  .pane-leaf:hover > .pane-toolbar,
+  .pane-leaf.focused > .pane-toolbar {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  .pane-leaf {
+    position: relative;
+  }
+  .pane-tool-btn {
+    width: 22px;
+    height: 22px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    line-height: 1;
+    background: rgba(30, 26, 20, 0.85);
+    color: var(--amber-dim, #A87830);
+    border: 1px solid var(--border-subtle, #2a2520);
+    border-radius: 3px;
+    cursor: pointer;
+    transition: background 0.1s, color 0.1s, border-color 0.1s;
+    padding: 0;
+    font-family: inherit;
+  }
+  .pane-tool-btn:hover {
+    background: rgba(50, 42, 30, 0.95);
+    color: var(--amber-bright, #FFC840);
+    border-color: var(--amber-faint, #A87830);
+  }
+  .pane-tool-close:hover {
+    color: var(--term-red, #FF4848);
+    border-color: var(--term-red, #FF4848);
   }
 </style>

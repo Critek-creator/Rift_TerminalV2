@@ -147,7 +147,8 @@
     const snapshot = content;
     let cancelled = false;
 
-    const lang = langForExt(path) ?? 'plaintext';
+    const rawLang = langForExt(path);
+    const lang = rawLang && /^[a-z]+$/.test(rawLang) ? rawLang : 'plaintext';
 
     (async () => {
       try {

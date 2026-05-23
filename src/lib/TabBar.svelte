@@ -50,6 +50,8 @@
     onActivateNotif: (id: string) => void;
     onCloseSession: (id: number) => void;
     onAddSession: (opts?: { pickProject?: boolean }) => void;
+    onReorderSession: (srcId: number, dstId: number) => void;
+    onRenameSession: (id: number, title: string) => void;
     onToggleNotif: (id: string) => void;
     onPromote: (id: string) => void;
     onDemote: () => void;
@@ -82,6 +84,8 @@
     onActivateNotif,
     onCloseSession,
     onAddSession,
+    onReorderSession,
+    onRenameSession,
     onToggleNotif,
     onPromote,
     onDemote,
@@ -126,6 +130,61 @@
   // Marker MIME type — defined in dragMime.ts so NotificationPane drag-back
   // dragstart can write the same constant (silent MIME mismatch on the
   // pane→tab demote path was the Phase 8.7 BV regression).
+
+  // ----- session tab drag-to-reorder -----
+  let sessionDragId = $state<number | null>(null);
+  let sessionDropTarget = $state<number | null>(null);
+
+  function onSessionDragStart(e: DragEvent, tab: SessionTab) {
+    sessionDragId = tab.id;
+    if (e.dataTransfer) {
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', String(tab.id));
+    }
+  }
+  function onSessionDragOver(e: DragEvent, tab: SessionTab) {
+    if (sessionDragId === null || sessionDragId === tab.id) return;
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+    sessionDropTarget = tab.id;
+  }
+  function onSessionDragLeave(tabId: number) {
+    if (sessionDropTarget === tabId) sessionDropTarget = null;
+  }
+  function onSessionDrop(e: DragEvent, tab: SessionTab) {
+    e.preventDefault();
+    if (sessionDragId !== null && sessionDragId !== tab.id) {
+      onReorderSession(sessionDragId, tab.id);
+    }
+    sessionDragId = null;
+    sessionDropTarget = null;
+  }
+  function onSessionDragEnd() {
+    sessionDragId = null;
+    sessionDropTarget = null;
+  }
+
+  // ----- session tab rename on double-click -----
+  let editingTabId = $state<number | null>(null);
+  let editValue = $state('');
+  let editInputEl: HTMLInputElement | undefined = $state(undefined);
+
+  function startRename(tab: SessionTab) {
+    editingTabId = tab.id;
+    editValue = tab.title;
+    requestAnimationFrame(() => {
+      editInputEl?.select();
+    });
+  }
+  function commitRename() {
+    if (editingTabId !== null && editValue.trim()) {
+      onRenameSession(editingTabId, editValue.trim());
+    }
+    editingTabId = null;
+  }
+  function cancelRename() {
+    editingTabId = null;
+  }
 
   function isActiveSession(id: number) {
     return active.kind === 'session' && active.id === id;
@@ -271,19 +330,50 @@
       <div
         class="tab session"
         class:active={isActiveSession(tab.id)}
+        class:drag-source={sessionDragId === tab.id}
+        class:reorder-target={sessionDropTarget === tab.id}
         role="tab"
         tabindex="0"
+        draggable={true}
         aria-selected={isActiveSession(tab.id)}
         onclick={() => onActivateSession(tab.id)}
+        ondblclick={() => startRename(tab)}
+        ondragstart={(e) => onSessionDragStart(e, tab)}
+        ondragover={(e) => onSessionDragOver(e, tab)}
+        ondragleave={() => onSessionDragLeave(tab.id)}
+        ondrop={(e) => onSessionDrop(e, tab)}
+        ondragend={onSessionDragEnd}
         onkeydown={(e) => {
           if (e.key === 'Enter' || e.key === ' ') {
             e.preventDefault();
             onActivateSession(tab.id);
           }
+          if (e.key === 'F2') {
+            e.preventDefault();
+            startRename(tab);
+          }
         }}
+        title="double-click to rename · drag to reorder"
       >
         <span class="icon">▶</span>
-        <span>{tabDisplayTitle(tab)}</span>
+        {#if editingTabId === tab.id}
+          <!-- svelte-ignore a11y_autofocus -->
+          <input
+            bind:this={editInputEl}
+            bind:value={editValue}
+            class="tab-rename-input"
+            autofocus
+            onclick={(e) => e.stopPropagation()}
+            onblur={commitRename}
+            onkeydown={(e) => {
+              if (e.key === 'Enter') { e.preventDefault(); commitRename(); }
+              if (e.key === 'Escape') { e.preventDefault(); cancelRename(); }
+              e.stopPropagation();
+            }}
+          />
+        {:else}
+          <span>{tabDisplayTitle(tab)}</span>
+        {/if}
         <button
           type="button"
           class="close"
@@ -492,6 +582,31 @@
   .tab.notif.promoted:hover::before {
     display: none;
   }
+  /* Session tab drag-to-reorder */
+  .tab.session { cursor: grab; }
+  .tab.session:active { cursor: grabbing; }
+  .tab.session.drag-source { opacity: 0.4; }
+  .tab.session.reorder-target {
+    box-shadow: inset 3px 0 0 var(--amber-bright);
+    background: var(--bg-hover);
+  }
+  .tab-rename-input {
+    background: var(--bg-base);
+    color: var(--amber-bright);
+    border: 1px solid var(--amber-primary);
+    border-radius: 2px;
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 500;
+    padding: 0 4px;
+    height: 20px;
+    width: 100px;
+    outline: none;
+    box-shadow: 0 0 6px rgba(255, 168, 38, 0.3);
+  }
+  .tab-rename-input::selection {
+    background: rgba(255, 168, 38, 0.3);
+  }
   .tab.notif { cursor: grab; }
   .tab.notif:active { cursor: grabbing; }
   /* Phase 8.7j — drop-target indicator */
@@ -548,7 +663,7 @@
   /* Close button — 18×18 click target, smooth red transition */
   .close {
     margin-left: 4px;
-    color: var(--amber-faint);
+    color: var(--amber-dim);
     font-size: 12px;
     width: 18px;
     height: 18px;

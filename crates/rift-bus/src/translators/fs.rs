@@ -404,7 +404,12 @@ pub fn validate_project_path(root: &Path, rel_path: &str) -> Result<PathBuf, FsW
             source,
         })?;
 
-    // Join the relative path; do not allow absolute paths from the caller.
+    if Path::new(rel_path).is_absolute() {
+        return Err(FsWatcherError::PathOutsideRoot {
+            path: PathBuf::from(rel_path),
+        });
+    }
+
     let joined = canon_root.join(rel_path);
     let canon_joined =
         dunce::canonicalize(&joined).map_err(|source| FsWatcherError::CanonicalizeFailed {

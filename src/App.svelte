@@ -149,6 +149,17 @@
   const pendingCommands = new Map<string, { command: string; startTs: number; lane: string }>();
   let timelineNow = $state(Date.now());
 
+  function handleTimelineSeek(ts: number) {
+    const evt = timelineEvents.find((e) => e.startTs <= ts && e.endTs >= ts)
+      ?? timelineEvents.reduce<TimelineEvent | null>((closest, e) => {
+        if (!closest) return e;
+        return Math.abs(e.startTs - ts) < Math.abs(closest.startTs - ts) ? e : closest;
+      }, null);
+    if (evt) {
+      publish('system', 'timeline.seek', { ts, command: evt.command, lane: evt.lane });
+    }
+  }
+
   // ----- alert rules -----
   let alertRules = $state<AlertRule[]>([]);
   const alertBuffers = new Map<string, SparklineBuffer>();
@@ -196,10 +207,7 @@
     welcomeOpen = true;
   }
 
-  // Expose to SettingsPanel via window event.
-  if (typeof window !== 'undefined') {
-    window.addEventListener('rift:show-welcome', showWelcomeGuide);
-  }
+  // Expose to SettingsPanel via window event (cleaned up in onMount return).
 
   // ----- which surface is in the main pane -----
   let active = $state<ActiveSurface>({ kind: 'session', id: 0 });
@@ -240,7 +248,9 @@
       (s) => active.kind === 'session' && s.id === active.id,
     );
     const inheritedPath = activeSession?.projectPath ?? initialProjectRoot;
-    sessions = [...sessions, { id, title: `shell ${id + 1}`, projectPath: inheritedPath, layout: { type: 'terminal', id } }];
+    const projectName = inheritedPath?.replace(/\\/g, '/').split('/').pop() ?? '';
+    const defaultTitle = projectName || `terminal ${sessions.length + 1}`;
+    sessions = [...sessions, { id, title: defaultTitle, projectPath: inheritedPath, layout: { type: 'terminal', id } }];
     active = { kind: 'session', id };
     focusedSessionId = id;
     return id;
@@ -323,7 +333,8 @@
 
   function openProjectInNewTab(path: string) {
     const id = nextSessionId++;
-    sessions = [...sessions, { id, title: `shell ${id + 1}`, projectPath: path, layout: { type: 'terminal', id } }];
+    const projectName = path.replace(/\\/g, '/').split('/').pop() ?? `terminal ${sessions.length + 1}`;
+    sessions = [...sessions, { id, title: projectName, projectPath: path, layout: { type: 'terminal', id } }];
     active = { kind: 'session', id };
     focusedSessionId = id;
   }
@@ -336,6 +347,20 @@
       },
     });
   }
+  function reorderSession(srcId: number, dstId: number) {
+    const srcIdx = sessions.findIndex((s) => s.id === srcId);
+    const dstIdx = sessions.findIndex((s) => s.id === dstId);
+    if (srcIdx < 0 || dstIdx < 0 || srcIdx === dstIdx) return;
+    const next = [...sessions];
+    const [moved] = next.splice(srcIdx, 1);
+    next.splice(dstIdx, 0, moved);
+    sessions = next;
+  }
+
+  function renameSession(id: number, title: string) {
+    sessions = sessions.map((s) => (s.id === id ? { ...s, title } : s));
+  }
+
   function closeSession(id: number) {
     sessions = sessions.filter((s) => s.id !== id);
     if (active.kind === 'session' && active.id === id) {
@@ -344,10 +369,12 @@
       active = last ? { kind: 'session', id: last.id } : { kind: 'empty' };
     }
   }
-  // ----- project-per-tab: active project follows active session -----
+  // ----- project-per-tab: active project follows active session/pane -----
   const activeProjectPath = $derived.by(() => {
     const a = active;
     if (a.kind !== 'session') return initialProjectRoot;
+    const panePath = paneSessionPaths.get(focusedSessionId);
+    if (panePath) return panePath;
     const s = sessions.find((s) => s.id === a.id);
     return s?.projectPath ?? initialProjectRoot;
   });
@@ -606,6 +633,7 @@
   let cockpitRightWidth = $state(420); // px — was flex: 0 0 38% (~420 of 1100)
   let promotedPaneWidth = $state(420); // px — promoted notif pane, splitter-resizable
   let graphHeightPct = $state(55);     // percent — was flex: 0 0 55%
+  let timelineHeightPx = $state(120);  // px — resizable timeline strip above graph
 
   // Cockpit collapse toggle — hides the right pane (graph + tree) to give
   // the terminal full width. Persisted to localStorage. Ctrl+B toggles.
@@ -788,6 +816,17 @@
   let ccSkill = $state('');
   let ccEffort = $state('');
   let statuslineConfig = $state<StatusLineConfig | undefined>(undefined);
+
+  // Immediate status update on focus change — don't wait for the 5s Rust poll.
+  // Updates repo basename instantly so the StatusLine reflects the active pane.
+  // Full tilde-collapsed dir + git status still come from the Rust poll.
+  $effect(() => {
+    const path = activeProjectPath;
+    if (!path) return;
+    const parts = path.replace(/\\/g, '/').split('/');
+    const name = parts[parts.length - 1];
+    if (name) statusRepo = name;
+  });
 
   // Session elapsed timer — 1s tick for smooth clock display.
   const sessionStartMs = Date.now();
@@ -1029,6 +1068,10 @@
     // via mutable refs the IIFE populates.
     let unlistenDetached: (() => void) | undefined;
     let unlistenReattached: (() => void) | undefined;
+    let unlistenMoved: (() => void) | undefined;
+    let unlistenResized: (() => void) | undefined;
+
+    window.addEventListener('rift:show-welcome', showWelcomeGuide);
 
     // Load notification filter thresholds from config on mount.
     void loadNotifFilters();
@@ -1116,7 +1159,7 @@
           }));
         } catch { /* quota / private */ }
         // Subscribe to move + resize so subsequent changes persist live.
-        appWindow.onMoved(({ payload: pos }) => {
+        unlistenMoved = await appWindow.onMoved(({ payload: pos }) => {
           appWindow.outerSize().then((size) => {
             try {
               localStorage.setItem(MAIN_POS_KEY, JSON.stringify({
@@ -1125,7 +1168,7 @@
             } catch { /* ignore */ }
           }).catch(() => { /* ignore */ });
         });
-        appWindow.onResized(({ payload: size }) => {
+        unlistenResized = await appWindow.onResized(({ payload: size }) => {
           appWindow.outerPosition().then((pos) => {
             try {
               localStorage.setItem(MAIN_POS_KEY, JSON.stringify({
@@ -1177,7 +1220,10 @@
     return () => {
       unlistenDetached?.();
       unlistenReattached?.();
+      unlistenMoved?.();
+      unlistenResized?.();
       window.removeEventListener('rift:config-changed', onConfigChanged);
+      window.removeEventListener('rift:show-welcome', showWelcomeGuide);
       window.removeEventListener('keydown', onKeyDown);
     };
   });
@@ -1241,6 +1287,8 @@
     onActivateNotif={activateNotif}
     onCloseSession={closeSession}
     onAddSession={addSession}
+    onReorderSession={reorderSession}
+    onRenameSession={renameSession}
     onToggleNotif={toggleNotif}
     onPromote={promoteTab}
     onDemote={demoteTab}
@@ -1369,8 +1417,8 @@
       />
 
       <div class="cockpit-right" style="flex: 0 0 {cockpitRightWidth}px;">
-        <!-- Timeline strip — fixed 80px above graph. Shows command history as colored blocks. -->
-        <div class="timeline-pane">
+        <!-- Timeline strip — resizable above graph. Shows command history as colored blocks. -->
+        <div class="timeline-pane" style="flex: 0 0 {timelineHeightPx}px;">
           <div class="pane-header">
             <span>TIMELINE</span>
             <span class="meta">{timelineEvents.length} commands</span>
@@ -1379,11 +1427,21 @@
             <TimelineScrubber
               events={timelineEvents}
               currentTs={timelineNow}
-              onSeek={() => {}}
+              onSeek={handleTimelineSeek}
               viewportMinutes={5}
             />
           </div>
         </div>
+
+        <Splitter
+          direction="horizontal"
+          storageKey="rift.cockpit.timeline_height_px"
+          unit="px"
+          bind:size={timelineHeightPx}
+          min={60}
+          max={250}
+          onDblClick={() => (timelineHeightPx = 120)}
+        />
 
         <!-- Phase 8.4 — Graph pane (top slot). IndexGraph.svelte renders width:100%/height:100%
              inside .graph-pane; border-bottom is the horizontal divider per mockup #3. -->
@@ -1484,7 +1542,7 @@
     flex-direction: column;
     min-width: 0;
     min-height: 0;
-    border-right: 2px solid var(--amber-faint);
+    border-right: none;
   }
   .cockpit-left.full-width {
     border-right: none;
@@ -1526,7 +1584,6 @@
   }
 
   .timeline-pane {
-    flex: 0 0 80px;
     display: flex;
     flex-direction: column;
     overflow: hidden;
@@ -1590,7 +1647,7 @@
     font-family: var(--font-family);
     font-size: 10px;
     font-weight: 700;
-    letter-spacing: 0.16em;
+    letter-spacing: 0.1em;
     flex-shrink: 0;
     user-select: none;
   }
@@ -1706,6 +1763,7 @@
     letter-spacing: 0.08em;
     padding: 3px 10px;
     cursor: pointer;
+    border-radius: var(--radius-md, 4px);
     transition: color 0.12s, border-color 0.12s;
   }
   .update-btn:not(:disabled):hover {

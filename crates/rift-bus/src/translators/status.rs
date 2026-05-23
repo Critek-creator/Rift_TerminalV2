@@ -127,7 +127,7 @@ pub async fn spawn_status_translator(
 ///
 /// Called by the polling loop. Also called directly from unit tests to verify
 /// the published shape without a real timer.
-pub(crate) fn publish_status_snapshot(bus: &RiftBus, project_root: &Path) {
+pub fn publish_status_snapshot(bus: &RiftBus, project_root: &Path) {
     let ts = now_unix_ms();
     let canonical_root = resolve_repo_root(project_root);
     let root_ref: &Path = canonical_root.as_deref().unwrap_or(project_root);

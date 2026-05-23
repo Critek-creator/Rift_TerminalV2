@@ -660,7 +660,7 @@
     display: flex;
     flex-direction: column;
     gap: 5px;
-    opacity: 0.55;
+    opacity: 0.70;
     transition: opacity var(--duration-med);
   }
   .sentinel-card:hover { opacity: 0.75; }

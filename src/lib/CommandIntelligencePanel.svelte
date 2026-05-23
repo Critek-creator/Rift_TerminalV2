@@ -73,7 +73,20 @@
   $effect(() => {
     void project;
     void cwd;
-    fetchStats();
+    let cancelled = false;
+    (async () => {
+      loading = true;
+      try {
+        const result = await invoke<CommandStats>('command_stats', {
+          project: project ?? null,
+          cwd: cwd ?? null,
+        });
+        if (!cancelled) { stats = result; loading = false; }
+      } catch {
+        if (!cancelled) loading = false;
+      }
+    })();
+    return () => { cancelled = true; };
   });
 
   onMount(async () => {
@@ -100,7 +113,7 @@
 
   onDestroy(() => {
     clearTimeout(refreshTimer);
-    unsubscribeBus?.();
+    void unsubscribeBus?.().catch(() => {});
   });
 </script>
 

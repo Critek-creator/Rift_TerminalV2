@@ -152,6 +152,25 @@
     height: 100%;
     cursor: col-resize;
   }
+  /* Grip indicator on hover — centered amber line for grab affordance. */
+  .splitter:hover::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    border-radius: 1px;
+  }
+  .splitter-vertical:hover::after {
+    width: 2px;
+    height: 24px;
+    background: var(--amber-primary, #FFA826);
+  }
+  .splitter-horizontal:hover::after {
+    width: 24px;
+    height: 2px;
+    background: var(--amber-primary, #FFA826);
+  }
   /* Larger invisible hit area for easier grabbing without changing visual width. */
   .splitter::before {
     content: '';

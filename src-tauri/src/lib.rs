@@ -1477,6 +1477,10 @@ fn project_swap(
     });
     bus.publish(env);
 
+    // Step 9: Immediate status refresh so StatusLine updates without waiting
+    // for the 5s poll tick. project_root was just set in Step 6.
+    rift_bus::translators::status::publish_status_snapshot(bus.inner(), &canon);
+
     Ok(())
 }
 
