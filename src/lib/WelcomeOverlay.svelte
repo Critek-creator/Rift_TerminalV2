@@ -1,4 +1,20 @@
 <script lang="ts">
+  import { invoke } from '@tauri-apps/api/core';
+
+  interface IntegrationDetail {
+    installed: boolean;
+    enabled: boolean;
+    path: string;
+  }
+
+  interface IntegrationStatus {
+    claude_dir_exists: boolean;
+    node_available: boolean;
+    node_version: string | null;
+    aegis: IntegrationDetail;
+    index: IntegrationDetail;
+  }
+
   interface Props {
     ondismiss: () => void;
   }
@@ -7,6 +23,30 @@
 
   let step = $state(0);
   const totalSteps = 5;
+
+  let integrations = $state<IntegrationStatus | null>(null);
+
+  $effect(() => {
+    if (step === 3 && !integrations) {
+      invoke<IntegrationStatus>('integration_detect').then((s) => {
+        integrations = s;
+      });
+    }
+  });
+
+  function statusIcon(detail: IntegrationDetail | undefined): string {
+    if (!detail) return '…';
+    if (detail.installed && detail.enabled) return '✅';
+    if (detail.installed) return '⏸';
+    return '⚠';
+  }
+
+  function statusLabel(detail: IntegrationDetail | undefined): string {
+    if (!detail) return 'Detecting…';
+    if (detail.installed && detail.enabled) return 'Installed & active';
+    if (detail.installed) return 'Installed (disabled)';
+    return 'Not installed';
+  }
 
   function next() {
     if (step < totalSteps - 1) step++;
@@ -83,14 +123,35 @@
       {:else if step === 3}
         <div class="step">
           <h2 class="step-title">Integrations</h2>
-          <p>Rift gets richer when connected to other tools. Tabs light up automatically when integrations are detected:</p>
-          <div class="tab-list">
-            <div class="tab-item"><span class="tab-icon">◉</span> <strong>Aegis</strong> — appears when the Aegis command center is active</div>
-            <div class="tab-item"><span class="tab-icon">◊</span> <strong>Agents</strong> — shows agent activity and Sentinel violations</div>
-            <div class="tab-item"><span class="tab-icon">◈</span> <strong>Index</strong> — Abyssal Index vault browser</div>
-            <div class="tab-item"><span class="tab-icon">⬡</span> <strong>MCP</strong> — MCP tool dashboard and metrics</div>
+          <p>Rift gets richer with optional integrations. Tabs light up automatically when detected.</p>
+          <div class="integration-list">
+            <div class="integration-card">
+              <span class="integration-status">{statusIcon(integrations?.aegis)}</span>
+              <div class="integration-info">
+                <strong>Aegis</strong> — agent observability, session monitoring, maintenance automation
+                <div class="integration-detail">{statusLabel(integrations?.aegis)}</div>
+              </div>
+            </div>
+            <div class="integration-card">
+              <span class="integration-status">{statusIcon(integrations?.index)}</span>
+              <div class="integration-info">
+                <strong>Abyssal Index</strong> — vault browser, semantic enrichment, knowledge cockpit
+                <div class="integration-detail">{statusLabel(integrations?.index)}</div>
+              </div>
+            </div>
+            <div class="integration-card">
+              <span class="integration-status">ℹ</span>
+              <div class="integration-info">
+                <strong>MCP Tools</strong> — 20 tools for programmatic access
+                <div class="integration-detail">Auto-detected when MCP server connects</div>
+              </div>
+            </div>
           </div>
-          <p>No integration? No empty tab. The cockpit only shows what's actually there.</p>
+          {#if integrations && !integrations.claude_dir_exists}
+            <div class="integration-warning">Claude Code not detected. Install Claude Code first, then manage integrations in Settings.</div>
+          {:else if integrations && (!integrations.aegis.installed || !integrations.index.installed)}
+            <p>Manage integrations anytime in <strong>Settings &gt; Integrations</strong>.</p>
+          {/if}
         </div>
       {:else if step === 4}
         <div class="step">
@@ -289,6 +350,51 @@
     align-items: center;
     gap: var(--space-md);
   }
+  .integration-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-8);
+    padding: var(--space-sm) 0;
+  }
+  .integration-card {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-md);
+    padding: var(--space-8) var(--space-md);
+    border: 1px solid var(--border-subtle, rgba(255, 168, 38, 0.15));
+    border-radius: var(--radius-sm, 4px);
+    background: rgba(255, 168, 38, 0.03);
+  }
+  .integration-status {
+    font-size: var(--text-md);
+    flex-shrink: 0;
+    width: 20px;
+    text-align: center;
+    margin-top: 1px;
+  }
+  .integration-info {
+    color: var(--term-white, #E8E4D8);
+    font-size: var(--text-sm);
+    line-height: 1.5;
+  }
+  .integration-info strong {
+    color: var(--amber-warm, #E8B840);
+  }
+  .integration-detail {
+    font-size: var(--text-xs);
+    color: var(--amber-faint, #A87830);
+    margin-top: 2px;
+  }
+  .integration-warning {
+    margin-top: var(--space-md);
+    padding: var(--space-8) var(--space-md);
+    border: 1px solid var(--term-red, #CC3333);
+    border-radius: var(--radius-sm, 4px);
+    color: var(--term-red, #CC3333);
+    font-size: var(--text-xs);
+    background: rgba(204, 51, 51, 0.06);
+  }
+
   .tip kbd {
     display: inline-block;
     min-width: 90px;

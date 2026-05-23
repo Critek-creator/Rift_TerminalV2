@@ -13,6 +13,7 @@ fn vault_path() -> &'static PathBuf {
         }
 
         let candidates = [
+            directories::BaseDirs::new().map(|b| b.home_dir().join(".claude/abyssal-index")),
             directories::BaseDirs::new().map(|b| {
                 b.home_dir()
                     .join("Documents/Abyssal_Arts_main/Projects/abyssal-index/vault")

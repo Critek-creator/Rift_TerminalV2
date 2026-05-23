@@ -59,13 +59,17 @@ windows-sys = { workspace = true, features = [
 tempfile = "3"
 
 [features]
-default = ["custom-protocol"]
+default = ["custom-protocol", "aegis-detect"]
 custom-protocol = ["tauri/custom-protocol"]
-# Phase 7 — Aegis private translator. Off by default. When on,
-# enables `dep:rift-aegis` AND `rift-aegis/private_modules` (the
-# latter activates the real impl in the gitignored sibling files
-# alongside the tracked stub lib.rs). See DEFERRED.md C-014.
-aegis = ["dep:rift-aegis", "rift-aegis/private_modules"]
+# Aegis detection — public lightweight probe that checks for SKILL.md
+# on disk and publishes aegis.detected envelopes. Compiles against the
+# tracked stub (detect.rs / snapshot.rs) — no gitignored files needed.
+# Included in default features so release binaries can detect Aegis.
+aegis-detect = ["dep:rift-aegis"]
+# Aegis private translator — full snapshot + log tail. Requires the
+# gitignored private source files (detect_private.rs, snapshot_private.rs).
+# Dev-only; never in default features. See DEFERRED.md C-014.
+aegis-private = ["aegis-detect", "rift-aegis/private_modules"]
 index = ["dep:index-core"]
 
 # cargo-machete false-positive suppression:

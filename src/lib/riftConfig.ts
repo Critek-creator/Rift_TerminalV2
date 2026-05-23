@@ -100,6 +100,11 @@ interface AlertsConfig {
   rules: AlertRule[];
 }
 
+interface IntegrationsConfig {
+  aegis_enabled: boolean;
+  index_enabled: boolean;
+}
+
 export interface RiftConfig {
   projects: ProjectEntry[];
   fs: FsConfig;
@@ -113,4 +118,5 @@ export interface RiftConfig {
   statusline: StatusLineConfig;
   alerts: AlertsConfig;
   first_run_completed: boolean;
+  integrations: IntegrationsConfig;
 }

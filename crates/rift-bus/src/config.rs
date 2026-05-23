@@ -101,6 +101,10 @@ pub struct RiftConfig {
     /// Defaults to `false` via `#[serde(default)]` so existing configs
     /// (which lack this field) trigger the welcome experience.
     pub first_run_completed: bool,
+    /// Optional integration toggles (Aegis, Index). Runtime-gated — the
+    /// binary compiles both features but only activates translators when
+    /// the user opts in via the welcome overlay or Settings panel.
+    pub integrations: IntegrationsConfig,
 }
 
 /// A recently-used project entry stored in the config.
@@ -587,6 +591,34 @@ pub enum AlertAction {
     /// Forward-compat catch-all.
     #[serde(other)]
     Unknown,
+}
+
+// ---------------------------------------------------------------------------
+// IntegrationsConfig — runtime toggles for optional Aegis + Index
+// ---------------------------------------------------------------------------
+
+/// Runtime integration toggles for optional subsystems.
+///
+/// The release binary compiles with both `aegis-detect` and `index` Cargo
+/// features, but translators only spawn when the user opts in here. This
+/// decouples compile-time capability from runtime activation, matching the
+/// §9 integration-decoupling principle.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(default)]
+pub struct IntegrationsConfig {
+    /// Aegis agent observability — spawn detection probe + translator.
+    pub aegis_enabled: bool,
+    /// Abyssal Index knowledge cockpit — spawn vault walker + bridge.
+    pub index_enabled: bool,
+}
+
+impl Default for IntegrationsConfig {
+    fn default() -> Self {
+        Self {
+            aegis_enabled: false,
+            index_enabled: false,
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------

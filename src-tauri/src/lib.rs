@@ -32,6 +32,7 @@ mod index_bridge {
 }
 mod command_history;
 mod file_preview;
+mod integrations;
 mod mcp_host;
 mod notif_window;
 mod profiles;
@@ -90,7 +91,7 @@ const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 /// it can be taken and aborted exactly once.
 type DrainHandle = tauri::async_runtime::JoinHandle<()>;
 
-#[cfg(feature = "aegis")]
+#[cfg(feature = "aegis-private")]
 use rift_aegis::probe as aegis_probe;
 
 use rift_bus::{
@@ -1655,12 +1656,12 @@ pub fn run() {
             }
             app.manage(watcher_reg);
 
-            // --- Phase 8.5: Vault-walker ---
+            // --- Phase 8.5: Vault-walker (runtime-gated on integrations.index_enabled) ---
             //
             // Resolve ~/.claude/abyssal-index/ via directories::BaseDirs.
             // Skip the spawn with a tracing::warn if the directory does not
             // exist (clean dev clones may not have the Abyssal Index).
-            {
+            if cfg.integrations.index_enabled {
                 let vault_root_opt =
                     directories::BaseDirs::new().map(|b| b.home_dir().join(".claude/abyssal-index"));
 
@@ -1744,9 +1745,9 @@ pub fn run() {
             //
             // Layer 2 (feature-gated): the private rift-aegis translator that
             // additionally publishes a startup snapshot and spawns aegis.log
-            // live tail. Only compiled with `--features aegis`.
+            // live tail. Only compiled with `--features aegis-private`.
             let aegis_detect_bus = bus_for_ipc.clone();
-            #[cfg(feature = "aegis")]
+            #[cfg(feature = "aegis-private")]
             let aegis_bus = bus_for_ipc.clone();
 
             tauri::async_runtime::spawn(async move {
@@ -1767,16 +1768,18 @@ pub fn run() {
                 }
             });
 
-            // Layer 1 — non-gated detection probe.
-            tauri::async_runtime::spawn(async move {
-                aegis_detect_lightweight(aegis_detect_bus).await;
-            });
+            // Layer 1 — runtime-gated detection probe.
+            if cfg.integrations.aegis_enabled {
+                tauri::async_runtime::spawn(async move {
+                    aegis_detect_lightweight(aegis_detect_bus).await;
+                });
 
-            // Layer 2 — private translator (snapshot + log tail).
-            #[cfg(feature = "aegis")]
-            tauri::async_runtime::spawn(async move {
-                aegis_probe(aegis_bus).await;
-            });
+                // Layer 2 — private translator (snapshot + log tail).
+                #[cfg(feature = "aegis-private")]
+                tauri::async_runtime::spawn(async move {
+                    aegis_probe(aegis_bus).await;
+                });
+            }
 
             // D-012 unblocked slice — spawn status translator (DIR / GIT / REPO).
             // Publishes Category::Status / kind="usage" every 5 s with
@@ -1958,6 +1961,7 @@ pub fn run() {
             command_history::command_history_record,
             command_history::command_stats,
             command_history::command_suggestions,
+            integrations::integration_detect,
         ])
         .build(tauri::generate_context!())
         .expect("rift: tauri runtime failed to start")

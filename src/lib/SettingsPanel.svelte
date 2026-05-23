@@ -29,7 +29,7 @@
 
   let { popoutId }: Props = $props();
 
-  type SettingsTab = 'general' | 'terminal' | 'index' | 'tree' | 'mcp' | 'statusline' | 'alerts';
+  type SettingsTab = 'general' | 'terminal' | 'integrations' | 'index' | 'tree' | 'mcp' | 'statusline' | 'alerts';
   let activeTab = $state<SettingsTab>('general');
 
   // ---------------------------------------------------------------------
@@ -734,9 +734,10 @@
 >
   <nav class="tab-strip">
     {#each [
-      { id: 'general',    label: 'GENERAL' },
-      { id: 'terminal',   label: 'TERMINAL' },
-      { id: 'statusline', label: 'STATUS LINE' },
+      { id: 'general',      label: 'GENERAL' },
+      { id: 'terminal',     label: 'TERMINAL' },
+      { id: 'integrations', label: 'INTEGRATIONS' },
+      { id: 'statusline',   label: 'STATUS LINE' },
       { id: 'index',      label: 'INDEX' },
       { id: 'tree',       label: 'TREE' },
       { id: 'mcp',        label: 'MCP' },
@@ -966,6 +967,98 @@
         >{savingNotif ? 'saving...' : 'save filters'}</button>
       </div>
     </section>
+    {/if}
+
+    {#if activeTab === 'integrations'}
+    <!-- INTEGRATIONS -->
+    {#await invoke<{claude_dir_exists: boolean, node_available: boolean, node_version: string | null, aegis: {installed: boolean, enabled: boolean, path: string}, index: {installed: boolean, enabled: boolean, path: string}}>('integration_detect')}
+      <section class="section">
+        <div class="section-label">Integrations</div>
+        <div class="hint">Detecting integrations…</div>
+      </section>
+    {:then status}
+      <section class="section">
+        <div class="section-label">Integrations</div>
+        <div class="hint">
+          Optional subsystems that extend Rift's cockpit. Tabs light up
+          automatically when an integration is detected and enabled.
+        </div>
+        <div class="field-row">
+          <label class="field-label" for="aegis-toggle">Aegis (agent observability)</label>
+          <div class="field-detail">
+            {#if status.aegis.installed}
+              <span class="badge badge-ok">installed</span>
+            {:else}
+              <span class="badge badge-warn">not installed</span>
+            {/if}
+          </div>
+          {#if config}
+          <label class="toggle-switch">
+            <input
+              id="aegis-toggle"
+              type="checkbox"
+              checked={config.integrations.aegis_enabled}
+              disabled={!status.aegis.installed}
+              onchange={(e) => {
+                if (config) {
+                  config.integrations.aegis_enabled = e.currentTarget.checked;
+                  invoke('config_save', { cfg: config });
+                }
+              }}
+            />
+            <span class="toggle-slider"></span>
+          </label>
+          {/if}
+        </div>
+        <div class="field-row">
+          <label class="field-label" for="index-toggle">Abyssal Index (knowledge cockpit)</label>
+          <div class="field-detail">
+            {#if status.index.installed}
+              <span class="badge badge-ok">installed</span>
+            {:else}
+              <span class="badge badge-warn">not installed</span>
+            {/if}
+          </div>
+          {#if config}
+          <label class="toggle-switch">
+            <input
+              id="index-toggle"
+              type="checkbox"
+              checked={config.integrations.index_enabled}
+              disabled={!status.index.installed}
+              onchange={(e) => {
+                if (config) {
+                  config.integrations.index_enabled = e.currentTarget.checked;
+                  invoke('config_save', { cfg: config });
+                }
+              }}
+            />
+            <span class="toggle-slider"></span>
+          </label>
+          {/if}
+        </div>
+        <div class="field-row">
+          <span class="field-label">Node.js</span>
+          <div class="field-detail">
+            {#if status.node_available}
+              <span class="badge badge-ok">{status.node_version}</span>
+            {:else}
+              <span class="badge badge-warn">not found — maintenance scripts require Node.js 18+</span>
+            {/if}
+          </div>
+        </div>
+        {#if !status.claude_dir_exists}
+          <div class="hint" style="color: var(--term-red, #CC3333); margin-top: var(--space-md)">
+            Claude Code directory (~/.claude/) not found. Install Claude Code to use integrations.
+          </div>
+        {/if}
+      </section>
+    {:catch}
+      <section class="section">
+        <div class="section-label">Integrations</div>
+        <div class="hint">Detection failed — try restarting Rift.</div>
+      </section>
+    {/await}
     {/if}
 
     {#if activeTab === 'terminal'}
