@@ -49,6 +49,7 @@
   let search = $state<SearchAddon | undefined>(undefined);
   let searchOpen = $state(false);
   let resizeObs: ResizeObserver | undefined;
+  let resizeRaf: number | undefined;
   let unlistenExited: UnlistenFn | undefined;
 
   // Path intelligence tooltip state
@@ -535,9 +536,21 @@
     recoveryTimer = setInterval(() => {
       recoveryAttempts++;
       refitAndResize();
-      if ((term && term.rows > 1 && term.cols > 1) || recoveryAttempts >= 15) {
+      // Check the HOST element's physical dimensions — not xterm's logical
+      // rows/cols. The 80×24 clamp above forces term.rows/cols to valid
+      // values even when the canvas is still 0-sized (WebView2 window
+      // hasn't finished initializing). Checking term.rows > 1 would exit
+      // on the first iteration and the Ctrl+L recovery would never fire.
+      const rect = host?.getBoundingClientRect();
+      const hostReady = rect != null && rect.width >= 150 && rect.height >= 60;
+      if (hostReady || recoveryAttempts >= 15) {
         clearInterval(recoveryTimer);
         recoveryTimer = undefined;
+        // One final fit + refresh now that the host has real dimensions.
+        if (hostReady) {
+          try { fit?.fit(); } catch { /* best-effort */ }
+          if (term) term.refresh(0, term.rows - 1);
+        }
         // Last-resort prompt recovery: if the terminal buffer is still
         // empty after all recovery attempts, the shell's initial prompt
         // was lost (written before xterm had a usable buffer). Send
@@ -563,14 +576,22 @@
     });
 
     resizeObs = new ResizeObserver(() => {
-      fit?.fit();
-      if (sessionId !== null && alive && term) {
-        invoke('pty_resize', {
-          id: sessionId,
-          rows: term.rows,
-          cols: term.cols,
-        }).catch(() => { /* best-effort */ });
-      }
+      if (resizeRaf !== undefined) cancelAnimationFrame(resizeRaf);
+      resizeRaf = requestAnimationFrame(() => {
+        resizeRaf = undefined;
+        try { fit?.fit(); } catch { /* best-effort */ }
+        if (sessionId !== null && alive && term && term.rows > 1 && term.cols > 1) {
+          if (term.rows !== lastResizeRows || term.cols !== lastResizeCols) {
+            lastResizeRows = term.rows;
+            lastResizeCols = term.cols;
+            invoke('pty_resize', {
+              id: sessionId,
+              rows: term.rows,
+              cols: term.cols,
+            }).catch(() => { /* best-effort */ });
+          }
+        }
+      });
     });
     resizeObs.observe(host);
 
@@ -622,6 +643,7 @@
     unsubscribeLane?.().catch(() => {});
     if (hoverTimer !== null) { clearTimeout(hoverTimer); hoverTimer = null; }
     if (recoveryTimer) clearInterval(recoveryTimer);
+    if (resizeRaf !== undefined) cancelAnimationFrame(resizeRaf);
     resizeObs?.disconnect();
     host?.removeEventListener(RIFT_VAULT_DROP_EVENT, onTermVaultDrop);
     search?.dispose();

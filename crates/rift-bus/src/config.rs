@@ -603,22 +603,13 @@ pub enum AlertAction {
 /// features, but translators only spawn when the user opts in here. This
 /// decouples compile-time capability from runtime activation, matching the
 /// §9 integration-decoupling principle.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct IntegrationsConfig {
     /// Aegis agent observability — spawn detection probe + translator.
     pub aegis_enabled: bool,
     /// Abyssal Index knowledge cockpit — spawn vault walker + bridge.
     pub index_enabled: bool,
-}
-
-impl Default for IntegrationsConfig {
-    fn default() -> Self {
-        Self {
-            aegis_enabled: false,
-            index_enabled: false,
-        }
-    }
 }
 
 // ---------------------------------------------------------------------------

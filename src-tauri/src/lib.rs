@@ -1983,6 +1983,17 @@ pub fn run() {
                 if let Some(notify) = app_handle.try_state::<ShutdownNotify>() {
                     notify.signal();
                 }
+                // Kill all live PTY sessions so child shell processes don't
+                // survive as zombies after the window closes. The frontend's
+                // onDestroy calls pty_kill per-session, but during app
+                // teardown Svelte cleanup may not complete before the
+                // runtime drops resources.
+                if let Some(registry) = app_handle.try_state::<PtyRegistry>() {
+                    let killed = registry.kill_all();
+                    if killed > 0 {
+                        tracing::info!("rift: killed {killed} PTY session(s) on exit");
+                    }
+                }
                 // Clear the MCP discovery file so a stopped Rift can't
                 // masquerade as live to a freshly-spawned `rift-mcp` client
                 // started by Claude Code (see crates/rift-bus/src/config.rs).
