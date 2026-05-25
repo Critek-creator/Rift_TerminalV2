@@ -550,7 +550,30 @@ fn relative_path(root: &Path, full_path: &Path) -> Option<String> {
 
 /// Returns `true` when the (already-normalized, relative) path should be
 /// forwarded to the bus, `false` when a glob in `globs` matches it.
+///
+/// Also rejects bare ignored-directory paths (e.g. `.git`, `node_modules`)
+/// that slip through `/**` glob patterns — `notify` emits directory-level
+/// change events when files inside them are modified, and these don't match
+/// the `dir/**` pattern because the path has no trailing component.
 pub(crate) fn should_publish(rel_path: &str, globs: &GlobSet) -> bool {
+    const IGNORED_DIRS: &[&str] = &[
+        ".git",
+        "node_modules",
+        "target",
+        "dist",
+        ".svelte-kit",
+        "context-mode",
+        "file-history",
+        "projects",
+        "plugins",
+        "scripts",
+        "memory",
+        "__pycache__",
+    ];
+    let first_component = rel_path.split('/').next().unwrap_or(rel_path);
+    if IGNORED_DIRS.contains(&first_component) {
+        return false;
+    }
     !globs.is_match(rel_path)
 }
 

@@ -42,7 +42,6 @@
   import CommandPalette from './lib/CommandPalette.svelte';
   import ShortcutOverlay from './lib/ShortcutOverlay.svelte';
   import WelcomeOverlay from './lib/WelcomeOverlay.svelte';
-  import TimelineScrubber from './lib/TimelineScrubber.svelte';
   import CommandIntelligencePanel from './lib/CommandIntelligencePanel.svelte';
   import { notifPriority } from './lib/notifPriority.svelte';
 
@@ -143,23 +142,6 @@
 
   // ----- correlation index -----
   const correlationIndex = new CorrelationIndex();
-
-  // ----- timeline events (for TimelineScrubber in cockpit-right) -----
-  type TimelineEvent = { id: string; command: string; startTs: number; endTs: number; lane: string; exitCode: number | null };
-  let timelineEvents = $state<TimelineEvent[]>([]);
-  const pendingCommands = new Map<string, { command: string; startTs: number; lane: string }>();
-  let timelineNow = $state(Date.now());
-
-  function handleTimelineSeek(ts: number) {
-    const evt = timelineEvents.find((e) => e.startTs <= ts && e.endTs >= ts)
-      ?? timelineEvents.reduce<TimelineEvent | null>((closest, e) => {
-        if (!closest) return e;
-        return Math.abs(e.startTs - ts) < Math.abs(closest.startTs - ts) ? e : closest;
-      }, null);
-    if (evt) {
-      publish('system', 'timeline.seek', { ts, command: evt.command, lane: evt.lane });
-    }
-  }
 
   // ----- alert rules -----
   let alertRules = $state<AlertRule[]>([]);
@@ -634,7 +616,6 @@
   let cockpitRightWidth = $state(420); // px — was flex: 0 0 38% (~420 of 1100)
   let promotedPaneWidth = $state(420); // px — promoted notif pane, splitter-resizable
   let graphHeightPct = $state(55);     // percent — was flex: 0 0 55%
-  let timelineHeightPx = $state(120);  // px — resizable timeline strip above graph
 
   // Cockpit collapse toggle — hides the right pane (graph + tree) to give
   // the terminal full width. Persisted to localStorage. Ctrl+B toggles.
@@ -672,15 +653,6 @@
   // the live window itself is 3s in TabBar.
   let tickNow = $state(Date.now());
 
-  $effect(() => {
-    const t = setInterval(() => {
-      tickNow = Date.now();
-      timelineNow = Date.now();
-      for (const buf of alertBuffers.values()) buf.tick();
-    }, 1000);
-    return () => clearInterval(t);
-  });
-
   // §10.7 capability-gate + §10.9 badge counter + live border —
   // master envelope subscription lives at App level so it works regardless
   // of which tab is currently mounted (panes only mount when active).
@@ -713,52 +685,25 @@
           //   warnings/sec on dead subscribers.
           if (env.category === 'system' && env.kind === 'notif.tabs') return;
           const now = Date.now();
-          notifs = notifs.map((n) => {
-            if (n.id !== id) return n;
-            const inView = promoted === id;
-            return {
+          const target = notifs.find((n) => n.id === id);
+          if (!target) return;
+          const inView = promoted === id;
+          // Skip reassignment when nothing observable changes — avoids
+          // hundreds of Svelte reactivity triggers/sec under heavy bus traffic.
+          const nextUnread = target.enabled ? (inView ? 0 : target.unreadCount + 1) : target.unreadCount;
+          if (target.detected && target.lastActivityTs === now && target.unreadCount === nextUnread) return;
+          notifs = notifs.map((n) =>
+            n.id !== id ? n : {
               ...n,
               detected: true,
               lastActivityTs: now,
-              unreadCount: n.enabled ? (inView ? 0 : n.unreadCount + 1) : n.unreadCount,
-            };
-          });
+              unreadCount: nextUnread,
+            },
+          );
 
           // Adaptive notification priority: seed baseline from all envelopes.
           if (notifPriority.isEnabled()) {
             notifPriority.recordInteraction(env.kind, 'ignore');
-          }
-
-          // Timeline scrubber: capture cmd.start/cmd.end pairs.
-          if (env.category === 'pty') {
-            const p = env.payload as Record<string, unknown>;
-            if (env.kind === 'cmd.start') {
-              const cmdId = (p.id as string) || String(env.ts);
-              if (pendingCommands.size > 500) {
-                const oldest = pendingCommands.keys().next().value;
-                if (oldest !== undefined) pendingCommands.delete(oldest);
-              }
-              pendingCommands.set(cmdId, {
-                command: (p.command as string) || '',
-                startTs: env.ts,
-                lane: (p.lane as string) || 'user',
-              });
-            } else if (env.kind === 'cmd.end') {
-              const cmdId = (p.id as string) || '';
-              const pending = pendingCommands.get(cmdId);
-              if (pending) {
-                pendingCommands.delete(cmdId);
-                timelineEvents = [...timelineEvents.slice(-200), {
-                  id: cmdId,
-                  command: pending.command,
-                  startTs: pending.startTs,
-                  endTs: env.ts,
-                  lane: pending.lane,
-                  exitCode: (p.exit_code as number) ?? null,
-                }];
-              }
-            }
-            timelineNow = Date.now();
           }
 
           // Correlation: index every envelope that carries a correlation_id.
@@ -829,17 +774,36 @@
     if (name) statusRepo = name;
   });
 
-  // Session elapsed timer — 1s tick for smooth clock display.
-  const sessionStartMs = Date.now();
+  // Session elapsed timer — persisted to localStorage so reloads don't reset.
+  const SESS_START_KEY = 'rift:sessionStartMs';
+  const sessionStartMs = Number(localStorage.getItem(SESS_START_KEY)) || Date.now();
+  localStorage.setItem(SESS_START_KEY, String(sessionStartMs));
+
+  // Unified 1-second timer — handles session clock, live-border tick,
+  // timeline now, and sparkline buffer ticks. Merging avoids two competing
+  // setIntervals and lets each sub-concern skip work when idle.
   $effect(() => {
+    const LIVE_WINDOW_MS = 4000; // slightly wider than TabBar's 3s to avoid edge-case flicker
     const tick = () => {
-      const elapsed = Math.floor((Date.now() - sessionStartMs) / 1000);
+      const now = Date.now();
+      // Session clock — always updates (cheap string format).
+      const elapsed = Math.floor((now - sessionStartMs) / 1000);
       const h = Math.floor(elapsed / 3600);
       const m = Math.floor((elapsed % 3600) / 60);
       const s = elapsed % 60;
       statusSession = h > 0
         ? `${h}h ${String(m).padStart(2, '0')}m`
         : `${m}m ${String(s).padStart(2, '0')}s`;
+
+      // Live-border tick — only update tickNow when at least one tab has
+      // recent activity, otherwise the TabBar deriveds are already stable.
+      const hasRecentActivity = notifs.some(
+        (n) => n.lastActivityTs !== null && (now - n.lastActivityTs) < LIVE_WINDOW_MS,
+      );
+      if (hasRecentActivity) tickNow = now;
+
+      // Sparkline buffer ticks — always cheap (just shifts a fixed-size ring).
+      for (const buf of alertBuffers.values()) buf.tick();
     };
     tick();
     const timer = setInterval(tick, 1000);
@@ -1142,7 +1106,20 @@
               typeof pos.x === 'number' && typeof pos.y === 'number' &&
               typeof pos.width === 'number' && typeof pos.height === 'number'
             ) {
-              await appWindow.setPosition(new PhysicalPosition(pos.x, pos.y));
+              // Off-screen guard: if saved position is beyond visible monitors,
+              // center the window instead of restoring to invisible coordinates.
+              // screen.availWidth/Height cover the primary monitor; multi-monitor
+              // may still clip but at least the primary is guaranteed.
+              const onScreen =
+                pos.x >= -pos.width / 2 &&
+                pos.y >= -pos.height / 2 &&
+                pos.x < (window.screen?.availWidth ?? 9999) &&
+                pos.y < (window.screen?.availHeight ?? 9999);
+              if (onScreen) {
+                await appWindow.setPosition(new PhysicalPosition(pos.x, pos.y));
+              } else {
+                await appWindow.center();
+              }
               await appWindow.setSize(new PhysicalSize(pos.width, pos.height));
             }
           } catch {
@@ -1342,8 +1319,8 @@
           <div class="surface visible empty-state">
             <div class="empty-card">
               <div class="empty-glyph">◆</div>
-              <div class="empty-title">no surface active</div>
-              <div class="empty-hint">click <kbd>+</kbd> to open a new shell</div>
+              <div class="empty-title">No terminal open</div>
+              <div class="empty-hint">Press <kbd>Ctrl+T</kbd> or click <kbd>+</kbd> to open a new shell</div>
             </div>
           </div>
         {/if}
@@ -1426,32 +1403,6 @@
       />
 
       <div class="cockpit-right" style="flex: 0 0 {cockpitRightWidth}px;">
-        <!-- Timeline strip — resizable above graph. Shows command history as colored blocks. -->
-        <div class="timeline-pane" style="flex: 0 0 {timelineHeightPx}px;">
-          <div class="pane-header">
-            <span>TIMELINE</span>
-            <span class="meta">{timelineEvents.length} commands</span>
-          </div>
-          <div class="timeline-body">
-            <TimelineScrubber
-              events={timelineEvents}
-              currentTs={timelineNow}
-              onSeek={handleTimelineSeek}
-              viewportMinutes={5}
-            />
-          </div>
-        </div>
-
-        <Splitter
-          direction="horizontal"
-          storageKey="rift.cockpit.timeline_height_px"
-          unit="px"
-          bind:size={timelineHeightPx}
-          min={60}
-          max={250}
-          onDblClick={() => (timelineHeightPx = 120)}
-        />
-
         <!-- Phase 8.4 — Graph pane (top slot). IndexGraph.svelte renders width:100%/height:100%
              inside .graph-pane; border-bottom is the horizontal divider per mockup #3. -->
         <div class="graph-pane" style="flex: 0 0 {graphHeightPct}%;">
@@ -1590,21 +1541,6 @@
     flex-direction: column;
     background: var(--bg-panel);
     min-width: 0;
-  }
-
-  .timeline-pane {
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-    background: var(--bg-base);
-    border-bottom: 1px solid var(--border-subtle);
-  }
-
-  .timeline-body {
-    flex: 1;
-    overflow-x: auto;
-    overflow-y: hidden;
-    min-height: 0;
   }
 
   .graph-pane {

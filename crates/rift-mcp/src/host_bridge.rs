@@ -206,7 +206,9 @@ impl HostBridge {
         // request_id off the top; per-tool fields live alongside.
         let mut payload = json!({ "request_id": request_id });
         if let Some(obj) = arguments.as_object() {
-            let map = payload.as_object_mut().expect("just built");
+            let map = payload
+                .as_object_mut()
+                .ok_or_else(|| BridgeError::Malformed("payload is not an object".into()))?;
             for (k, v) in obj {
                 if k == "request_id" {
                     continue; // never let callers override

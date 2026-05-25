@@ -519,18 +519,16 @@
           try { fit?.fit(); } catch { /* best-effort */ }
           if (term) term.refresh(0, term.rows - 1);
         }
-        // Last-resort prompt recovery: if the terminal buffer is still
-        // empty after all recovery attempts, the shell's initial prompt
-        // was lost (written before xterm had a usable buffer). Send
-        // Ctrl+L (form feed) — the universal clear-and-redraw signal —
-        // to force the shell to re-emit its prompt.
-        if (sessionId !== null && alive && term) {
-          const line = term.buffer.active.getLine(0);
-          const text = line?.translateToString().trim() ?? '';
-          if (!text) {
-            const ctrlL = Array.from(encoder.encode('\x0c'));
-            invoke('pty_write', { id: sessionId, bytes: ctrlL }).catch(() => {});
-          }
+        // Prompt recovery: always send Ctrl+L after the recovery timer
+        // completes. On initial mount the host starts 0-sized — the shell
+        // emits its prompt but xterm's canvas can't render it. The prompt
+        // bytes ARE in xterm's buffer (so the old "is buffer empty?" check
+        // found text and skipped Ctrl+L), but the rendered output is often
+        // garbled or invisible after the 0→real dimension transition.
+        // Ctrl+L forces the shell to clear and redraw unconditionally.
+        if (sessionId !== null && alive) {
+          const ctrlL = Array.from(encoder.encode('\x0c'));
+          invoke('pty_write', { id: sessionId, bytes: ctrlL }).catch(() => {});
         }
       }
     }, 200);

@@ -961,42 +961,56 @@ fn rift_reset_for_reload(
     (pty_count, bus_count)
 }
 
+/// Build a [`globset::GlobSet`] from a list of glob pattern strings.
+///
+/// Shared helper used by `fs_tree` and `todo_scan_command` — the glob
+/// construction logic was previously copy-pasted between the two.
+fn build_ignore_globs(patterns: &[String]) -> Result<globset::GlobSet, String> {
+    let mut builder = globset::GlobSetBuilder::new();
+    for pattern in patterns {
+        let glob = globset::Glob::new(pattern)
+            .map_err(|e| format!("invalid ignore glob '{pattern}': {e}"))?;
+        builder.add(glob);
+    }
+    builder
+        .build()
+        .map_err(|e| format!("failed to build GlobSet: {e}"))
+}
+
 /// Return a static snapshot of the filesystem tree rooted at the current
 /// project root (managed [`ProjectRoot`] state — Phase 6.7).
 ///
 /// Globs are read from the current [`RiftConfig`]'s `fs.ignore_globs`.
 /// Falling back to serde-default ignore globs on config-load failure ensures
 /// the command always succeeds even if the config file is absent.
+///
+/// Async with `spawn_blocking` — filesystem traversal on large repos can
+/// take 500ms-5s and must not block the Tauri command thread.
 #[tauri::command]
-fn fs_tree(
+async fn fs_tree(
     bus: State<'_, RiftBus>,
     project_root: State<'_, ProjectRoot>,
     cached_cfg: State<'_, CachedConfig>,
 ) -> Result<TreeNode, String> {
     let root = project_root.get();
-
+    let bus_clone = bus.inner().clone();
     let ignore_patterns: Vec<String> = cached_cfg.get().fs.ignore_globs;
 
-    let mut builder = globset::GlobSetBuilder::new();
-    for pattern in &ignore_patterns {
-        let glob = globset::Glob::new(pattern).map_err(|e| {
-            let msg = format!("fs_tree: invalid ignore glob '{pattern}': {e}");
-            publish_error(bus.inner(), "tauri.command.fs_tree", &msg, None);
+    tokio::task::spawn_blocking(move || {
+        let ignore_globs = build_ignore_globs(&ignore_patterns).map_err(|e| {
+            let msg = format!("fs_tree: {e}");
+            publish_error(&bus_clone, "tauri.command.fs_tree", &msg, None);
             msg
         })?;
-        builder.add(glob);
-    }
-    let ignore_globs = builder.build().map_err(|e| {
-        let msg = format!("fs_tree: failed to build GlobSet: {e}");
-        publish_error(bus.inner(), "tauri.command.fs_tree", &msg, None);
-        msg
-    })?;
 
-    build_tree(&root, FS_TREE_DEFAULT_MAX_DEPTH, &ignore_globs).map_err(|e| {
-        let msg = e.to_string();
-        publish_error(bus.inner(), "tauri.command.fs_tree", &msg, None);
-        msg
+        build_tree(&root, FS_TREE_DEFAULT_MAX_DEPTH, &ignore_globs).map_err(|e| {
+            let msg = e.to_string();
+            publish_error(&bus_clone, "tauri.command.fs_tree", &msg, None);
+            msg
+        })
     })
+    .await
+    .map_err(|e| format!("fs_tree: task join error: {e}"))?
 }
 
 /// Frontend → bus. Construct an [`Envelope`] and publish it.
@@ -1095,35 +1109,33 @@ async fn index_open_vault_root() -> Result<(), String> {
 
 /// Phase 8.7i — TODO/FIXME/XXX/HACK scan over the active project root.
 ///
-/// Synchronous best-effort scan with hard caps (1000 results, 1 MiB/file,
-/// depth 16) so the command always returns promptly. Honors the same
-/// ignore-globs as `fs_tree` so vendor / build dirs are skipped.
+/// Best-effort scan with hard caps (1000 results, 1 MiB/file, depth 16)
+/// so the command always returns promptly. Honors the same ignore-globs
+/// as `fs_tree` so vendor / build dirs are skipped.
+///
+/// Async with `spawn_blocking` — full-project text scan must not block
+/// the Tauri command thread.
 #[tauri::command]
-fn todo_scan_command(
+async fn todo_scan_command(
     bus: State<'_, RiftBus>,
     project_root: State<'_, ProjectRoot>,
     cached_config: State<'_, CachedConfig>,
 ) -> Result<Vec<todo_scan::TodoEntry>, String> {
     let root = project_root.get();
-
+    let bus_clone = bus.inner().clone();
     let ignore_patterns: Vec<String> = cached_config.get().fs.ignore_globs;
 
-    let mut builder = globset::GlobSetBuilder::new();
-    for pattern in &ignore_patterns {
-        let glob = globset::Glob::new(pattern).map_err(|e| {
-            let msg = format!("todo_scan: invalid ignore glob '{pattern}': {e}");
-            publish_error(bus.inner(), "tauri.command.todo_scan", &msg, None);
+    tokio::task::spawn_blocking(move || {
+        let ignore_globs = build_ignore_globs(&ignore_patterns).map_err(|e| {
+            let msg = format!("todo_scan: {e}");
+            publish_error(&bus_clone, "tauri.command.todo_scan", &msg, None);
             msg
         })?;
-        builder.add(glob);
-    }
-    let ignore_globs = builder.build().map_err(|e| {
-        let msg = format!("todo_scan: failed to build GlobSet: {e}");
-        publish_error(bus.inner(), "tauri.command.todo_scan", &msg, None);
-        msg
-    })?;
 
-    Ok(todo_scan::scan_todos(&root, &ignore_globs))
+        Ok(todo_scan::scan_todos(&root, &ignore_globs))
+    })
+    .await
+    .map_err(|e| format!("todo_scan: task join error: {e}"))?
 }
 
 // ---------------------------------------------------------------------------
@@ -1181,43 +1193,64 @@ fn mcp_token_regenerate() -> Result<String, String> {
 /// lists, and the last commit. Returns `not_a_repo: true` when the project
 /// root is not inside a git working tree so the frontend can render an
 /// empty state instead of showing an error.
+///
+/// Async with `spawn_blocking` — runs 4+ sequential git subprocess
+/// commands that can block for hundreds of milliseconds.
 #[tauri::command]
-fn git_status_command(
+async fn git_status_command(
     project_root: State<'_, ProjectRoot>,
 ) -> Result<git_status::GitStatus, String> {
     let root = project_root.get();
-    git_status::snapshot(&root)
+    tokio::task::spawn_blocking(move || git_status::snapshot(&root))
+        .await
+        .map_err(|e| format!("git_status: task join error: {e}"))?
 }
 
 /// Phase 8.7j — git mutating action: fetch / pull / push / commit-all.
 /// Returns stdout/stderr/exit_code to the frontend so the UI can show
 /// what happened. `commit-all` requires `message`.
+///
+/// Async with `spawn_blocking` — git network operations (fetch/pull/push)
+/// can take seconds.
 #[tauri::command]
-fn git_action_command(
+async fn git_action_command(
     project_root: State<'_, ProjectRoot>,
     action: String,
     message: Option<String>,
 ) -> Result<git_status::GitActionResult, String> {
     let root = project_root.get();
-    git_status::run_action(&root, &action, message.as_deref())
+    tokio::task::spawn_blocking(move || git_status::run_action(&root, &action, message.as_deref()))
+        .await
+        .map_err(|e| format!("git_action: task join error: {e}"))?
 }
 
+/// Async with `spawn_blocking` — reads .jsonl session files from disk.
 #[tauri::command]
-fn list_sessions() -> Result<Vec<rift_bus::session_reader::SessionMeta>, String> {
-    rift_bus::session_reader::list_sessions()
+async fn list_sessions() -> Result<Vec<rift_bus::session_reader::SessionMeta>, String> {
+    tokio::task::spawn_blocking(rift_bus::session_reader::list_sessions)
+        .await
+        .map_err(|e| format!("list_sessions: task join error: {e}"))?
 }
 
+/// Async with `spawn_blocking` — reads and parses a session .jsonl file.
 #[tauri::command]
-fn load_session(session_id: String) -> Result<Vec<serde_json::Value>, String> {
-    rift_bus::session_reader::load_session(&session_id)
+async fn load_session(session_id: String) -> Result<Vec<serde_json::Value>, String> {
+    tokio::task::spawn_blocking(move || rift_bus::session_reader::load_session(&session_id))
+        .await
+        .map_err(|e| format!("load_session: task join error: {e}"))?
 }
 
+/// Async with `spawn_blocking` — reads and diffs two session files.
 #[tauri::command]
-fn compare_sessions(
+async fn compare_sessions(
     baseline_id: String,
     compare_id: String,
 ) -> Result<rift_bus::session_compare::SessionDiff, String> {
-    rift_bus::session_compare::compare_sessions(&baseline_id, &compare_id)
+    tokio::task::spawn_blocking(move || {
+        rift_bus::session_compare::compare_sessions(&baseline_id, &compare_id)
+    })
+    .await
+    .map_err(|e| format!("compare_sessions: task join error: {e}"))?
 }
 
 /// Shared helper: resolve `~/<rel_path>` and open it in the OS default editor.

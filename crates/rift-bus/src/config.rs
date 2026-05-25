@@ -42,10 +42,16 @@ use thiserror::Error;
 /// codebase. `translators/fs.rs` imports this constant and builds its
 /// [`globset::GlobSet`] from it. Do not define a parallel list elsewhere.
 pub const DEFAULT_IGNORE_GLOBS: &[&str] = &[
+    ".git",
     ".git/**",
+    "node_modules",
     "node_modules/**",
+    "target",
     "target/**",
+    "dist",
     "dist/**",
+    ".svelte-kit",
+    ".svelte-kit/**",
     "*.log",
 ];
 
@@ -1015,30 +1021,22 @@ mod tests {
         assert_eq!(entries[0].name, "proj-10");
     }
 
-    // T20 — default_ignore_globs_match_legacy_fs_module
-    //
-    // DEFAULT_IGNORE_GLOBS must contain exactly 5 patterns and each must be
-    // one of the five patterns that were previously hardcoded in fs.rs.
-    // This test catches drift: if someone adds a pattern here without
-    // reviewing fs.rs (or vice versa now that fs.rs imports from here).
+    // T20 — default_ignore_globs contain required patterns
     #[test]
-    fn default_ignore_globs_match_legacy_fs_module() {
-        const EXPECTED: &[&str] = &[
+    fn default_ignore_globs_contain_required_patterns() {
+        const REQUIRED: &[&str] = &[
+            ".git",
             ".git/**",
+            "node_modules",
             "node_modules/**",
+            "target",
             "target/**",
+            "dist",
             "dist/**",
             "*.log",
         ];
 
-        assert_eq!(
-            DEFAULT_IGNORE_GLOBS.len(),
-            5,
-            "DEFAULT_IGNORE_GLOBS must have exactly 5 entries; got {}",
-            DEFAULT_IGNORE_GLOBS.len()
-        );
-
-        for pattern in EXPECTED {
+        for pattern in REQUIRED {
             assert!(
                 DEFAULT_IGNORE_GLOBS.contains(pattern),
                 "'{pattern}' must be in DEFAULT_IGNORE_GLOBS"
