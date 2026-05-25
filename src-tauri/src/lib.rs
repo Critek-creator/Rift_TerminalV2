@@ -1454,19 +1454,9 @@ fn project_swap(
         .sort_by_key(|e| std::cmp::Reverse(e.last_used_ms));
     cfg.projects.truncate(10);
 
-    if let Err(e) = save_config(&cfg) {
-        // Config save failing is non-fatal — the watcher is already running on
-        // the new root. Log and continue; the swap succeeded.
-        tracing::warn!("project_swap: config save failed (non-fatal): {e}");
-        publish_error(
-            bus.inner(),
-            "tauri.command.project_swap.config_save",
-            e.to_string(),
-            None,
-        );
-    } else {
-        cached_config.set(cfg);
-    }
+    // Update the in-memory config cache immediately so config_get callers
+    // (e.g. ProjectPicker) see the new project list without waiting for disk.
+    cached_config.set(cfg.clone());
 
     // Step 8: Publish project.changed so Tree.svelte re-fetches + clears activity.
     let path_str = canon.to_string_lossy().to_string();
@@ -1480,9 +1470,29 @@ fn project_swap(
     });
     bus.publish(env);
 
-    // Step 9: Immediate status refresh so StatusLine updates without waiting
-    // for the 5s poll tick. project_root was just set in Step 6.
-    rift_bus::translators::status::publish_status_snapshot(bus.inner(), &canon);
+    // Step 9: Defer expensive blocking work to a dedicated thread pool so
+    // this command returns to the frontend immediately. Two operations move
+    // off the command thread:
+    //   - save_config: TOML serialize + fs::write + fs::rename (disk I/O)
+    //   - publish_status_snapshot: 3 blocking git subprocesses
+    //     (symbolic-ref, status --porcelain, rev-parse --show-toplevel)
+    // Together these cost ~150-500ms on Windows. spawn_blocking uses a
+    // separate OS thread pool — it won't starve the tokio async workers
+    // that handle IPC commands.
+    let bus_bg = bus.inner().clone();
+    let canon_bg = canon;
+    tokio::task::spawn_blocking(move || {
+        if let Err(e) = save_config(&cfg) {
+            tracing::warn!("project_swap: config save failed (non-fatal): {e}");
+            publish_error(
+                &bus_bg,
+                "tauri.command.project_swap.config_save",
+                e.to_string(),
+                None,
+            );
+        }
+        rift_bus::translators::status::publish_status_snapshot(&bus_bg, &canon_bg);
+    });
 
     Ok(())
 }

@@ -28,6 +28,7 @@
   import TerminalSearch from './TerminalSearch.svelte';
   import PathTooltip from './PathTooltip.svelte';
   import { subscribe as busSubscribe, type Envelope } from './bus';
+  import { getTerminalSettings } from './terminalConfigCache';
 
   type PtyExited = { id: number; code: number };
 
@@ -69,8 +70,6 @@
   const TERM_DEFAULT_FONT_SIZE = 13;
   const TERM_MIN_FONT_SIZE = 8;
   const TERM_MAX_FONT_SIZE = 48;
-  const TERM_DEFAULT_LINE_HEIGHT = 1.55;
-  const TERM_DEFAULT_SCROLLBACK = 1000;
 
   /** Per-tab runtime font size — adjusted via Ctrl+= / Ctrl+- / Ctrl+0.
    *  Not persisted across tabs; Settings panel is the persistence point. */
@@ -169,39 +168,8 @@
     }
   });
 
-  // Read terminal settings from RiftConfig before constructing xterm.
-  // Defaults survive a missing/old config (serde #[serde(default)]).
-  // Failures fall through to the hardcoded defaults so a broken config
-  // never prevents a terminal from launching.
-  async function loadTerminalSettings(): Promise<{
-    fontSize: number;
-    lineHeight: number;
-    scrollback: number;
-    lanesEnabled: boolean;
-  }> {
-    const fallback = {
-      fontSize: TERM_DEFAULT_FONT_SIZE,
-      lineHeight: TERM_DEFAULT_LINE_HEIGHT,
-      scrollback: TERM_DEFAULT_SCROLLBACK,
-      lanesEnabled: true,
-    };
-    try {
-      const cfg = await invoke<import('./riftConfig').RiftConfig>('config_get');
-      const t = cfg?.terminal ?? null;
-      if (!t) return fallback;
-      return {
-        fontSize: Math.max(TERM_MIN_FONT_SIZE, Math.min(TERM_MAX_FONT_SIZE, t.font_size)),
-        lineHeight: Math.max(1.0, Math.min(2.5, t.line_height)),
-        scrollback: Math.max(100, Math.min(100000, t.scrollback)),
-        lanesEnabled: t.lanes_enabled,
-      };
-    } catch {
-      return fallback;
-    }
-  }
-
   onMount(async () => {
-    const settings = await loadTerminalSettings();
+    const settings = await getTerminalSettings();
     configFontSize = settings.fontSize;
     runtimeFontSize = settings.fontSize;
     lanesEnabled = settings.lanesEnabled;
@@ -595,43 +563,39 @@
     });
     resizeObs.observe(host);
 
-    // v1: each Terminal filters globally; bounded by terminal count (1-2).
-    unlistenExited = await listen<PtyExited>('pty_exited', (event) => {
-      if (event.payload.id !== sessionId) return;
-      alive = false;
-      term?.writeln(
-        `\r\n${laneFormatGated(
-          'SYS',
-          `session ${event.payload.id} exited code=${event.payload.code}`,
-          lanesEnabled,
-        )}`,
-      );
-    });
-
     // Phase 8.7 — vault-drop event listener (manual gesture from IndexGraph).
     host.addEventListener(RIFT_VAULT_DROP_EVENT, onTermVaultDrop);
 
-    // §10.1 lane gutter — subscribe to lane.changed bus events.
-    // The Rust LaneClassifier publishes Category::Pty / kind "lane.changed"
-    // envelopes when the active lane transitions. We filter on the session_id
-    // so multi-tab setups only show lane state for their own PTY.
-    try {
-      const u = await busSubscribe({ category: 'pty' }, (env: Envelope) => {
+    // Run pty_exited listener and lane bus subscription in parallel —
+    // they're independent async IPC calls (~5-10ms each, saves one round trip).
+    const [exitUnsub, laneResult] = await Promise.all([
+      listen<PtyExited>('pty_exited', (event) => {
+        if (event.payload.id !== sessionId) return;
+        alive = false;
+        term?.writeln(
+          `\r\n${laneFormatGated(
+            'SYS',
+            `session ${event.payload.id} exited code=${event.payload.code}`,
+            lanesEnabled,
+          )}`,
+        );
+      }),
+      busSubscribe({ category: 'pty' }, (env: Envelope) => {
         if (env.kind !== 'lane.changed') return;
         const p = env.payload as { lane?: string; session_id?: number } | null;
         if (!p?.lane) return;
-        // Filter to our session — ignore lane events from other tabs' PTYs.
         if (p.session_id !== undefined && p.session_id !== sessionId) return;
         currentLane = p.lane;
-      });
-      if (!laneMounted) {
-        void u().catch(() => {});
-      } else {
-        unsubscribeLane = u;
-      }
-    } catch (err) {
-      console.warn('[Terminal] lane bus subscription failed', err);
-    }
+      }).then((u) => {
+        if (!laneMounted) { void u().catch(() => {}); return undefined; }
+        return u;
+      }).catch((err) => {
+        console.warn('[Terminal] lane bus subscription failed', err);
+        return undefined;
+      }),
+    ]);
+    unlistenExited = exitUnsub;
+    if (laneResult) unsubscribeLane = laneResult;
   });
 
   onDestroy(() => {

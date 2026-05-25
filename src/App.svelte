@@ -35,6 +35,7 @@
   import { parseSeverity, type SeverityLevel } from './lib/notifFilter';
   import type { RiftConfig as RiftConfigType, StatusLineConfig, AlertRule } from './lib/riftConfig';
   import { SparklineBuffer } from './lib/SparklineBuffer';
+  import { invalidateTerminalSettingsCache } from './lib/terminalConfigCache';
   import { evaluateRule, triggerAction } from './lib/alertRules';
   import { CorrelationIndex } from './lib/correlationIndex';
   import { sectionCatalog } from './lib/sectionCatalog.svelte';
@@ -1095,6 +1096,7 @@
       void loadNotifFilters();
       void loadAppearanceConfig();
       void loadAlertRules();
+      invalidateTerminalSettingsCache();
     };
     window.addEventListener('rift:config-changed', onConfigChanged);
 
