@@ -116,9 +116,19 @@ fn one_shot(root: &Path, args: &[&str]) -> Result<GitActionResult, String> {
 /// Run a one-shot status snapshot. Errors that aren't "not a repo" are
 /// returned as `Err(String)` so the frontend can show the failure mode.
 pub fn snapshot(root: &Path) -> Result<GitStatus, String> {
-    let mut status = GitStatus::default();
+    // R-08: run porcelain status and git log in parallel — they're independent
+    // git calls (~20-50ms each on Windows).
+    let (porcelain, log_result) = std::thread::scope(|s| {
+        let log_handle = s.spawn(|| run_git(root, &["log", "-1", "--format=%H%n%h%n%s%n%cn%n%cI"]));
 
-    let porcelain = run_git(root, &["status", "--porcelain=v1", "-b"])?;
+        let porcelain = run_git(root, &["status", "--porcelain=v1", "-b"]);
+        let log_result = log_handle.join().ok().and_then(|r| r.ok());
+        (porcelain, log_result)
+    });
+
+    let porcelain = porcelain?;
+
+    let mut status = GitStatus::default();
 
     if porcelain.exit_code == 128 {
         status.not_a_repo = true;
@@ -134,10 +144,7 @@ pub fn snapshot(root: &Path) -> Result<GitStatus, String> {
 
     parse_porcelain(&porcelain.stdout, &mut status);
 
-    // Last commit — separate invocation so a fresh repo with no commits
-    // doesn't poison the porcelain parse. Empty output → no commits yet.
-    let log = run_git(root, &["log", "-1", "--format=%H%n%h%n%s%n%cn%n%cI"]);
-    if let Ok(out) = log {
+    if let Some(out) = log_result {
         if out.success {
             let mut iter = out.stdout.lines();
             let hash = iter.next().unwrap_or("").trim().to_string();

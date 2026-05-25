@@ -24,6 +24,8 @@
     onClose: (id: number) => void;
     /** Propagate focus changes up to App so shortcuts know the target. */
     onFocus?: (id: number) => void;
+    /** Fired when a leaf pane's PTY exits. Carries the leaf's node ID. */
+    onPtyExited?: (paneId: number) => void;
   }
 
   let {
@@ -33,6 +35,7 @@
     onSplit,
     onClose,
     onFocus,
+    onPtyExited,
   }: Props = $props();
 
   // -------------------------------------------------------------------------
@@ -162,7 +165,7 @@
         onclick={(e) => { e.stopPropagation(); onClose(node.id); }}
       >✕</button>
     </div>
-    <Terminal visible={true} {projectPath} />
+    <Terminal visible={true} {projectPath} onPtyExited={() => onPtyExited?.(node.id)} />
   </div>
 {:else}
   <!-- Branch: two children separated by a draggable bar -->
@@ -181,6 +184,7 @@
         {onSplit}
         {onClose}
         {onFocus}
+        {onPtyExited}
       />
     </div>
 
@@ -208,6 +212,7 @@
         {onSplit}
         {onClose}
         {onFocus}
+        {onPtyExited}
       />
     </div>
   </div>

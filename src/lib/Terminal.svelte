@@ -40,9 +40,11 @@
     /** Project directory for this session. When set, the PTY spawns with
      *  this cwd instead of the global ProjectRoot. */
     projectPath?: string | null;
+    /** Fired when this terminal's PTY process exits. */
+    onPtyExited?: () => void;
   }
 
-  let { visible = true, projectPath = null }: Props = $props();
+  let { visible = true, projectPath = null, onPtyExited }: Props = $props();
 
   let host: HTMLDivElement = $state(undefined!);
   let term: XTerm | undefined = $state(undefined);
@@ -570,6 +572,7 @@
       listen<PtyExited>('pty_exited', (event) => {
         if (event.payload.id !== sessionId) return;
         alive = false;
+        onPtyExited?.();
         term?.writeln(
           `\r\n${laneFormatGated(
             'SYS',

@@ -69,6 +69,8 @@
     cockpitCollapsed?: boolean;
     /** Per-tab alert triggered state — drives flash animation. */
     alertTriggered?: Record<string, boolean>;
+    /** Session IDs where all panes have exited — drives dead-tab indicator. */
+    deadSessions?: Set<number>;
     /** Toggle cockpit right-pane visibility. */
     onToggleCockpit?: () => void;
   }
@@ -95,6 +97,7 @@
     multiProject = false,
     cockpitCollapsed = false,
     alertTriggered = {},
+    deadSessions = new Set(),
     onToggleCockpit,
   }: Props = $props();
 
@@ -326,6 +329,7 @@
       <div
         class="tab session"
         class:active={isActiveSession(tab.id)}
+        class:dead={deadSessions.has(tab.id)}
         class:drag-source={sessionDragId === tab.id}
         class:reorder-target={sessionDropTarget === tab.id}
         role="tab"
@@ -351,7 +355,7 @@
         }}
         title="double-click to rename · drag to reorder"
       >
-        <span class="icon">▶</span>
+        <span class="icon">{deadSessions.has(tab.id) ? '■' : '▶'}</span>
         {#if editingTabId === tab.id}
           <!-- svelte-ignore a11y_autofocus -->
           <input
@@ -577,6 +581,11 @@
   .tab.notif.promoted:hover::before {
     display: none;
   }
+  /* U-06: dead PTY tab indicator */
+  .tab.session.dead { opacity: 0.5; }
+  .tab.session.dead .icon { color: var(--term-red); }
+  .tab.session.dead.active .icon { color: var(--term-red); opacity: 0.8; }
+
   /* Session tab drag-to-reorder */
   .tab.session { cursor: grab; }
   .tab.session:active { cursor: grabbing; }

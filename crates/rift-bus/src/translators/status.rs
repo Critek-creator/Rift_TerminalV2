@@ -403,27 +403,31 @@ fn compute_dir(project_root: &Path) -> String {
 ///
 /// All `std::process::Command` invocations to `git` are in this function only.
 fn compute_git(project_root: &Path) -> String {
-    // Try `symbolic-ref --short HEAD` for a branch name.
-    let branch = git_cmd(project_root, &["symbolic-ref", "--short", "HEAD"]);
+    // R-08: run branch resolution and dirty-check in parallel — they're
+    // independent git calls (~20-50ms each on Windows).
+    let (branch_name, dirty) = std::thread::scope(|s| {
+        let dirty_handle = s.spawn(|| match git_cmd(project_root, &["status", "--porcelain"]) {
+            Ok(output) => !output.is_empty(),
+            Err(_) => false,
+        });
 
-    let branch_name = match branch {
-        Ok(name) if !name.is_empty() => name,
-        _ => {
-            // Detached HEAD — fall back to short commit sha.
-            match git_cmd(project_root, &["rev-parse", "--short", "HEAD"]) {
-                Ok(sha) if !sha.is_empty() => sha,
-                Ok(_) | Err(_) => {
-                    // Not a git repo or git not found — silent dash.
-                    return "\u{2014}".to_string(); // em-dash
-                }
+        let branch_name = {
+            let branch = git_cmd(project_root, &["symbolic-ref", "--short", "HEAD"]);
+            match branch {
+                Ok(name) if !name.is_empty() => Some(name),
+                _ => match git_cmd(project_root, &["rev-parse", "--short", "HEAD"]) {
+                    Ok(sha) if !sha.is_empty() => Some(sha),
+                    Ok(_) | Err(_) => None,
+                },
             }
-        }
-    };
+        };
 
-    // Check for dirty working tree.
-    let dirty = match git_cmd(project_root, &["status", "--porcelain"]) {
-        Ok(output) => !output.is_empty(),
-        Err(_) => false,
+        let dirty = dirty_handle.join().unwrap_or(false);
+        (branch_name, dirty)
+    });
+
+    let Some(branch_name) = branch_name else {
+        return "\u{2014}".to_string(); // em-dash — not a git repo
     };
 
     if dirty {

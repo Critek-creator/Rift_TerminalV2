@@ -344,13 +344,57 @@
     sessions = sessions.map((s) => (s.id === id ? { ...s, title } : s));
   }
 
+  // ----- U-06: track which panes have exited so tabs can show dead state -----
+  let exitedPaneIds = $state(new Set<number>());
+  function markPaneExited(paneId: number) {
+    exitedPaneIds.add(paneId);
+  }
+  const deadSessions: Set<number> = $derived.by(() => {
+    const dead = new Set<number>();
+    for (const s of sessions) {
+      const leafIds = collectLeafIds(s.layout);
+      if (leafIds.length > 0 && leafIds.every((id) => exitedPaneIds.has(id))) {
+        dead.add(s.id);
+      }
+    }
+    return dead;
+  });
+
+  // ----- U-02: confirm before closing tab with running process -----
+  let pendingCloseId = $state<number | null>(null);
+
   function closeSession(id: number) {
+    const session = sessions.find((s) => s.id === id);
+    if (session) {
+      const leafIds = collectLeafIds(session.layout);
+      const hasAlive = leafIds.some((lid) => !exitedPaneIds.has(lid));
+      if (hasAlive && pendingCloseId !== id) {
+        pendingCloseId = id;
+        return;
+      }
+    }
+    pendingCloseId = null;
     sessions = sessions.filter((s) => s.id !== id);
     if (active.kind === 'session' && active.id === id) {
-      // Activate the rightmost remaining session, or fall through to empty.
       const last = sessions.at(-1);
       active = last ? { kind: 'session', id: last.id } : { kind: 'empty' };
     }
+  }
+
+  function confirmClose() {
+    if (pendingCloseId !== null) {
+      const id = pendingCloseId;
+      pendingCloseId = null;
+      sessions = sessions.filter((s) => s.id !== id);
+      if (active.kind === 'session' && active.id === id) {
+        const last = sessions.at(-1);
+        active = last ? { kind: 'session', id: last.id } : { kind: 'empty' };
+      }
+    }
+  }
+
+  function cancelClose() {
+    pendingCloseId = null;
   }
   // ----- project-per-tab: active project follows active session/pane -----
   const activeProjectPath = $derived.by(() => {
@@ -1285,6 +1329,7 @@
     {multiProject}
     {cockpitCollapsed}
     {alertTriggered}
+    {deadSessions}
     onToggleCockpit={toggleCockpit}
   />
 
@@ -1309,6 +1354,7 @@
               onSplit={handleSplit}
               onClose={handleClosePane}
               onFocus={(id) => { focusedSessionId = id; }}
+              onPtyExited={markPaneExited}
             />
           </div>
         {/each}
@@ -1481,6 +1527,27 @@
 
   {#if welcomeOpen}
     <WelcomeOverlay ondismiss={dismissWelcome} />
+  {/if}
+
+  {#if pendingCloseId !== null}
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <!-- svelte-ignore a11y_click_events_have_key_events -->
+    <div class="close-confirm-backdrop" onclick={cancelClose}>
+      <div
+        class="close-confirm-dialog"
+        onclick={(e) => e.stopPropagation()}
+        role="alertdialog"
+        tabindex="-1"
+        aria-modal="true"
+        aria-label="Confirm close tab"
+      >
+        <p>This tab has a running process. Close anyway?</p>
+        <div class="close-confirm-actions">
+          <button class="rift-btn" onclick={cancelClose}>Cancel</button>
+          <button class="rift-btn danger" onclick={confirmClose}>Close</button>
+        </div>
+      </div>
+    </div>
   {/if}
 </div>
 
@@ -1727,5 +1794,41 @@
   .update-btn:disabled {
     opacity: 0.5;
     cursor: not-allowed;
+  }
+
+  /* U-02: close confirmation dialog */
+  .close-confirm-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 9999;
+    background: rgba(0, 0, 0, 0.55);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .close-confirm-dialog {
+    background: var(--bg-base, #1a1610);
+    border: 1px solid var(--border-subtle, rgba(255, 168, 38, 0.15));
+    border-radius: var(--radius-md, 6px);
+    padding: 20px 24px;
+    min-width: 300px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+  }
+  .close-confirm-dialog p {
+    color: var(--term-white, #e8e4d8);
+    font-size: 14px;
+    margin: 0 0 16px 0;
+  }
+  .close-confirm-actions {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+  }
+  .close-confirm-actions .rift-btn.danger {
+    border-color: var(--term-red, #ff4848);
+    color: var(--term-red, #ff4848);
+  }
+  .close-confirm-actions .rift-btn.danger:hover {
+    background: rgba(255, 72, 72, 0.12);
   }
 </style>
