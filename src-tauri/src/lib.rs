@@ -1470,18 +1470,9 @@ fn project_swap(
     });
     bus.publish(env);
 
-    // Step 9: Defer expensive blocking work to a dedicated thread pool so
-    // this command returns to the frontend immediately. Two operations move
-    // off the command thread:
-    //   - save_config: TOML serialize + fs::write + fs::rename (disk I/O)
-    //   - publish_status_snapshot: 3 blocking git subprocesses
-    //     (symbolic-ref, status --porcelain, rev-parse --show-toplevel)
-    // Together these cost ~150-500ms on Windows. spawn_blocking uses a
-    // separate OS thread pool — it won't starve the tokio async workers
-    // that handle IPC commands.
     let bus_bg = bus.inner().clone();
     let canon_bg = canon;
-    tokio::task::spawn_blocking(move || {
+    std::thread::spawn(move || {
         if let Err(e) = save_config(&cfg) {
             tracing::warn!("project_swap: config save failed (non-fatal): {e}");
             publish_error(
