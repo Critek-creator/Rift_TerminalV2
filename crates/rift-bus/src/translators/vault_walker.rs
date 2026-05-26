@@ -658,6 +658,11 @@ fn walk_vaults_recursive(
                 continue;
             }
             if file_type.is_dir() {
+                // Skip archive directories — they contain backup files that
+                // should not appear as graph nodes.
+                if path.file_name().is_some_and(|n| n == "archive") {
+                    continue;
+                }
                 inner(
                     bus,
                     vaults_root,

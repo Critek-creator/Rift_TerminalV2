@@ -100,17 +100,45 @@
     return [];
   });
 
+  const KNOWN_EDGES: [string, string][] = [
+    ['p001', 'r001'], ['p002', 'r001'], ['p003', 'r004'],
+    ['p006', 'r006'], ['p004', 'r003'], ['p009', 'r001'],
+    ['pr001', 'pr003'], ['pr001', 'pr004'], ['pr002', 'pr001'],
+    ['p001', 'pr001'], ['p002', 'pr001'], ['p003', 'pr001'],
+    ['p004', 'pr001'], ['p005', 'pr001'], ['p006', 'pr001'],
+    ['p007', 'pr001'], ['p008', 'pr001'], ['p009', 'pr001'],
+    ['p010', 'pr001'],
+    ['s001', 'pr001'], ['s001', 'pr003'],
+    ['s011', 'p006'],
+    ['r004', 'p003'], ['r004', 'p006'],
+  ];
+
   const activeEdges = $derived.by<VaultLink[]>(() => {
-    if (liveNodeMap.size === 0 && walkComplete) return [];
+    const nodeIds = new Set(activeNodes.map(n => n.id));
     const edges: VaultLink[] = [];
-    for (const [id, node] of liveNodeMap) {
-      for (const ref of node.crossRefs ?? []) {
-        if (liveNodeMap.has(ref)) edges.push({ source: id, target: ref });
-      }
-      if (node.parentId && liveNodeMap.has(node.parentId)) {
-        edges.push({ source: id, target: node.parentId, parent: true });
+    const seen = new Set<string>();
+
+    if (liveNodeMap.size > 0) {
+      for (const [id, node] of liveNodeMap) {
+        for (const ref of node.crossRefs ?? []) {
+          if (liveNodeMap.has(ref)) {
+            const key = [id, ref].sort().join('-');
+            if (!seen.has(key)) { seen.add(key); edges.push({ source: id, target: ref }); }
+          }
+        }
+        if (node.parentId && liveNodeMap.has(node.parentId)) {
+          edges.push({ source: id, target: node.parentId, parent: true });
+        }
       }
     }
+
+    for (const [src, tgt] of KNOWN_EDGES) {
+      if (nodeIds.has(src) && nodeIds.has(tgt)) {
+        const key = [src, tgt].sort().join('-');
+        if (!seen.has(key)) { seen.add(key); edges.push({ source: src, target: tgt }); }
+      }
+    }
+
     return edges;
   });
 
