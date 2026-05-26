@@ -39,6 +39,7 @@ export interface TerminalConfig {
   line_height: number;
   scrollback: number;
   lanes_enabled: boolean;
+  color_palette: string;
 }
 
 export type ShellPref =

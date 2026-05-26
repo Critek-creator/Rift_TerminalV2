@@ -129,7 +129,7 @@
       color-mix(in srgb, var(--bg-elevated) 85%, var(--amber-dim) 15%) 0%,
       var(--bg-elevated) 55%
     );
-    border-bottom: 1px solid var(--border-subtle);
+    box-shadow: var(--sep-glow);
     display: flex;
     align-items: center;
     padding: 0 12px;

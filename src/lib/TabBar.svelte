@@ -403,6 +403,7 @@
         class:detached={isDetached(tab.id)}
         class:live={isLive(tab) && tab.enabled}
         class:reorder-target={reorderHoverId === tab.id}
+        data-accent={tab.id}
         aria-current="false"
         draggable={tab.enabled && !isDetached(tab.id)}
         onclick={() => onNotifClick(tab)}
@@ -786,4 +787,39 @@
     0%, 100% { opacity: 1;   box-shadow: 0 0 6px  var(--amber-bright); }
     50%      { opacity: 0.55; box-shadow: 0 0 12px var(--amber-bright); }
   }
+
+  /* Lane-colored accent edges for notification tabs */
+  .tab.notif[data-accent="hooks"]:hover::before,
+  .tab.notif[data-accent="hooks"].promoted::before { background: var(--term-cyan); }
+  .tab.notif[data-accent="hooks"].promoted { border-color: color-mix(in srgb, var(--term-cyan) 30%, var(--border-active)); }
+  .tab.notif[data-accent="hooks"] .badge { background: var(--term-cyan); box-shadow: 0 0 6px rgba(111, 224, 224, 0.4); }
+
+  .tab.notif[data-accent="errors"]:hover::before,
+  .tab.notif[data-accent="errors"].promoted::before { background: var(--term-red); }
+  .tab.notif[data-accent="errors"].promoted { border-color: color-mix(in srgb, var(--term-red) 30%, var(--border-active)); }
+  .tab.notif[data-accent="errors"] .badge { background: var(--term-red); box-shadow: 0 0 6px rgba(255, 72, 72, 0.4); }
+
+  .tab.notif[data-accent="agents"]:hover::before,
+  .tab.notif[data-accent="agents"].promoted::before { background: var(--term-purple); }
+  .tab.notif[data-accent="agents"].promoted { border-color: color-mix(in srgb, var(--term-purple) 30%, var(--border-active)); }
+  .tab.notif[data-accent="agents"] .badge { background: var(--term-purple); box-shadow: 0 0 6px rgba(197, 143, 255, 0.4); }
+
+  .tab.notif[data-accent="git"]:hover::before,
+  .tab.notif[data-accent="git"].promoted::before { background: var(--term-green); }
+  .tab.notif[data-accent="git"].promoted { border-color: color-mix(in srgb, var(--term-green) 30%, var(--border-active)); }
+  .tab.notif[data-accent="git"] .badge { background: var(--term-green); box-shadow: 0 0 6px rgba(79, 232, 85, 0.4); }
+
+  .tab.notif[data-accent="sessions"]:hover::before,
+  .tab.notif[data-accent="sessions"].promoted::before,
+  .tab.notif[data-accent="cmd-intelligence"]:hover::before,
+  .tab.notif[data-accent="cmd-intelligence"].promoted::before { background: var(--term-blue); }
+  .tab.notif[data-accent="sessions"].promoted,
+  .tab.notif[data-accent="cmd-intelligence"].promoted { border-color: color-mix(in srgb, var(--term-blue) 30%, var(--border-active)); }
+  .tab.notif[data-accent="sessions"] .badge,
+  .tab.notif[data-accent="cmd-intelligence"] .badge { background: var(--term-blue); box-shadow: 0 0 6px rgba(108, 182, 255, 0.4); }
+
+  .tab.notif[data-accent="mcp"]:hover::before,
+  .tab.notif[data-accent="mcp"].promoted::before { background: var(--term-cyan); }
+  .tab.notif[data-accent="mcp"].promoted { border-color: color-mix(in srgb, var(--term-cyan) 30%, var(--border-active)); }
+  .tab.notif[data-accent="mcp"] .badge { background: var(--term-cyan); box-shadow: 0 0 6px rgba(111, 224, 224, 0.4); }
 </style>

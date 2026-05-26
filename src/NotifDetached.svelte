@@ -255,7 +255,7 @@
   .titlebar {
     height: var(--control-lg);
     background: var(--bg-elevated);
-    border-bottom: 1px solid var(--border-subtle);
+    box-shadow: var(--sep-glow);
     display: flex;
     align-items: center;
     padding: 0 12px;

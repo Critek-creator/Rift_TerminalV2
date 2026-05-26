@@ -201,7 +201,7 @@
       ondragstart={onHandleDragStart}
       title="drag back to tab strip to dock"
     >
-      <span class="handle-glyph">↙</span>
+      <span class="handle-glyph" style="color: var({accent === 'cyan' ? '--term-cyan' : accent === 'red' ? '--term-red' : accent === 'purple' ? '--term-purple' : '--amber-warm'}); font-size: 14px">{icon}</span>
       <span class="handle-title">{title}</span>
       <span class="handle-hint">drag to dock</span>
     </div>
@@ -218,13 +218,13 @@
     </span>
     <span class="spacer"></span>
     {#if categoryFilter}
-      <button
+      <button type="button"
         class="ctrl-btn"
         class:active={!paused}
         onclick={() => (paused = !paused)}
         title={paused ? 'resume' : 'pause'}
       >{paused ? '▶' : '⏸'}</button>
-      <button
+      <button type="button"
         class="ctrl-btn"
         onclick={clearEvents}
         title="clear"
@@ -249,11 +249,19 @@
 
   <div class="log">
     <div class="log-header">RECENT EVENTS</div>
-    <div class="log-body">
+    <div class="log-body" aria-live="polite">
       {#if !categoryFilter}
-        <div class="empty">no events yet — this surface populates from registered integrations</div>
+        <div class="empty-state">
+          <span class="empty-state-icon">◆</span>
+          <span class="empty-state-text">Awaiting signals</span>
+          <span class="empty-state-hint">events from registered integrations populate this surface</span>
+        </div>
       {:else if recentEvents.length === 0}
-        <div class="empty">subscribed to <span class="cat">{categoryFilter}</span> — no events received yet</div>
+        <div class="empty-state">
+          <span class="empty-state-icon">◇</span>
+          <span class="empty-state-text">Subscribed to {categoryFilter}</span>
+          <span class="empty-state-hint">no events received yet — they will stream in as activity occurs</span>
+        </div>
       {:else}
         {#each recentEvents as e, i (e.ts + ':' + e.kind + ':' + i)}
           {@const rowKey = e.ts + ':' + e.kind + ':' + i}
@@ -356,17 +364,16 @@
     height: 28px;
     padding: 0 var(--space-14);
     background: linear-gradient(to bottom, var(--bg-elevated), var(--bg-surface));
-    border-bottom: 1px solid var(--border-subtle);
-    box-shadow: var(--depth-edge-light), var(--depth-section-sep);
+    box-shadow: var(--sep-glow);
     display: flex;
     align-items: center;
     gap: var(--space-md);
     cursor: grab;
     user-select: none;
     color: var(--amber-warm);
-    font-size: var(--text-xs);
-    letter-spacing: 0.1em;
-    font-weight: 700;
+    font-size: var(--type-label-size);
+    letter-spacing: var(--type-label-spacing);
+    font-weight: var(--type-label-weight);
   }
   .drag-handle:active { cursor: grabbing; background: var(--bg-hover); }
   .drag-handle:hover {
@@ -395,24 +402,27 @@
     height: 38px;
     padding: 0 var(--space-lg);
     background: linear-gradient(to bottom, var(--bg-elevated), var(--bg-surface));
-    border-bottom: 1px solid var(--border-subtle);
     border-left: 3px solid var(--accent, var(--amber-primary));
     border-radius: 0 var(--radius-md, 4px) 0 0;
-    box-shadow: var(--depth-edge-light), var(--depth-section-sep);
+    box-shadow: var(--sep-glow);
     display: flex; align-items: center; gap: var(--space-14);
     color: var(--amber-warm);
-    font-size: var(--section-header-size, 11px);
-    letter-spacing: var(--section-header-spacing, 0.1em);
-    font-weight: 700;
     flex-shrink: 0;
   }
   .status .title {
     color: var(--accent, var(--amber-primary));
     text-shadow: 0 0 8px var(--accent-glow, rgba(255, 168, 38, 0.35));
-    font-size: var(--text-base);
+    font-size: var(--type-section-size);
+    font-weight: var(--type-section-weight);
+    letter-spacing: var(--type-section-spacing);
   }
   .status .icon { margin-right: var(--space-8); opacity: 0.9; }
-  .status .state { color: var(--amber-dim); font-weight: 500; letter-spacing: 0.04em; font-size: var(--text-sm); }
+  .status .state {
+    color: var(--amber-dim);
+    font-size: var(--type-caption-size);
+    font-weight: var(--type-caption-weight);
+    letter-spacing: var(--type-caption-spacing);
+  }
   .status .spacer { flex: 1; }
   .status .meta {
     color: var(--amber-faint);
@@ -423,8 +433,7 @@
   .strip {
     height: var(--control-lg);
     padding: 0 var(--space-lg);
-    border-bottom: 1px solid var(--border-subtle);
-    box-shadow: var(--depth-edge-light);
+    box-shadow: var(--sep-depth);
     display: flex; align-items: center; gap: var(--space-14);
     background: linear-gradient(to bottom, var(--accent-bg, rgba(212, 137, 10, 0.06)), transparent);
     color: var(--amber-dim);
@@ -475,18 +484,17 @@
     display: flex; flex-direction: column;
     min-height: 0;
     min-width: 0;
-    border-bottom: 1px solid var(--border-subtle);
   }
   .log-header {
-    padding: var(--section-header-padding, 8px 16px);
-    color: var(--amber-warm);
-    font-size: var(--section-header-size, 11px);
-    font-weight: 700;
-    letter-spacing: var(--section-header-spacing, 0.1em);
-    border-bottom: 1px solid var(--border-subtle);
+    padding: var(--space-8) var(--space-lg);
+    color: var(--amber-faint);
+    font-size: var(--type-label-size);
+    font-weight: var(--type-label-weight);
+    letter-spacing: var(--type-label-spacing);
+    text-transform: uppercase;
     border-left: 3px solid var(--accent, var(--amber-primary));
     background: linear-gradient(to right, var(--accent-bg, rgba(212, 137, 10, 0.06)), var(--bg-surface));
-    box-shadow: var(--depth-edge-light), var(--depth-section-sep);
+    box-shadow: var(--sep-depth);
     flex-shrink: 0;
   }
   .log-body {
@@ -503,12 +511,6 @@
   .log-body::-webkit-scrollbar { width: 5px; }
   .log-body::-webkit-scrollbar-thumb { background: var(--amber-faint); border-radius: 3px; }
   .log-body::-webkit-scrollbar-thumb:hover { background: var(--amber-dim); }
-  .empty {
-    color: var(--amber-faint);
-    font-style: italic;
-    padding: var(--space-12) 0;
-  }
-
   .log-body .row {
     display: grid;
     grid-template-columns: 14px 70px 140px minmax(0, 1fr);
@@ -605,19 +607,18 @@
     background: var(--bg-panel);
     max-height: 200px;
     overflow-y: auto;
-    border-top: 1px solid var(--border-subtle);
     box-shadow: var(--depth-lift), var(--depth-edge-light);
   }
   .state-header {
-    padding: var(--section-header-padding, 8px 16px);
-    color: var(--amber-warm);
-    font-size: var(--section-header-size, 11px);
-    font-weight: 700;
-    letter-spacing: var(--section-header-spacing, 0.1em);
-    border-bottom: 1px solid var(--border-subtle);
+    padding: var(--space-8) var(--space-lg);
+    color: var(--amber-faint);
+    font-size: var(--type-label-size);
+    font-weight: var(--type-label-weight);
+    letter-spacing: var(--type-label-spacing);
+    text-transform: uppercase;
     border-left: 3px solid var(--accent, var(--amber-primary));
     background: linear-gradient(to right, var(--accent-bg, rgba(212, 137, 10, 0.06)), var(--bg-surface));
-    box-shadow: var(--depth-edge-light);
+    box-shadow: var(--sep-depth);
   }
   .state-body {
     padding: var(--space-md) var(--space-lg) var(--space-14);
@@ -637,7 +638,6 @@
   .histogram {
     margin-top: var(--space-sm);
     padding-top: var(--space-sm);
-    border-top: 1px solid var(--border-subtle);
     display: flex; flex-direction: column; gap: 2px;
   }
   .histo-row {

@@ -117,7 +117,7 @@
   });
 </script>
 
-<div class="cmd-intel-panel">
+<div class="cmd-intel-panel" aria-busy={loading}>
   <div class="section-header">
     <span class="section-title">COMMAND INTELLIGENCE</span>
     {#if project}
@@ -130,7 +130,11 @@
   {:else if error}
     <div class="empty-state error-text">{error}</div>
   {:else if !stats || stats.top_commands.length === 0}
-    <div class="empty-state">No command history yet</div>
+    <div class="empty-state">
+      <span class="empty-state-icon">⌘</span>
+      <span class="empty-state-text">No command history yet</span>
+      <span class="empty-state-hint">shell commands and exit codes will be tracked here</span>
+    </div>
   {:else}
     <div class="stats-summary">
       <span>{stats.total_commands} commands</span>

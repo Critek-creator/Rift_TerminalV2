@@ -423,12 +423,12 @@
   <!-- Mode toggle + header -->
   <div class="browser-header">
     <div class="mode-toggle">
-      <button
+      <button type="button"
         class="mode-btn"
         class:active={viewMode === 'vaults'}
         onclick={() => { viewMode = 'vaults'; }}
       >VAULTS</button>
-      <button
+      <button type="button"
         class="mode-btn"
         class:active={viewMode === 'content'}
         onclick={() => { viewMode = 'content'; }}
@@ -440,6 +440,7 @@
         class="browser-search"
         type="text"
         placeholder="filter vaults… ( / )"
+        aria-label="filter vault nodes"
         bind:value={searchQuery}
         bind:this={searchInput}
       />
@@ -643,7 +644,7 @@
     gap: var(--space-8);
     padding: var(--space-8) var(--space-12);
     background: var(--bg-surface);
-    border-bottom: 1px solid var(--border-subtle);
+    box-shadow: var(--sep-glow);
     flex-shrink: 0;
   }
   .mode-toggle {
@@ -723,7 +724,7 @@
     gap: var(--space-xs);
     padding: var(--space-sm) var(--space-12) var(--space-8);
     background: var(--bg-surface);
-    border-bottom: 1px solid var(--border-subtle);
+    box-shadow: var(--sep-depth);
     flex-shrink: 0;
   }
   .kind-chip {
@@ -776,7 +777,7 @@
 
   /* Recents section */
   .recents-section {
-    border-bottom: 1px solid var(--border-active);
+    box-shadow: var(--sep-depth);
     background: linear-gradient(to bottom, rgba(255, 200, 64, 0.03), transparent);
   }
   .recents-header {
@@ -784,12 +785,12 @@
     align-items: center;
     gap: var(--space-sm);
     padding: var(--space-sm) var(--space-12);
-    font-size: var(--section-header-size, 11px);
-    font-weight: 700;
-    letter-spacing: var(--section-header-spacing, 0.1em);
+    font-size: var(--type-label-size);
+    font-weight: var(--type-label-weight);
+    letter-spacing: var(--type-label-spacing);
     color: var(--amber-bright);
     text-shadow: var(--glow-amber-faint);
-    border-bottom: 1px solid var(--border-subtle);
+    box-shadow: var(--sep-depth);
     background: var(--bg-surface);
   }
   .recents-glyph {
@@ -844,12 +845,12 @@
     padding: 7px var(--space-12);
     background: var(--bg-surface);
     border: none;
-    border-bottom: 1px solid var(--border-subtle);
+    box-shadow: var(--sep-depth);
     color: var(--amber-dim);
     font-family: inherit;
-    font-size: var(--text-xs);
-    font-weight: 700;
-    letter-spacing: 0.1em;
+    font-size: var(--type-label-size);
+    font-weight: var(--type-label-weight);
+    letter-spacing: var(--type-label-spacing);
     cursor: pointer;
     transition: color 0.12s, background 0.12s;
     text-align: left;
@@ -876,7 +877,7 @@
 
   /* Category body */
   .category-body {
-    border-bottom: 1px solid var(--border-subtle);
+    box-shadow: var(--sep-depth);
   }
 
   /* Vault row */

@@ -115,6 +115,7 @@
       bind:value={query}
       onkeydown={onKeydown}
       placeholder="Search tabs, actions, shortcuts…"
+      aria-label="search commands and shortcuts"
       spellcheck="false"
       autocomplete="off"
     />

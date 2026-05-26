@@ -427,35 +427,74 @@ pub fn mcp_socket_path() -> Result<PathBuf, ConfigError> {
 }
 
 /// Read the discovery file and return the recorded socket name, or `None`
-/// if the file is absent. A stale file from a crashed prior Rift is still
-/// returned — the bridge's `IpcClient::connect` is the source of truth for
-/// liveness.
+/// if the file is absent or the owning process is dead.
+///
+/// Format: `socket_name\nPID` (v2) or just `socket_name` (v1 compat).
+/// When a PID line is present, validates it against the OS process table.
+/// A stale file from a crashed Rift is detected and removed here — the
+/// caller never sees a socket name whose host is confirmed dead.
 pub fn load_mcp_socket() -> Result<Option<String>, ConfigError> {
     let path = mcp_socket_path()?;
     match std::fs::read_to_string(&path) {
         Ok(s) => {
             let trimmed = s.trim().to_string();
             if trimmed.is_empty() {
-                Ok(None)
-            } else {
-                Ok(Some(trimmed))
+                return Ok(None);
             }
+            let mut lines = trimmed.lines();
+            let socket_name = match lines.next() {
+                Some(s) if !s.is_empty() => s.to_string(),
+                _ => return Ok(None),
+            };
+            if let Some(pid_str) = lines.next() {
+                if let Ok(pid) = pid_str.parse::<u32>() {
+                    if !is_process_alive(pid) {
+                        tracing::info!(
+                            pid,
+                            socket = %socket_name,
+                            "mcp_socket discovery: stale file (PID dead) — removing"
+                        );
+                        let _ = std::fs::remove_file(&path);
+                        return Ok(None);
+                    }
+                }
+            }
+            Ok(Some(socket_name))
         }
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(e) => Err(ConfigError::Io(e)),
     }
 }
 
-/// Atomically write the current host's socket name to the discovery file.
+/// Atomically write the current host's socket name + PID to the discovery
+/// file. The PID lets readers skip stale sockets from crashed hosts without
+/// attempting a connect (which hangs for seconds on Windows named pipes).
 pub fn save_mcp_socket(socket_name: &str) -> Result<(), ConfigError> {
     let path = mcp_socket_path()?;
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
     let tmp = path.with_extension("tmp");
-    std::fs::write(&tmp, socket_name)?;
+    let content = format!("{}\n{}", socket_name, std::process::id());
+    std::fs::write(&tmp, content)?;
     std::fs::rename(&tmp, &path)?;
     Ok(())
+}
+
+/// Check if a process with the given PID is alive.
+/// Uses `tasklist` on Windows, `kill -0` on Unix — no extra crate deps.
+#[cfg(windows)]
+fn is_process_alive(pid: u32) -> bool {
+    std::process::Command::new("tasklist")
+        .args(["/FI", &format!("PID eq {pid}"), "/NH", "/FO", "CSV"])
+        .output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).contains(&pid.to_string()))
+        .unwrap_or(true) // assume alive on error — let the connect timeout decide
+}
+
+#[cfg(not(windows))]
+fn is_process_alive(pid: u32) -> bool {
+    unsafe { libc::kill(pid as i32, 0) == 0 }
 }
 
 /// Remove the discovery file. No-op if absent. Called from the host's
@@ -659,6 +698,9 @@ pub struct TerminalConfig {
     /// fall through as plain text. Live-PTY-stream lane classification is
     /// tracked separately under DEFERRED.md D-018.
     pub lanes_enabled: bool,
+    /// Named color palette applied to the xterm.js theme. Defaults to `"amber"`
+    /// (the original CRT look). Frontend resolves the name to a full ITheme object.
+    pub color_palette: String,
 }
 
 /// Default CSS font-family stack.
@@ -673,6 +715,7 @@ impl Default for TerminalConfig {
             line_height: TERMINAL_DEFAULT_LINE_HEIGHT,
             scrollback: TERMINAL_DEFAULT_SCROLLBACK,
             lanes_enabled: true,
+            color_palette: "amber".to_string(),
         }
     }
 }

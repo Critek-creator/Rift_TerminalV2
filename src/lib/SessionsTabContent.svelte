@@ -198,7 +198,7 @@
       ondragstart={onHandleDragStart}
       title="drag back to tab strip to dock"
     >
-      <span class="handle-glyph">↙</span>
+      <span class="handle-glyph" style="color: var(--term-blue); font-size: 14px">⏱</span>
       <span class="handle-title">sessions</span>
       <span class="handle-hint">drag to dock</span>
     </div>
@@ -264,7 +264,7 @@
           SAVED SESSIONS
         {/if}
       </div>
-      <div class="log-body">
+      <div class="log-body" aria-busy={loading}>
         {#if loading && sessions.length === 0}
           <div class="empty-card">
             <div class="empty-title">Loading...</div>
@@ -314,7 +314,7 @@
 
     <div class="log">
       <div class="log-header">SESSION EVENTS</div>
-      <div class="log-body">
+      <div class="log-body" aria-busy={loading}>
         {#if loading}
           <div class="empty-card">
             <div class="empty-title">Loading...</div>
@@ -378,16 +378,16 @@
     height: var(--control-sm);
     padding: 0 var(--space-12);
     background: var(--bg-surface);
-    border-bottom: 1px solid var(--border-subtle);
+    box-shadow: var(--sep-depth);
     display: flex;
     align-items: center;
     gap: var(--space-md);
     cursor: grab;
     user-select: none;
     color: var(--amber-warm);
-    font-size: var(--text-xs);
-    letter-spacing: 0.1em;
-    font-weight: 700;
+    font-size: var(--type-label-size);
+    letter-spacing: var(--type-label-spacing);
+    font-weight: var(--type-label-weight);
   }
   .drag-handle { transition: background var(--duration-base) ease-out; }
   .drag-handle:active { cursor: grabbing; }
@@ -410,21 +410,27 @@
   }
 
   .status {
-    height: var(--control-md);
-    padding: 0 var(--space-14);
+    height: 36px;
+    padding: 0 var(--space-lg);
     background: var(--bg-elevated);
-    border-bottom: 1px solid var(--border-subtle);
-    box-shadow: var(--depth-edge-light), var(--depth-section-sep);
+    box-shadow: var(--sep-glow);
     display: flex; align-items: center; gap: var(--space-14);
     color: var(--amber-warm);
-    font-size: var(--text-sm); letter-spacing: 0.1em; font-weight: 700;
   }
   .status .title {
+    font-size: var(--type-section-size);
+    font-weight: var(--type-section-weight);
+    letter-spacing: var(--type-section-spacing);
     color: var(--amber-bright);
     text-shadow: var(--glow-amber-faint);
   }
-  .status .icon { margin-right: var(--space-8); opacity: 0.85; }
-  .status .state { color: var(--amber-dim); font-weight: 400; letter-spacing: 0.04em; }
+  .status .icon { margin-right: var(--space-8); opacity: 0.85; font-size: var(--text-lg); }
+  .status .state {
+    color: var(--amber-dim);
+    font-size: var(--type-caption-size);
+    font-weight: var(--type-caption-weight);
+    letter-spacing: var(--type-caption-spacing);
+  }
   .status .spacer { flex: 1; }
   .ctl-btn {
     background: transparent;
@@ -451,11 +457,11 @@
 
   .error-state {
     color: var(--term-red);
-    padding: var(--space-12) var(--space-14);
-    font-size: var(--text-sm);
-    letter-spacing: 0.04em;
-    border-bottom: 1px solid rgba(255, 72, 72, 0.2);
+    padding: var(--space-12) var(--space-lg);
+    font-size: var(--type-body-size);
+    letter-spacing: var(--type-body-spacing);
     background: rgba(255, 72, 72, 0.06);
+    box-shadow: var(--sep-depth);
   }
 
   .log {
@@ -465,14 +471,14 @@
     min-width: 0;
   }
   .log-header {
-    padding: var(--section-header-padding, 8px 16px);
-    color: var(--amber-warm);
-    font-size: var(--section-header-size, 11px);
-    font-weight: 700;
-    letter-spacing: var(--section-header-spacing, 0.1em);
-    border-bottom: 1px solid var(--border-subtle);
+    padding: var(--space-8) var(--space-lg);
+    color: var(--amber-faint);
+    font-size: var(--type-label-size);
+    font-weight: var(--type-label-weight);
+    letter-spacing: var(--type-label-spacing);
+    text-transform: uppercase;
     background: var(--bg-surface);
-    box-shadow: var(--depth-edge-light), var(--depth-section-sep);
+    box-shadow: var(--sep-depth);
   }
   .log-body {
     flex: 1;
@@ -489,24 +495,27 @@
   .log-body::-webkit-scrollbar-thumb { background: var(--amber-faint); }
 
   .empty-card {
-    border: 1px dashed var(--border-subtle);
-    padding: var(--space-12) var(--space-14);
-    background: rgba(212, 137, 10, 0.05);
-    color: var(--amber-warm);
-    font-size: var(--text-sm);
-    line-height: 1.55;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-8);
+    padding: var(--space-2xl) var(--space-lg);
+    text-align: center;
+    min-height: 120px;
   }
   .empty-title {
-    color: var(--amber-bright);
-    font-weight: 700;
-    font-size: var(--text-sm);
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    margin-bottom: var(--space-sm);
+    color: var(--amber-dim);
+    font-size: var(--type-body-size);
+    font-weight: var(--type-body-weight);
+    letter-spacing: var(--type-body-spacing);
   }
   .empty-desc {
-    color: var(--amber-dim);
-    font-size: var(--text-xs);
+    color: var(--amber-faint);
+    font-size: var(--type-caption-size);
+    letter-spacing: var(--type-caption-spacing);
+    font-style: italic;
+    max-width: 320px;
   }
 
   /* Compare button */
@@ -523,11 +532,11 @@
   /* Selection hint bar */
   .selection-hint {
     padding: var(--space-sm) var(--space-lg);
-    font-size: var(--text-xs);
+    font-size: var(--type-caption-size);
     color: var(--amber-dim);
     background: rgba(108, 182, 255, 0.06);
-    border-bottom: 1px solid rgba(108, 182, 255, 0.15);
-    letter-spacing: 0.04em;
+    box-shadow: var(--sep-depth);
+    letter-spacing: var(--type-caption-spacing);
   }
   .selection-hint strong {
     color: var(--amber-bright);
@@ -539,12 +548,12 @@
     display: flex;
     align-items: center;
     gap: var(--space-14);
-    padding: var(--space-8) var(--space-xs);
-    border-bottom: 1px solid rgba(255, 168, 38, 0.06);
+    padding: var(--space-md) var(--space-xs);
     cursor: pointer;
     transition: background var(--duration-base) ease-out;
   }
   .session-row:hover { background: rgba(212, 137, 10, 0.08); }
+  .session-row + .session-row { margin-top: 1px; }
   .session-row--baseline {
     background: rgba(108, 182, 255, 0.08);
     border-left: 2px solid var(--term-blue);
@@ -568,19 +577,22 @@
   .session-date {
     color: var(--amber-bright);
     font-weight: 600;
-    font-size: var(--text-base);
+    font-size: var(--text-lg);
     min-width: 140px;
+    text-shadow: var(--glow-amber-faint);
   }
   .session-count {
-    color: var(--amber-warm);
-    font-size: var(--text-xs);
+    color: var(--amber-dim);
+    font-size: var(--type-caption-size);
     font-variant-numeric: tabular-nums;
+    letter-spacing: var(--type-caption-spacing);
     min-width: 100px;
   }
   .session-size {
-    color: var(--amber-dim);
-    font-size: var(--text-xs);
+    color: var(--amber-faint);
+    font-size: var(--type-caption-size);
     font-variant-numeric: tabular-nums;
+    letter-spacing: var(--type-caption-spacing);
     min-width: 60px;
   }
   .session-arrow {

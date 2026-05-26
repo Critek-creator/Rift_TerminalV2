@@ -191,7 +191,7 @@
   {/if}
 
   {#if loading}
-    <div class="loading-card">
+    <div class="loading-card" aria-busy="true">
       <div class="loading-title">Analyzing sessions...</div>
       <div class="loading-desc">Computing event pattern diff between sessions.</div>
     </div>
@@ -345,29 +345,28 @@
   .compare-root::-webkit-scrollbar-thumb { background: var(--amber-faint); }
 
   .compare-header {
-    height: var(--control-md);
-    padding: 0 var(--space-14);
+    height: 36px;
+    padding: 0 var(--space-lg);
     background: var(--bg-elevated);
-    border-bottom: 1px solid var(--border-subtle);
-    box-shadow: var(--depth-edge-light), var(--depth-section-sep);
+    box-shadow: var(--sep-glow);
     display: flex;
     align-items: center;
     gap: var(--space-14);
     color: var(--amber-warm);
-    font-size: var(--text-sm);
-    letter-spacing: 0.1em;
-    font-weight: 700;
     flex-shrink: 0;
   }
   .compare-title {
+    font-size: var(--type-section-size);
+    font-weight: var(--type-section-weight);
+    letter-spacing: var(--type-section-spacing);
     color: var(--amber-bright);
     text-shadow: var(--glow-amber-faint);
   }
   .compare-subtitle {
     color: var(--amber-dim);
-    font-weight: 400;
-    letter-spacing: 0.04em;
-    font-size: var(--text-xs);
+    font-size: var(--type-caption-size);
+    font-weight: var(--type-caption-weight);
+    letter-spacing: var(--type-caption-spacing);
   }
   .spacer { flex: 1; }
 
@@ -408,11 +407,11 @@
 
   .error-state {
     color: var(--term-red);
-    padding: var(--space-12) var(--space-14);
-    font-size: var(--text-sm);
-    letter-spacing: 0.04em;
-    border-bottom: 1px solid rgba(255, 72, 72, 0.2);
+    padding: var(--space-12) var(--space-lg);
+    font-size: var(--type-body-size);
+    letter-spacing: var(--type-body-spacing);
     background: rgba(255, 72, 72, 0.06);
+    box-shadow: var(--sep-depth);
     flex-shrink: 0;
   }
 
@@ -443,7 +442,7 @@
     display: flex;
     gap: var(--space-8);
     padding: var(--space-md) var(--space-lg);
-    border-bottom: 1px solid var(--border-subtle);
+    box-shadow: var(--sep-depth);
     flex-wrap: wrap;
     flex-shrink: 0;
   }
@@ -480,20 +479,20 @@
 
   /* --- Section labels --- */
   .section-label {
-    padding: var(--section-header-padding, 8px 16px);
-    color: var(--amber-warm);
-    font-size: var(--section-header-size, 11px);
-    font-weight: var(--section-header-weight, 700);
-    letter-spacing: var(--section-header-spacing, 0.1em);
-    border-bottom: 1px solid var(--border-subtle);
+    padding: var(--space-8) var(--space-lg);
+    color: var(--amber-faint);
+    font-size: var(--type-label-size);
+    font-weight: var(--type-label-weight);
+    letter-spacing: var(--type-label-spacing);
+    text-transform: uppercase;
     background: var(--bg-surface);
-    box-shadow: var(--depth-edge-light), var(--depth-section-sep);
+    box-shadow: var(--sep-depth);
   }
 
   /* --- Timeline sparklines --- */
   .timeline-section {
     flex-shrink: 0;
-    border-bottom: 1px solid var(--border-subtle);
+    box-shadow: var(--sep-depth);
   }
 
   .split-sparklines {
@@ -568,7 +567,7 @@
   /* --- Frequency table --- */
   .freq-section {
     flex-shrink: 0;
-    border-bottom: 1px solid var(--border-subtle);
+    box-shadow: var(--sep-depth);
   }
   .freq-table {
     padding: var(--space-xs) var(--space-lg) var(--space-md);

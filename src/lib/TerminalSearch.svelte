@@ -66,10 +66,11 @@
     oninput={onInput}
     onkeydown={onKeydown}
     placeholder="Search terminal…"
+    aria-label="search terminal output"
     spellcheck="false"
     autocomplete="off"
   />
-  <button
+  <button type="button"
     class="toggle"
     class:active={caseSensitive}
     title="Case sensitive"
@@ -77,7 +78,7 @@
     aria-pressed={caseSensitive}
     onclick={() => { caseSensitive = !caseSensitive; onInput(); }}
   >Aa</button>
-  <button
+  <button type="button"
     class="toggle"
     class:active={regex}
     title="Regex"
@@ -85,9 +86,9 @@
     aria-pressed={regex}
     onclick={() => { regex = !regex; onInput(); }}
   >.*</button>
-  <button class="nav" title="Previous (Shift+Enter)" aria-label="Previous match" onclick={() => doSearch('prev')}>&#x25B2;</button>
-  <button class="nav" title="Next (Enter)" aria-label="Next match" onclick={() => doSearch('next')}>&#x25BC;</button>
-  <button class="close" title="Close (Esc)" aria-label="Close search" onclick={close}>&#x2715;</button>
+  <button type="button" class="nav" title="Previous (Shift+Enter)" aria-label="Previous match" onclick={() => doSearch('prev')}>&#x25B2;</button>
+  <button type="button" class="nav" title="Next (Enter)" aria-label="Next match" onclick={() => doSearch('next')}>&#x25BC;</button>
+  <button type="button" class="close" title="Close (Esc)" aria-label="Close search" onclick={close}>&#x2715;</button>
 </div>
 
 <style>

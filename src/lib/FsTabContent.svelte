@@ -183,7 +183,7 @@
       ondragstart={onHandleDragStart}
       title="drag back to tab strip to dock"
     >
-      <span class="handle-glyph">↙</span>
+      <span class="handle-glyph" style="color: var(--term-green); font-size: 14px">⊞</span>
       <span class="handle-title">filesystem</span>
       <span class="handle-hint">drag to dock</span>
     </div>
@@ -200,13 +200,13 @@
       {totalCount} event{totalCount === 1 ? '' : 's'} · last {lastSeenLabel}
     </span>
     <span class="spacer"></span>
-    <button
+    <button type="button"
       class="ctrl-btn"
       class:active={!paused}
       onclick={() => (paused = !paused)}
       title={paused ? 'resume' : 'pause'}
     >{paused ? '▶' : '⏸'}</button>
-    <button class="ctrl-btn" onclick={clearEvents} title="clear">✕</button>
+    <button type="button" class="ctrl-btn" onclick={clearEvents} title="clear">✕</button>
   </header>
 
   <div class="heatstrip-row">
@@ -231,7 +231,7 @@
 
   <div class="log">
     <div class="log-header">RECENT EVENTS</div>
-    <div class="log-body" bind:this={logBodyEl}>
+    <div class="log-body" aria-live="polite" bind:this={logBodyEl}>
       {#if recentEvents.length === 0}
         <div class="empty-card">
           <div class="empty-title">Waiting for filesystem events</div>
@@ -311,16 +311,16 @@
     height: var(--control-sm);
     padding: 0 var(--space-12);
     background: var(--bg-surface);
-    border-bottom: 1px solid var(--border-subtle);
+    box-shadow: var(--sep-depth);
     display: flex;
     align-items: center;
     gap: var(--space-md);
     cursor: grab;
     user-select: none;
     color: var(--amber-warm);
-    font-size: var(--text-xs);
-    letter-spacing: 0.1em;
-    font-weight: 700;
+    font-size: var(--type-label-size);
+    letter-spacing: var(--type-label-spacing);
+    font-weight: var(--type-label-weight);
   }
   .drag-handle { transition: background var(--duration-base) ease-out; }
   .drag-handle:active { cursor: grabbing; }
@@ -342,41 +342,49 @@
   }
 
   .status {
-    height: var(--control-md);
-    padding: 0 var(--space-14);
+    height: 36px;
+    padding: 0 var(--space-lg);
     background: var(--bg-elevated);
-    border-bottom: 1px solid var(--border-subtle);
-    box-shadow: var(--depth-edge-light), var(--depth-section-sep);
+    box-shadow: var(--sep-glow);
     display: flex; align-items: center; gap: var(--space-14);
     color: var(--amber-warm);
-    font-size: var(--text-sm); letter-spacing: 0.1em; font-weight: 700;
   }
-  .status .title { color: var(--term-cyan); text-shadow: 0 0 4px rgba(111, 224, 224, 0.35); }
-  .status .icon { margin-right: 8px; opacity: 0.85; }
-  .status .state { color: var(--amber-dim); font-weight: 400; letter-spacing: 0.04em; }
+  .status .title {
+    font-size: var(--type-section-size);
+    font-weight: var(--type-section-weight);
+    letter-spacing: var(--type-section-spacing);
+    color: var(--term-cyan);
+    text-shadow: 0 0 4px rgba(111, 224, 224, 0.35);
+  }
+  .status .icon { margin-right: 8px; opacity: 0.85; font-size: var(--text-lg); }
+  .status .state {
+    font-size: var(--type-caption-size);
+    font-weight: var(--type-caption-weight);
+    letter-spacing: var(--type-caption-spacing);
+    color: var(--amber-dim);
+  }
   .status .spacer { flex: 1; }
 
   .heatstrip-row {
     padding: var(--space-xs) var(--space-14);
     background: var(--bg-elevated);
-    border-bottom: 1px solid var(--border-subtle);
+    box-shadow: var(--sep-depth);
     flex-shrink: 0;
   }
 
   .strip {
     height: 26px;
     padding: 0 14px;
-    border-bottom: 1px solid var(--border-subtle);
-    box-shadow: var(--depth-edge-light);
+    box-shadow: var(--sep-depth);
     display: flex; align-items: center; gap: var(--space-14);
     background: linear-gradient(to bottom, rgba(111, 224, 224, 0.06), transparent);
     color: var(--amber-dim);
-    font-size: var(--text-xs);
-    letter-spacing: 0.1em;
+    font-size: var(--type-caption-size);
+    letter-spacing: var(--type-caption-spacing);
     overflow: hidden;
   }
-  .strip-label { color: var(--term-cyan); font-weight: 700; }
-  .strip-empty { color: var(--amber-faint); font-style: italic; letter-spacing: 0.04em; }
+  .strip-label { color: var(--term-cyan); font-weight: 700; letter-spacing: var(--type-label-spacing); }
+  .strip-empty { color: var(--amber-faint); font-style: italic; font-size: var(--type-caption-size); }
   .strip-events { display: flex; gap: var(--space-sm); flex: 1; overflow: hidden; }
   .strip-event {
     padding: 1px 6px;
@@ -394,17 +402,16 @@
     display: flex; flex-direction: column;
     min-height: 0;
     min-width: 0;
-    border-bottom: 1px solid var(--border-subtle);
   }
   .log-header {
-    padding: var(--section-header-padding, 8px 16px);
-    color: var(--amber-warm);
-    font-size: var(--section-header-size, 11px);
-    font-weight: 700;
-    letter-spacing: var(--section-header-spacing, 0.1em);
-    border-bottom: 1px solid var(--border-subtle);
+    padding: var(--space-8) var(--space-lg);
+    color: var(--amber-faint);
+    font-size: var(--type-label-size);
+    font-weight: var(--type-label-weight);
+    letter-spacing: var(--type-label-spacing);
+    text-transform: uppercase;
     background: var(--bg-surface);
-    box-shadow: var(--depth-edge-light), var(--depth-section-sep);
+    box-shadow: var(--sep-depth);
   }
   .log-body {
     flex: 1;
@@ -421,31 +428,34 @@
   .log-body::-webkit-scrollbar-thumb { background: var(--amber-faint); }
   .error-state {
     color: var(--term-red);
-    padding: var(--space-12) var(--space-14);
-    font-size: var(--text-sm);
-    letter-spacing: 0.04em;
-    border-bottom: 1px solid rgba(255, 72, 72, 0.2);
+    padding: var(--space-12) var(--space-lg);
+    font-size: var(--type-body-size);
+    letter-spacing: var(--type-body-spacing);
     background: rgba(255, 72, 72, 0.06);
+    box-shadow: var(--sep-depth);
   }
   .empty-card {
-    border: 1px dashed var(--border-subtle);
-    padding: var(--space-12) var(--space-14);
-    background: rgba(111, 224, 224, 0.05);
-    color: var(--amber-warm);
-    font-size: var(--text-sm);
-    line-height: 1.55;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-8);
+    padding: var(--space-2xl) var(--space-lg);
+    text-align: center;
+    min-height: 120px;
   }
   .empty-title {
-    color: var(--term-cyan);
-    font-weight: 700;
-    font-size: var(--text-sm);
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    margin-bottom: var(--space-sm);
+    color: var(--amber-dim);
+    font-size: var(--type-body-size);
+    font-weight: var(--type-body-weight);
+    letter-spacing: var(--type-body-spacing);
   }
   .empty-desc {
-    color: var(--amber-dim);
-    font-size: var(--text-xs);
+    color: var(--amber-faint);
+    font-size: var(--type-caption-size);
+    letter-spacing: var(--type-caption-spacing);
+    font-style: italic;
+    max-width: 320px;
   }
 
   .log-body .row {
@@ -470,17 +480,16 @@
     background: var(--bg-panel);
     max-height: 180px;
     overflow-y: auto;
-    border-top: 1px solid var(--border-subtle);
     box-shadow: var(--depth-lift), var(--depth-edge-light);
   }
   .state-header {
-    padding: var(--section-header-padding, 8px 16px);
-    color: var(--amber-warm);
-    font-size: var(--section-header-size, 11px);
-    font-weight: 700;
-    letter-spacing: var(--section-header-spacing, 0.1em);
-    border-bottom: 1px solid var(--border-subtle);
-    box-shadow: var(--depth-edge-light);
+    padding: var(--space-8) var(--space-lg);
+    color: var(--amber-faint);
+    font-size: var(--type-label-size);
+    font-weight: var(--type-label-weight);
+    letter-spacing: var(--type-label-spacing);
+    text-transform: uppercase;
+    box-shadow: var(--sep-depth);
   }
   .state-body {
     padding: 10px 16px 14px;

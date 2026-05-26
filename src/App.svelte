@@ -983,8 +983,8 @@
       >
         <p>This tab has a running process. Close anyway?</p>
         <div class="close-confirm-actions">
-          <button class="rift-btn" onclick={sm.cancelClose}>Cancel</button>
-          <button class="rift-btn danger" onclick={sm.confirmClose}>Close</button>
+          <button type="button" class="rift-btn" onclick={sm.cancelClose}>Cancel</button>
+          <button type="button" class="rift-btn danger" onclick={sm.confirmClose}>Close</button>
         </div>
       </div>
     </div>

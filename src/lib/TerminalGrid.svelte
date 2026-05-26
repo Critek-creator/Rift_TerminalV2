@@ -149,17 +149,17 @@
     onclick={() => handleFocusClick(node.id)}
   >
     <div class="pane-toolbar">
-      <button
+      <button type="button"
         class="pane-tool-btn"
         title="Split horizontal (top/bottom) — Ctrl+Shift+E"
         onclick={(e) => { e.stopPropagation(); onSplit(node.id, 'hsplit'); }}
       >⬓</button>
-      <button
+      <button type="button"
         class="pane-tool-btn"
         title="Split vertical (left/right) — Ctrl+Shift+D"
         onclick={(e) => { e.stopPropagation(); onSplit(node.id, 'vsplit'); }}
       >⬒</button>
-      <button
+      <button type="button"
         class="pane-tool-btn pane-tool-close"
         title="Close pane — Ctrl+Shift+W"
         onclick={(e) => { e.stopPropagation(); onClose(node.id); }}

@@ -169,7 +169,7 @@
       ondragstart={onHandleDragStart}
       title="drag back to tab strip to dock"
     >
-      <span class="handle-glyph">↙</span>
+      <span class="handle-glyph" style="color: var(--amber-warm); font-size: 14px">☐</span>
       <span class="handle-title">todo</span>
       <span class="handle-hint">drag to dock</span>
     </div>
@@ -223,7 +223,7 @@
 
   <div class="log">
     <div class="log-header">MARKERS · click any row to open file</div>
-    <div class="log-body">
+    <div class="log-body" aria-live="polite">
       {#if scanError}
         <div class="empty error">scan failed — {scanError}</div>
       {:else if scanning && entries.length === 0}
@@ -327,16 +327,16 @@
     height: var(--control-sm);
     padding: 0 var(--space-12);
     background: var(--bg-surface);
-    border-bottom: 1px solid var(--border-subtle);
+    box-shadow: var(--sep-depth);
     display: flex;
     align-items: center;
     gap: var(--space-md);
     cursor: grab;
     user-select: none;
     color: var(--amber-warm);
-    font-size: var(--text-xs);
-    letter-spacing: 0.1em;
-    font-weight: 700;
+    font-size: var(--type-label-size);
+    letter-spacing: var(--type-label-spacing);
+    font-weight: var(--type-label-weight);
     transition: background var(--duration-base) ease-out;
   }
   .drag-handle:active { cursor: grabbing; }
@@ -359,21 +359,22 @@
   }
 
   .status {
-    height: var(--control-md);
-    padding: 0 var(--space-14);
+    height: 36px;
+    padding: 0 var(--space-lg);
     background: var(--bg-elevated);
-    border-bottom: 1px solid var(--border-subtle);
-    box-shadow: var(--depth-edge-light), var(--depth-section-sep);
+    box-shadow: var(--sep-glow);
     display: flex; align-items: center; gap: var(--space-14);
     color: var(--amber-warm);
-    font-size: var(--text-sm); letter-spacing: 0.1em; font-weight: 700;
   }
   .status .title {
+    font-size: var(--type-section-size);
+    font-weight: var(--type-section-weight);
+    letter-spacing: var(--type-section-spacing);
     color: var(--amber-bright);
     text-shadow: var(--glow-amber-faint);
   }
-  .status .icon { margin-right: 8px; opacity: 0.85; }
-  .status .state { color: var(--amber-dim); font-weight: 400; letter-spacing: 0.04em; }
+  .status .icon { margin-right: 8px; opacity: 0.85; font-size: var(--text-lg); }
+  .status .state { color: var(--amber-dim); font-size: var(--type-caption-size); font-weight: var(--type-caption-weight); letter-spacing: var(--type-caption-spacing); }
   .status .spacer { flex: 1; }
   .ctl-btn {
     background: transparent;
@@ -406,13 +407,12 @@
   .strip {
     min-height: 32px;
     padding: var(--space-xs) var(--space-14);
-    border-bottom: 1px solid var(--border-subtle);
-    box-shadow: var(--depth-edge-light);
+    box-shadow: var(--sep-depth);
     display: flex; align-items: center; gap: var(--space-md);
     background: linear-gradient(to bottom, rgba(212, 137, 10, 0.05), transparent);
     color: var(--amber-dim);
-    font-size: var(--text-xs);
-    letter-spacing: 0.1em;
+    font-size: var(--type-caption-size);
+    letter-spacing: var(--type-caption-spacing);
     flex-wrap: wrap;
   }
   .strip-label { color: var(--amber-bright); font-weight: 700; }
@@ -453,16 +453,15 @@
     flex: 1;
     display: flex; flex-direction: column;
     min-height: 0;
-    border-bottom: 1px solid var(--border-subtle);
   }
   .log-header {
-    padding: var(--section-header-padding, 8px 16px);
-    color: var(--amber-warm);
-    font-size: var(--section-header-size, 11px);
-    font-weight: 700;
-    letter-spacing: var(--section-header-spacing, 0.1em);
-    box-shadow: var(--depth-edge-light), var(--depth-section-sep);
-    border-bottom: 1px solid var(--border-subtle);
+    padding: var(--space-8) var(--space-lg);
+    color: var(--amber-faint);
+    font-size: var(--type-label-size);
+    font-weight: var(--type-label-weight);
+    letter-spacing: var(--type-label-spacing);
+    text-transform: uppercase;
+    box-shadow: var(--sep-depth);
     background: var(--bg-surface);
   }
   .log-body {
@@ -480,11 +479,12 @@
   .log-body::-webkit-scrollbar-thumb { background: var(--amber-faint); }
 
   .empty {
-    color: var(--amber-faint);
+    color: var(--amber-dim);
+    font-size: var(--type-caption-size);
     font-style: italic;
     padding: 6px 0;
   }
-  .empty.error { color: var(--term-red); font-style: normal; }
+  .empty.error { color: var(--term-red); font-style: normal; font-size: var(--type-body-size); }
 
   .row {
     display: flex;
@@ -580,17 +580,16 @@
     background: var(--bg-panel);
     max-height: 180px;
     overflow-y: auto;
-    border-top: 1px solid var(--border-subtle);
     box-shadow: var(--depth-lift), var(--depth-edge-light);
   }
   .state-header {
-    padding: var(--section-header-padding, 8px 16px);
-    color: var(--amber-warm);
-    font-size: var(--section-header-size, 11px);
-    font-weight: 700;
-    letter-spacing: var(--section-header-spacing, 0.1em);
-    box-shadow: var(--depth-edge-light);
-    border-bottom: 1px solid var(--border-subtle);
+    padding: var(--space-8) var(--space-lg);
+    color: var(--amber-faint);
+    font-size: var(--type-label-size);
+    font-weight: var(--type-label-weight);
+    letter-spacing: var(--type-label-spacing);
+    text-transform: uppercase;
+    box-shadow: var(--sep-depth);
   }
   .state-body {
     padding: 10px 16px 14px;

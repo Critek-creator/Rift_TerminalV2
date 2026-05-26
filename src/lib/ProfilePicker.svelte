@@ -149,7 +149,7 @@
 </script>
 
 <div class="profile-picker">
-  <button
+  <button type="button"
     class="profile-trigger"
     bind:this={triggerEl}
     onclick={toggle}
@@ -186,7 +186,7 @@
           {#if profile.name === activeProfile}
             <span class="item-active-dot"></span>
           {/if}
-          <button
+          <button type="button"
             class="item-delete"
             onclick={(e) => deleteProfile(profile.name, e)}
             title="Delete profile"
@@ -208,10 +208,10 @@
               if (e.key === 'Escape') { saving = false; e.stopPropagation(); }
             }}
           />
-          <button class="save-confirm" onclick={confirmSave}>OK</button>
+          <button type="button" class="save-confirm" onclick={confirmSave}>OK</button>
         </div>
       {:else}
-        <button
+        <button type="button"
           class="dropdown-item save-trigger"
           class:focused={focusedIndex === profiles.length}
           onclick={startSave}

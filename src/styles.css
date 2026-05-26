@@ -67,24 +67,51 @@
   --space-xl:  20px;
   --space-24:  24px;
   --space-2xl: 32px;
+  --space-3xl: 40px;
+  --space-4xl: 48px;
 
   /* Control heights — toolbar rows, filter bars, header strips */
   --control-sm: 26px;
   --control-md: 30px;
   --control-lg: 32px;
 
-  /* Typography scale */
+  /* Typography scale — v3 lift: added xl/2xl tiers + body/caption
+     semantic aliases for hierarchy depth beyond "everything is 11px" */
   --text-2xs:  9px;
   --text-xs:   10px;
   --text-sm:   11px;
   --text-base: 12px;
   --text-md:   13px;
   --text-lg:   14px;
+  --text-xl:   16px;
+  --text-2xl:  20px;
 
-  /* Section header treatment */
-  --section-header-size: 11px;
-  --section-header-weight: 700;
-  --section-header-spacing: 0.1em;
+  /* Semantic type roles — use these instead of raw scale in components.
+     Each role encodes size + weight + spacing as a single intent. */
+  --type-title-size:    var(--text-xl);
+  --type-title-weight:  600;
+  --type-title-spacing: 0.02em;
+
+  --type-section-size:    var(--text-md);
+  --type-section-weight:  700;
+  --type-section-spacing: 0.08em;
+
+  --type-body-size:    var(--text-base);
+  --type-body-weight:  400;
+  --type-body-spacing: 0.02em;
+
+  --type-caption-size:    var(--text-xs);
+  --type-caption-weight:  400;
+  --type-caption-spacing: 0.04em;
+
+  --type-label-size:    var(--text-2xs);
+  --type-label-weight:  700;
+  --type-label-spacing: 0.1em;
+
+  /* Section header treatment (legacy — components migrating to semantic roles) */
+  --section-header-size: var(--type-section-size);
+  --section-header-weight: var(--type-section-weight);
+  --section-header-spacing: var(--type-section-spacing);
   --section-header-padding: 8px 16px;
 
   /* Radius */
@@ -98,6 +125,15 @@
   --duration-med:  0.15s;
   --duration-slow: 0.3s;
   --ease-out:     ease-out;
+
+  /* Section separators — v3 depth-based alternatives to border-bottom.
+     Use these instead of `border-bottom: 1px solid var(--border-subtle)`
+     on section headers, panel dividers, and content boundaries.
+     Borders remain correct for interactive element edges (buttons, inputs, tags). */
+  --sep-depth:   var(--depth-section-sep);                        /* shadow only — softest */
+  --sep-glow:    var(--depth-edge-light), var(--depth-section-sep); /* amber edge glow + shadow — for headers */
+  --sep-surface: var(--bg-surface);                                /* bg step — use on adjacent sections */
+  --sep-inset:   var(--depth-inset);                               /* deep recess — for content wells */
 
   /* Overlay / interactive surfaces */
   --backdrop-overlay:    rgba(0, 0, 0, 0.55);
@@ -222,6 +258,93 @@ body::after {
     var(--bg-base);
   display: flex;
   flex-direction: column;
+}
+
+/* =========================================================
+   TYPOGRAPHY ROLE CLASSES — v3 semantic type hierarchy.
+   Apply these to create visual tension between heading levels
+   instead of uniform 11px/700/0.1em on everything.
+   ========================================================= */
+.type-title {
+  font-size: var(--type-title-size);
+  font-weight: var(--type-title-weight);
+  letter-spacing: var(--type-title-spacing);
+  color: var(--amber-bright);
+  text-shadow: var(--glow-amber-faint);
+}
+.type-section {
+  font-size: var(--type-section-size);
+  font-weight: var(--type-section-weight);
+  letter-spacing: var(--type-section-spacing);
+  text-transform: uppercase;
+  color: var(--amber-warm);
+}
+.type-body {
+  font-size: var(--type-body-size);
+  font-weight: var(--type-body-weight);
+  letter-spacing: var(--type-body-spacing);
+  color: var(--term-white);
+}
+.type-caption {
+  font-size: var(--type-caption-size);
+  font-weight: var(--type-caption-weight);
+  letter-spacing: var(--type-caption-spacing);
+  color: var(--amber-dim);
+}
+.type-label {
+  font-size: var(--type-label-size);
+  font-weight: var(--type-label-weight);
+  letter-spacing: var(--type-label-spacing);
+  text-transform: uppercase;
+  color: var(--amber-faint);
+}
+
+/* =========================================================
+   SECTION SEPARATOR CLASSES — v3 depth-based boundaries.
+   Replace border-bottom with these on non-interactive boundaries.
+   ========================================================= */
+.sep-depth {
+  border-bottom: none;
+  box-shadow: var(--sep-depth);
+}
+.sep-glow {
+  border-bottom: none;
+  box-shadow: var(--sep-glow);
+}
+.sep-surface {
+  background: var(--sep-surface);
+}
+
+/* =========================================================
+   EMPTY STATE — v3 structured empty state pattern.
+   Replace bare "(no data)" text with this across all tabs.
+   ========================================================= */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-8);
+  padding: var(--space-4xl) var(--space-lg);
+  text-align: center;
+  min-height: 160px;
+}
+.empty-state-icon {
+  font-size: var(--text-2xl);
+  opacity: 0.4;
+  color: var(--amber-dim);
+}
+.empty-state-text {
+  font-size: var(--type-body-size);
+  font-weight: var(--type-body-weight);
+  letter-spacing: var(--type-body-spacing);
+  color: var(--amber-dim);
+}
+.empty-state-hint {
+  font-size: var(--type-caption-size);
+  letter-spacing: var(--type-caption-spacing);
+  color: var(--amber-faint);
+  font-style: italic;
 }
 
 /* =========================================================

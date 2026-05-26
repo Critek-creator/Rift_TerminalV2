@@ -187,6 +187,7 @@
         type="text"
         class="search-input"
         placeholder="Filter bookmarks..."
+        aria-label="filter bookmarks"
         bind:value={searchText}
       />
     </div>
@@ -344,7 +345,7 @@
 
   .panel-tabs {
     display: flex;
-    border-bottom: 1px solid var(--border-subtle);
+    box-shadow: var(--sep-depth);
     background: var(--bg-surface);
   }
   .panel-tab {
@@ -388,7 +389,7 @@
 
   .panel-search {
     padding: var(--space-sm) var(--space-md);
-    border-bottom: 1px solid var(--border-subtle);
+    box-shadow: var(--sep-depth);
   }
   .search-input {
     width: 100%;

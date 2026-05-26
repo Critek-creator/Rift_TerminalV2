@@ -233,7 +233,7 @@
 
   <!-- Error display -->
   {#if error !== null}
-    <div class="picker-error">
+    <div class="picker-error" role="alert">
       <span class="picker-error-glyph">◇</span>
       <span class="picker-error-msg">{error}</span>
     </div>
@@ -270,21 +270,21 @@
   /* ─── Sections ───────────────────────────────────────────────────────── */
   .picker-section {
     padding: var(--space-lg);
-    border-bottom: 1px solid var(--border-subtle);
+    box-shadow: var(--sep-depth);
   }
   .picker-section-input {
     padding-bottom: var(--space-lg);
   }
 
   .picker-section-label {
-    font-size: var(--section-header-size);
-    letter-spacing: var(--section-header-spacing);
+    font-size: var(--type-section-size);
+    letter-spacing: var(--type-section-spacing);
     text-transform: uppercase;
-    font-weight: var(--section-header-weight);
-    color: var(--amber-dim);
+    font-weight: var(--type-section-weight);
+    color: var(--amber-faint);
     margin-bottom: var(--space-md);
     padding-bottom: var(--space-sm);
-    border-bottom: 1px solid var(--border-subtle);
+    box-shadow: var(--sep-depth);
   }
 
   /* ─── Recent list ────────────────────────────────────────────────────── */
@@ -301,7 +301,7 @@
     grid-template-columns: 20px auto 1fr auto;
     align-items: center;
     gap: var(--space-sm);
-    padding: var(--space-sm) var(--space-md);
+    padding: var(--space-md) var(--space-md);
     cursor: pointer;
     border: 1px solid transparent;
     border-radius: var(--radius-md);
@@ -328,8 +328,8 @@
     color: var(--amber-bright);
   }
   .picker-item-name {
-    font-size: var(--text-sm);
-    font-weight: 700;
+    font-size: var(--type-body-size);
+    font-weight: 600;
     color: var(--amber-warm);
     white-space: nowrap;
     transition: color var(--duration-fast) var(--ease-out);
@@ -338,16 +338,16 @@
     color: var(--amber-bright);
   }
   .picker-item-path {
-    font-size: var(--text-2xs);
+    font-size: var(--type-caption-size);
     color: var(--amber-faint);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
     min-width: 0;
-    letter-spacing: 0.02em;
+    letter-spacing: var(--type-caption-spacing);
   }
   .picker-item-time {
-    font-size: var(--text-2xs);
+    font-size: var(--type-caption-size);
     color: var(--amber-faint);
     white-space: nowrap;
     font-style: italic;
@@ -478,7 +478,7 @@
     gap: var(--space-sm);
     padding: var(--space-md) var(--space-lg);
     background: rgba(255, 72, 72, 0.04);
-    border-bottom: 1px solid var(--term-red);
+    box-shadow: inset 0 -1px 0 0 var(--term-red), 0 1px 3px rgba(255, 72, 72, 0.15);
     font-size: var(--text-xs);
   }
   .picker-error-glyph {
@@ -498,7 +498,7 @@
     gap: var(--space-sm);
     padding: var(--space-md) var(--space-lg);
     background: var(--bg-panel);
-    border-top: 1px solid var(--border-subtle);
+    box-shadow: var(--sep-glow);
   }
 
   .picker-btn {

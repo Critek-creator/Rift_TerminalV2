@@ -22,6 +22,7 @@
   import { popouts } from './popouts.svelte';
   import type { RiftConfig, McpConfig, ShellPref, SeverityLevel, StatusLineConfig, AlertRule, AlertAction } from './riftConfig';
   import { newAlertRuleId } from './alertRules';
+  import { PALETTES } from './terminalPalettes';
 
   interface Props {
     popoutId: number;
@@ -125,6 +126,7 @@
   let termLineHeight = $state(1.55);
   let termScrollback = $state(1000);
   let termLanesEnabled = $state(true);
+  let termColorPalette = $state('amber');
 
   // Font presets — aesthetic templates
   const FONT_PRESETS: { label: string; value: string }[] = [
@@ -136,6 +138,7 @@
   ];
   let fontPresetMode = $state<'preset' | 'custom'>('preset');
   let customFontFamily = $state('');
+  let termAdvancedOpen = $state(false);
 
   // StatusLine — segment visibility toggles.
   let slShowDir = $state(true);
@@ -439,6 +442,7 @@
       || Math.abs(termLineHeight - config.terminal.line_height) > 1e-4
       || termScrollback !== config.terminal.scrollback
       || termLanesEnabled !== config.terminal.lanes_enabled
+      || termColorPalette !== (config.terminal.color_palette ?? 'amber')
     )
   );
 
@@ -483,6 +487,7 @@
     termLineHeight = c.terminal.line_height;
     termScrollback = c.terminal.scrollback;
     termLanesEnabled = c.terminal.lanes_enabled;
+    termColorPalette = c.terminal.color_palette ?? 'amber';
     // Font preset mode detection
     const matchedPreset = FONT_PRESETS.find(p => p.value === termFontFamily);
     if (matchedPreset) {
@@ -572,6 +577,7 @@
     const prevLineHeight = termLineHeight;
     const prevScrollback = termScrollback;
     const prevLanesEnabled = termLanesEnabled;
+    const prevColorPalette = termColorPalette;
     try {
       const next: RiftConfig = {
         ...config,
@@ -582,6 +588,7 @@
           line_height: Math.max(1.0, Math.min(2.5, termLineHeight || 1.55)),
           scrollback: Math.max(100, Math.min(100000, Math.floor(termScrollback || 1000))),
           lanes_enabled: termLanesEnabled,
+          color_palette: termColorPalette,
         },
       };
       await invoke('config_save', { cfg: next });
@@ -590,7 +597,7 @@
       saveBanner = {
         section: 'terminal',
         ok: true,
-        msg: 'terminal saved · shell change applies to new sessions',
+        msg: 'terminal saved · palette applies to new sessions',
       };
     } catch (err) {
       termShellKind = prevShellKind;
@@ -600,6 +607,7 @@
       termLineHeight = prevLineHeight;
       termScrollback = prevScrollback;
       termLanesEnabled = prevLanesEnabled;
+      termColorPalette = prevColorPalette;
       saveBanner = { section: 'terminal', ok: false, msg: String(err) };
     } finally {
       savingTerminal = false;
@@ -732,7 +740,7 @@
      role="dialog"
      tabindex="-1"
 >
-  <nav class="tab-strip">
+  <div class="tab-strip" role="tablist" aria-label="settings sections">
     {#each [
       { id: 'general',      label: 'GENERAL' },
       { id: 'terminal',     label: 'TERMINAL' },
@@ -743,13 +751,15 @@
       { id: 'mcp',        label: 'MCP' },
       { id: 'alerts',     label: 'ALERTS' },
     ] as tab (tab.id)}
-      <button
+      <button type="button"
+        role="tab"
+        aria-selected={activeTab === tab.id}
         class="tab-btn"
         class:active={activeTab === tab.id}
         onclick={() => (activeTab = tab.id as SettingsTab)}
       >{tab.label}</button>
     {/each}
-  </nav>
+  </div>
 
   <div class="settings-body">
 
@@ -878,7 +888,7 @@
     <section class="section">
       <div class="section-label">Filesystem</div>
       {#if configError}
-        <div class="banner banner-fail">{configError}</div>
+        <div class="banner banner-fail" role="alert">{configError}</div>
       {:else if !config}
         <div class="hint">loading…</div>
       {:else}
@@ -911,7 +921,7 @@
             {savingFs ? 'saving…' : 'save filesystem'}
           </button>
           {#if saveBanner && saveBanner.section === 'fs'}
-            <span class="banner-inline" class:fail={!saveBanner.ok}>
+            <span class="banner-inline" class:fail={!saveBanner.ok} role="status">
               {saveBanner.msg}
             </span>
           {/if}
@@ -960,7 +970,7 @@
       </div>
 
       <div class="save-row">
-        <button
+        <button type="button"
           class="save-btn"
           disabled={!notifDirty || savingNotif}
           onclick={saveNotifFilters}
@@ -1104,50 +1114,27 @@
           </label>
         {/if}
 
-        <label class="field">
-          <span class="field-label">font size · 8–48 px</span>
-          <input
-            type="number"
-            class="field-input field-narrow"
-            bind:value={termFontSize}
-            min="8"
-            max="48"
-          />
-        </label>
-
-        <label class="field">
-          <span class="field-label">line height · 1.00–2.50</span>
-          <input
-            type="number"
-            class="field-input field-narrow"
-            bind:value={termLineHeight}
-            min="1.0"
-            max="2.5"
-            step="0.05"
-          />
-        </label>
-
-        <label class="field">
-          <span class="field-label">scrollback · 100–100000 lines</span>
-          <input
-            type="number"
-            class="field-input field-narrow"
-            bind:value={termScrollback}
-            min="100"
-            max="100000"
-            step="100"
-          />
-        </label>
-
-        <div class="row">
-          <label class="kv-toggle">
-            <input
-              type="checkbox"
-              bind:checked={termLanesEnabled}
-              disabled={savingTerminal}
-            />
-            <span>tag-prefix Rift-emitted lines (§10.1)</span>
-          </label>
+        <div class="section-label" style="margin-top: 12px;">Color Palette</div>
+        <div class="radio-col">
+          {#each PALETTES as palette (palette.id)}
+            <label class="radio palette-radio">
+              <input type="radio" name="color-palette" value={palette.id}
+                checked={termColorPalette === palette.id}
+                onchange={() => (termColorPalette = palette.id)}
+              />
+              <span class="palette-option">
+                <span class="palette-name">{palette.label}</span>
+                <span class="palette-desc">{palette.description}</span>
+                <span class="palette-preview">
+                  <span class="palette-swatch" style="background: {palette.theme.background}; color: {palette.theme.foreground}">Aa</span>
+                  <span class="palette-swatch" style="background: {palette.theme.background}; color: {palette.theme.red}">Er</span>
+                  <span class="palette-swatch" style="background: {palette.theme.background}; color: {palette.theme.green}">Ok</span>
+                  <span class="palette-swatch" style="background: {palette.theme.background}; color: {palette.theme.blue}">Cl</span>
+                  <span class="palette-swatch" style="background: {palette.theme.background}; color: {palette.theme.cyan}">Hk</span>
+                </span>
+              </span>
+            </label>
+          {/each}
         </div>
 
         <div class="section-label" style="margin-top: 12px;">Font</div>
@@ -1193,6 +1180,59 @@
           </label>
         {/if}
 
+        <button type="button" class="disclosure-toggle" onclick={() => (termAdvancedOpen = !termAdvancedOpen)}>
+          <span class="disclosure-caret">{termAdvancedOpen ? '▾' : '▸'}</span>
+          Advanced
+        </button>
+
+        {#if termAdvancedOpen}
+        <label class="field">
+          <span class="field-label">font size · 8–48 px</span>
+          <input
+            type="number"
+            class="field-input field-narrow"
+            bind:value={termFontSize}
+            min="8"
+            max="48"
+          />
+        </label>
+
+        <label class="field">
+          <span class="field-label">line height · 1.00–2.50</span>
+          <input
+            type="number"
+            class="field-input field-narrow"
+            bind:value={termLineHeight}
+            min="1.0"
+            max="2.5"
+            step="0.05"
+          />
+        </label>
+
+        <label class="field">
+          <span class="field-label">scrollback · 100–100000 lines</span>
+          <input
+            type="number"
+            class="field-input field-narrow"
+            bind:value={termScrollback}
+            min="100"
+            max="100000"
+            step="100"
+          />
+        </label>
+
+        <div class="row">
+          <label class="kv-toggle">
+            <input
+              type="checkbox"
+              bind:checked={termLanesEnabled}
+              disabled={savingTerminal}
+            />
+            <span>tag-prefix Rift-emitted lines (§10.1)</span>
+          </label>
+        </div>
+        {/if}
+
         <div class="row">
           <button
             type="button"
@@ -1203,7 +1243,7 @@
             {savingTerminal ? 'saving…' : 'save terminal'}
           </button>
           {#if saveBanner && saveBanner.section === 'terminal'}
-            <span class="banner-inline" class:fail={!saveBanner.ok}>
+            <span class="banner-inline" class:fail={!saveBanner.ok} role="status">
               {saveBanner.msg}
             </span>
           {/if}
@@ -1244,7 +1284,7 @@
             {savingStatusline ? 'saving…' : 'save status line'}
           </button>
           {#if saveBanner && saveBanner.section === 'statusline'}
-            <span class="banner-inline" class:fail={!saveBanner.ok}>
+            <span class="banner-inline" class:fail={!saveBanner.ok} role="status">
               {saveBanner.msg}
             </span>
           {/if}
@@ -1335,7 +1375,7 @@
             {savingIndex ? 'saving…' : 'save index'}
           </button>
           {#if saveBanner && saveBanner.section === 'index'}
-            <span class="banner-inline" class:fail={!saveBanner.ok}>
+            <span class="banner-inline" class:fail={!saveBanner.ok} role="status">
               {saveBanner.msg}
             </span>
           {/if}
@@ -1397,7 +1437,7 @@
             {savingTree ? 'saving…' : 'save tree'}
           </button>
           {#if saveBanner && saveBanner.section === 'tree'}
-            <span class="banner-inline" class:fail={!saveBanner.ok}>
+            <span class="banner-inline" class:fail={!saveBanner.ok} role="status">
               {saveBanner.msg}
             </span>
           {/if}
@@ -1501,7 +1541,7 @@
         {/if}
 
         {#if saveBanner && saveBanner.section === 'mcp'}
-          <span class="banner-inline" class:fail={!saveBanner.ok}>
+          <span class="banner-inline" class:fail={!saveBanner.ok} role="status">
             {saveBanner.msg}
           </span>
         {/if}
@@ -1602,7 +1642,7 @@
             {savingAlerts ? 'saving…' : 'save alerts'}
           </button>
           {#if saveBanner && saveBanner.section === 'alerts'}
-            <span class="banner-inline" class:fail={!saveBanner.ok}>
+            <span class="banner-inline" class:fail={!saveBanner.ok} role="status">
               {saveBanner.msg}
             </span>
           {/if}
@@ -1634,7 +1674,7 @@
     flex-shrink: 0;
     display: flex;
     gap: 0;
-    border-bottom: 1px solid var(--border-subtle);
+    box-shadow: var(--sep-glow);
     padding: 0 var(--space-lg);
     background: var(--bg-panel);
   }
@@ -1679,7 +1719,6 @@
   /* ─── Sections — card containment ────────────────────────────────────── */
   .section {
     background: var(--bg-surface);
-    border: 1px solid var(--border-subtle);
     border-radius: var(--radius-md);
     padding: var(--space-lg);
     margin-bottom: var(--space-md);
@@ -1687,14 +1726,13 @@
   }
   .section:last-of-type { margin-bottom: 0; }
   .section-label {
-    color: var(--amber-dim);
-    font-size: var(--section-header-size);
-    letter-spacing: var(--section-header-spacing);
-    text-transform: uppercase;
-    font-weight: var(--section-header-weight);
+    color: var(--amber-bright);
+    font-size: var(--type-title-size);
+    font-weight: var(--type-title-weight);
+    letter-spacing: var(--type-title-spacing);
+    text-shadow: var(--glow-amber-faint);
     margin-bottom: var(--space-md);
     padding-bottom: var(--space-sm);
-    border-bottom: 1px solid var(--border-subtle);
   }
 
   /* ─── Hints / prose ──────────────────────────────────────────────────── */
@@ -1725,8 +1763,8 @@
   .kv .k {
     color: var(--amber-dim);
     text-transform: uppercase;
-    letter-spacing: 0.06em;
-    font-size: var(--text-2xs);
+    font-size: var(--type-caption-size);
+    letter-spacing: var(--type-caption-spacing);
     font-weight: 600;
   }
   .kv .v {
@@ -2218,5 +2256,60 @@
   .btn-danger-sm:hover {
     background: rgba(255, 72, 72, 0.12);
     border-color: rgba(255, 72, 72, 0.5);
+  }
+
+  .palette-option {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .palette-name {
+    font-weight: 600;
+    font-size: var(--text-sm);
+  }
+  .palette-desc {
+    font-size: var(--text-2xs);
+    color: var(--amber-faint);
+  }
+  .palette-preview {
+    display: flex;
+    gap: 4px;
+    margin-top: 4px;
+  }
+  .palette-swatch {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 20px;
+    border-radius: 3px;
+    font-size: 9px;
+    font-weight: 700;
+    font-family: var(--font-family);
+    letter-spacing: 0.04em;
+  }
+  .disclosure-toggle {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    background: none;
+    border: none;
+    color: var(--amber-dim);
+    font-family: var(--font-family);
+    font-size: var(--type-label-size);
+    font-weight: var(--type-label-weight);
+    letter-spacing: var(--type-label-spacing);
+    text-transform: uppercase;
+    cursor: pointer;
+    padding: var(--space-sm) 0;
+    margin-top: var(--space-md);
+    transition: color var(--duration-fast) var(--ease-out);
+  }
+  .disclosure-toggle:hover {
+    color: var(--amber-warm);
+  }
+  .disclosure-caret {
+    font-size: 10px;
+    color: var(--amber-faint);
   }
 </style>

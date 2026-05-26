@@ -268,7 +268,7 @@
       ondragstart={onHandleDragStart}
       title="drag back to tab strip to dock"
     >
-      <span class="handle-glyph">↙</span>
+      <span class="handle-glyph" style="color: var(--term-purple); font-size: 14px">◇</span>
       <span class="handle-title">agents</span>
       <span class="handle-hint">drag to dock</span>
     </div>
@@ -315,7 +315,7 @@
 
   <div class="log">
     <div class="log-header">RUNNING AGENTS</div>
-    <div class="log-body">
+    <div class="log-body" aria-live="polite">
       {#if !integrationDetected}
         <div class="capability-card">
           <div class="cap-heading">No agent integration loaded</div>
@@ -337,8 +337,10 @@
           </div>
         </div>
       {:else if runningCount === 0}
-        <div class="empty">
-          no agents currently running — completed agents move to the archive below
+        <div class="empty-state">
+          <span class="empty-state-icon">◇</span>
+          <span class="empty-state-text">No agents in flight</span>
+          <span class="empty-state-hint">subagent dispatches will appear here when active</span>
         </div>
       {:else}
         {#each runningAgents as a (a.id)}
@@ -449,16 +451,16 @@
     height: var(--control-sm);
     padding: 0 var(--space-12);
     background: var(--bg-surface);
-    border-bottom: 1px solid var(--border-subtle);
+    box-shadow: var(--sep-depth);
     display: flex;
     align-items: center;
     gap: var(--space-md);
     cursor: grab;
     user-select: none;
     color: var(--amber-warm);
-    font-size: var(--text-xs);
-    letter-spacing: 0.1em;
-    font-weight: 700;
+    font-size: var(--type-label-size);
+    letter-spacing: var(--type-label-spacing);
+    font-weight: var(--type-label-weight);
     transition: background var(--duration-base) ease-out;
   }
   .drag-handle:active { cursor: grabbing; }
@@ -480,38 +482,39 @@
   }
 
   .status {
-    height: var(--control-md);
-    padding: 0 var(--space-14);
+    height: 36px;
+    padding: 0 var(--space-lg);
     background: var(--bg-elevated);
-    border-bottom: 1px solid var(--border-subtle);
-    box-shadow: var(--depth-edge-light), var(--depth-section-sep);
+    box-shadow: var(--sep-glow);
     display: flex; align-items: center; gap: var(--space-14);
     color: var(--amber-warm);
-    font-size: var(--text-sm); letter-spacing: 0.1em; font-weight: 700;
   }
   .status .title {
+    font-size: var(--type-section-size);
+    font-weight: var(--type-section-weight);
+    letter-spacing: var(--type-section-spacing);
     color: var(--term-purple);
     text-shadow: 0 0 6px rgba(176, 120, 232, 0.4);
   }
   .status .icon { margin-right: var(--space-8); opacity: 0.85; }
   .status .state {
     color: var(--amber-dim);
-    font-weight: 400;
-    letter-spacing: 0.04em;
+    font-size: var(--type-caption-size);
+    font-weight: var(--type-caption-weight);
+    letter-spacing: var(--type-caption-spacing);
   }
 
   .heatstrip-row {
     padding: var(--space-xs) var(--space-14);
     background: var(--bg-elevated);
-    border-bottom: 1px solid var(--border-subtle);
+    box-shadow: var(--sep-depth);
     flex-shrink: 0;
   }
 
   .strip {
     height: var(--control-sm);
     padding: 0 var(--space-14);
-    border-bottom: 1px solid var(--border-subtle);
-    box-shadow: var(--depth-edge-light);
+    box-shadow: var(--sep-depth);
     display: flex; align-items: center; gap: var(--space-8);
     background: linear-gradient(to bottom, rgba(176, 120, 232, 0.05), transparent);
     color: var(--amber-dim);
@@ -554,17 +557,16 @@
     flex: 1;
     display: flex; flex-direction: column;
     min-height: 0;
-    border-bottom: 1px solid var(--border-subtle);
   }
   .log-header {
-    padding: var(--section-header-padding, 8px 16px);
-    color: var(--amber-warm);
-    font-size: var(--section-header-size, 11px);
-    font-weight: 700;
-    letter-spacing: var(--section-header-spacing, 0.1em);
-    border-bottom: 1px solid var(--border-subtle);
+    padding: var(--space-8) var(--space-lg);
+    color: var(--amber-faint);
+    font-size: var(--type-label-size);
+    font-weight: var(--type-label-weight);
+    letter-spacing: var(--type-label-spacing);
+    text-transform: uppercase;
     background: var(--bg-surface);
-    box-shadow: var(--depth-edge-light), var(--depth-section-sep);
+    box-shadow: var(--sep-depth);
   }
   .log-body {
     flex: 1;
@@ -579,10 +581,11 @@
   .log-body::-webkit-scrollbar-thumb { background: var(--amber-faint); }
 
   .empty {
-    color: var(--amber-faint);
+    color: var(--amber-dim);
+    font-size: var(--type-caption-size);
     font-style: italic;
   }
-  .empty.small { font-size: var(--text-xs); }
+  .empty.small { font-size: var(--type-caption-size); }
 
   .capability-card {
     border: 1px dashed var(--border-subtle);
@@ -753,17 +756,16 @@
     background: var(--bg-panel);
     max-height: 200px;
     overflow-y: auto;
-    border-top: 1px solid var(--border-subtle);
     box-shadow: var(--depth-lift), var(--depth-edge-light);
   }
   .state-header {
-    padding: var(--section-header-padding, 8px 16px);
-    color: var(--amber-warm);
-    font-size: var(--section-header-size, 11px);
-    font-weight: 700;
-    letter-spacing: var(--section-header-spacing, 0.1em);
-    box-shadow: var(--depth-edge-light);
-    border-bottom: 1px solid var(--border-subtle);
+    padding: var(--space-8) var(--space-lg);
+    color: var(--amber-faint);
+    font-size: var(--type-label-size);
+    font-weight: var(--type-label-weight);
+    letter-spacing: var(--type-label-spacing);
+    text-transform: uppercase;
+    box-shadow: var(--sep-depth);
     display: flex;
     align-items: center;
     justify-content: space-between;

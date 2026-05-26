@@ -523,7 +523,7 @@
         <span class="detail-title" style="color: var({tierCssVar(selectedSpan.tier)})">{selectedSpan.tool}</span>
         <span class="detail-status" style="color: {statusColor(selectedSpan.status)}">{statusLabel(selectedSpan.status)}</span>
         <span class="detail-dur">{fmtDuration(selectedSpan.durationMs)}</span>
-        <button class="detail-close" onclick={() => (selectedSpan = null)} aria-label="close detail">x</button>
+        <button type="button" class="detail-close" onclick={() => (selectedSpan = null)} aria-label="close detail">x</button>
       </div>
       <div class="detail-body">
         <div class="detail-section">
@@ -542,8 +542,9 @@
 
   {#if spans.length === 0}
     <div class="empty-state">
-      <div class="empty-title">Waterfall timeline</div>
-      <div class="empty-desc">MCP tool call spans will appear here as horizontal bars on a shared time axis.</div>
+      <span class="empty-state-icon">▦</span>
+      <span class="empty-state-text">Waterfall timeline</span>
+      <span class="empty-state-hint">MCP tool call spans will appear as horizontal bars on a shared time axis</span>
     </div>
   {/if}
 </div>
@@ -583,7 +584,7 @@
     letter-spacing: 0.06em;
     margin-bottom: 4px;
     padding-bottom: 4px;
-    border-bottom: 1px solid var(--border-subtle);
+    box-shadow: var(--sep-depth);
   }
 
   .tooltip-row {
@@ -631,7 +632,7 @@
     align-items: center;
     gap: var(--space-12);
     padding: 6px 14px;
-    border-bottom: 1px solid var(--border-subtle);
+    box-shadow: var(--sep-depth);
     flex-shrink: 0;
   }
 
@@ -718,20 +719,4 @@
     pointer-events: none;
   }
 
-  .empty-title {
-    color: var(--term-blue);
-    font-weight: 700;
-    font-size: var(--text-sm);
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    margin-bottom: 6px;
-  }
-
-  .empty-desc {
-    color: var(--amber-dim);
-    font-size: var(--text-xs);
-    max-width: 320px;
-    text-align: center;
-    line-height: 1.5;
-  }
 </style>

@@ -32,7 +32,7 @@
 </script>
 
 {#if count > 1}
-  <button
+  <button type="button"
     class="corr-badge"
     onclick={() => (expanded = !expanded)}
     title="show {count - 1} related event{count - 1 === 1 ? '' : 's'}"
@@ -95,7 +95,7 @@
     text-transform: uppercase;
     margin-bottom: 6px;
     padding-bottom: 4px;
-    border-bottom: 1px solid var(--border-subtle);
+    box-shadow: var(--sep-depth);
   }
   .corr-event {
     display: flex;

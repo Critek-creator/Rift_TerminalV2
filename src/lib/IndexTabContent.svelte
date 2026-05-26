@@ -206,7 +206,7 @@
       ondragstart={onHandleDragStart}
       title="drag back to tab strip to dock"
     >
-      <span class="handle-glyph">↙</span>
+      <span class="handle-glyph" style="color: var(--amber-warm); font-size: 14px">⬢</span>
       <span class="handle-title">INDEX</span>
       <span class="handle-hint">drag to dock</span>
     </div>
@@ -254,7 +254,7 @@
         bind:value={searchTerm}
         aria-label="Filter index events"
       />
-      <button
+      <button type="button"
         class="vault-root-btn"
         onclick={openVaultRoot}
         title="Open vault root (~/.claude/abyssal-index/) in file manager"
@@ -281,11 +281,19 @@
     <!-- Section 3: Recent events log (filtered by search bar) -->
     <div class="log">
       <div class="log-header">RECENT EVENTS{searchTerm.trim() ? ` (${filteredRecentEntries.length}/${recentEntries.length})` : ''}</div>
-      <div class="log-body">
+      <div class="log-body" aria-live="polite">
         {#if recentEntries.length === 0}
-          <div class="empty">subscribed to <span class="cat">index</span> — no events received yet</div>
+          <div class="empty-state">
+            <span class="empty-state-icon">⬡</span>
+            <span class="empty-state-text">Index is synced</span>
+            <span class="empty-state-hint">vault activity events will stream in as files change</span>
+          </div>
         {:else if filteredRecentEntries.length === 0}
-          <div class="empty">no events matching "<span class="cat">{searchTerm.trim()}</span>"</div>
+          <div class="empty-state">
+            <span class="empty-state-icon">◇</span>
+            <span class="empty-state-text">No matches for "{searchTerm.trim()}"</span>
+            <span class="empty-state-hint">try a broader search or check spelling</span>
+          </div>
         {:else}
           {#each filteredRecentEntries as e, i (e.ts + ':' + e.kind + ':' + i)}
             <IndexTabRenderer
@@ -371,16 +379,16 @@
     height: var(--control-sm);
     padding: 0 12px;
     background: var(--bg-surface);
-    border-bottom: 1px solid var(--border-subtle);
+    box-shadow: var(--sep-depth);
     display: flex;
     align-items: center;
     gap: var(--space-md);
     cursor: grab;
     user-select: none;
     color: var(--amber-warm);
-    font-size: var(--text-xs);
-    letter-spacing: 0.1em;
-    font-weight: 700;
+    font-size: var(--type-label-size);
+    letter-spacing: var(--type-label-spacing);
+    font-weight: var(--type-label-weight);
     transition: background var(--duration-base) ease-out;
   }
   .drag-handle:active { cursor: grabbing; }
@@ -410,72 +418,70 @@
     padding: var(--space-24);
   }
   .index-card {
-    padding: var(--space-lg) 18px;
-    border: 1px dashed rgba(74, 212, 212, 0.3);
-    background: var(--bg-panel, rgba(0, 0, 0, 0.3));
+    padding: var(--space-2xl) var(--space-lg);
+    background: transparent;
     display: flex;
     flex-direction: column;
-    gap: var(--space-sm);
+    align-items: center;
+    gap: var(--space-8);
     max-width: 320px;
-    opacity: 0.75;
+    text-align: center;
   }
   .index-card-heading {
     display: flex;
     align-items: center;
     gap: var(--space-8);
     color: var(--accent);
-    font-size: var(--text-xs);
-    font-weight: 700;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
+    font-size: var(--type-body-size);
+    font-weight: var(--type-body-weight);
+    letter-spacing: var(--type-body-spacing);
   }
   .index-card-icon {
     font-size: var(--text-md);
     opacity: 0.85;
   }
   .index-card-status {
-    color: var(--amber-faint, #A87830);
-    font-size: var(--text-xs);
+    color: var(--amber-dim);
+    font-size: var(--type-caption-size);
     font-style: italic;
-    letter-spacing: 0.04em;
+    letter-spacing: var(--type-caption-spacing);
   }
   .index-card-subtitle {
-    color: var(--amber-faint, #A87830);
-    font-size: var(--text-2xs);
+    color: var(--amber-faint);
+    font-size: var(--type-caption-size);
     font-weight: 400;
-    letter-spacing: 0.03em;
+    letter-spacing: var(--type-caption-spacing);
     line-height: 1.5;
-    opacity: 0.85;
   }
 
   /* Section 1: Status header */
   .status {
-    height: var(--control-md);
-    padding: 0 14px;
+    height: 36px;
+    padding: 0 var(--space-lg);
     background: var(--bg-elevated);
-    border-bottom: 1px solid var(--border-subtle);
-    box-shadow: var(--depth-edge-light), var(--depth-section-sep);
+    box-shadow: var(--sep-glow);
     display: flex;
     align-items: center;
     gap: var(--space-14);
     color: var(--accent);
-    font-size: var(--text-sm);
-    letter-spacing: 0.1em;
-    font-weight: 700;
     flex-shrink: 0;
   }
   .status .title {
+    font-size: var(--type-section-size);
+    font-weight: var(--type-section-weight);
+    letter-spacing: var(--type-section-spacing);
     color: var(--accent);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
   }
-  .status .icon { margin-right: 8px; opacity: 0.85; }
+  .status .icon { margin-right: 8px; opacity: 0.85; font-size: var(--text-lg); }
   .status .spacer { flex: 1; }
   .status .state {
+    font-size: var(--type-caption-size);
+    font-weight: var(--type-caption-weight);
+    letter-spacing: var(--type-caption-spacing);
     color: var(--amber-dim);
-    font-weight: 400;
-    letter-spacing: 0.04em;
     white-space: nowrap;
     flex-shrink: 0;
   }
@@ -484,8 +490,7 @@
   .strip {
     height: var(--control-sm);
     padding: 0 14px;
-    border-bottom: 1px solid var(--border-subtle);
-    box-shadow: var(--depth-edge-light);
+    box-shadow: var(--sep-depth);
     display: flex;
     align-items: center;
     gap: var(--space-14);
@@ -497,7 +502,7 @@
     flex-shrink: 0;
   }
   .strip-label { color: var(--accent); font-weight: 700; }
-  .strip-empty { color: var(--amber-faint); font-style: italic; letter-spacing: 0.04em; }
+  .strip-empty { color: var(--amber-dim); font-size: var(--type-caption-size); font-style: italic; letter-spacing: var(--type-caption-spacing); }
   .strip-events { display: flex; gap: var(--space-sm); flex: 1; overflow: hidden; }
   .strip-event {
     padding: 1px 6px;
@@ -517,16 +522,15 @@
     display: flex;
     flex-direction: column;
     min-height: 0;
-    border-bottom: 1px solid var(--border-subtle);
   }
   .log-header {
-    padding: var(--section-header-padding, 8px 16px);
-    color: var(--amber-warm);
-    font-size: var(--section-header-size, 11px);
-    font-weight: 700;
-    letter-spacing: var(--section-header-spacing, 0.1em);
-    box-shadow: var(--depth-edge-light), var(--depth-section-sep);
-    border-bottom: 1px solid var(--border-subtle);
+    padding: var(--space-8) var(--space-lg);
+    color: var(--amber-faint);
+    font-size: var(--type-label-size);
+    font-weight: var(--type-label-weight);
+    letter-spacing: var(--type-label-spacing);
+    text-transform: uppercase;
+    box-shadow: var(--sep-depth);
     background: var(--bg-surface);
     flex-shrink: 0;
   }
@@ -541,15 +545,6 @@
   }
   .log-body::-webkit-scrollbar { width: 5px; }
   .log-body::-webkit-scrollbar-thumb { background: var(--amber-faint); }
-  .empty {
-    color: var(--amber-faint);
-    font-style: italic;
-  }
-  .empty .cat {
-    color: var(--accent);
-    font-style: normal;
-    font-weight: 600;
-  }
 
   /* Section 4: Persistent state panel */
   .state-panel {
@@ -557,17 +552,16 @@
     background: var(--bg-panel);
     max-height: 220px;
     overflow-y: auto;
-    border-top: 1px solid var(--border-subtle);
-    box-shadow: var(--depth-lift), var(--depth-edge-light);
+    box-shadow: 0 -2px 6px rgba(0, 0, 0, 0.45);
   }
   .state-header {
-    padding: var(--section-header-padding, 8px 16px);
-    color: var(--amber-warm);
-    font-size: var(--section-header-size, 11px);
-    font-weight: 700;
-    letter-spacing: var(--section-header-spacing, 0.1em);
-    box-shadow: var(--depth-edge-light);
-    border-bottom: 1px solid var(--border-subtle);
+    padding: var(--space-8) var(--space-lg);
+    color: var(--amber-faint);
+    font-size: var(--type-label-size);
+    font-weight: var(--type-label-weight);
+    letter-spacing: var(--type-label-spacing);
+    text-transform: uppercase;
+    box-shadow: var(--sep-depth);
   }
   .state-body {
     padding: var(--space-md) var(--space-lg) var(--space-14);
@@ -589,14 +583,14 @@
   .vault-kinds {
     margin-top: 8px;
     padding-top: 8px;
-    border-top: 1px solid var(--border-subtle);
   }
   .vk-label {
     display: block;
-    color: var(--amber-warm);
-    font-size: var(--text-2xs);
-    font-weight: 700;
-    letter-spacing: 0.12em;
+    color: var(--amber-faint);
+    font-size: var(--type-label-size);
+    font-weight: var(--type-label-weight);
+    letter-spacing: var(--type-label-spacing);
+    text-transform: uppercase;
     margin-bottom: 6px;
   }
   .vk-tags {
@@ -627,7 +621,7 @@
     align-items: center;
     gap: var(--space-sm);
     padding: var(--space-xs) var(--space-14);
-    border-bottom: 1px solid var(--border-subtle);
+    box-shadow: var(--sep-depth);
     background: var(--bg-surface);
     flex-shrink: 0;
   }

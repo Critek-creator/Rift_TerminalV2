@@ -12,6 +12,7 @@ export interface TerminalSettings {
   lineHeight: number;
   scrollback: number;
   lanesEnabled: boolean;
+  colorPalette: string;
 }
 
 const FALLBACK: TerminalSettings = {
@@ -19,6 +20,7 @@ const FALLBACK: TerminalSettings = {
   lineHeight: TERM_DEFAULT_LINE_HEIGHT,
   scrollback: TERM_DEFAULT_SCROLLBACK,
   lanesEnabled: true,
+  colorPalette: 'amber',
 };
 
 let cached: TerminalSettings | null = null;
@@ -37,6 +39,7 @@ export async function getTerminalSettings(): Promise<TerminalSettings> {
       lineHeight: Math.max(1.0, Math.min(2.5, t.line_height)),
       scrollback: Math.max(100, Math.min(100000, t.scrollback)),
       lanesEnabled: t.lanes_enabled,
+      colorPalette: t.color_palette ?? 'amber',
     };
     return cached;
   } catch {

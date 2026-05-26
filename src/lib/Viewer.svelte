@@ -516,9 +516,8 @@
     align-items: center;
     gap: var(--space-md);
     padding: var(--space-8) var(--space-14);
-    border-bottom: 1px solid var(--border-subtle);
     background: linear-gradient(to bottom, var(--bg-elevated), var(--bg-surface));
-    box-shadow: var(--depth-edge-light, none), var(--depth-section-sep, none);
+    box-shadow: var(--sep-glow);
     flex-shrink: 0;
     font-size: var(--text-sm);
     flex-wrap: wrap;

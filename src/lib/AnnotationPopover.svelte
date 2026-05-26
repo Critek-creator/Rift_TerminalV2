@@ -153,7 +153,7 @@
   .popover-header {
     padding: var(--space-8) 12px;
     background: var(--bg-surface);
-    border-bottom: 1px solid var(--border-subtle);
+    box-shadow: var(--sep-depth);
     display: flex;
     align-items: center;
     gap: var(--space-md);

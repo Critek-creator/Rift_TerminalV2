@@ -196,7 +196,7 @@
       ondragstart={onHandleDragStart}
       title="drag back to tab strip to dock"
     >
-      <span class="handle-glyph">↙</span>
+      <span class="handle-glyph" style="color: var(--amber-warm); font-size: 14px">◈</span>
       <span class="handle-title">AEGIS</span>
       <span class="handle-hint">drag to dock</span>
     </div>
@@ -233,9 +233,13 @@
   <!-- Section 3: Recent events log -->
   <div class="log">
     <div class="log-header">RECENT EVENTS</div>
-    <div class="log-body">
+    <div class="log-body" aria-live="polite">
       {#if recentEntries.length === 0}
-        <div class="empty">subscribed to <span class="cat">aegis</span> — no events received yet</div>
+        <div class="empty-state">
+          <span class="empty-state-icon">◈</span>
+          <span class="empty-state-text">Aegis is listening</span>
+          <span class="empty-state-hint">session intelligence events will surface here</span>
+        </div>
       {:else}
         {#each recentEntries as e, i (e.ts + ':' + e.kind + ':' + i)}
           <AegisTabRenderer
@@ -312,8 +316,8 @@
 
       <!-- Phase 7.3: quick-action buttons -->
       <div class="quick-actions">
-        <button class="qa-btn" onclick={openLessons}>Open Lessons</button>
-        <button class="qa-btn" onclick={openSettings}>Open Settings</button>
+        <button type="button" class="qa-btn" onclick={openLessons}>Open Lessons</button>
+        <button type="button" class="qa-btn" onclick={openSettings}>Open Settings</button>
       </div>
       {#if quickActionError}
         <div class="qa-error">{quickActionError}</div>
@@ -326,18 +330,19 @@
 <style>
   .connecting-state {
     color: var(--amber-faint);
-    padding: 1rem 14px;
+    padding: 1rem var(--space-lg);
     font-style: italic;
-    font-size: var(--text-sm);
-    letter-spacing: 0.04em;
+    font-size: var(--type-body-size);
+    letter-spacing: var(--type-body-spacing);
   }
   .connect-error {
     color: var(--term-red);
-    padding: 8px 14px;
+    padding: var(--space-8) var(--space-lg);
     font-style: italic;
-    font-size: var(--text-sm);
-    letter-spacing: 0.04em;
+    font-size: var(--type-body-size);
+    letter-spacing: var(--type-body-spacing);
     opacity: 0.9;
+    box-shadow: var(--sep-depth);
   }
   .pane {
     flex: 1;
@@ -356,16 +361,16 @@
     height: var(--control-sm);
     padding: 0 12px;
     background: var(--bg-surface);
-    border-bottom: 1px solid var(--border-subtle);
+    box-shadow: var(--sep-depth);
     display: flex;
     align-items: center;
     gap: var(--space-md);
     cursor: grab;
     user-select: none;
     color: var(--amber-warm);
-    font-size: var(--text-xs);
-    letter-spacing: 0.1em;
-    font-weight: 700;
+    font-size: var(--type-label-size);
+    letter-spacing: var(--type-label-spacing);
+    font-weight: var(--type-label-weight);
     transition: background var(--duration-base) ease-out;
   }
   .drag-handle:active { cursor: grabbing; }
@@ -389,33 +394,33 @@
 
   /* Section 1: Status header */
   .status {
-    height: var(--control-md);
-    padding: 0 14px;
+    height: 36px;
+    padding: 0 var(--space-lg);
     background: var(--bg-elevated);
-    border-bottom: 1px solid var(--border-subtle);
-    box-shadow: var(--depth-edge-light), var(--depth-section-sep);
+    box-shadow: var(--sep-glow);
     display: flex;
     align-items: center;
     gap: var(--space-14);
     color: var(--amber-warm);
-    font-size: var(--text-sm);
-    letter-spacing: 0.1em;
-    font-weight: 700;
     flex-shrink: 0;
   }
   .status .title {
+    font-size: var(--type-section-size);
+    font-weight: var(--type-section-weight);
+    letter-spacing: var(--type-section-spacing);
     color: var(--accent);
     text-shadow: var(--glow-amber-faint);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
   }
-  .status .icon { margin-right: 8px; opacity: 0.85; }
+  .status .icon { margin-right: 8px; opacity: 0.85; font-size: var(--text-lg); }
   .status .spacer { flex: 1; }
   .status .state {
+    font-size: var(--type-caption-size);
+    font-weight: var(--type-caption-weight);
+    letter-spacing: var(--type-caption-spacing);
     color: var(--amber-dim);
-    font-weight: 400;
-    letter-spacing: 0.04em;
     white-space: nowrap;
     flex-shrink: 0;
   }
@@ -423,21 +428,20 @@
   /* Section 2: Live activity strip */
   .strip {
     height: var(--control-sm);
-    padding: 0 14px;
-    border-bottom: 1px solid var(--border-subtle);
-    box-shadow: var(--depth-edge-light);
+    padding: 0 var(--space-lg);
+    box-shadow: var(--sep-depth);
     display: flex;
     align-items: center;
     gap: var(--space-14);
     background: linear-gradient(to bottom, rgba(212, 137, 10, 0.05), transparent);
     color: var(--amber-dim);
-    font-size: var(--text-xs);
-    letter-spacing: 0.1em;
+    font-size: var(--type-label-size);
+    letter-spacing: var(--type-label-spacing);
     overflow: hidden;
     flex-shrink: 0;
   }
-  .strip-label { color: var(--accent); font-weight: 700; }
-  .strip-empty { color: var(--amber-faint); font-style: italic; letter-spacing: 0.04em; }
+  .strip-label { color: var(--accent); font-weight: var(--type-label-weight); }
+  .strip-empty { color: var(--amber-faint); font-style: italic; font-size: var(--type-caption-size); letter-spacing: var(--type-caption-spacing); }
   .strip-events { display: flex; gap: var(--space-sm); flex: 1; overflow: hidden; }
   .strip-event {
     padding: 1px 6px;
@@ -457,17 +461,17 @@
     display: flex;
     flex-direction: column;
     min-height: 0;
-    border-bottom: 1px solid var(--border-subtle);
+    box-shadow: var(--sep-depth);
   }
   .log-header {
-    padding: var(--section-header-padding, 8px 16px);
-    color: var(--amber-warm);
-    font-size: var(--section-header-size, 11px);
-    font-weight: 700;
-    letter-spacing: var(--section-header-spacing, 0.1em);
-    border-bottom: 1px solid var(--border-subtle);
+    padding: var(--space-8) var(--space-lg);
+    color: var(--amber-faint);
+    font-size: var(--type-label-size);
+    font-weight: var(--type-label-weight);
+    letter-spacing: var(--type-label-spacing);
+    text-transform: uppercase;
     background: var(--bg-surface);
-    box-shadow: var(--depth-edge-light), var(--depth-section-sep);
+    box-shadow: var(--sep-depth);
     flex-shrink: 0;
   }
   .log-body {
@@ -481,15 +485,6 @@
   }
   .log-body::-webkit-scrollbar { width: 5px; }
   .log-body::-webkit-scrollbar-thumb { background: var(--amber-faint); }
-  .empty {
-    color: var(--amber-faint);
-    font-style: italic;
-  }
-  .empty .cat {
-    color: var(--accent);
-    font-style: normal;
-    font-weight: 600;
-  }
 
   /* Section 4: Persistent state panel */
   .state-panel {
@@ -497,17 +492,16 @@
     background: var(--bg-panel);
     max-height: 220px;
     overflow-y: auto;
-    border-top: 1px solid var(--border-subtle);
     box-shadow: var(--depth-lift), var(--depth-edge-light);
   }
   .state-header {
-    padding: var(--section-header-padding, 8px 16px);
-    color: var(--amber-warm);
-    font-size: var(--section-header-size, 11px);
-    font-weight: 700;
-    letter-spacing: var(--section-header-spacing, 0.1em);
-    border-bottom: 1px solid var(--border-subtle);
-    box-shadow: var(--depth-edge-light);
+    padding: var(--space-8) var(--space-lg);
+    color: var(--amber-faint);
+    font-size: var(--type-label-size);
+    font-weight: var(--type-label-weight);
+    letter-spacing: var(--type-label-spacing);
+    text-transform: uppercase;
+    box-shadow: var(--sep-depth);
   }
   .state-body {
     padding: 10px 16px 14px;
@@ -530,7 +524,6 @@
   .rule-sources {
     margin-top: 8px;
     padding-top: 8px;
-    border-top: 1px solid var(--border-subtle);
   }
   .rs-label {
     display: block;
@@ -585,7 +578,6 @@
     gap: var(--space-sm);
     margin-top: 10px;
     padding-top: 8px;
-    border-top: 1px solid var(--border-subtle);
   }
   .qa-btn {
     padding: 2px 8px;

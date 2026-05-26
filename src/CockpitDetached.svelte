@@ -253,7 +253,7 @@
   .titlebar {
     height: var(--control-lg);
     background: var(--bg-elevated);
-    border-bottom: 1px solid var(--border-subtle);
+    box-shadow: var(--sep-glow);
     display: flex;
     align-items: center;
     padding: 0 12px;
@@ -357,7 +357,7 @@
     height: var(--space-24);
     padding: 0 var(--space-md);
     background: var(--bg-elevated);
-    border-bottom: 1px solid var(--border-subtle);
+    box-shadow: var(--sep-depth);
     display: flex;
     align-items: center;
     justify-content: space-between;

@@ -990,6 +990,7 @@ fn tool_rift_diagnose(
             "line_height": terminal.line_height,
             "scrollback": terminal.scrollback,
             "lanes_enabled": terminal.lanes_enabled,
+            "color_palette": terminal.color_palette,
             "shell": format!("{:?}", terminal.shell),
         },
         "mcp_config": {
@@ -1065,6 +1066,16 @@ fn tool_rift_config_set(
         changed = true;
     }
 
+    // color_palette: string
+    if let Some(v) = payload.get("color_palette").and_then(|v| v.as_str()) {
+        let v = v.trim();
+        if v.is_empty() {
+            return Err("rift_config_set: color_palette cannot be empty".into());
+        }
+        cfg.terminal.color_palette = v.to_string();
+        changed = true;
+    }
+
     // shell: string → ShellPref
     if let Some(v) = payload.get("shell").and_then(|v| v.as_str()) {
         let pref = match v {
@@ -1117,6 +1128,7 @@ fn tool_rift_config_set(
             "line_height": terminal.line_height,
             "scrollback": terminal.scrollback,
             "lanes_enabled": terminal.lanes_enabled,
+            "color_palette": terminal.color_palette,
             "shell": format!("{:?}", terminal.shell),
         },
     }))

@@ -157,6 +157,7 @@
       class="cb-search"
       type="text"
       placeholder="search thoughts…"
+      aria-label="search vault thoughts"
       bind:value={searchQuery}
       onkeydown={(e) => { if (e.key === 'Enter') searchNodes(); }}
     />
@@ -164,13 +165,13 @@
 
   <!-- Filters -->
   <div class="cb-filters">
-    <button
+    <button type="button"
       class="filter-chip"
       class:active={!filterDomain}
       onclick={() => { filterDomain = null; }}
     >all</button>
     {#each domains as d (d)}
-      <button
+      <button type="button"
         class="filter-chip"
         class:active={filterDomain === d}
         style="--chip-color: {domainColor(d)}"
@@ -181,7 +182,7 @@
 
   <div class="cb-floor-filters">
     {#each FLOOR_ORDER as f (f)}
-      <button
+      <button type="button"
         class="floor-chip"
         class:active={filterFloor === f}
         onclick={() => { filterFloor = filterFloor === f ? null : f; }}
@@ -190,7 +191,7 @@
   </div>
 
   <!-- Body -->
-  <div class="cb-body">
+  <div class="cb-body" aria-busy={loading}>
     {#if loading}
       <div class="cb-loading">loading index…</div>
     {:else if error}
@@ -206,7 +207,7 @@
             <span class="floor-count">{group.nodes.length}</span>
           </div>
           {#each group.nodes as node (node.id)}
-            <button
+            <button type="button"
               class="node-row"
               class:selected={selectedNode?.id === node.id}
               onclick={() => selectNode(node.id)}
@@ -228,7 +229,7 @@
     <div class="detail-panel">
       <div class="detail-header">
         <span class="detail-title">{selectedNode.title}</span>
-        <button class="detail-close" onclick={closeDetail}>×</button>
+        <button type="button" class="detail-close" onclick={closeDetail}>×</button>
       </div>
       <div class="detail-meta">
         <span class="detail-domain" style="color: {domainColor(selectedNode.domain)}">{selectedNode.domain}</span>
@@ -276,7 +277,7 @@
     gap: var(--space-8);
     padding: var(--space-sm) var(--space-md);
     background: var(--bg-surface);
-    border-bottom: 1px solid var(--border-subtle);
+    box-shadow: var(--sep-glow);
     flex-shrink: 0;
   }
   .cb-title {
@@ -314,7 +315,7 @@
     gap: 3px;
     padding: var(--space-xs) var(--space-md);
     flex-wrap: wrap;
-    border-bottom: 1px solid var(--border-subtle);
+    box-shadow: var(--sep-depth);
     flex-shrink: 0;
   }
   .filter-chip, .floor-chip {
@@ -361,14 +362,14 @@
   }
   .cb-error { color: var(--term-red, #FF4848); }
 
-  .floor-group { border-bottom: 1px solid var(--border-subtle); }
+  .floor-group { box-shadow: var(--sep-depth); }
   .floor-header {
     display: flex;
     align-items: center;
     gap: var(--space-8);
     padding: 5px var(--space-md);
     background: var(--bg-surface);
-    border-bottom: 1px solid var(--border-subtle);
+    box-shadow: var(--sep-depth);
   }
   .floor-badge {
     font-size: var(--text-2xs);

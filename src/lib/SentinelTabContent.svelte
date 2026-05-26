@@ -166,7 +166,7 @@
       ondragstart={onHandleDragStart}
       title="drag back to tab strip to dock"
     >
-      <span class="handle-glyph">↙</span>
+      <span class="handle-glyph" style="color: var(--term-red); font-size: 14px">⌾</span>
       <span class="handle-title">sentinel</span>
       <span class="handle-hint">drag to dock</span>
     </div>
@@ -187,19 +187,19 @@
       {/if}
     </span>
     <span class="spacer"></span>
-    <button
+    <button type="button"
       class="ctrl-btn"
       class:active={!paused}
       onclick={() => (paused = !paused)}
       title={paused ? 'resume' : 'pause'}
     >{paused ? '▶' : '⏸'}</button>
-    <button class="ctrl-btn" onclick={clearEvents} title="clear">✕</button>
+    <button type="button" class="ctrl-btn" onclick={clearEvents} title="clear">✕</button>
   </header>
 
   <div class="strip">
     <span class="strip-label">LIVE</span>
     {#if liveEvents.length === 0}
-      <span class="strip-empty">(no recent alerts)</span>
+      <span class="strip-empty">◇ no recent alerts</span>
     {:else}
       <div class="strip-events">
         {#each liveEvents.slice(0, 10) as e, i (e.ts + ':' + e.kind + ':' + i)}
@@ -215,7 +215,7 @@
 
   <div class="log">
     <div class="log-header">VIOLATIONS</div>
-    <div class="log-body">
+    <div class="log-body" aria-live="polite">
       {#if violations.length === 0 && !integrationActive}
         <div class="empty-card">
           <div class="empty-glyph">⊘</div>
@@ -304,16 +304,16 @@
     height: var(--control-sm);
     padding: 0 var(--space-12);
     background: var(--bg-surface);
-    border-bottom: 1px solid var(--border-subtle);
+    box-shadow: var(--sep-depth);
     display: flex;
     align-items: center;
     gap: var(--space-md);
     cursor: grab;
     user-select: none;
     color: var(--amber-warm);
-    font-size: var(--text-xs);
-    letter-spacing: 0.1em;
-    font-weight: 700;
+    font-size: var(--type-label-size);
+    letter-spacing: var(--type-label-spacing);
+    font-weight: var(--type-label-weight);
   }
   .drag-handle { transition: background var(--duration-base) ease-out; }
   .drag-handle:active { cursor: grabbing; }
@@ -335,18 +335,27 @@
   }
 
   .status {
-    height: var(--control-md);
-    padding: 0 var(--space-14);
+    height: 36px;
+    padding: 0 var(--space-lg);
     background: var(--bg-elevated);
-    border-bottom: 1px solid var(--border-subtle);
-    box-shadow: var(--depth-edge-light), var(--depth-section-sep);
+    box-shadow: var(--sep-glow);
     display: flex; align-items: center; gap: var(--space-14);
     color: var(--amber-warm);
-    font-size: var(--text-sm); letter-spacing: 0.1em; font-weight: 700;
   }
-  .status .title { color: var(--term-red); text-shadow: 0 0 4px rgba(255, 72, 72, 0.35); }
-  .status .icon { margin-right: var(--space-8); opacity: 0.85; }
-  .status .state { color: var(--amber-dim); font-weight: 400; letter-spacing: 0.04em; }
+  .status .title {
+    font-size: var(--type-section-size);
+    font-weight: var(--type-section-weight);
+    letter-spacing: var(--type-section-spacing);
+    color: var(--term-red);
+    text-shadow: 0 0 4px rgba(255, 72, 72, 0.35);
+  }
+  .status .icon { margin-right: var(--space-8); opacity: 0.85; font-size: var(--text-lg); }
+  .status .state {
+    font-size: var(--type-caption-size);
+    font-weight: var(--type-caption-weight);
+    letter-spacing: var(--type-caption-spacing);
+    color: var(--amber-dim);
+  }
   .status .spacer { flex: 1; }
 
   .ctrl-btn {
@@ -361,8 +370,7 @@
   .strip {
     height: 26px;
     padding: 0 var(--space-14);
-    border-bottom: 1px solid var(--border-subtle);
-    box-shadow: var(--depth-edge-light);
+    box-shadow: var(--sep-depth);
     display: flex; align-items: center; gap: var(--space-14);
     background: linear-gradient(to bottom, rgba(255, 72, 72, 0.04), transparent);
     color: var(--amber-dim);
@@ -371,7 +379,7 @@
     overflow: hidden;
   }
   .strip-label { color: var(--term-red); font-weight: 700; }
-  .strip-empty { color: var(--amber-faint); font-style: italic; letter-spacing: 0.04em; }
+  .strip-empty { color: var(--amber-dim); font-size: var(--type-caption-size); font-style: italic; letter-spacing: var(--type-caption-spacing); }
   .strip-events { display: flex; gap: var(--space-sm); flex: 1; overflow: hidden; }
   .strip-event {
     padding: 1px var(--space-sm);
@@ -389,17 +397,16 @@
     display: flex; flex-direction: column;
     min-height: 0;
     min-width: 0;
-    border-bottom: 1px solid var(--border-subtle);
   }
   .log-header {
-    padding: var(--section-header-padding, 8px 16px);
-    color: var(--amber-warm);
-    font-size: var(--section-header-size, 11px);
-    font-weight: 700;
-    letter-spacing: var(--section-header-spacing, 0.1em);
-    border-bottom: 1px solid var(--border-subtle);
+    padding: var(--space-8) var(--space-lg);
+    color: var(--amber-faint);
+    font-size: var(--type-label-size);
+    font-weight: var(--type-label-weight);
+    letter-spacing: var(--type-label-spacing);
+    text-transform: uppercase;
     background: var(--bg-surface);
-    box-shadow: var(--depth-edge-light), var(--depth-section-sep);
+    box-shadow: var(--sep-depth);
   }
   .log-body {
     flex: 1;
@@ -416,44 +423,46 @@
 
   .error-state {
     color: var(--term-red);
-    padding: var(--space-12) var(--space-14);
-    font-size: var(--text-sm);
-    letter-spacing: 0.04em;
-    border-bottom: 1px solid rgba(255, 72, 72, 0.2);
+    padding: var(--space-12) var(--space-lg);
+    font-size: var(--type-body-size);
+    letter-spacing: var(--type-body-spacing);
     background: rgba(255, 72, 72, 0.06);
+    box-shadow: var(--sep-depth);
   }
 
   .empty-card {
-    border: 1px dashed var(--border-subtle);
-    padding: var(--space-24) var(--space-xl);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-8);
+    padding: var(--space-2xl) var(--space-lg);
     text-align: center;
-    color: var(--amber-faint);
-    margin: var(--space-12) 0;
+    min-height: 120px;
   }
   .empty-glyph {
-    font-size: var(--space-2xl);
+    font-size: var(--text-2xl);
     color: var(--term-red);
-    opacity: 0.5;
-    margin-bottom: var(--space-12);
+    opacity: 0.4;
   }
   .empty-title {
-    color: var(--amber-warm);
-    font-weight: 700;
-    font-size: var(--text-base);
-    letter-spacing: 0.08em;
-    margin-bottom: var(--space-8);
+    color: var(--amber-dim);
+    font-size: var(--type-body-size);
+    font-weight: var(--type-body-weight);
+    letter-spacing: var(--type-body-spacing);
   }
   .empty-desc {
-    font-size: var(--text-sm);
+    font-size: var(--type-caption-size);
     line-height: 1.6;
     max-width: 320px;
-    margin: 0 auto var(--space-8);
     color: var(--amber-dim);
+    letter-spacing: var(--type-caption-spacing);
   }
   .empty-hint {
-    font-size: var(--text-xs);
+    font-size: var(--type-caption-size);
     font-style: italic;
     color: var(--amber-faint);
+    letter-spacing: var(--type-caption-spacing);
   }
 
   .all-clear {
@@ -517,16 +526,16 @@
     flex-shrink: 0;
   }
 
-  .state-panel { border-top: 1px solid var(--border-subtle); }
+  .state-panel { box-shadow: 0 -2px 6px rgba(0, 0, 0, 0.45); }
   .state-header {
-    padding: var(--section-header-padding, 8px 16px);
-    color: var(--amber-warm);
-    font-size: var(--section-header-size, 11px);
-    font-weight: 700;
-    letter-spacing: var(--section-header-spacing, 0.1em);
+    padding: var(--space-8) var(--space-lg);
+    color: var(--amber-faint);
+    font-size: var(--type-label-size);
+    font-weight: var(--type-label-weight);
+    letter-spacing: var(--type-label-spacing);
+    text-transform: uppercase;
     background: var(--bg-surface);
-    border-bottom: 1px solid var(--border-subtle);
-    box-shadow: var(--depth-edge-light), var(--depth-section-sep);
+    box-shadow: var(--sep-depth);
   }
   .state-body { padding: var(--space-md) var(--space-lg); }
   .k-row {

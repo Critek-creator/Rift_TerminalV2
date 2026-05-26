@@ -29,6 +29,7 @@
   import PathTooltip from './PathTooltip.svelte';
   import { subscribe as busSubscribe, type Envelope } from './bus';
   import { getTerminalSettings } from './terminalConfigCache';
+  import { getPalette } from './terminalPalettes';
 
   type PtyExited = { id: number; code: number };
 
@@ -65,8 +66,10 @@
   let hoverTimer: ReturnType<typeof setTimeout> | null = null;
   let hoverPendingPath: string | null = null;
   let recoveryTimer: ReturnType<typeof setInterval> | undefined;
+  let contentGuardTimer: ReturnType<typeof setInterval> | undefined;
   let sessionId: number | null = null;
   let alive = false;
+  let opened = false;
 
   // Terminal config defaults (mirror crates/rift-bus/src/config.rs constants).
   const TERM_DEFAULT_FONT_SIZE = 13;
@@ -160,9 +163,7 @@
   const encoder = new TextEncoder();
 
   $effect(() => {
-    // visible: false → true. Wait one tick so layout is real, then refit
-    // and force a render so the buffer that accumulated while hidden draws.
-    if (visible && term && fit) {
+    if (visible && term && fit && opened) {
       tick().then(() => {
         fit?.fit();
         if (term) term.refresh(0, term.rows - 1);
@@ -182,31 +183,7 @@
       lineHeight: settings.lineHeight,
       scrollback: settings.scrollback,
       cursorBlink: true,
-      // Phase 8.7g.2 — palette synced with styles.css :root (xterm config
-       // doesn't read CSS vars, so values are kept in lockstep manually).
-       theme: {
-        background: '#080806',
-        foreground: '#FFA826',                 /* amber-primary */
-        cursor: '#FFC840',                     /* amber-bright */
-        cursorAccent: '#080806',
-        selectionBackground: 'rgba(255, 168, 38, 0.30)',
-        black: '#3A3530',
-        red: '#FF4848',
-        green: '#4FE855',
-        yellow: '#FFC840',                     /* amber-bright */
-        blue: '#6CB6FF',
-        magenta: '#C58FFF',
-        cyan: '#6FE0E0',
-        white: '#E8E4D8',
-        brightBlack: '#C49A50',                /* amber-faint (brightened for readability) */
-        brightRed: '#FF6868',
-        brightGreen: '#7FFA85',
-        brightYellow: '#FFD968',                /* lifted amber-bright */
-        brightBlue: '#9CCEFF',
-        brightMagenta: '#DAB1FF',
-        brightCyan: '#9FF0F0',
-        brightWhite: '#FFFAEC',
-      },
+      theme: getPalette(settings.colorPalette).theme,
     });
     fit = new FitAddon();
     term.loadAddon(fit);
@@ -242,6 +219,7 @@
     }
 
     term.open(host);
+    opened = true;
 
     // Exposed for MCP pty_read tool — do not remove without updating mcp_host.rs tool_pty_read
     window.__RIFT_TERM__ = term;
@@ -498,45 +476,60 @@
       term.focus();
     };
 
-    // If host already has real dimensions (e.g. new tab in an existing
-    // window), start the PTY immediately — no recovery loop needed.
-    const initialRect = host?.getBoundingClientRect();
-    const initiallyReady = initialRect != null && initialRect.width >= 150 && initialRect.height >= 60;
-    if (initiallyReady) {
-      await startPty();
-    }
+    // Start the PTY unconditionally — deferredFit already waited for layout
+    // to settle. Clamped dimensions in startPty() guarantee a valid size even
+    // if the host is still too small. Previous approach checked initiallyReady
+    // + a 3-second recovery interval, but multiple timing edge cases caused
+    // the prompt to disappear. This replaces all of that with "start now,
+    // detect blank, recover."
+    await startPty();
     requestAnimationFrame(refitAndResize);
 
-    let recoveryAttempts = 0;
-    recoveryTimer = setInterval(() => {
-      recoveryAttempts++;
-      refitAndResize();
-      const rect = host?.getBoundingClientRect();
-      const hostReady = rect != null && rect.width >= 150 && rect.height >= 60;
-
-      if (hostReady && !ptyStarted) {
-        startPty();
+    // Post-startup content guarantee — detects "PTY started but nothing
+    // visible" and forces recovery. This is the safety net that catches
+    // ALL timing/rendering race conditions (canvas zero-size at write time,
+    // fit() measuring stale dimensions, shell delayed prompt, etc.)
+    // instead of trying to prevent every edge case upfront.
+    let contentChecks = 0;
+    contentGuardTimer = setInterval(() => {
+      contentChecks++;
+      if (!term || !alive) {
+        if (contentChecks >= 10) { clearInterval(contentGuardTimer); contentGuardTimer = undefined; }
+        return;
       }
 
-      if (hostReady || recoveryAttempts >= 15) {
-        clearInterval(recoveryTimer);
-        recoveryTimer = undefined;
-        if (hostReady) {
-          try { fit?.fit(); } catch { /* best-effort */ }
-          if (term) term.refresh(0, term.rows - 1);
-        }
-        if (!ptyStarted) {
-          // Fallback: host never got real dimensions. Start PTY with
-          // clamped 80×24 and send Ctrl+L as last resort.
-          startPty().then(() => {
-            if (sessionId !== null && alive) {
-              const ctrlL = Array.from(encoder.encode('\x0c'));
-              invoke('pty_write', { id: sessionId, bytes: ctrlL }).catch(() => {});
-            }
-          });
+      let hasContent = false;
+      for (let row = 0; row < Math.min(term.rows, 5); row++) {
+        const line = term.buffer.active.getLine(row);
+        if (line && line.translateToString(true).length > 0) {
+          hasContent = true;
+          break;
         }
       }
-    }, 200);
+
+      if (hasContent) {
+        clearInterval(contentGuardTimer);
+        contentGuardTimer = undefined;
+        return;
+      }
+
+      // No visible content yet — force refit + refresh
+      try { fit?.fit(); } catch { /* best-effort */ }
+      term.refresh(0, term.rows - 1);
+      term.scrollToBottom();
+      term.focus();
+
+      // After a few attempts with no content, send Ctrl+L to force
+      // the shell to redraw its prompt.
+      if (contentChecks >= 3 && sessionId !== null && alive) {
+        invoke('pty_write', { id: sessionId, bytes: Array.from(encoder.encode('\x0c')) }).catch(() => {});
+      }
+
+      if (contentChecks >= 10) {
+        clearInterval(contentGuardTimer);
+        contentGuardTimer = undefined;
+      }
+    }, 300);
 
     term.onData((data) => {
       if (sessionId === null || !alive) return;
@@ -611,6 +604,7 @@
     unsubscribeLane?.().catch(() => {});
     if (hoverTimer !== null) { clearTimeout(hoverTimer); hoverTimer = null; }
     if (recoveryTimer) clearInterval(recoveryTimer);
+    if (contentGuardTimer) clearInterval(contentGuardTimer);
     if (resizeRaf !== undefined) cancelAnimationFrame(resizeRaf);
     resizeObs?.disconnect();
     host?.removeEventListener(RIFT_VAULT_DROP_EVENT, onTermVaultDrop);
