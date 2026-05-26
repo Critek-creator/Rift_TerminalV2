@@ -18,7 +18,7 @@
   import { enrichmentStore } from './enrichmentStore.svelte';
   import IndexContentBrowser from './IndexContentBrowser.svelte';
 
-  type ViewMode = 'vaults' | 'content';
+  type ViewMode = 'graph' | 'vaults' | 'content';
   let viewMode = $state<ViewMode>('vaults');
 
   type VaultKind = 'p' | 'pr' | 'r' | 's' | 'lore' | 'agt' | 'h';
@@ -91,7 +91,11 @@
   let walkComplete = $state(false);
 
   const activeNodes = $derived.by<VaultNode[]>(() => {
-    if (liveNodeMap.size > 0) return Array.from(liveNodeMap.values());
+    if (liveNodeMap.size > 0) {
+      return Array.from(liveNodeMap.values()).filter(
+        (n) => !n.id.includes('archive') && !(n.path && n.path.includes('/archive/'))
+      );
+    }
     if (walkComplete) return STATIC_NODES.map((n) => ({ ...n }));
     return [];
   });
@@ -234,6 +238,537 @@
   });
 
   // ---------------------------------------------------------------------------
+  // Graph simulation
+  // ---------------------------------------------------------------------------
+
+  interface SimNode extends VaultNode {
+    x: number;
+    y: number;
+    vx: number;
+    vy: number;
+    fx?: number;
+    fy?: number;
+  }
+
+  interface SimEdge {
+    source: SimNode;
+    target: SimNode;
+    parent?: boolean;
+  }
+
+  const CATEGORY_CENTERS: Record<VaultKind, { x: number; y: number }> = {
+    p:    { x: 0.3, y: 0.3 },
+    pr:   { x: 0.5, y: 0.2 },
+    r:    { x: 0.7, y: 0.3 },
+    s:    { x: 0.3, y: 0.7 },
+    lore: { x: 0.7, y: 0.7 },
+    agt:  { x: 0.5, y: 0.8 },
+    h:    { x: 0.5, y: 0.5 },
+  };
+
+  const SIM_REPULSION = 1500;
+  const SIM_SPRING_K = 0.03;
+  const SIM_SPRING_REST = 60;
+  const SIM_CATEGORY_GRAVITY = 0.015;
+  const SIM_CENTER_GRAVITY = 0.005;
+  const SIM_DAMPING = 0.85;
+  const SIM_MAX_V = 10;
+  const SIM_ALPHA_DECAY = 0.005;
+  const SIM_ALPHA_MIN = 0.01;
+
+  // --- Physics layer (plain JS, NOT reactive) ---
+  let _physNodes: SimNode[] = [];
+  let _physEdges: SimEdge[] = [];
+  let _alpha = 1.0;
+  let _rafId: number | null = null;
+  let _settled = false;
+
+  // Canvas refs
+  let _canvasEl: HTMLCanvasElement | undefined = $state(undefined);
+  let _ctx: CanvasRenderingContext2D | null = null;
+  let _resizeObs: ResizeObserver | null = null;
+
+  // Pan/zoom state (written on user interaction only, not per-frame)
+  let viewBoxX = $state(0);
+  let viewBoxY = $state(0);
+  let viewBoxW = $state(600);
+  let viewBoxH = $state(400);
+  let isPanning = false;
+  let panStartX = 0;
+  let panStartY = 0;
+  let panStartVBX = 0;
+  let panStartVBY = 0;
+
+  // Graph node drag state
+  let graphDragNode: SimNode | null = null;
+  let graphDragStartClientX = 0;
+  let graphDragStartClientY = 0;
+  let graphDragActive = false;
+
+  // Tooltip state (reactive — drives HTML overlay)
+  let tooltipVisible = $state(false);
+  let tooltipX = $state(0);
+  let tooltipY = $state(0);
+  let tooltipNode = $state<SimNode | null>(null);
+
+  // Hovered-node connections cache (non-reactive, used by drawFrame)
+  let _hoveredConns: Set<string> = new Set();
+
+  // --- Canvas color helpers ---
+  const KIND_COLORS: Record<VaultKind, string> = {
+    p: '#FFC840',     // amber-bright (projects)
+    pr: '#FFA826',    // amber-warm (practices)
+    r: '#6FE0E0',     // term-cyan (research)
+    s: '#6CB6FF',     // term-blue (skills)
+    lore: '#C58FFF',  // term-purple (lore)
+    agt: '#4FE855',   // term-green (agents)
+    h: '#C49A50',     // amber-faint (history)
+  };
+
+  function kindColor(kind: VaultKind): string {
+    return KIND_COLORS[kind] ?? '#FFA826';
+  }
+
+  function colorWithAlpha(hex: string, alpha: number): string {
+    const r = parseInt(hex.slice(1, 3), 16);
+    const g = parseInt(hex.slice(3, 5), 16);
+    const b = parseInt(hex.slice(5, 7), 16);
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+  }
+
+  function rebuildPhysNodes(nodes: VaultNode[], edges: VaultLink[]): void {
+    const existing = new Map<string, SimNode>();
+    for (const sn of _physNodes) existing.set(sn.id, sn);
+    _physNodes = nodes.map((n) => {
+      const prev = existing.get(n.id);
+      if (prev) {
+        return { ...prev, ...n, x: prev.x, y: prev.y, vx: prev.vx, vy: prev.vy, fx: prev.fx, fy: prev.fy };
+      }
+      const center = CATEGORY_CENTERS[n.kind] ?? { x: 0.5, y: 0.5 };
+      return {
+        ...n,
+        x: center.x * viewBoxW + viewBoxX + (Math.random() - 0.5) * 80,
+        y: center.y * viewBoxH + viewBoxY + (Math.random() - 0.5) * 80,
+        vx: 0,
+        vy: 0,
+      };
+    });
+    // Build edges referencing the new physics nodes
+    const nodeMap = new Map<string, SimNode>();
+    for (const sn of _physNodes) nodeMap.set(sn.id, sn);
+    _physEdges = [];
+    for (const e of edges) {
+      const src = nodeMap.get(e.source);
+      const tgt = nodeMap.get(e.target);
+      if (src && tgt) _physEdges.push({ source: src, target: tgt, parent: e.parent });
+    }
+  }
+
+  // --- Physics tick (plain JS — no reactivity) ---
+  function tickPhysics(): void {
+    const nodes = _physNodes;
+    const edges = _physEdges;
+    const cx = viewBoxX + viewBoxW / 2;
+    const cy = viewBoxY + viewBoxH / 2;
+    const alpha = _alpha;
+
+    // Repulsion (n^2)
+    for (let i = 0; i < nodes.length; i++) {
+      for (let j = i + 1; j < nodes.length; j++) {
+        const a = nodes[i];
+        const b = nodes[j];
+        let dx = b.x - a.x;
+        let dy = b.y - a.y;
+        let dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist < 1) { dist = 1; dx = (Math.random() - 0.5) * 2; dy = (Math.random() - 0.5) * 2; }
+        const force = alpha * SIM_REPULSION / (dist * dist);
+        const fx = (dx / dist) * force;
+        const fy = (dy / dist) * force;
+        a.vx -= fx;
+        a.vy -= fy;
+        b.vx += fx;
+        b.vy += fy;
+      }
+    }
+
+    // Spring attraction along edges
+    for (const e of edges) {
+      const dx = e.target.x - e.source.x;
+      const dy = e.target.y - e.source.y;
+      const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+      const force = alpha * SIM_SPRING_K * (dist - SIM_SPRING_REST);
+      const fx = (dx / dist) * force;
+      const fy = (dy / dist) * force;
+      e.source.vx += fx;
+      e.source.vy += fy;
+      e.target.vx -= fx;
+      e.target.vy -= fy;
+    }
+
+    // Category gravity + center gravity
+    for (const node of nodes) {
+      const catCenter = CATEGORY_CENTERS[node.kind] ?? { x: 0.5, y: 0.5 };
+      const catX = viewBoxX + catCenter.x * viewBoxW;
+      const catY = viewBoxY + catCenter.y * viewBoxH;
+      node.vx += (catX - node.x) * SIM_CATEGORY_GRAVITY * alpha;
+      node.vy += (catY - node.y) * SIM_CATEGORY_GRAVITY * alpha;
+      node.vx += (cx - node.x) * SIM_CENTER_GRAVITY * alpha;
+      node.vy += (cy - node.y) * SIM_CENTER_GRAVITY * alpha;
+    }
+
+    // Damping + velocity cap + position integration
+    for (const node of nodes) {
+      node.vx *= SIM_DAMPING;
+      node.vy *= SIM_DAMPING;
+      const speed = Math.sqrt(node.vx * node.vx + node.vy * node.vy);
+      if (speed > SIM_MAX_V) {
+        node.vx = (node.vx / speed) * SIM_MAX_V;
+        node.vy = (node.vy / speed) * SIM_MAX_V;
+      }
+      if (node.fx !== undefined) { node.x = node.fx; node.vx = 0; }
+      else { node.x += node.vx; }
+      if (node.fy !== undefined) { node.y = node.fy; node.vy = 0; }
+      else { node.y += node.vy; }
+    }
+  }
+
+  // --- Canvas draw ---
+  function drawFrame(): void {
+    if (!_ctx || !_canvasEl) return;
+    const dpr = devicePixelRatio || 1;
+    const w = _canvasEl.width / dpr;
+    const h = _canvasEl.height / dpr;
+    _ctx.clearRect(0, 0, w, h);
+
+    _ctx.save();
+    // Map viewBox coordinates to canvas pixel space
+    const sx = w / viewBoxW;
+    const sy = h / viewBoxH;
+    _ctx.translate(-viewBoxX * sx, -viewBoxY * sy);
+    _ctx.scale(sx, sy);
+
+    // Draw edges
+    for (const edge of _physEdges) {
+      const dimmed = isNodeDimmedPhys(edge.source) || isNodeDimmedPhys(edge.target);
+      const isHovEdge = hoveredId !== null && (edge.source.id === hoveredId || edge.target.id === hoveredId);
+      _ctx.strokeStyle = dimmed ? 'rgba(168, 120, 48, 0.08)'
+        : isHovEdge ? 'rgba(255, 200, 64, 0.8)'
+        : 'rgba(168, 120, 48, 0.4)';
+      _ctx.lineWidth = edge.parent ? 2.5 : 1.5;
+      if (edge.parent && !dimmed && !isHovEdge) {
+        _ctx.setLineDash([4, 3]);
+      } else {
+        _ctx.setLineDash([]);
+      }
+      _ctx.beginPath();
+      _ctx.moveTo(edge.source.x, edge.source.y);
+      _ctx.lineTo(edge.target.x, edge.target.y);
+      _ctx.stroke();
+    }
+    _ctx.setLineDash([]);
+
+    // Draw nodes
+    for (const node of _physNodes) {
+      const dimmed = isNodeDimmedPhys(node);
+      const isHovered = hoveredId === node.id;
+      const isConnected = hoveredId !== null && _hoveredConns.has(node.id);
+      const r = isHovered ? 18 : 14;
+      const color = kindColor(node.kind);
+
+      _ctx.globalAlpha = dimmed ? 0.15 : 1;
+
+      // Circle fill
+      _ctx.fillStyle = colorWithAlpha(color, 0.2);
+      _ctx.beginPath();
+      _ctx.arc(node.x, node.y, r, 0, Math.PI * 2);
+      _ctx.fill();
+
+      // Circle stroke
+      _ctx.strokeStyle = color;
+      _ctx.lineWidth = isHovered ? 2.5 : (isConnected ? 2 : 1.5);
+      _ctx.stroke();
+
+      // Glow for hovered/connected
+      if (isHovered || isConnected) {
+        _ctx.save();
+        _ctx.shadowColor = color;
+        _ctx.shadowBlur = isHovered ? 12 : 6;
+        _ctx.beginPath();
+        _ctx.arc(node.x, node.y, r, 0, Math.PI * 2);
+        _ctx.stroke();
+        _ctx.restore();
+      }
+
+      // Label (vault ID only)
+      _ctx.fillStyle = dimmed ? 'rgba(168, 120, 48, 0.3)' : color;
+      _ctx.font = '8px "JetBrains Mono", monospace';
+      _ctx.textAlign = 'center';
+      _ctx.textBaseline = 'middle';
+      _ctx.fillText(node.id, node.x, node.y);
+
+      _ctx.globalAlpha = 1;
+    }
+
+    _ctx.restore();
+  }
+
+  // --- Simulation loop ---
+  function startPhysicsLoop(): void {
+    stopPhysicsLoop();
+    _alpha = 1.0;
+    _settled = false;
+    function loop(): void {
+      tickPhysics();
+      _alpha -= SIM_ALPHA_DECAY;
+      drawFrame();
+      if (_alpha >= SIM_ALPHA_MIN) {
+        _rafId = requestAnimationFrame(loop);
+      } else {
+        _rafId = null;
+        _settled = true;
+        drawFrame(); // final settled frame
+      }
+    }
+    _rafId = requestAnimationFrame(loop);
+  }
+
+  function stopPhysicsLoop(): void {
+    if (_rafId !== null) { cancelAnimationFrame(_rafId); _rafId = null; }
+  }
+
+  function requestRedraw(): void {
+    if (_settled && _rafId === null) {
+      drawFrame();
+    }
+  }
+
+  function reheat(): void {
+    _alpha = 0.5;
+    _settled = false;
+    if (_rafId === null) startPhysicsLoop();
+  }
+
+  // --- Debounced $effect to rebuild physics on data change ---
+  let _buildTimer: ReturnType<typeof setTimeout> | null = null;
+
+  $effect(() => {
+    if (viewMode !== 'graph') { stopPhysicsLoop(); return; }
+    const nodes = activeNodes;  // read reactive dep
+    const edges = activeEdges;  // read reactive dep
+    if (nodes.length === 0) { stopPhysicsLoop(); return; }
+
+    if (_buildTimer !== null) clearTimeout(_buildTimer);
+    _buildTimer = setTimeout(() => {
+      _buildTimer = null;
+      rebuildPhysNodes(nodes, edges);
+      startPhysicsLoop();
+    }, 200);
+  });
+
+  // Canvas setup + resize observer
+  $effect(() => {
+    if (viewMode === 'graph' && _canvasEl) {
+      _ctx = _canvasEl.getContext('2d');
+      const container = _canvasEl.parentElement;
+      if (container) {
+        const dpr = devicePixelRatio || 1;
+        const fitCanvas = () => {
+          if (!_canvasEl || !_canvasEl.parentElement) return;
+          const rect = _canvasEl.parentElement.getBoundingClientRect();
+          _canvasEl.width = rect.width * dpr;
+          _canvasEl.height = rect.height * dpr;
+          _canvasEl.style.width = rect.width + 'px';
+          _canvasEl.style.height = rect.height + 'px';
+          if (_ctx) {
+            _ctx.setTransform(1, 0, 0, 1, 0, 0);
+            _ctx.scale(dpr, dpr);
+          }
+          requestRedraw();
+        };
+        fitCanvas();
+
+        _resizeObs?.disconnect();
+        _resizeObs = new ResizeObserver(() => fitCanvas());
+        _resizeObs.observe(container);
+      }
+    }
+    return () => {
+      _resizeObs?.disconnect();
+      _resizeObs = null;
+    };
+  });
+
+  // Redraw when search/filter changes (settled sim, no RAF running)
+  $effect(() => {
+    void searchQuery;
+    void activeKindFilter;
+    requestRedraw();
+  });
+
+  // --- Canvas coordinate helper ---
+  function clientToSvgCanvas(clientX: number, clientY: number): { x: number; y: number } {
+    if (!_canvasEl) return { x: clientX, y: clientY };
+    const rect = _canvasEl.getBoundingClientRect();
+    return {
+      x: viewBoxX + ((clientX - rect.left) / rect.width) * viewBoxW,
+      y: viewBoxY + ((clientY - rect.top) / rect.height) * viewBoxH,
+    };
+  }
+
+  // --- Hit-testing ---
+  function findNodeAt(clientX: number, clientY: number): SimNode | null {
+    if (!_canvasEl) return null;
+    const rect = _canvasEl.getBoundingClientRect();
+    const px = viewBoxX + ((clientX - rect.left) / rect.width) * viewBoxW;
+    const py = viewBoxY + ((clientY - rect.top) / rect.height) * viewBoxH;
+    // Reverse order so topmost-drawn node wins
+    for (let i = _physNodes.length - 1; i >= 0; i--) {
+      const n = _physNodes[i];
+      const dx = n.x - px;
+      const dy = n.y - py;
+      if (dx * dx + dy * dy <= 18 * 18) return n;
+    }
+    return null;
+  }
+
+  // --- Canvas mouse handlers ---
+  function onCanvasMouseDown(e: MouseEvent): void {
+    if (e.button !== 0) return;
+    const node = findNodeAt(e.clientX, e.clientY);
+    if (node) {
+      graphDragNode = node;
+      graphDragStartClientX = e.clientX;
+      graphDragStartClientY = e.clientY;
+      graphDragActive = false;
+      const pos = clientToSvgCanvas(e.clientX, e.clientY);
+      node.fx = pos.x;
+      node.fy = pos.y;
+      reheat();
+    } else {
+      isPanning = true;
+      panStartX = e.clientX;
+      panStartY = e.clientY;
+      panStartVBX = viewBoxX;
+      panStartVBY = viewBoxY;
+    }
+    e.preventDefault();
+  }
+
+  function onCanvasMouseMove(e: MouseEvent): void {
+    if (graphDragNode) {
+      const pos = clientToSvgCanvas(e.clientX, e.clientY);
+      graphDragNode.fx = pos.x;
+      graphDragNode.fy = pos.y;
+      if (!graphDragActive) {
+        const dx = e.clientX - graphDragStartClientX;
+        const dy = e.clientY - graphDragStartClientY;
+        if (Math.abs(dx) + Math.abs(dy) >= DRAG_THRESHOLD_PX) graphDragActive = true;
+      }
+      // Check if dragged outside canvas for vault drop
+      if (graphDragActive && _canvasEl) {
+        const rect = _canvasEl.getBoundingClientRect();
+        if (e.clientX < rect.left || e.clientX > rect.right ||
+            e.clientY < rect.top || e.clientY > rect.bottom) {
+          draggingId = graphDragNode.id;
+          ghostLabel = graphDragNode.shortLabel || graphDragNode.displayName || graphDragNode.id;
+          ghostKind = graphDragNode.kind;
+          ghostX = e.clientX + 12;
+          ghostY = e.clientY - 8;
+          ghostVisible = true;
+        } else {
+          ghostVisible = false;
+          draggingId = null;
+        }
+      }
+      requestRedraw();
+      return;
+    }
+    if (isPanning) {
+      if (!_canvasEl) return;
+      const rect = _canvasEl.getBoundingClientRect();
+      const dx = ((e.clientX - panStartX) / rect.width) * viewBoxW;
+      const dy = ((e.clientY - panStartY) / rect.height) * viewBoxH;
+      viewBoxX = panStartVBX - dx;
+      viewBoxY = panStartVBY - dy;
+      requestRedraw();
+      return;
+    }
+    // Hover detection
+    const node = findNodeAt(e.clientX, e.clientY);
+    const newId = node?.id ?? null;
+    if (newId !== hoveredId) {
+      hoveredId = newId;
+      _hoveredConns = newId ? new Set(connectionsFor(newId)) : new Set();
+      requestRedraw();
+    }
+    if (node) {
+      tooltipNode = node;
+      tooltipX = e.clientX + 14;
+      tooltipY = e.clientY - 10;
+      tooltipVisible = true;
+    } else {
+      tooltipVisible = false;
+      tooltipNode = null;
+    }
+  }
+
+  function onCanvasMouseUp(e: MouseEvent): void {
+    if (graphDragNode) {
+      if (graphDragActive && graphDragNode.path) {
+        const target = document.elementFromPoint(e.clientX, e.clientY);
+        const terminal = target?.closest('.terminal-host');
+        if (terminal) {
+          terminal.dispatchEvent(new CustomEvent<RiftVaultDropDetail>(
+            RIFT_VAULT_DROP_EVENT,
+            { detail: { path: graphDragNode.path }, bubbles: true },
+          ));
+        }
+      }
+      graphDragNode.fx = undefined;
+      graphDragNode.fy = undefined;
+      graphDragNode = null;
+      graphDragActive = false;
+      ghostVisible = false;
+      draggingId = null;
+      requestRedraw();
+      return;
+    }
+    isPanning = false;
+  }
+
+  function onCanvasWheel(e: WheelEvent): void {
+    e.preventDefault();
+    if (!_canvasEl) return;
+    const scale = e.deltaY > 0 ? 1.1 : 0.9;
+    const rect = _canvasEl.getBoundingClientRect();
+    const mx = (e.clientX - rect.left) / rect.width;
+    const my = (e.clientY - rect.top) / rect.height;
+    const newW = viewBoxW * scale;
+    const newH = viewBoxH * scale;
+    viewBoxX += (viewBoxW - newW) * mx;
+    viewBoxY += (viewBoxH - newH) * my;
+    viewBoxW = newW;
+    viewBoxH = newH;
+    requestRedraw();
+  }
+
+  function onCanvasMouseLeave(): void {
+    hoveredId = null;
+    tooltipVisible = false;
+    tooltipNode = null;
+    _hoveredConns = new Set();
+    requestRedraw();
+  }
+
+  // --- Dimming helpers (read reactive search/filter values) ---
+  function isNodeDimmedPhys(node: SimNode): boolean {
+    const q = searchQuery.toLowerCase().trim();
+    if (q && !matchesSearch(node, q)) return true;
+    if (activeKindFilter && node.kind !== activeKindFilter) return true;
+    return false;
+  }
+
+  // ---------------------------------------------------------------------------
   // Bus subscription (same debounce pattern as old graph)
   // ---------------------------------------------------------------------------
 
@@ -333,6 +868,10 @@
       }
       pendingUpdates.clear();
       pendingDeletes.clear();
+      stopPhysicsLoop();
+      _resizeObs?.disconnect();
+      _resizeObs = null;
+      if (_buildTimer !== null) { clearTimeout(_buildTimer); _buildTimer = null; }
       if (dragActive || dragNode) {
         document.removeEventListener('mousemove', onDocMouseMove);
         document.removeEventListener('mouseup', onDocMouseUp);
@@ -425,6 +964,11 @@
     <div class="mode-toggle">
       <button type="button"
         class="mode-btn"
+        class:active={viewMode === 'graph'}
+        onclick={() => { viewMode = 'graph'; }}
+      >GRAPH</button>
+      <button type="button"
+        class="mode-btn"
         class:active={viewMode === 'vaults'}
         onclick={() => { viewMode = 'vaults'; }}
       >VAULTS</button>
@@ -434,7 +978,7 @@
         onclick={() => { viewMode = 'content'; }}
       >CONTENT</button>
     </div>
-    {#if viewMode === 'vaults'}
+    {#if viewMode === 'vaults' || viewMode === 'graph'}
       <span class="browser-count">{totalCount}</span>
       <input
         class="browser-search"
@@ -449,6 +993,57 @@
 
   {#if viewMode === 'content'}
     <IndexContentBrowser />
+  {:else if viewMode === 'graph'}
+    <!-- Kind filter chips (shared with vaults) -->
+    {#if activeNodes.length > 0 || walkComplete}
+      <div class="kind-chips">
+        {#each CATEGORY_ORDER as kind (kind)}
+          {@const count = kindCounts[kind] ?? 0}
+          {#if count > 0}
+            <button
+              type="button"
+              class="kind-chip kind-chip-{kind}"
+              class:active={activeKindFilter === kind}
+              onclick={() => toggleKindFilter(kind)}
+              title="{KIND_LABEL[kind]} ({count})"
+            >
+              <span class="chip-glyph">{KIND_GLYPH[kind]}</span>
+              <span class="chip-label">{KIND_LABEL[kind]}</span>
+              <span class="chip-count">{count}</span>
+            </button>
+          {/if}
+        {/each}
+        {#if activeKindFilter}
+          <button
+            type="button"
+            class="kind-chip kind-chip-clear"
+            onclick={() => { activeKindFilter = null; }}
+            title="Clear filter"
+          >ALL</button>
+        {/if}
+      </div>
+    {/if}
+
+    <!-- Force-directed graph view -->
+    <div class="graph-container">
+      {#if activeNodes.length === 0 && !walkComplete}
+        <div class="browser-loading">
+          <span class="loading-glyph">◆</span>
+          <span>scanning vaults…</span>
+        </div>
+      {:else}
+        <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+        <canvas
+          class="graph-canvas"
+          bind:this={_canvasEl}
+          onmousedown={onCanvasMouseDown}
+          onmousemove={onCanvasMouseMove}
+          onmouseup={onCanvasMouseUp}
+          onwheel={onCanvasWheel}
+          onmouseleave={onCanvasMouseLeave}
+        ></canvas>
+      {/if}
+    </div>
   {:else}
   <!-- Tag chip filters -->
   {#if activeNodes.length > 0 || walkComplete}
@@ -614,6 +1209,29 @@
   {/if}
 </div>
 
+<!-- Graph tooltip -->
+{#if tooltipVisible && tooltipNode}
+  {@const conns = connectionsFor(tooltipNode.id)}
+  <div
+    class="graph-tooltip"
+    style="left: {tooltipX}px; top: {tooltipY}px;"
+  >
+    <div class="tooltip-title kind-{tooltipNode.kind}">
+      {tooltipNode.label}
+    </div>
+    <div class="tooltip-kind">{KIND_LABEL[tooltipNode.kind]}</div>
+    {#if tooltipNode.updatedMs}
+      <div class="tooltip-age">{formatAge(tooltipNode.updatedMs)} ago</div>
+    {/if}
+    {#if conns.length > 0}
+      <div class="tooltip-conns">
+        <span class="tooltip-conns-count">{conns.length} link{conns.length === 1 ? '' : 's'}</span>
+        <span class="tooltip-conns-ids">{conns.join(', ')}</span>
+      </div>
+    {/if}
+  </div>
+{/if}
+
 <!-- Drag ghost -->
 {#if ghostVisible}
   <div
@@ -665,6 +1283,7 @@
     transition: all 0.12s;
   }
   .mode-btn:first-child { border-top-right-radius: 0; border-bottom-right-radius: 0; border-right: none; }
+  .mode-btn:not(:first-child):not(:last-child) { border-radius: 0; border-right: none; }
   .mode-btn:last-child { border-top-left-radius: 0; border-bottom-left-radius: 0; }
   .mode-btn.active {
     color: var(--term-cyan, #6FE0E0);
@@ -1050,4 +1669,76 @@
     opacity: 0.92;
   }
   .drag-ghost-glyph { font-size: 12px; }
+
+  /* =========================================================================
+     Force-directed graph view (Canvas)
+     ========================================================================= */
+
+  .graph-container {
+    flex: 1;
+    position: relative;
+    overflow: hidden;
+    background: var(--bg-base);
+    min-height: 0;
+  }
+
+  .graph-canvas {
+    width: 100%;
+    height: 100%;
+    display: block;
+    cursor: grab;
+  }
+  .graph-canvas:active {
+    cursor: grabbing;
+  }
+
+  /* Graph tooltip */
+  .graph-tooltip {
+    position: fixed;
+    pointer-events: none;
+    z-index: 5000;
+    padding: var(--space-sm) var(--space-md);
+    background: var(--bg-elevated);
+    border: 1px solid var(--amber-dim);
+    border-radius: var(--radius-md, 4px);
+    font-family: var(--font-family);
+    font-size: var(--text-xs);
+    color: var(--amber-warm);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.6);
+    max-width: 260px;
+    white-space: nowrap;
+  }
+  .tooltip-title {
+    font-weight: 700;
+    font-size: var(--text-sm);
+    margin-bottom: 2px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .tooltip-kind {
+    font-size: 8px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    color: var(--amber-faint);
+    margin-bottom: 3px;
+  }
+  .tooltip-age {
+    font-size: var(--text-2xs);
+    color: var(--amber-faint);
+    font-style: italic;
+  }
+  .tooltip-conns {
+    margin-top: 4px;
+    font-size: var(--text-2xs);
+    color: var(--amber-dim);
+    border-top: 1px solid var(--border-subtle);
+    padding-top: 3px;
+  }
+  .tooltip-conns-count {
+    font-weight: 600;
+    margin-right: var(--space-xs);
+  }
+  .tooltip-conns-ids {
+    color: var(--amber-faint);
+  }
 </style>
