@@ -53,6 +53,13 @@ fn discovery_path_display() -> String {
 /// Default per-call timeout if none provided.
 const DEFAULT_CALL_TIMEOUT: Duration = Duration::from_secs(10);
 
+/// Shorter timeout used when the bridge has been idle, so stale pipes are
+/// detected in 3s instead of 10s.
+const IDLE_CALL_TIMEOUT: Duration = Duration::from_secs(3);
+
+/// Threshold: if no successful call in this window, use the shorter timeout.
+const IDLE_THRESHOLD: Duration = Duration::from_secs(30);
+
 /// Notification broadcast channel capacity. Bursty bus traffic can push past
 /// this — the router task surfaces a `Lagged` notification (see
 /// [`Self::subscribe_notifications`]) so consumers know they missed events.
@@ -113,6 +120,9 @@ pub struct HostBridge {
     notify_tx: broadcast::Sender<Envelope>,
     /// Per-call timeout. Configurable later if needed.
     call_timeout: Duration,
+    /// Tracks when the last successful call completed. Used to detect idle
+    /// periods and apply a shorter timeout for faster stale-pipe recovery.
+    last_success: Mutex<tokio::time::Instant>,
 }
 
 impl HostBridge {
@@ -193,6 +203,7 @@ impl HostBridge {
             pending,
             notify_tx,
             call_timeout: DEFAULT_CALL_TIMEOUT,
+            last_success: Mutex::new(tokio::time::Instant::now()),
         })
     }
 
@@ -238,7 +249,15 @@ impl HostBridge {
             return Err(BridgeError::Ipc(e));
         }
 
-        let response = match timeout(self.call_timeout, resp_rx).await {
+        // Use shorter timeout when idle to detect stale pipes faster.
+        let elapsed = self.last_success.lock().await.elapsed();
+        let effective_timeout = if elapsed > IDLE_THRESHOLD {
+            IDLE_CALL_TIMEOUT
+        } else {
+            self.call_timeout
+        };
+
+        let response = match timeout(effective_timeout, resp_rx).await {
             Ok(Ok(env)) => env,
             Ok(Err(_recv_err)) => {
                 // Sender dropped — router task exited mid-flight.
@@ -262,6 +281,7 @@ impl HostBridge {
             .and_then(|v| v.as_bool())
             .ok_or_else(|| BridgeError::Malformed("missing 'ok' field".into()))?;
         if ok {
+            *self.last_success.lock().await = tokio::time::Instant::now();
             response
                 .payload
                 .get("result")

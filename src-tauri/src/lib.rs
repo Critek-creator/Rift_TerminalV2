@@ -74,6 +74,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::Arc;
+use std::time::Instant;
 
 use parking_lot::Mutex;
 
@@ -400,6 +401,62 @@ impl CachedConfig {
 
     fn set(&self, cfg: RiftConfig) {
         *self.inner.lock() = cfg;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// ProjectTreeCache (P-02)
+//
+// LRU cache of per-project TreeNode snapshots. Avoids a full read_dir walk
+// when switching back to a recently visited project. The frontend remains
+// source of truth for its live-mutated copy; this cache only accelerates
+// the initial snapshot served by fs_tree.
+// ---------------------------------------------------------------------------
+
+const TREE_CACHE_MAX: usize = 5;
+
+struct CachedTree {
+    root: TreeNode,
+    built_at: Instant,
+}
+
+pub(crate) struct ProjectTreeCache {
+    trees: Mutex<HashMap<PathBuf, CachedTree>>,
+}
+
+impl ProjectTreeCache {
+    fn new() -> Self {
+        Self {
+            trees: Mutex::new(HashMap::new()),
+        }
+    }
+
+    fn get(&self, path: &PathBuf) -> Option<TreeNode> {
+        self.trees.lock().get(path).map(|ct| ct.root.clone())
+    }
+
+    fn put(&self, path: PathBuf, root: TreeNode) {
+        let mut trees = self.trees.lock();
+        if trees.len() >= TREE_CACHE_MAX && !trees.contains_key(&path) {
+            if let Some(oldest) = trees
+                .iter()
+                .min_by_key(|(_, v)| v.built_at)
+                .map(|(k, _)| k.clone())
+            {
+                trees.remove(&oldest);
+            }
+        }
+        trees.insert(
+            path,
+            CachedTree {
+                root,
+                built_at: Instant::now(),
+            },
+        );
+    }
+
+    fn clear(&self) {
+        self.trees.lock().clear();
     }
 }
 
@@ -991,26 +1048,36 @@ async fn fs_tree(
     bus: State<'_, RiftBus>,
     project_root: State<'_, ProjectRoot>,
     cached_cfg: State<'_, CachedConfig>,
+    tree_cache: State<'_, ProjectTreeCache>,
 ) -> Result<TreeNode, String> {
     let root = project_root.get();
+
+    if let Some(cached) = tree_cache.get(&root) {
+        return Ok(cached);
+    }
+
     let bus_clone = bus.inner().clone();
     let ignore_patterns: Vec<String> = cached_cfg.get().fs.ignore_globs;
+    let root_for_build = root.clone();
 
-    tokio::task::spawn_blocking(move || {
+    let tree = tokio::task::spawn_blocking(move || {
         let ignore_globs = build_ignore_globs(&ignore_patterns).map_err(|e| {
             let msg = format!("fs_tree: {e}");
             publish_error(&bus_clone, "tauri.command.fs_tree", &msg, None);
             msg
         })?;
 
-        build_tree(&root, FS_TREE_DEFAULT_MAX_DEPTH, &ignore_globs).map_err(|e| {
+        build_tree(&root_for_build, FS_TREE_DEFAULT_MAX_DEPTH, &ignore_globs).map_err(|e| {
             let msg = e.to_string();
             publish_error(&bus_clone, "tauri.command.fs_tree", &msg, None);
             msg
         })
     })
     .await
-    .map_err(|e| format!("fs_tree: task join error: {e}"))?
+    .map_err(|e| format!("fs_tree: task join error: {e}"))??;
+
+    tree_cache.put(root, tree.clone());
+    Ok(tree)
 }
 
 /// Frontend → bus. Construct an [`Envelope`] and publish it.
@@ -1384,6 +1451,7 @@ fn config_get(cached_config: State<'_, CachedConfig>) -> Result<RiftConfig, Stri
 fn config_save(
     bus: State<'_, RiftBus>,
     cached: State<'_, CachedConfig>,
+    tree_cache: State<'_, ProjectTreeCache>,
     cfg: RiftConfig,
 ) -> Result<(), String> {
     save_config(&cfg).map_err(|e| {
@@ -1391,6 +1459,7 @@ fn config_save(
         publish_error(bus.inner(), "tauri.command.config_save", &msg, None);
         msg
     })?;
+    tree_cache.clear();
     cached.set(cfg);
     Ok(())
 }
@@ -1670,6 +1739,7 @@ pub fn run() {
 
             // Register cached config (M9: avoids disk re-read per command call).
             app.manage(CachedConfig::new(cfg.clone()));
+            app.manage(ProjectTreeCache::new());
 
             // Register the canonical project root.
             app.manage(ProjectRoot::new(fs_root.clone()));

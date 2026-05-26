@@ -265,16 +265,23 @@
   }
 
   // ---------------------------------------------------------------------------
-  // Flat layout — computed reactively from treeRoot + treeActivity.snapshot
-  //               + collapsedDirs (design calls B, C)
+  // Flat layout — two-phase split (P-02):
+  //   Phase 1 (structuralLayout): tree walk producing stable node positions.
+  //     Re-runs only when treeRoot or collapsedDirs change.
+  //   Phase 2 (layout): decorative pass applying glow/heat to stable positions.
+  //     Re-runs on treeActivity.snapshot/heatLog changes (rAF during decay)
+  //     but is O(visible nodes) flat iteration, not recursive tree walk.
   // ---------------------------------------------------------------------------
 
-  interface LayoutNode {
+  interface StructuralNode {
     node: TreeNode;
     x: number;
     y: number;
     parentX: number | null;
     parentY: number | null;
+  }
+
+  interface LayoutNode extends StructuralNode {
     /** Non-null only for collapsed dirs: max descendant glow [0,1]. */
     aggregateGlow: number | null;
     /** Non-null only for collapsed dirs: synthetic state driven by descendants. */
@@ -283,21 +290,11 @@
     heatValue: number;
   }
 
-  const layout = $derived.by((): LayoutNode[] => {
-    // Read snapshot + collapsedDirs so this derived re-runs when either changes.
-    void treeActivity.snapshot;
+  const structuralLayout = $derived.by((): StructuralNode[] => {
     void collapsedDirs;
-    // D-020: also re-run when heatLog changes (new touches recorded).
-    void treeActivity.heatLog;
-
     if (!treeRoot) return [];
 
-    // D-020: build heat snapshot once per layout pass when enabled.
-    const heatCounts = heatmapEnabled
-      ? treeActivity.heatSnapshot(heatmapWindowMs)
-      : null;
-
-    const rows: LayoutNode[] = [];
+    const rows: StructuralNode[] = [];
     let row = 0;
 
     function walk(
@@ -308,8 +305,34 @@
     ) {
       const x = ROOT_X + depth * X_STEP;
       const y = ROW_H / 2 + row * ROW_H;
-      const isCollapsed = node.isDir && collapsedDirs.has(node.path);
+      rows.push({ node, x, y, parentX, parentY });
+      row++;
 
+      const isCollapsed = node.isDir && collapsedDirs.has(node.path);
+      if (!isCollapsed) {
+        for (const child of node.children) {
+          walk(child, depth + 1, x, y);
+        }
+      }
+    }
+
+    walk(treeRoot, 0, null, null);
+    return rows;
+  });
+
+  const layout = $derived.by((): LayoutNode[] => {
+    void treeActivity.snapshot;
+    void treeActivity.heatLog;
+
+    const structural = structuralLayout;
+    if (structural.length === 0) return [];
+
+    const heatCounts = heatmapEnabled
+      ? treeActivity.heatSnapshot(heatmapWindowMs)
+      : null;
+
+    const rows: LayoutNode[] = structural.map(({ node, x, y, parentX, parentY }) => {
+      const isCollapsed = node.isDir && collapsedDirs.has(node.path);
       let aggregateGlow: number | null = null;
       let aggState: ActivityState | null = null;
 
@@ -319,28 +342,16 @@
         aggState = aggregateStateFromGlow(agg.aggregateGlow, agg.hasPinnedDesc);
       }
 
-      // D-020: raw heat count for this node (dirs sum children below).
       const rawHeat = heatCounts?.get(node.path) ?? 0;
-
-      rows.push({
+      return {
         node, x, y, parentX, parentY, aggregateGlow, aggregateState: aggState,
-        heatValue: rawHeat, // temporarily raw — normalized after walk
-      });
-      row++;
-
-      if (!isCollapsed) {
-        for (const child of node.children) {
-          walk(child, depth + 1, x, y);
-        }
-      }
-    }
-
-    walk(treeRoot, 0, null, null);
+        heatValue: rawHeat,
+      };
+    });
 
     // D-020: bubble up heat for collapsed dirs + normalize to 0–1.
     if (heatCounts && rows.length > 0) {
-      const hc = heatCounts; // narrow for closure
-      // Bubble up: for collapsed dirs, sum heat of all descendants.
+      const hc = heatCounts;
       for (const item of rows) {
         if (item.node.isDir && collapsedDirs.has(item.node.path)) {
           let sum = item.heatValue;
@@ -355,7 +366,6 @@
         }
       }
 
-      // Percentile normalization: divide by max so the hottest node = 1.0.
       let maxHeat = 0;
       for (const item of rows) {
         if (item.heatValue > maxHeat) maxHeat = item.heatValue;

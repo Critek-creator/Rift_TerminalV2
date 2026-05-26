@@ -447,42 +447,6 @@
       term?.write(new Uint8Array(chunk));
     };
 
-    // Guard: start the PTY with at least 80×24 so the shell prompt always
-    // has a usable buffer. If fit() couldn't compute real dimensions (host
-    // still 0-sized because WebView2 window hasn't unminimized yet, or
-    // flex layout hasn't settled), xterm may report tiny rows/cols. Starting
-    // a PTY at 2×1 loses the prompt — the shell writes it, but xterm's
-    // tiny ring buffer discards the bytes. Clamping here ensures the
-    // prompt survives; the recovery timer + ResizeObserver correct to real
-    // dimensions once layout settles.
-    const startRows = Math.max(term.rows, 24);
-    const startCols = Math.max(term.cols, 80);
-
-    // Sync xterm's viewport to match what we'll tell the PTY. Without
-    // this, the PTY writes 80-col output but xterm renders in a 2-col
-    // viewport, causing garbled wrapping until the recovery timer
-    // corrects both sides. Aligning up-front eliminates the flash.
-    if (term.rows !== startRows || term.cols !== startCols) {
-      term.resize(startCols, startRows);
-    }
-
-    try {
-      sessionId = await invoke<number>('pty_start', {
-        rows: startRows,
-        cols: startCols,
-        onChunk,
-        cwd: projectPath ?? undefined,
-      });
-      alive = true;
-      invoke('terminal_mounted').catch(() => {});
-    } catch (err) {
-      term.writeln(`\r\n${laneFormatGated('ERR', `pty_start failed: ${err}`, lanesEnabled)}`);
-      return;
-    }
-
-    // Immediate post-start focus — xterm won't render cursor without it.
-    term.focus();
-
     let lastResizeRows = 0;
     let lastResizeCols = 0;
     const refitAndResize = () => {
@@ -500,37 +464,76 @@
         }
       }
     };
+
+    // Deferred PTY spawn: wait for the canvas to have real pixel dimensions
+    // before starting the shell. This eliminates the old Ctrl+L band-aid —
+    // the prompt bytes always arrive when the canvas can render them.
+    let ptyStarted = false;
+    const startPty = async () => {
+      if (ptyStarted || !term) return;
+      ptyStarted = true;
+
+      try { fit?.fit(); } catch { /* best-effort */ }
+      const startRows = Math.max(term.rows, 24);
+      const startCols = Math.max(term.cols, 80);
+      if (term.rows !== startRows || term.cols !== startCols) {
+        term.resize(startCols, startRows);
+      }
+
+      try {
+        sessionId = await invoke<number>('pty_start', {
+          rows: startRows,
+          cols: startCols,
+          onChunk,
+          cwd: projectPath ?? undefined,
+        });
+        alive = true;
+        invoke('terminal_mounted').catch(() => {});
+      } catch (err) {
+        term.writeln(`\r\n${laneFormatGated('ERR', `pty_start failed: ${err}`, lanesEnabled)}`);
+        ptyStarted = false;
+        return;
+      }
+
+      term.focus();
+    };
+
+    // If host already has real dimensions (e.g. new tab in an existing
+    // window), start the PTY immediately — no recovery loop needed.
+    const initialRect = host?.getBoundingClientRect();
+    const initiallyReady = initialRect != null && initialRect.width >= 150 && initialRect.height >= 60;
+    if (initiallyReady) {
+      await startPty();
+    }
     requestAnimationFrame(refitAndResize);
 
     let recoveryAttempts = 0;
     recoveryTimer = setInterval(() => {
       recoveryAttempts++;
       refitAndResize();
-      // Check the HOST element's physical dimensions — not xterm's logical
-      // rows/cols. The 80×24 clamp above forces term.rows/cols to valid
-      // values even when the canvas is still 0-sized (WebView2 window
-      // hasn't finished initializing). Checking term.rows > 1 would exit
-      // on the first iteration and the Ctrl+L recovery would never fire.
       const rect = host?.getBoundingClientRect();
       const hostReady = rect != null && rect.width >= 150 && rect.height >= 60;
+
+      if (hostReady && !ptyStarted) {
+        startPty();
+      }
+
       if (hostReady || recoveryAttempts >= 15) {
         clearInterval(recoveryTimer);
         recoveryTimer = undefined;
-        // One final fit + refresh now that the host has real dimensions.
         if (hostReady) {
           try { fit?.fit(); } catch { /* best-effort */ }
           if (term) term.refresh(0, term.rows - 1);
         }
-        // Prompt recovery: always send Ctrl+L after the recovery timer
-        // completes. On initial mount the host starts 0-sized — the shell
-        // emits its prompt but xterm's canvas can't render it. The prompt
-        // bytes ARE in xterm's buffer (so the old "is buffer empty?" check
-        // found text and skipped Ctrl+L), but the rendered output is often
-        // garbled or invisible after the 0→real dimension transition.
-        // Ctrl+L forces the shell to clear and redraw unconditionally.
-        if (sessionId !== null && alive) {
-          const ctrlL = Array.from(encoder.encode('\x0c'));
-          invoke('pty_write', { id: sessionId, bytes: ctrlL }).catch(() => {});
+        if (!ptyStarted) {
+          // Fallback: host never got real dimensions. Start PTY with
+          // clamped 80×24 and send Ctrl+L as last resort.
+          startPty().then(() => {
+            if (sessionId !== null && alive) {
+              const ctrlL = Array.from(encoder.encode('\x0c'));
+              invoke('pty_write', { id: sessionId, bytes: ctrlL }).catch(() => {});
+            }
+          });
         }
       }
     }, 200);

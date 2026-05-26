@@ -5,14 +5,8 @@
   import { getCurrentWindow, PhysicalPosition, PhysicalSize } from '@tauri-apps/api/window';
   import { check, type Update } from '@tauri-apps/plugin-updater';
   import TitleBar from './lib/TitleBar.svelte';
-  import TabBar, {
-    type SessionTab,
-    type NotifTab,
-    type ActiveSurface,
-  } from './lib/TabBar.svelte';
+  import TabBar from './lib/TabBar.svelte';
   import TerminalGrid from './lib/TerminalGrid.svelte';
-  import { replaceLeaf, removeLeaf, collectLeafIds } from './lib/splitTypes';
-  import type { SplitNode } from './lib/splitTypes';
   import NotificationPane from './lib/NotificationPane.svelte';
   import AegisTabContent from './lib/AegisTabContent.svelte';
   import IndexTabContent from './lib/IndexTabContent.svelte';
@@ -26,91 +20,27 @@
   import SessionsTabContent from './lib/SessionsTabContent.svelte';
   import StatusLine from './lib/StatusLine.svelte';
   import Popout from './lib/Popout.svelte';
-  import { popouts } from './lib/popouts.svelte';
   import Tree from './lib/Tree.svelte';
   import IndexGraph from './lib/IndexGraph.svelte';
   import Splitter from './lib/Splitter.svelte';
-  import { subscribe, publish, signalBusReady, type Category } from './lib/bus';
+  import { subscribe, signalBusReady } from './lib/bus';
+  import { popouts } from './lib/popouts.svelte';
   import { enrichmentStore } from './lib/enrichmentStore.svelte';
-  import { parseSeverity, type SeverityLevel } from './lib/notifFilter';
   import type { RiftConfig as RiftConfigType, StatusLineConfig, AlertRule } from './lib/riftConfig';
   import { SparklineBuffer } from './lib/SparklineBuffer';
   import { invalidateTerminalSettingsCache } from './lib/terminalConfigCache';
   import { evaluateRule, triggerAction } from './lib/alertRules';
   import { CorrelationIndex } from './lib/correlationIndex';
-  import { sectionCatalog } from './lib/sectionCatalog.svelte';
   import CommandPalette from './lib/CommandPalette.svelte';
   import ShortcutOverlay from './lib/ShortcutOverlay.svelte';
   import WelcomeOverlay from './lib/WelcomeOverlay.svelte';
   import CommandIntelligencePanel from './lib/CommandIntelligencePanel.svelte';
   import { notifPriority } from './lib/notifPriority.svelte';
+  import { sessionManager as sm } from './lib/sessionManager.svelte';
+  import { notifManager as nm } from './lib/notifState.svelte';
 
-  // D-021: Tab→category mapping is now derived from the section catalog.
-  // `sectionCatalog.categoryMap` builds the reverse map dynamically.
-  // Legacy accessor for code that still references CATEGORY_BY_NOTIF:
-  const CATEGORY_BY_NOTIF: Record<string, Category | undefined> = $derived.by(() => {
-    const result: Record<string, Category | undefined> = {};
-    for (const desc of sectionCatalog.allTabs) {
-      if (desc.category) result[desc.id] = desc.category;
-    }
-    return result;
-  });
-
-  // ----- session tabs -----
-  let nextSessionId = 1;
-  let initialProjectRoot = $state<string | null>(null);
-  let sessions = $state<SessionTab[]>([{ id: 0, title: 'rift', projectPath: null, layout: { type: 'terminal', id: 0 } }]);
-
-  // Tracks which pane is focused within the active session tab.
-  // Defaults to the first terminal (id 0). Updated on pane click or split.
-  let focusedSessionId = $state(0);
-
-  // ----- notification tabs (§10.7 + §10.16 catalog-driven) -----
-  // D-021: Tab strip is initialized from the section catalog registry.
-  // Capability-gating (§10.7): `detectedByDefault` in the catalog drives
-  // the initial `detected` flag. Runtime detection flips on first envelope.
-  // The catalog is the source of truth for which tabs exist and their metadata;
-  // the `notifs` array holds runtime state (unreadCount, lastActivityTs, detected).
-  let notifs = $state<NotifTab[]>(
-    sectionCatalog.allTabs.map((desc) => ({
-      id: desc.id,
-      title: desc.title,
-      icon: desc.icon,
-      enabled: true,
-      detected: desc.detectedByDefault,
-      unreadCount: 0,
-      lastActivityTs: null,
-    }))
-  );
-
-  // ----- notification filter thresholds -----
-  // Loaded from RiftConfig.notif_filters on mount + rift:config-changed.
-  // BusTail defaults to 'debug' (firehose by design) unless explicitly overridden.
-  let notifFilterDefault = $state<SeverityLevel>('info');
-  let notifFilterPerTab = $state<Record<string, SeverityLevel>>({});
-
-  function thresholdFor(tabId: string): SeverityLevel {
-    if (tabId in notifFilterPerTab) return notifFilterPerTab[tabId];
-    if (tabId === 'bustail') return 'debug';
-    return notifFilterDefault;
-  }
-
-  async function loadNotifFilters() {
-    try {
-      const cfg = await invoke<RiftConfigType>('config_get');
-      const nf = cfg?.notif_filters;
-      notifFilterDefault = parseSeverity(nf?.default_threshold);
-      const pt: Record<string, SeverityLevel> = {};
-      if (nf?.per_tab) {
-        for (const [k, v] of Object.entries(nf.per_tab)) {
-          pt[k] = parseSeverity(v);
-        }
-      }
-      notifFilterPerTab = pt;
-    } catch (err) {
-      console.warn('Failed to load notification filters:', err);
-    }
-  }
+  // ----- session state (extracted to sessionManager.svelte.ts) -----
+  // ----- notification state (extracted to notifManager.svelte.ts) -----
 
   async function loadAppearanceConfig() {
     try {
@@ -124,21 +54,6 @@
       console.warn('Failed to load appearance config:', err);
     }
   }
-
-  // Reverse map for envelope routing — Category → notif tab id. Used by the
-  // master subscription below to attribute incoming envelopes to the right
-  // tab. The forward map (notif id → Category) is in CATEGORY_BY_NOTIF.
-  const NOTIF_BY_CATEGORY: Record<string, string> = {
-    hook: 'hooks',
-    system: 'errors',
-    pty: 'commands',
-    aegis: 'aegis',
-    index: 'index',
-    agent: 'agents',
-    fs: 'filesystem',
-    mcp: 'mcp',
-    sentinel: 'sentinel',
-  };
 
   // ----- correlation index -----
   const correlationIndex = new CorrelationIndex();
@@ -191,457 +106,6 @@
   }
 
   // Expose to SettingsPanel via window event (cleaned up in onMount return).
-
-  // ----- which surface is in the main pane -----
-  let active = $state<ActiveSurface>({ kind: 'session', id: 0 });
-
-  // ----- promoted notification tab (Phase 3.5a) -----
-  // Holds the id of the single promoted tab, or null when no pane is docked.
-  // Max-1 promotion is enforced structurally — string|null can hold one id.
-  let promoted = $state<string | null>(null);
-
-  // ----- handlers -----
-  function activateSession(id: number) {
-    active = { kind: 'session', id };
-  }
-  function activateNotif(id: string) {
-    // Notif tabs NEVER replace the terminal/session surface in the main slot.
-    // Click toggles promotion alongside the main session surface — the notif's
-    // content lives in `aside.promoted-pane` next to the terminal, never in
-    // place of it.
-    //
-    // Detach-to-separate-window is now wired via notif_window.rs (pool of 4
-    // pre-built hidden Tauri windows). The pop-out button and drag-out-of-
-    // window gesture call `detachNotif(id)` which invokes `notif_detach`.
-    //
-    // The `active` state machine never becomes `notification` — notif tabs
-    // promote to a side pane via `promoted`, never replace the main surface.
-    const wasPromoted = promoted === id;
-    promoted = wasPromoted ? null : id;
-    // §10.9 ack — promoting a tab into the side pane counts as viewing it.
-    if (!wasPromoted) ackUnread(id);
-  }
-  function addSession(opts?: { pickProject?: boolean }): number | undefined {
-    if (opts?.pickProject) {
-      openProjectPickerForNewTab();
-      return undefined;
-    }
-    const id = nextSessionId++;
-    const activeSession = sessions.find(
-      (s) => active.kind === 'session' && s.id === active.id,
-    );
-    const inheritedPath = activeSession?.projectPath ?? initialProjectRoot;
-    const projectName = inheritedPath?.replace(/\\/g, '/').split('/').pop() ?? '';
-    const defaultTitle = projectName || `terminal ${sessions.length + 1}`;
-    sessions = [...sessions, { id, title: defaultTitle, projectPath: inheritedPath, layout: { type: 'terminal', id } }];
-    active = { kind: 'session', id };
-    focusedSessionId = id;
-    return id;
-  }
-
-  // Split the focused pane in the active session.
-  // Replaces the leaf with `terminalId` in the session's layout tree with a
-  // split node whose second child is a brand-new terminal leaf.
-  function handleSplit(terminalId: number, direction: 'hsplit' | 'vsplit'): void {
-    const newId = nextSessionId++;
-    const activeSession = sessions.find(
-      (s) => active.kind === 'session' && s.id === active.id,
-    );
-    if (!activeSession) return;
-
-    const inheritedPath = activeSession.projectPath ?? initialProjectRoot;
-    const newLeaf: SplitNode = { type: 'terminal', id: newId };
-    const splitNode: SplitNode = {
-      type: direction,
-      children: [{ type: 'terminal', id: terminalId }, newLeaf],
-      ratio: 0.5,
-    };
-
-    // Register the new PTY session so the Tab system tracks it.
-    // We do NOT create a new tab — the new PTY is a pane within the same tab.
-    // We add a hidden entry so Terminal.svelte can mount via the layout tree.
-    // The session list is keyed by id; layout controls which ids are rendered.
-    sessions = sessions.map((s) => {
-      if (s.id !== (active.kind === 'session' ? active.id : -1)) return s;
-      return { ...s, layout: replaceLeaf(s.layout, terminalId, splitNode) };
-    });
-
-    // Also register the new pane id with a synthetic session entry so the
-    // PTY-per-pane sessions are tracked (needed for project_swap + closeSession
-    // cleanup). We add it with the same projectPath as the parent tab but we
-    // do NOT switch the active tab to it — it renders inside the current tab.
-    const parentTabId = active.kind === 'session' ? active.id : -1;
-    const parentTab = sessions.find((s) => s.id === parentTabId);
-    if (parentTab) {
-      // Register a pane-session. This is intentionally NOT pushed into the
-      // TabBar sessions array because it is not a tab — it's a pane within
-      // the parent tab. The pane session only needs to be tracked internally
-      // for PTY lifecycle. We keep it in a separate pane-sessions map.
-      paneSessionPaths.set(newId, inheritedPath);
-    }
-
-    focusedSessionId = newId;
-  }
-
-  // Pane-to-projectPath map for pane-sessions that live inside a tab's layout
-  // tree but are not top-level SessionTab entries in the TabBar strip.
-  const paneSessionPaths = new Map<number, string | null>();
-
-  // Close a single pane within the active session's layout tree.
-  // If removing the pane collapses the tree to null (last pane), close the tab.
-  function handleClosePane(terminalId: number): void {
-    const activeId = active.kind === 'session' ? active.id : -1;
-    const targetSession = sessions.find((s) => s.id === activeId);
-    if (!targetSession) return;
-
-    const newLayout = removeLeaf(targetSession.layout, terminalId);
-    if (newLayout === null) {
-      // Last pane in the tab — close the whole tab.
-      closeSession(activeId);
-      return;
-    }
-
-    sessions = sessions.map((s) =>
-      s.id === activeId ? { ...s, layout: newLayout } : s,
-    );
-
-    paneSessionPaths.delete(terminalId);
-
-    // If the closed pane was focused, focus the first remaining leaf.
-    if (focusedSessionId === terminalId) {
-      const remaining = collectLeafIds(newLayout);
-      if (remaining.length > 0) focusedSessionId = remaining[0];
-    }
-  }
-
-  function openProjectInNewTab(path: string) {
-    const id = nextSessionId++;
-    const projectName = path.replace(/\\/g, '/').split('/').pop() ?? `terminal ${sessions.length + 1}`;
-    sessions = [...sessions, { id, title: projectName, projectPath: path, layout: { type: 'terminal', id } }];
-    active = { kind: 'session', id };
-    focusedSessionId = id;
-  }
-
-  function openProjectPickerForNewTab() {
-    popouts.summon({
-      content: {
-        kind: 'project-picker',
-        onSelect: openProjectInNewTab,
-      },
-    });
-  }
-  function reorderSession(srcId: number, dstId: number) {
-    const srcIdx = sessions.findIndex((s) => s.id === srcId);
-    const dstIdx = sessions.findIndex((s) => s.id === dstId);
-    if (srcIdx < 0 || dstIdx < 0 || srcIdx === dstIdx) return;
-    const next = [...sessions];
-    const [moved] = next.splice(srcIdx, 1);
-    next.splice(dstIdx, 0, moved);
-    sessions = next;
-  }
-
-  function renameSession(id: number, title: string) {
-    sessions = sessions.map((s) => (s.id === id ? { ...s, title } : s));
-  }
-
-  // ----- U-06: track which panes have exited so tabs can show dead state -----
-  let exitedPaneIds = $state(new Set<number>());
-  function markPaneExited(paneId: number) {
-    exitedPaneIds.add(paneId);
-  }
-  const deadSessions: Set<number> = $derived.by(() => {
-    const dead = new Set<number>();
-    for (const s of sessions) {
-      const leafIds = collectLeafIds(s.layout);
-      if (leafIds.length > 0 && leafIds.every((id) => exitedPaneIds.has(id))) {
-        dead.add(s.id);
-      }
-    }
-    return dead;
-  });
-
-  // ----- U-02: confirm before closing tab with running process -----
-  let pendingCloseId = $state<number | null>(null);
-
-  function closeSession(id: number) {
-    const session = sessions.find((s) => s.id === id);
-    if (session) {
-      const leafIds = collectLeafIds(session.layout);
-      const hasAlive = leafIds.some((lid) => !exitedPaneIds.has(lid));
-      if (hasAlive && pendingCloseId !== id) {
-        pendingCloseId = id;
-        return;
-      }
-    }
-    pendingCloseId = null;
-    sessions = sessions.filter((s) => s.id !== id);
-    if (active.kind === 'session' && active.id === id) {
-      const last = sessions.at(-1);
-      active = last ? { kind: 'session', id: last.id } : { kind: 'empty' };
-    }
-  }
-
-  function confirmClose() {
-    if (pendingCloseId !== null) {
-      const id = pendingCloseId;
-      pendingCloseId = null;
-      sessions = sessions.filter((s) => s.id !== id);
-      if (active.kind === 'session' && active.id === id) {
-        const last = sessions.at(-1);
-        active = last ? { kind: 'session', id: last.id } : { kind: 'empty' };
-      }
-    }
-  }
-
-  function cancelClose() {
-    pendingCloseId = null;
-  }
-  // ----- project-per-tab: active project follows active session/pane -----
-  const activeProjectPath = $derived.by(() => {
-    const a = active;
-    if (a.kind !== 'session') return initialProjectRoot;
-    const panePath = paneSessionPaths.get(focusedSessionId);
-    if (panePath) return panePath;
-    const s = sessions.find((s) => s.id === a.id);
-    return s?.projectPath ?? initialProjectRoot;
-  });
-
-  const multiProject = $derived(
-    new Set(sessions.map((s) => s.projectPath)).size > 1,
-  );
-
-
-  let lastSwappedPath: string | null = null;
-  let swapTimer: ReturnType<typeof setTimeout> | undefined;
-  $effect(() => {
-    const path = activeProjectPath;
-    if (!path || path === lastSwappedPath) return;
-    lastSwappedPath = path;
-    // Debounce: let Terminal.onMount's pty_start complete before project_swap
-    // restarts the fs watcher and floods the bus. 100ms is enough for the
-    // Terminal to call pty_start; project_swap's watcher restart then happens
-    // after the PTY is already draining output. Also collapses rapid tab switches.
-    clearTimeout(swapTimer);
-    swapTimer = setTimeout(() => {
-      invoke('project_swap', { path }).catch((err: unknown) =>
-        console.warn('[rift] tab-switch project_swap failed:', err),
-      );
-    }, 100);
-  });
-
-  function toggleNotif(id: string) {
-    notifs = notifs.map((n) => (n.id === id ? { ...n, enabled: !n.enabled } : n));
-    const enabled = notifs.find((n) => n.id === id)?.enabled;
-    if (!enabled && promoted === id) {
-      promoted = null;
-    }
-    persistNotifOrder();
-  }
-
-  // Phase 8.7h — reset all notif tabs to enabled. Capability-driven
-  // detected:false flags stay as-is; reset only flips enabled.
-  function resetNotifs() {
-    notifs = notifs.map((n) => ({ ...n, enabled: true }));
-    persistNotifOrder();
-  }
-
-  // Phase 8.7j — drag-to-reorder + localStorage-persisted order. The strip
-  // sends `(srcId, dstId)`; we splice src to dst's index. Order survives
-  // reloads via `rift.notifs.order` (an array of tab ids). New tabs added
-  // in future builds append at the end so order updates are forward-safe.
-  const NOTIF_ORDER_KEY = 'rift.notifs.order';
-  const WORKSPACE_KEY = 'rift.workspace';
-  function reorderNotif(srcId: string, dstId: string) {
-    if (srcId === dstId) return;
-    const srcIdx = notifs.findIndex((n) => n.id === srcId);
-    const dstIdx = notifs.findIndex((n) => n.id === dstId);
-    if (srcIdx < 0 || dstIdx < 0) return;
-    const next = notifs.slice();
-    const [moved] = next.splice(srcIdx, 1);
-    next.splice(dstIdx, 0, moved);
-    notifs = next;
-    persistNotifOrder();
-  }
-  function persistNotifOrder() {
-    try {
-      const order = notifs.map((n) => ({ id: n.id, enabled: n.enabled }));
-      localStorage.setItem(NOTIF_ORDER_KEY, JSON.stringify(order));
-    } catch {
-      // localStorage unavailable (private mode etc.) — silent best-effort.
-    }
-  }
-  function persistWorkspace() {
-    try {
-      localStorage.setItem(WORKSPACE_KEY, JSON.stringify({
-        promoted: promoted,
-      }));
-    } catch {}
-  }
-  function applyPersistedWorkspace() {
-    try {
-      const raw = localStorage.getItem(WORKSPACE_KEY);
-      if (!raw) return;
-      const ws = JSON.parse(raw);
-      if (typeof ws.promoted === 'string' && notifs.some((n) => n.id === ws.promoted && n.enabled)) {
-        promoted = ws.promoted;
-      }
-    } catch {}
-  }
-  function applyPersistedNotifOrder() {
-    try {
-      const raw = localStorage.getItem(NOTIF_ORDER_KEY);
-      if (!raw) return;
-      const order = JSON.parse(raw) as unknown;
-      if (!Array.isArray(order)) return;
-      // Build a map of persisted enabled state. Supports both formats:
-      // old: ["errors", "hooks", ...] — enabled state not saved
-      // new: [{id: "errors", enabled: true}, ...] — enabled state saved
-      const enabledMap = new Map<string, boolean>();
-      const orderedIds: string[] = [];
-      for (const entry of order) {
-        if (typeof entry === 'string') {
-          orderedIds.push(entry);
-        } else if (entry && typeof entry === 'object' && typeof (entry as {id?: unknown}).id === 'string') {
-          const e = entry as { id: string; enabled?: boolean };
-          orderedIds.push(e.id);
-          if (typeof e.enabled === 'boolean') enabledMap.set(e.id, e.enabled);
-        }
-      }
-      const idToTab = new Map(notifs.map((n) => [n.id, n]));
-      const reordered: typeof notifs = [];
-      for (const id of orderedIds) {
-        const tab = idToTab.get(id);
-        if (tab) {
-          const persisted = enabledMap.get(id);
-          reordered.push(persisted !== undefined ? { ...tab, enabled: persisted } : tab);
-          idToTab.delete(id);
-        }
-      }
-      // Append any tabs not present in the saved order (new builds).
-      for (const tab of idToTab.values()) reordered.push(tab);
-      if (reordered.length === notifs.length) {
-        notifs = reordered;
-      }
-    } catch {
-      // Corrupt JSON — ignore and use defaults.
-    }
-  }
-
-  // Phase 8.7h — open the notif manager popout. Passes a getTabs getter
-  // so the popout sees fresh state on every render (notifs reassigns
-  // immutably on each toggle).
-  function openNotifManager() {
-    popouts.summon({
-      content: {
-        kind: 'notif-manager',
-        getTabs: () => notifs.map((n) => ({
-          id: n.id,
-          title: n.title,
-          icon: n.icon,
-          enabled: n.enabled,
-          detected: n.detected,
-        })),
-        onToggle: toggleNotif,
-        onReset: resetNotifs,
-      },
-      width: 'min(560px, 80vw)',
-    });
-  }
-
-  // §10.9 — viewing or promoting a notif tab acknowledges its badge.
-  // Called from activateNotif (above) and promoteTab (below).
-  function ackUnread(id: string) {
-    notifs = notifs.map((n) => (n.id === id && n.unreadCount > 0 ? { ...n, unreadCount: 0 } : n));
-  }
-
-  // Phase 3.5a — promote a notif tab to the right-side pane.
-  // Reassigning `promoted` enforces max-1 (a 2nd promote auto-replaces the 1st).
-  // `active` is never `notification` (notif tabs only ever live in `promoted`),
-  // so the prior fallback-recompute branch was unreachable and has been removed.
-  function promoteTab(id: string) {
-    promoted = id;
-    ackUnread(id); // §10.9 — promotion = view, clear the badge
-    persistWorkspace();
-  }
-  function demoteTab() {
-    promoted = null;
-    // active stays as-is — user clicks the tab in the strip to view it again.
-    persistWorkspace();
-  }
-
-  function notifAccent(id: string): 'amber' | 'cyan' | 'purple' | 'red' {
-    if (id === 'hooks') return 'cyan';
-    if (id === 'errors') return 'red';
-    return 'amber';
-  }
-  // The promoted tab's data — looked up fresh from `notifs` so its
-  // enabled/title/icon stay reactive with toggles.
-  const promotedTab = $derived.by(() => {
-    if (promoted === null) return undefined;
-    return notifs.find((n) => n.id === promoted);
-  });
-
-  // Notification tab detach-to-window state.
-  // Tracks which tabs are currently hosted in their own Tauri windows.
-  let detachedIds = $state<Set<string>>(new Set());
-
-  async function detachNotif(id: string) {
-    if (detachedIds.has(id)) return;
-    // If promoted, demote first — can't be both promoted and detached.
-    if (promoted === id) promoted = null;
-
-    const tab = notifs.find((n) => n.id === id);
-    if (!tab) return;
-
-    try {
-      await invoke('notif_detach', {
-        args: {
-          tabId: id,
-          category: CATEGORY_BY_NOTIF[id] ?? '',
-          title: tab.title,
-          icon: tab.icon,
-          severityThreshold: thresholdFor(id),
-        },
-      });
-      detachedIds = new Set([...detachedIds, id]);
-    } catch (err) {
-      console.warn('[App] notif_detach failed:', err);
-    }
-  }
-
-  // Dock events arrive from Rust when the user clicks DOCK or closes the window.
-  $effect(() => {
-    let cancelled = false;
-    let unlisten: (() => void) | undefined;
-
-    void (async () => {
-      const u = await listen<{ tabId: string }>('notif_docked', (event) => {
-        const next = new Set(detachedIds);
-        next.delete(event.payload.tabId);
-        detachedIds = next;
-      });
-      if (cancelled) {
-        u();
-      } else {
-        unlisten = u;
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-      unlisten?.();
-    };
-  });
-
-  // Recover detach state on mount (reload-recovery).
-  async function recoverDetachState() {
-    try {
-      const ids = await invoke<string[]>('notif_detach_status');
-      if (ids.length > 0) detachedIds = new Set(ids);
-    } catch {
-      // best-effort
-    }
-  }
 
   // Phase 6.2 — cockpit right pane header data.
   // Tree.svelte computes these internally and pushes them up via $bindable props.
@@ -711,7 +175,7 @@
     void (async () => {
       try {
         const u = await subscribe({}, (env) => {
-          const id = NOTIF_BY_CATEGORY[env.category];
+          const id = nm.NOTIF_BY_CATEGORY[env.category];
           if (!id) return;
           // Pty has many kinds in the long run; today only "command.submitted"
           // is published, but kind-filter here makes the policy explicit so
@@ -729,14 +193,14 @@
           //   warnings/sec on dead subscribers.
           if (env.category === 'system' && env.kind === 'notif.tabs') return;
           const now = Date.now();
-          const target = notifs.find((n) => n.id === id);
+          const target = nm.notifs.find((n) => n.id === id);
           if (!target) return;
-          const inView = promoted === id;
+          const inView = nm.promoted === id;
           // Skip reassignment when nothing observable changes — avoids
           // hundreds of Svelte reactivity triggers/sec under heavy bus traffic.
           const nextUnread = target.enabled ? (inView ? 0 : target.unreadCount + 1) : target.unreadCount;
           if (target.detected && target.lastActivityTs === now && target.unreadCount === nextUnread) return;
-          notifs = notifs.map((n) =>
+          nm.notifs = nm.notifs.map((n) =>
             n.id !== id ? n : {
               ...n,
               detected: true,
@@ -766,8 +230,8 @@
                   alertTriggered = { ...alertTriggered, [id]: false };
                 }, 2000);
               }
-              if (result.promote && promoted !== id) {
-                promoted = id;
+              if (result.promote && nm.promoted !== id) {
+                nm.promoted = id;
               }
               break;
             }
@@ -811,7 +275,7 @@
   // Updates repo basename instantly so the StatusLine reflects the active pane.
   // Full tilde-collapsed dir + git status still come from the Rust poll.
   $effect(() => {
-    const path = activeProjectPath;
+    const path = sm.activeProjectPath;
     if (!path) return;
     const parts = path.replace(/\\/g, '/').split('/');
     const name = parts[parts.length - 1];
@@ -841,7 +305,7 @@
 
       // Live-border tick — only update tickNow when at least one tab has
       // recent activity, otherwise the TabBar deriveds are already stable.
-      const hasRecentActivity = notifs.some(
+      const hasRecentActivity = nm.notifs.some(
         (n) => n.lastActivityTs !== null && (now - n.lastActivityTs) < LIVE_WINDOW_MS,
       );
       if (hasRecentActivity) tickNow = now;
@@ -951,30 +415,6 @@
     };
   });
 
-  // D-014 Phase B — publish `notif.tabs` snapshot to the bus whenever the
-  // catalog changes (toggle / reorder / detected flip). MCP `notif_tabs`
-  // tool reads the latest snapshot from the replay buffer; without this
-  // producer the tool returns an empty list. Debounced 500ms to avoid
-  // flooding the bus during burst activity (each incoming event mutates
-  // unreadCount which would otherwise republish the full catalog per-event).
-  $effect(() => {
-    const tabs = notifs.map((n) => ({
-      id: n.id,
-      title: n.title,
-      icon: n.icon,
-      enabled: n.enabled,
-      detected: n.detected,
-      unread_count: n.unreadCount,
-      last_activity_ts: n.lastActivityTs,
-    }));
-    const timer = setTimeout(() => {
-      void publish('system', 'notif.tabs', { tabs }).catch((err) => {
-        console.warn('[App] notif.tabs publish failed:', err);
-      });
-    }, 500);
-    return () => clearTimeout(timer);
-  });
-
   // Phase 8.6.1 — Category::Index enrichment subscription.
   // Populates enrichmentStore so Tree.svelte (8.6.2) can join enrichment data
   // onto fs_path nodes. Same svelte5-async-cleanup-via-sync-shell-iife +
@@ -1060,17 +500,17 @@
       }
       signalBusReady();
       const root = await invoke<string>('project_root_get');
-      initialProjectRoot = root;
-      if (sessions[0] && sessions[0].projectPath === null) {
-        sessions[0].projectPath = root;
+      sm.initialProjectRoot = root;
+      if (sm.sessions[0] && sm.sessions[0].projectPath === null) {
+        sm.sessions = sm.sessions.map((s, i) => i === 0 ? { ...s, projectPath: root } : s);
       }
     })();
 
     // Phase 8.7j — restore persisted notif tab order before any subscription
     // fires. Pure synchronous read of localStorage; ordering must settle
     // before TabBar renders to avoid a flicker.
-    applyPersistedNotifOrder();
-    applyPersistedWorkspace();
+    nm.applyPersistedNotifOrder();
+    nm.applyPersistedWorkspace();
 
     // Svelte 5's onMount requires a sync callback that optionally returns a
     // cleanup. Async init runs in an IIFE; cleanup captures unlisten handles
@@ -1083,7 +523,7 @@
     window.addEventListener('rift:show-welcome', showWelcomeGuide);
 
     // Load notification filter thresholds from config on mount.
-    void loadNotifFilters();
+    void nm.loadNotifFilters();
 
     // First-run welcome check — show overlay if config.first_run_completed is false.
     void (async () => {
@@ -1101,7 +541,7 @@
 
     // Re-read filters + appearance + alerts when Settings saves (rift:config-changed broadcast).
     const onConfigChanged = () => {
-      void loadNotifFilters();
+      void nm.loadNotifFilters();
       void loadAppearanceConfig();
       void loadAlertRules();
       invalidateTerminalSettingsCache();
@@ -1116,7 +556,7 @@
       }
 
       // Recover notification tab detach state on reload.
-      await recoverDetachState();
+      await nm.recoverDetachState();
 
       unlistenDetached = await listen('cockpit_detached', () => {
         cockpitDetached = true;
@@ -1227,21 +667,21 @@
         shortcutsOpen = !shortcutsOpen;
       }
       // Split-pane shortcuts — only when a session tab is active.
-      if (active.kind === 'session') {
+      if (sm.active.kind === 'session') {
         // Ctrl+Shift+E — split focused pane horizontally (top / bottom)
         if (e.ctrlKey && e.shiftKey && (e.key === 'E' || e.key === 'e')) {
           e.preventDefault();
-          handleSplit(focusedSessionId, 'hsplit');
+          sm.handleSplit(sm.focusedSessionId, 'hsplit');
         }
         // Ctrl+Shift+D — split focused pane vertically (left | right)
         if (e.ctrlKey && e.shiftKey && (e.key === 'D' || e.key === 'd')) {
           e.preventDefault();
-          handleSplit(focusedSessionId, 'vsplit');
+          sm.handleSplit(sm.focusedSessionId, 'vsplit');
         }
         // Ctrl+Shift+W — close the focused pane
         if (e.ctrlKey && e.shiftKey && (e.key === 'W' || e.key === 'w')) {
           e.preventDefault();
-          handleClosePane(focusedSessionId);
+          sm.handleClosePane(sm.focusedSessionId);
         }
       }
     };
@@ -1308,60 +748,60 @@
   {/if}
 
   <TabBar
-    {sessions}
-    {notifs}
-    {active}
+    sessions={sm.sessions}
+    notifs={nm.notifs}
+    active={sm.active}
     {tickNow}
-    promotedId={promoted}
-    onActivateSession={activateSession}
-    onActivateNotif={activateNotif}
-    onCloseSession={closeSession}
-    onAddSession={addSession}
-    onReorderSession={reorderSession}
-    onRenameSession={renameSession}
-    onToggleNotif={toggleNotif}
-    onPromote={promoteTab}
-    onDemote={demoteTab}
-    onManageNotifs={openNotifManager}
-    onReorderNotif={reorderNotif}
-    onDetach={detachNotif}
-    {detachedIds}
-    {multiProject}
+    promotedId={nm.promoted}
+    onActivateSession={sm.activateSession}
+    onActivateNotif={nm.activateNotif}
+    onCloseSession={sm.closeSession}
+    onAddSession={sm.addSession}
+    onReorderSession={sm.reorderSession}
+    onRenameSession={sm.renameSession}
+    onToggleNotif={nm.toggleNotif}
+    onPromote={nm.promoteTab}
+    onDemote={nm.demoteTab}
+    onManageNotifs={nm.openNotifManager}
+    onReorderNotif={nm.reorderNotif}
+    onDetach={nm.detachNotif}
+    detachedIds={nm.detachedIds}
+    multiProject={sm.multiProject}
     {cockpitCollapsed}
     {alertTriggered}
-    {deadSessions}
+    deadSessions={sm.deadSessions}
     onToggleCockpit={toggleCockpit}
   />
 
   <!-- Phase 6.2 — always-on cockpit: left = terminal surface, right = file tree -->
   <main class="cockpit">
     <!-- Left half: existing terminal / notification / empty surfaces + optional promoted pane -->
-    <div class="cockpit-left" class:split={promoted !== null} class:full-width={cockpitCollapsed || cockpitDetached}>
+    <div class="cockpit-left" class:split={nm.promoted !== null} class:full-width={cockpitCollapsed || cockpitDetached}>
       <div class="main-left">
         <!-- session terminals — keep all alive, hide inactive ones to preserve scrollback.
              Each session renders its layout tree via TerminalGrid so split panes work
              without requiring any backend changes. Only the active session is visible;
              inactive ones are display:none to preserve scrollback while unmounted. -->
-        {#each sessions as s (s.id)}
+        {#each sm.sessions as s (s.id)}
           <div
             class="surface"
-            class:visible={active.kind === 'session' && active.id === s.id}
+            class:visible={sm.active.kind === 'session' && sm.active.id === s.id}
           >
             <TerminalGrid
               node={s.layout}
               projectPath={s.projectPath}
-              bind:focusedId={focusedSessionId}
-              onSplit={handleSplit}
-              onClose={handleClosePane}
-              onFocus={(id) => { focusedSessionId = id; }}
-              onPtyExited={markPaneExited}
+              bind:focusedId={sm.focusedSessionId}
+              onSplit={sm.handleSplit}
+              onClose={sm.handleClosePane}
+              onFocus={(id) => { sm.focusedSessionId = id; }}
+              onPtyExited={sm.markPaneExited}
             />
           </div>
         {/each}
 
 
         <!-- empty state — no tabs open -->
-        {#if active.kind === 'empty'}
+        {#if sm.active.kind === 'empty'}
           <div class="surface visible empty-state">
             <div class="empty-card">
               <div class="empty-glyph">◆</div>
@@ -1376,7 +816,7 @@
            Independent NotificationPane / AegisTabContent instance (not driven by `active`).
            Re-keyed on the promoted id so the subscription resets cleanly
            when one promoted tab replaces another. -->
-      {#if promotedTab}
+      {#if nm.promotedTab}
         <Splitter
           direction="vertical"
           storageKey="rift.promoted.width_px"
@@ -1386,41 +826,41 @@
           max={800}
           onDblClick={() => (promotedPaneWidth = 420)}
         />
-        {#key promotedTab.id}
+        {#key nm.promotedTab.id}
           <aside class="promoted-pane" style="flex: 0 0 {promotedPaneWidth}px;">
-            {#if promotedTab.id === 'aegis'}
-              <AegisTabContent severityThreshold={thresholdFor('aegis')} onDragBack={demoteTab} />
-            {:else if promotedTab.id === 'index'}
-              <IndexTabContent onDragBack={demoteTab} />
-            {:else if promotedTab.id === 'bustail'}
-              <BusTailTabContent severityThreshold={thresholdFor('bustail')} onDragBack={demoteTab} {correlationIndex} />
-            {:else if promotedTab.id === 'todo'}
-              <TodoTabContent onDragBack={demoteTab} />
-            {:else if promotedTab.id === 'git'}
-              <GitTabContent onDragBack={demoteTab} />
-            {:else if promotedTab.id === 'agents'}
-              <AgentsTabContent severityThreshold={thresholdFor('agents')} onDragBack={demoteTab} />
-            {:else if promotedTab.id === 'filesystem'}
-              <FsTabContent severityThreshold={thresholdFor('filesystem')} onDragBack={demoteTab} />
-            {:else if promotedTab.id === 'mcp'}
-              <McpTabContent severityThreshold={thresholdFor('mcp')} onDragBack={demoteTab} {correlationIndex} />
-            {:else if promotedTab.id === 'sentinel'}
-              <SentinelTabContent severityThreshold={thresholdFor('sentinel')} onDragBack={demoteTab} />
-            {:else if promotedTab.id === 'sessions'}
-              <SessionsTabContent onDragBack={demoteTab} />
-            {:else if promotedTab.id === 'cmd-intelligence'}
+            {#if nm.promotedTab.id === 'aegis'}
+              <AegisTabContent severityThreshold={nm.thresholdFor('aegis')} onDragBack={nm.demoteTab} />
+            {:else if nm.promotedTab.id === 'index'}
+              <IndexTabContent onDragBack={nm.demoteTab} />
+            {:else if nm.promotedTab.id === 'bustail'}
+              <BusTailTabContent severityThreshold={nm.thresholdFor('bustail')} onDragBack={nm.demoteTab} {correlationIndex} />
+            {:else if nm.promotedTab.id === 'todo'}
+              <TodoTabContent onDragBack={nm.demoteTab} />
+            {:else if nm.promotedTab.id === 'git'}
+              <GitTabContent onDragBack={nm.demoteTab} />
+            {:else if nm.promotedTab.id === 'agents'}
+              <AgentsTabContent severityThreshold={nm.thresholdFor('agents')} onDragBack={nm.demoteTab} />
+            {:else if nm.promotedTab.id === 'filesystem'}
+              <FsTabContent severityThreshold={nm.thresholdFor('filesystem')} onDragBack={nm.demoteTab} />
+            {:else if nm.promotedTab.id === 'mcp'}
+              <McpTabContent severityThreshold={nm.thresholdFor('mcp')} onDragBack={nm.demoteTab} {correlationIndex} />
+            {:else if nm.promotedTab.id === 'sentinel'}
+              <SentinelTabContent severityThreshold={nm.thresholdFor('sentinel')} onDragBack={nm.demoteTab} />
+            {:else if nm.promotedTab.id === 'sessions'}
+              <SessionsTabContent onDragBack={nm.demoteTab} />
+            {:else if nm.promotedTab.id === 'cmd-intelligence'}
               <CommandIntelligencePanel
-                project={sessions.find(s => s.id === (active.kind === 'session' ? active.id : 0))?.projectPath?.split(/[\\/]/).pop() ?? null}
-                cwd={sessions.find(s => s.id === (active.kind === 'session' ? active.id : 0))?.projectPath ?? null}
+                project={sm.sessions.find(s => s.id === (sm.active.kind === 'session' ? sm.active.id : 0))?.projectPath?.split(/[\\/]/).pop() ?? null}
+                cwd={sm.sessions.find(s => s.id === (sm.active.kind === 'session' ? sm.active.id : 0))?.projectPath ?? null}
               />
             {:else}
               <NotificationPane
-                title={promotedTab.title}
-                icon={promotedTab.icon}
-                accent={notifAccent(promotedTab.id)}
-                categoryFilter={CATEGORY_BY_NOTIF[promotedTab.id]}
-                severityThreshold={thresholdFor(promotedTab.id)}
-                onDragBack={demoteTab}
+                title={nm.promotedTab.title}
+                icon={nm.promotedTab.icon}
+                accent={nm.notifAccent(nm.promotedTab.id)}
+                categoryFilter={nm.CATEGORY_BY_NOTIF[nm.promotedTab.id]}
+                severityThreshold={nm.thresholdFor(nm.promotedTab.id)}
+                onDragBack={nm.demoteTab}
               />
             {/if}
           </aside>
@@ -1517,7 +957,7 @@
   {#if paletteOpen}
     <CommandPalette
       onclose={() => { paletteOpen = false; }}
-      onActivateNotif={activateNotif}
+      onActivateNotif={nm.activateNotif}
     />
   {/if}
 
@@ -1529,10 +969,10 @@
     <WelcomeOverlay ondismiss={dismissWelcome} />
   {/if}
 
-  {#if pendingCloseId !== null}
+  {#if sm.pendingCloseId !== null}
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <!-- svelte-ignore a11y_click_events_have_key_events -->
-    <div class="close-confirm-backdrop" onclick={cancelClose}>
+    <div class="close-confirm-backdrop" onclick={sm.cancelClose}>
       <div
         class="close-confirm-dialog"
         onclick={(e) => e.stopPropagation()}
@@ -1543,8 +983,8 @@
       >
         <p>This tab has a running process. Close anyway?</p>
         <div class="close-confirm-actions">
-          <button class="rift-btn" onclick={cancelClose}>Cancel</button>
-          <button class="rift-btn danger" onclick={confirmClose}>Close</button>
+          <button class="rift-btn" onclick={sm.cancelClose}>Cancel</button>
+          <button class="rift-btn danger" onclick={sm.confirmClose}>Close</button>
         </div>
       </div>
     </div>
