@@ -1451,6 +1451,12 @@ Body text here.
             envelopes.push(env);
         }
 
+        // Truncate at walk.complete — macOS FSEvents replays stale creation
+        // events after the watcher starts, duplicating boot-walk envelopes.
+        if let Some(pos) = envelopes.iter().position(|e| e.kind == "walk.complete") {
+            envelopes.truncate(pos + 1);
+        }
+
         // Expect 3 vault.update + 1 walk.complete = 4 total.
         let vault_updates: Vec<_> = envelopes
             .iter()
