@@ -481,7 +481,7 @@ pub fn save_mcp_socket(socket_name: &str) -> Result<(), ConfigError> {
 }
 
 /// Check if a process with the given PID is alive.
-/// Uses `tasklist` on Windows, `kill -0` on Unix — no extra crate deps.
+/// Uses `tasklist` on Windows, `kill -0` via libc on Unix.
 #[cfg(windows)]
 fn is_process_alive(pid: u32) -> bool {
     std::process::Command::new("tasklist")
