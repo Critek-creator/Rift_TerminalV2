@@ -14,6 +14,7 @@
   import McpTabContent from './lib/McpTabContent.svelte';
   import SentinelTabContent from './lib/SentinelTabContent.svelte';
   import SessionsTabContent from './lib/SessionsTabContent.svelte';
+  import HealthTabContent from './lib/HealthTabContent.svelte';
   import { signalBusReady, type Category } from './lib/bus';
   import { parseSeverity, type SeverityLevel } from './lib/notifFilter';
 
@@ -223,6 +224,8 @@
           <McpTabContent {severityThreshold} />
         {:else if config.tabId === 'sentinel'}
           <SentinelTabContent {severityThreshold} />
+        {:else if config.tabId === 'health'}
+          <HealthTabContent {severityThreshold} />
         {:else if config.tabId === 'sessions'}
           <SessionsTabContent />
         {:else}

@@ -32,6 +32,7 @@ mod index_bridge {
 }
 mod command_history;
 mod file_preview;
+mod health_collector;
 mod integrations;
 mod mcp_host;
 mod notif_window;
@@ -1974,6 +1975,19 @@ pub fn run() {
                 tauri::async_runtime::spawn(async move {
                     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
                     rift_bus::translators::agent::spawn_agent_translator(agent_bus, agent_shutdown).await;
+                });
+            }
+
+            // Portfolio health collector — periodic background sweep that
+            // gathers vault staleness, sentinel violations, and git status
+            // for every Abyssal Arts project and publishes it as a
+            // `health.portfolio` envelope on Category::System.
+            // §9 compliant: uses std::fs + std::process::Command only.
+            {
+                let health_bus = app.state::<RiftBus>().inner().clone();
+                let health_shutdown = app.state::<ShutdownNotify>().handle();
+                tauri::async_runtime::spawn(async move {
+                    health_collector::spawn_health_collector(health_bus, health_shutdown).await;
                 });
             }
 

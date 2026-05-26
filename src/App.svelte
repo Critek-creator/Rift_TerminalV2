@@ -18,6 +18,7 @@
   import McpTabContent from './lib/McpTabContent.svelte';
   import SentinelTabContent from './lib/SentinelTabContent.svelte';
   import SessionsTabContent from './lib/SessionsTabContent.svelte';
+  import HealthTabContent from './lib/HealthTabContent.svelte';
   import StatusLine from './lib/StatusLine.svelte';
   import Popout from './lib/Popout.svelte';
   import Tree from './lib/Tree.svelte';
@@ -846,6 +847,8 @@
               <McpTabContent severityThreshold={nm.thresholdFor('mcp')} onDragBack={nm.demoteTab} {correlationIndex} />
             {:else if nm.promotedTab.id === 'sentinel'}
               <SentinelTabContent severityThreshold={nm.thresholdFor('sentinel')} onDragBack={nm.demoteTab} />
+            {:else if nm.promotedTab.id === 'health'}
+              <HealthTabContent severityThreshold={nm.thresholdFor('health')} onDragBack={nm.demoteTab} />
             {:else if nm.promotedTab.id === 'sessions'}
               <SessionsTabContent onDragBack={nm.demoteTab} />
             {:else if nm.promotedTab.id === 'cmd-intelligence'}

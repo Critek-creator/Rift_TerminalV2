@@ -147,6 +147,12 @@ const BUILTIN_TABS: TabDescriptor[] = [
     sections: [...STANDARD_SECTIONS],
     source: 'builtin',
   },
+  {
+    id: 'health', title: 'health', icon: '⊕',
+    category: 'system', detectedByDefault: true,
+    sections: [...STANDARD_SECTIONS],
+    source: 'builtin',
+  },
 ];
 
 // ---------------------------------------------------------------------------
