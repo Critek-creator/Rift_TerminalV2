@@ -112,7 +112,7 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         uses: EmbarkStudios/cargo-deny-action@v2
         with:
-          arguments: --warn unmaintained
+          command-arguments: --warn unmaintained
 
       # M13 — Verify public clones can build without the private aegis
       # feature. rift-aegis is in workspace members (stub tracked in git)

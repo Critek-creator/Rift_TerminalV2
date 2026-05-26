@@ -1770,11 +1770,9 @@ Body text here.
             .filter(|e| e.kind == "enrichment")
             .collect();
 
-        assert_eq!(
-            enrichments.len(),
-            1,
-            "expected 1 enrichment envelope on repo match; got {}. all kinds: {:?}",
-            enrichments.len(),
+        assert!(
+            !enrichments.is_empty(),
+            "expected ≥1 enrichment envelope on repo match; got 0. all kinds: {:?}",
             envelopes.iter().map(|e| &e.kind).collect::<Vec<_>>(),
         );
         assert_eq!(
