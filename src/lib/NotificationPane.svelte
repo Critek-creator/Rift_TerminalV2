@@ -223,11 +223,13 @@
         class:active={!paused}
         onclick={() => (paused = !paused)}
         title={paused ? 'resume' : 'pause'}
+        aria-label={paused ? 'Resume event stream' : 'Pause event stream'}
       >{paused ? '▶' : '⏸'}</button>
       <button type="button"
         class="ctrl-btn"
         onclick={clearEvents}
         title="clear"
+        aria-label="Clear events"
       >✕</button>
     {:else}
       <span class="meta">no integration registered — populates Phase 5+</span>

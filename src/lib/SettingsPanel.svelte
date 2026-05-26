@@ -788,7 +788,7 @@
         <button
           type="button"
           class="btn"
-          onclick={() => window.open('https://patreon.com/abyssalarts', '_blank')}
+          onclick={() => invoke('open_url', { url: 'https://www.patreon.com/cw/AbyssalArtsDev' })}
         >SUPPORT ON PATREON</button>
       </div>
     </section>
@@ -1747,7 +1747,7 @@
     color: var(--amber-warm);
     font-style: normal;
     background: var(--bg-elevated);
-    padding: 1px 4px;
+    padding: 1px var(--space-xs);
     border-radius: var(--radius-sm);
   }
 
@@ -1903,17 +1903,17 @@
   .banner-ok {
     border-color: var(--term-green);
     color: var(--term-green);
-    background: rgba(79, 232, 85, 0.04);
+    background: rgba(79, 232, 85, 0.05);
   }
   .banner-info {
     border-color: var(--amber-bright);
     color: var(--amber-warm);
-    background: rgba(255, 200, 64, 0.04);
+    background: rgba(255, 200, 64, 0.05);
   }
   .banner-fail {
     border-color: var(--term-red);
     color: var(--term-red);
-    background: rgba(255, 72, 72, 0.04);
+    background: rgba(255, 72, 72, 0.05);
   }
   .banner-title {
     color: var(--amber-bright);
@@ -2273,8 +2273,8 @@
   }
   .palette-preview {
     display: flex;
-    gap: 4px;
-    margin-top: 4px;
+    gap: var(--space-xs);
+    margin-top: var(--space-xs);
   }
   .palette-swatch {
     display: inline-flex;
@@ -2283,7 +2283,7 @@
     width: 28px;
     height: 20px;
     border-radius: 3px;
-    font-size: 9px;
+    font-size: var(--text-2xs);
     font-weight: 700;
     font-family: var(--font-family);
     letter-spacing: 0.04em;
@@ -2309,7 +2309,7 @@
     color: var(--amber-warm);
   }
   .disclosure-caret {
-    font-size: 10px;
+    font-size: var(--text-xs);
     color: var(--amber-faint);
   }
 </style>

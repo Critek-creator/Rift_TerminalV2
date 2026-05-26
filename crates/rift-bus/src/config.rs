@@ -429,10 +429,11 @@ pub fn mcp_socket_path() -> Result<PathBuf, ConfigError> {
 /// Read the discovery file and return the recorded socket name, or `None`
 /// if the file is absent or the owning process is dead.
 ///
-/// Format: `socket_name\nPID` (v2) or just `socket_name` (v1 compat).
-/// When a PID line is present, validates it against the OS process table.
-/// A stale file from a crashed Rift is detected and removed here — the
-/// caller never sees a socket name whose host is confirmed dead.
+/// When a sidecar `.pid` file exists alongside the discovery file, validates
+/// the PID against the OS process table. A stale file from a crashed Rift is
+/// detected and removed here — the caller never sees a socket name whose
+/// host is confirmed dead. The socket file itself stays plain text (just the
+/// socket name) for backwards compatibility with older `rift-mcp` binaries.
 pub fn load_mcp_socket() -> Result<Option<String>, ConfigError> {
     let path = mcp_socket_path()?;
     match std::fs::read_to_string(&path) {
@@ -441,43 +442,41 @@ pub fn load_mcp_socket() -> Result<Option<String>, ConfigError> {
             if trimmed.is_empty() {
                 return Ok(None);
             }
-            let mut lines = trimmed.lines();
-            let socket_name = match lines.next() {
-                Some(s) if !s.is_empty() => s.to_string(),
-                _ => return Ok(None),
-            };
-            if let Some(pid_str) = lines.next() {
-                if let Ok(pid) = pid_str.parse::<u32>() {
+            let pid_path = path.with_extension("pid");
+            if let Ok(pid_str) = std::fs::read_to_string(&pid_path) {
+                if let Ok(pid) = pid_str.trim().parse::<u32>() {
                     if !is_process_alive(pid) {
                         tracing::info!(
                             pid,
-                            socket = %socket_name,
+                            socket = %trimmed,
                             "mcp_socket discovery: stale file (PID dead) — removing"
                         );
                         let _ = std::fs::remove_file(&path);
+                        let _ = std::fs::remove_file(&pid_path);
                         return Ok(None);
                     }
                 }
             }
-            Ok(Some(socket_name))
+            Ok(Some(trimmed))
         }
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(e) => Err(ConfigError::Io(e)),
     }
 }
 
-/// Atomically write the current host's socket name + PID to the discovery
-/// file. The PID lets readers skip stale sockets from crashed hosts without
-/// attempting a connect (which hangs for seconds on Windows named pipes).
+/// Atomically write the current host's socket name to the discovery file,
+/// plus a sidecar `.pid` file so readers can detect stale sockets from
+/// crashed hosts without attempting a connect (which hangs for seconds on
+/// Windows named pipes). The socket file stays plain text for backwards compat.
 pub fn save_mcp_socket(socket_name: &str) -> Result<(), ConfigError> {
     let path = mcp_socket_path()?;
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
     let tmp = path.with_extension("tmp");
-    let content = format!("{}\n{}", socket_name, std::process::id());
-    std::fs::write(&tmp, content)?;
+    std::fs::write(&tmp, socket_name)?;
     std::fs::rename(&tmp, &path)?;
+    let _ = std::fs::write(path.with_extension("pid"), std::process::id().to_string());
     Ok(())
 }
 
@@ -502,6 +501,7 @@ fn is_process_alive(pid: u32) -> bool {
 /// slate (and so a stopped host can't masquerade as live).
 pub fn clear_mcp_socket() -> Result<(), ConfigError> {
     let path = mcp_socket_path()?;
+    let _ = std::fs::remove_file(path.with_extension("pid"));
     match std::fs::remove_file(&path) {
         Ok(()) => Ok(()),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),

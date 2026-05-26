@@ -693,7 +693,7 @@
     align-items: center;
     justify-content: center;
     gap: var(--space-8);
-    padding: 48px var(--space-lg);
+    padding: var(--space-4xl)var(--space-lg);
     color: var(--amber-faint);
     font-size: var(--text-sm);
     font-style: italic;
@@ -710,7 +710,7 @@
     align-items: center;
     justify-content: center;
     gap: var(--space-12);
-    padding: 48px var(--space-24);
+    padding: var(--space-4xl)var(--space-24);
     color: var(--term-red);
     font-size: var(--text-sm);
     text-align: center;

@@ -570,7 +570,7 @@
     background: var(--bg-elevated);
     border: 1px solid var(--border-subtle);
     border-radius: var(--radius-md);
-    padding: 8px 10px;
+    padding: var(--space-8) var(--space-md);
     min-width: 160px;
     max-width: 280px;
     box-shadow: var(--shadow-flyout);
@@ -582,8 +582,8 @@
     font-weight: 700;
     font-size: var(--text-sm);
     letter-spacing: 0.06em;
-    margin-bottom: 4px;
-    padding-bottom: 4px;
+    margin-bottom: var(--space-xs);
+    padding-bottom: var(--space-xs);
     box-shadow: var(--sep-depth);
   }
 
@@ -631,7 +631,7 @@
     display: flex;
     align-items: center;
     gap: var(--space-12);
-    padding: 6px 14px;
+    padding: var(--space-sm) var(--space-14);
     box-shadow: var(--sep-depth);
     flex-shrink: 0;
   }
@@ -646,7 +646,7 @@
     font-size: var(--text-2xs);
     font-weight: 700;
     letter-spacing: 0.08em;
-    padding: 1px 6px;
+    padding: 1px var(--space-sm);
     border: 1px solid currentColor;
   }
 
@@ -663,7 +663,7 @@
     color: var(--amber-faint);
     font-family: var(--font-family);
     font-size: var(--text-xs);
-    padding: 1px 6px;
+    padding: 1px var(--space-sm);
     cursor: pointer;
     border-radius: var(--radius-sm);
     transition: color var(--duration-base) ease-out, border-color var(--duration-base) ease-out;
@@ -680,7 +680,7 @@
   .detail-body {
     flex: 1;
     overflow-y: auto;
-    padding: 8px 14px 12px;
+    padding: var(--space-8) var(--space-14) var(--space-12);
     display: flex;
     flex-direction: column;
     gap: var(--space-8);
@@ -691,14 +691,14 @@
     font-size: var(--text-2xs);
     font-weight: 700;
     letter-spacing: 0.12em;
-    margin-bottom: 4px;
+    margin-bottom: var(--space-xs);
   }
 
   .detail-payload {
     background: var(--bg-base);
     border: 1px solid var(--border-subtle);
     border-radius: var(--radius-sm);
-    padding: 8px 10px;
+    padding: var(--space-8) var(--space-md);
     font-family: var(--font-family);
     font-size: var(--text-xs);
     color: var(--amber-dim);

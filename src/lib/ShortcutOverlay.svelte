@@ -104,7 +104,7 @@
     font-size: var(--text-2xs);
     font-weight: 700;
     letter-spacing: 0.1em;
-    padding: 2px 8px;
+    padding: 2px var(--space-8);
     cursor: pointer;
     transition: color 0.12s, border-color 0.12s;
   }
@@ -115,7 +115,7 @@
 
   .overlay-body {
     overflow-y: auto;
-    padding: 8px 0 12px;
+    padding: var(--space-8)0 12px;
   }
   .overlay-body::-webkit-scrollbar { width: 5px; }
   .overlay-body::-webkit-scrollbar-thumb { background: var(--amber-faint, #A87830); }
@@ -133,9 +133,9 @@
     letter-spacing: 0.12em;
     color: var(--amber-faint, #A87830);
     text-transform: uppercase;
-    padding: 6px 0 4px;
+    padding: var(--space-sm)0 4px;
     border-bottom: 1px solid rgba(168, 120, 48, 0.15);
-    margin-bottom: 4px;
+    margin-bottom: var(--space-xs);
   }
 
   .binding-row {
@@ -156,7 +156,7 @@
     font-family: inherit;
     font-size: var(--text-sm);
     font-weight: 600;
-    padding: 2px 8px;
+    padding: 2px var(--space-8);
     white-space: nowrap;
   }
 

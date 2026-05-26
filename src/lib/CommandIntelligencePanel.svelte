@@ -207,7 +207,7 @@
 
   .project-badge {
     font-size: var(--text-2xs);
-    padding: 1px 6px;
+    padding: 1px var(--space-sm);
     border: 1px solid var(--amber-faint);
     border-radius: var(--radius-sm);
     color: var(--amber-dim);

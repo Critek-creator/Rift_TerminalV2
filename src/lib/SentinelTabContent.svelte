@@ -192,8 +192,9 @@
       class:active={!paused}
       onclick={() => (paused = !paused)}
       title={paused ? 'resume' : 'pause'}
+      aria-label={paused ? 'Resume event stream' : 'Pause event stream'}
     >{paused ? '▶' : '⏸'}</button>
-    <button type="button" class="ctrl-btn" onclick={clearEvents} title="clear">✕</button>
+    <button type="button" class="ctrl-btn" onclick={clearEvents} title="clear" aria-label="Clear events">✕</button>
   </header>
 
   <div class="strip">
@@ -372,7 +373,7 @@
     padding: 0 var(--space-14);
     box-shadow: var(--sep-depth);
     display: flex; align-items: center; gap: var(--space-14);
-    background: linear-gradient(to bottom, rgba(255, 72, 72, 0.04), transparent);
+    background: linear-gradient(to bottom, rgba(255, 72, 72, 0.05), transparent);
     color: var(--amber-dim);
     font-size: var(--text-xs);
     letter-spacing: 0.1em;
@@ -475,7 +476,7 @@
     font-weight: 600;
     letter-spacing: 0.06em;
   }
-  .clear-icon { font-size: 16px; }
+  .clear-icon { font-size: var(--text-xl); }
 
   .row {
     display: flex;

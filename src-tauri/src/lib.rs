@@ -558,7 +558,6 @@ async fn pty_start(
     cached_config: State<'_, CachedConfig>,
     rows: u16,
     cols: u16,
-    on_chunk: Channel<Vec<u8>>,
     cwd: Option<String>,
 ) -> Result<u32, String> {
     let dims = PtyDims {
@@ -724,7 +723,7 @@ async fn pty_start(
                         }
                         None => chunk,
                     };
-                    if on_chunk.send(out).is_err() { break; }
+                    if drain_app.emit_to("main", "pty-chunk", serde_json::json!({ "id": id, "bytes": out })).is_err() { break; }
                 }
                 // L2 hook events: inject HookStart/HookEnd lane transitions.
                 hook_result = async {
@@ -1172,6 +1171,40 @@ async fn aegis_open_settings() -> Result<(), String> {
 #[tauri::command]
 async fn index_open_vault_root() -> Result<(), String> {
     open_in_os_editor(".claude/abyssal-index")
+}
+
+/// Open a URL in the user's default browser.
+/// Only http:// and https:// URLs are allowed to prevent shell injection.
+#[tauri::command]
+async fn open_url(url: String) -> Result<(), String> {
+    if !url.starts_with("http://") && !url.starts_with("https://") {
+        return Err("open_url: only http:// and https:// URLs are allowed".into());
+    }
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        std::process::Command::new("cmd")
+            .args(["/C", "start", "", &url])
+            .creation_flags(CREATE_NO_WINDOW)
+            .status()
+            .map_err(|e| e.to_string())?;
+    }
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg(&url)
+            .status()
+            .map_err(|e| e.to_string())?;
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    {
+        std::process::Command::new("xdg-open")
+            .arg(&url)
+            .status()
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
 }
 
 /// Phase 8.7i — TODO/FIXME/XXX/HACK scan over the active project root.
@@ -2042,6 +2075,7 @@ pub fn run() {
             notif_window::notif_detach_status,
             aegis_open_lessons,
             aegis_open_settings,
+            open_url,
             index_open_vault_root,
             todo_scan_command,
             git_status_command,
@@ -2107,6 +2141,12 @@ pub fn run() {
                 // Destroy any live notification pop-out windows so they
                 // don't hold the process alive after main closes.
                 notif_window::destroy_all(app_handle);
+                // The cockpit window uses prevent_close() + hide() for fast
+                // re-detach, which means it survives the main window closing
+                // and keeps the process alive. Destroy it explicitly here.
+                if let Some(w) = app_handle.get_webview_window("cockpit-detached") {
+                    let _ = w.destroy();
+                }
             }
         });
 }

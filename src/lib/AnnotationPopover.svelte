@@ -151,7 +151,7 @@
   }
 
   .popover-header {
-    padding: var(--space-8) 12px;
+    padding: var(--space-8) var(--space-12);
     background: var(--bg-surface);
     box-shadow: var(--sep-depth);
     display: flex;
@@ -174,7 +174,7 @@
   }
 
   .popover-body {
-    padding: var(--space-md) 12px;
+    padding: var(--space-md) var(--space-12);
     display: flex;
     flex-direction: column;
     gap: var(--space-md);
@@ -221,7 +221,7 @@
   .tag-chip {
     display: inline-flex;
     align-items: center;
-    padding: 2px 8px;
+    padding: 2px var(--space-8);
     background: transparent;
     border: 1px solid var(--border-subtle);
     border-radius: var(--radius-sm);
@@ -244,7 +244,7 @@
   }
 
   .popover-footer {
-    padding: var(--space-8) 12px;
+    padding: var(--space-8) var(--space-12);
     border-top: 1px solid var(--border-subtle);
     display: flex;
     align-items: center;

@@ -256,7 +256,7 @@
     box-shadow: var(--sep-glow);
     display: flex;
     align-items: center;
-    padding: 0 12px;
+    padding: 0 var(--space-12);
     user-select: none;
     flex-shrink: 0;
   }
@@ -271,7 +271,7 @@
 
   .glyph {
     color: var(--amber-bright);
-    margin-right: 6px;
+    margin-right: var(--space-sm);
   }
 
   .sub {
@@ -279,7 +279,7 @@
     font-size: var(--text-xs);
     font-weight: 400;
     letter-spacing: 0.12em;
-    margin-left: 4px;
+    margin-left: var(--space-xs);
   }
 
   .spacer {
@@ -384,7 +384,7 @@
     flex-direction: column;
     min-height: 0;
     overflow-y: auto;
-    padding: 4px 0;
+    padding: var(--space-xs)0;
   }
 
   .tree-body::-webkit-scrollbar {

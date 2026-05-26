@@ -21,6 +21,7 @@
   let triggerEl: HTMLButtonElement = $state(undefined!);
   let dropdownEl: HTMLDivElement = $state(undefined!);
   let errorMsg = $state('');
+  let errorTimer: ReturnType<typeof setTimeout> | undefined;
 
   const displayName = $derived(activeProfile ?? 'default');
 
@@ -49,7 +50,8 @@
 
   function showError(msg: string) {
     errorMsg = msg;
-    setTimeout(() => { errorMsg = ''; }, 3000);
+    if (errorTimer) clearTimeout(errorTimer);
+    errorTimer = setTimeout(() => { errorMsg = ''; errorTimer = undefined; }, 3000);
   }
 
   async function selectProfile(name: string) {
@@ -145,6 +147,7 @@
   onDestroy(() => {
     document.removeEventListener('click', handleClickOutside, true);
     document.removeEventListener('keydown', handleKeydown);
+    if (errorTimer) clearTimeout(errorTimer);
   });
 </script>
 
@@ -233,7 +236,7 @@
     display: inline-flex;
     align-items: center;
     gap: var(--space-xs);
-    padding: 2px 8px;
+    padding: 2px var(--space-8);
     background: transparent;
     border: 1px solid var(--amber-faint);
     border-radius: 10px;
@@ -329,7 +332,7 @@
 
   .item-filter {
     font-size: var(--text-2xs);
-    padding: 0 4px;
+    padding: 0 var(--space-xs);
     border: 1px solid var(--border-subtle);
     border-radius: var(--radius-sm);
     color: var(--amber-faint);
@@ -390,7 +393,7 @@
     color: var(--amber-bright);
     font-size: var(--text-xs);
     font-family: var(--font-family, 'JetBrains Mono', monospace);
-    padding: 3px 6px;
+    padding: 3px var(--space-sm);
     outline: none;
   }
 
@@ -410,7 +413,7 @@
     color: var(--amber-dim);
     font-size: var(--text-xs);
     font-family: var(--font-family, 'JetBrains Mono', monospace);
-    padding: 2px 8px;
+    padding: 2px var(--space-8);
     cursor: pointer;
     transition: border-color var(--duration-fast) var(--ease-out),
                 color var(--duration-fast) var(--ease-out);

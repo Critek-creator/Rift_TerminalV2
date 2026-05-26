@@ -258,7 +258,7 @@
     box-shadow: var(--sep-glow);
     display: flex;
     align-items: center;
-    padding: 0 12px;
+    padding: 0 var(--space-12);
     user-select: none;
     flex-shrink: 0;
   }
@@ -273,7 +273,7 @@
 
   .glyph {
     color: var(--amber-bright);
-    margin-right: 6px;
+    margin-right: var(--space-sm);
   }
 
   .sub {
@@ -281,7 +281,7 @@
     font-size: var(--text-xs);
     font-weight: 400;
     letter-spacing: 0.12em;
-    margin-left: 4px;
+    margin-left: var(--space-xs);
   }
 
   .spacer {
@@ -344,7 +344,7 @@
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 12px;
+    gap: var(--space-12);
     color: var(--amber-faint);
     user-select: none;
   }

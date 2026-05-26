@@ -382,7 +382,7 @@
     padding: 0 var(--space-xs);
     background: rgba(255, 168, 38, 0.15);
     border-radius: 7px;
-    font-size: 8px;
+    font-size: var(--text-2xs);
     font-weight: 700;
     color: var(--amber-bright);
   }
@@ -427,7 +427,7 @@
 
   /* Bookmark rows */
   .bm-row {
-    padding: 4px 0;
+    padding: var(--space-xs)0;
     border-bottom: 1px solid rgba(42, 36, 24, 0.5);
   }
   .bm-row:last-child {
@@ -502,7 +502,7 @@
   }
 
   .bm-annotation {
-    margin-left: 20px;
+    margin-left: var(--space-xl);
     margin-top: 2px;
     display: flex;
     flex-direction: column;
@@ -518,7 +518,7 @@
     padding: 0 var(--space-xs);
     border: 1px solid;
     border-radius: 2px;
-    font-size: 8px;
+    font-size: var(--text-2xs);
     font-weight: 600;
     letter-spacing: 0.06em;
     line-height: 14px;

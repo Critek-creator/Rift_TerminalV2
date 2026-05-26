@@ -226,7 +226,7 @@
   }
 
   .header-icon {
-    font-size: 16px;
+    font-size: var(--text-xl);
     color: var(--amber-bright, #FFC840);
     text-shadow: var(--glow-amber-faint);
   }
@@ -265,7 +265,7 @@
 
   .step-title {
     margin: 0 0 var(--space-12);
-    font-size: 16px;
+    font-size: var(--text-xl);
     font-weight: 700;
     color: var(--amber-bright, #FFC840);
     letter-spacing: 0.02em;
@@ -363,7 +363,7 @@
     padding: var(--space-8) var(--space-md);
     border: 1px solid var(--border-subtle, rgba(255, 168, 38, 0.15));
     border-radius: var(--radius-sm, 4px);
-    background: rgba(255, 168, 38, 0.03);
+    background: rgba(255, 168, 38, 0.05);
   }
   .integration-status {
     font-size: var(--text-md);

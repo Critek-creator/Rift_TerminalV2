@@ -8,7 +8,7 @@
 
 use std::sync::Arc;
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use serde_json::{json, Value};
 use tokio::io::AsyncWriteExt;
 use tokio::sync::{watch, Mutex};
@@ -50,6 +50,11 @@ pub const BUS_TAIL_NOTIFY_METHOD: &str = "notifications/rift/bus_tail";
 /// reissuing bus_history to resync."
 pub const BUS_TAIL_LAGGED_METHOD: &str = "notifications/rift/bus_tail.lagged";
 
+/// How long a cached bridge stays alive without a tool call before being
+/// dropped. Short enough that stale pipes are detected quickly; long
+/// enough that a burst of tool calls reuses the same connection.
+const BRIDGE_IDLE_TTL: std::time::Duration = std::time::Duration::from_secs(5);
+
 /// Connect to the host and spawn a notification forwarder task.
 ///
 /// Returns the bridge wrapped in an `Arc`. The notification forwarder
@@ -75,35 +80,72 @@ async fn connect_and_forward(
     Ok(bridge)
 }
 
+/// Acquire a bridge — reuse cached if alive, otherwise connect fresh.
+///
+/// This is the core of the connect-per-request architecture. Every tool
+/// call flows through here instead of holding a permanent bridge. The
+/// cache avoids repeated handshakes during bursts (e.g., rapid tool calls).
+/// When Rift restarts, the next tool call finds the stale bridge's
+/// `call()` erroring and `get_or_connect` replaces it transparently.
+async fn get_or_connect(
+    cached: &Mutex<Option<Arc<HostBridge>>>,
+    cfg: &McpServerConfig,
+    stdout: &Arc<Mutex<tokio::io::Stdout>>,
+    ready: watch::Receiver<bool>,
+) -> Result<Arc<HostBridge>, BridgeError> {
+    {
+        let guard = cached.lock().await;
+        if let Some(ref b) = *guard {
+            return Ok(b.clone());
+        }
+    }
+    let bridge = connect_and_forward(cfg, stdout, ready).await?;
+    *cached.lock().await = Some(bridge.clone());
+    Ok(bridge)
+}
+
 /// Run the stdio JSON-RPC loop.
 ///
-/// Reads newline-delimited JSON-RPC requests on stdin, dispatches to a
-/// handler, writes responses to stdout. Long-running tools (e.g.
-/// `bus_tail`) emit notifications via a parallel task that listens on
-/// the host bridge's notification channel.
+/// Connect-per-request architecture: each `tools/call` acquires a bridge
+/// via `get_or_connect` (cached for 5 seconds). When the bridge errors
+/// (Rift restarted, pipe died), the cache is cleared and the next call
+/// gets a fresh connection. No reconnect loops, no exponential backoff.
 ///
-/// Connects to the Rift host and completes the MCP handshake before the
-/// first request is read. Handshake failures bubble up to `main`.
-///
-/// Auto-reconnects when the host disconnects (e.g. Rift restarts). The
-/// MCP server stays alive on stdin/stdout throughout — only tool calls
-/// that arrive mid-reconnect receive a transient error.
+/// Protocol methods (`initialize`, `ping`, `tools/list`) are answered
+/// locally without touching the bridge.
 pub async fn run_stdio(cfg: McpServerConfig) -> Result<()> {
     use tokio::io::{AsyncBufReadExt, BufReader};
 
-    // Stdout is shared between the request/response loop and the
-    // notification-forwarder task. Mutex serialises frames so partial
-    // writes can't interleave on the wire.
     let stdout = Arc::new(Mutex::new(tokio::io::stdout()));
-
-    // Ready gate: the notification forwarder holds until the MCP
-    // initialized handshake completes. Writing to stdout before the
-    // client is ready crashes Claude Code's message parser.
     let (ready_tx, ready_rx) = watch::channel(false);
 
-    let mut bridge = connect_and_forward(&cfg, &stdout, ready_rx.clone())
-        .await
-        .context("connect to Rift host")?;
+    // Cached bridge — populated on first tool call, cleared on error,
+    // expired after BRIDGE_IDLE_TTL of inactivity.
+    let cached_bridge: Arc<Mutex<Option<Arc<HostBridge>>>> = Arc::new(Mutex::new(None));
+
+    // Idle timer: drop the cached bridge after BRIDGE_IDLE_TTL so stale
+    // pipes from a stopped Rift are detected on the next call.
+    let idle_cached = cached_bridge.clone();
+    let _idle_task = tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(BRIDGE_IDLE_TTL).await;
+            let mut guard = idle_cached.lock().await;
+            if guard.is_some() {
+                *guard = None;
+            }
+        }
+    });
+
+    // Initial connection — fail fast if Rift isn't running so the user
+    // sees a clear error at session start instead of on first tool call.
+    match connect_and_forward(&cfg, &stdout, ready_rx.clone()).await {
+        Ok(b) => {
+            *cached_bridge.lock().await = Some(b);
+        }
+        Err(e) => {
+            eprintln!("rift-mcp: initial connect failed (will retry on first tool call): {e}");
+        }
+    }
 
     let stdin = tokio::io::stdin();
     let mut reader = BufReader::new(stdin).lines();
@@ -116,20 +158,13 @@ pub async fn run_stdio(cfg: McpServerConfig) -> Result<()> {
         let req: Request = match serde_json::from_str(trimmed) {
             Ok(r) => r,
             Err(e) => {
-                // Cannot determine the request id from unparseable JSON.
-                // Responding with id:null crashes Claude Code's parser,
-                // so log to stderr and drop instead.
                 eprintln!("rift-mcp: parse error (dropped): {e}");
                 continue;
             }
         };
 
-        // JSON-RPC 2.0: notifications have no id (absent → null via
-        // serde default). Servers MUST NOT respond to notifications.
         let is_notification = req.id.is_null();
 
-        // Open the notification-forwarder gate once the client confirms
-        // it is ready for server-initiated messages.
         if req.method == "notifications/initialized" || req.method == "initialized" {
             let _ = ready_tx.send(true);
         }
@@ -138,28 +173,68 @@ pub async fn run_stdio(cfg: McpServerConfig) -> Result<()> {
             continue;
         }
 
-        let resp = dispatch(&bridge, req.clone()).await;
-
-        // Reconnect on disconnect/pipe errors — retry the call once.
-        if needs_reconnect(&resp) {
-            eprintln!("rift-mcp: host disconnected, reconnecting...");
-            match try_reconnect(&cfg, &stdout, ready_rx.clone()).await {
-                Some(new_bridge) => {
-                    bridge = new_bridge;
-                    eprintln!("rift-mcp: reconnected");
-                    let retry = dispatch(&bridge, req).await;
-                    write_response(&stdout, &retry).await?;
-                    continue;
-                }
-                None => {
-                    eprintln!("rift-mcp: reconnect failed — returning error to client");
-                }
-            }
-        }
+        let resp = dispatch_with_retry(&cached_bridge, &cfg, &stdout, ready_rx.clone(), req).await;
 
         write_response(&stdout, &resp).await?;
     }
     Ok(())
+}
+
+/// Dispatch a request. On bridge error, clear cache and retry ONCE with a
+/// fresh connection. No backoff — if Rift is alive, the retry connects in
+/// <100ms. If Rift is dead, the retry fails immediately.
+async fn dispatch_with_retry(
+    cached: &Mutex<Option<Arc<HostBridge>>>,
+    cfg: &McpServerConfig,
+    stdout: &Arc<Mutex<tokio::io::Stdout>>,
+    ready: watch::Receiver<bool>,
+    req: Request,
+) -> Response {
+    let id = req.id.clone();
+
+    // Protocol methods don't need the bridge.
+    match dispatch_protocol(req.clone(), id.clone()) {
+        Ok(resp) => return resp,
+        Err(_call_req) => {}
+    }
+
+    // First attempt — use cached bridge or connect fresh.
+    let bridge = match get_or_connect(cached, cfg, stdout, ready.clone()).await {
+        Ok(b) => b,
+        Err(e) => {
+            return Response::error(id, ErrorCode::InternalError, format!("connect failed: {e}"));
+        }
+    };
+
+    let resp = handle_tools_call(
+        &bridge,
+        id.clone(),
+        req.params.clone().unwrap_or(Value::Null),
+    )
+    .await;
+
+    if !needs_reconnect(&resp) {
+        return resp;
+    }
+
+    // Bridge is broken — clear cache and retry once.
+    eprintln!("rift-mcp: bridge error, reconnecting...");
+    *cached.lock().await = None;
+
+    let bridge = match get_or_connect(cached, cfg, stdout, ready).await {
+        Ok(b) => b,
+        Err(e) => {
+            eprintln!("rift-mcp: reconnect failed: {e}");
+            return Response::error(
+                id,
+                ErrorCode::InternalError,
+                format!("reconnect failed: {e}"),
+            );
+        }
+    };
+
+    eprintln!("rift-mcp: reconnected");
+    handle_tools_call(&bridge, id, req.params.unwrap_or(Value::Null)).await
 }
 
 /// Check whether a response indicates the host bridge is broken.
@@ -171,27 +246,6 @@ fn needs_reconnect(resp: &Response) -> bool {
                 || e.message.contains("ipc:")
                 || e.message.contains("timed out"))
     })
-}
-
-/// Attempt to reconnect with exponential backoff (5 attempts, 1s base,
-/// ~31s total window). Re-reads the discovery file each attempt since the
-/// socket name changes on Rift restart.
-async fn try_reconnect(
-    cfg: &McpServerConfig,
-    stdout: &Arc<Mutex<tokio::io::Stdout>>,
-    ready: watch::Receiver<bool>,
-) -> Option<Arc<HostBridge>> {
-    for attempt in 0..5u32 {
-        let delay = std::time::Duration::from_millis(1000 * 2u64.pow(attempt));
-        tokio::time::sleep(delay).await;
-        match connect_and_forward(cfg, stdout, ready.clone()).await {
-            Ok(b) => return Some(b),
-            Err(e) => {
-                eprintln!("rift-mcp: reconnect attempt {} failed: {e}", attempt + 1);
-            }
-        }
-    }
-    None
 }
 
 /// Serialize and write a JSON-RPC frame (response OR notification) to
@@ -230,8 +284,6 @@ async fn run_notification_forwarder(
     stdout: Arc<Mutex<tokio::io::Stdout>>,
     mut ready: watch::Receiver<bool>,
 ) {
-    // Wait for the MCP initialized handshake before writing any
-    // notifications. Premature writes crash Claude Code's parser.
     while !*ready.borrow_and_update() {
         if ready.changed().await.is_err() {
             return;
@@ -245,7 +297,6 @@ async fn run_notification_forwarder(
                 let method = if kind == "mcp.notify.bus_tail" {
                     BUS_TAIL_NOTIFY_METHOD
                 } else {
-                    // Unknown notify kind — no client consumer wired yet.
                     continue;
                 };
                 let request_id = env
@@ -263,7 +314,6 @@ async fn run_notification_forwarder(
                     },
                 });
                 if write_frame(&stdout, &frame).await.is_err() {
-                    // stdout closed — host is shutting us down; just exit.
                     return;
                 }
             }
@@ -278,18 +328,6 @@ async fn run_notification_forwarder(
                 }
             }
             Err(RecvError::Closed) => return,
-        }
-    }
-}
-
-/// Dispatch a single JSON-RPC request. `tools/call` routes through the
-/// host bridge; everything else is answered locally.
-async fn dispatch(bridge: &HostBridge, req: Request) -> Response {
-    let id = req.id.clone();
-    match dispatch_protocol(req, id.clone()) {
-        Ok(resp) => resp,
-        Err(call_req) => {
-            handle_tools_call(bridge, id, call_req.params.unwrap_or(Value::Null)).await
         }
     }
 }
@@ -380,9 +418,6 @@ async fn handle_tools_call(bridge: &HostBridge, id: Value, params: Value) -> Res
         }
     };
 
-    // bus_tail returns immediately with {stream_started: true} after the
-    // host has spawned its subscribe-publish task. Subsequent envelopes
-    // arrive via the notification forwarder, NOT through this response.
     match bridge.call(&call.name, &call.arguments).await {
         Ok(result) => Response::ok(id, tool_result_json(result)),
         Err(BridgeError::Tool { tool, message }) => Response::ok(
@@ -394,11 +429,6 @@ async fn handle_tools_call(bridge: &HostBridge, id: Value, params: Value) -> Res
 }
 
 /// Wrap a host result `Value` as an MCP `tools/call` response body.
-///
-/// MCP requires `content` (an array of typed parts). We encode structured
-/// payloads as a single `text` part containing the JSON serialisation, and
-/// also surface the structured form via `structuredContent` for clients
-/// that prefer to consume it directly.
 fn tool_result_json(result: Value) -> Value {
     let text = serde_json::to_string(&result).unwrap_or_else(|_| "null".into());
     json!({
@@ -450,23 +480,19 @@ mod tests {
             .map(|t| t["name"].as_str().unwrap())
             .collect();
         for expected in [
-            // Phase A
             "bus_history",
             "bus_tail",
             "git_status",
             "aegis_state",
-            // Phase B — Tier 1 read tools
             "fs_read",
             "fs_tree",
             "todo_scan",
             "pty_list",
             "cockpit_state",
             "notif_tabs",
-            // Phase C — Tier 2 inspection tools
             "dom_snapshot",
             "screenshot",
             "js_eval",
-            // Phase D — Tier 3 mutating + read tools
             "pty_input",
             "pty_read",
             "bus_publish",

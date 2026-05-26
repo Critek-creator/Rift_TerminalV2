@@ -104,7 +104,7 @@
   .manager-section {
     flex: 1;
     overflow-y: auto;
-    padding: 14px 18px 12px;
+    padding: var(--space-14) 18px var(--space-12);
   }
   .manager-section-label {
     font-size: var(--text-xs);
@@ -153,8 +153,8 @@
   .manager-toggle {
     display: flex;
     align-items: center;
-    gap: 12px;
-    padding: 8px 12px;
+    gap: var(--space-12);
+    padding: var(--space-8) var(--space-12);
     cursor: pointer;
     user-select: none;
   }
@@ -189,9 +189,9 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 10px 18px;
+    padding: var(--space-md) 18px;
     border-top: 1px solid var(--border-subtle);
-    gap: 12px;
+    gap: var(--space-12);
   }
   .manager-summary {
     color: var(--amber-faint);
@@ -203,7 +203,7 @@
     gap: var(--space-8);
   }
   .manager-btn {
-    padding: 5px 14px;
+    padding: 5px var(--space-14);
     font-family: inherit;
     font-size: var(--text-sm);
     letter-spacing: 0.1em;

@@ -377,7 +377,7 @@
   /* Phase 3.5a drag handle */
   .drag-handle {
     height: var(--control-sm);
-    padding: 0 12px;
+    padding: 0 var(--space-12);
     background: var(--bg-surface);
     box-shadow: var(--sep-depth);
     display: flex;
@@ -475,7 +475,7 @@
     overflow: hidden;
     text-overflow: ellipsis;
   }
-  .status .icon { margin-right: 8px; opacity: 0.85; font-size: var(--text-lg); }
+  .status .icon { margin-right: var(--space-8); opacity: 0.85; font-size: var(--text-lg); }
   .status .spacer { flex: 1; }
   .status .state {
     font-size: var(--type-caption-size);
@@ -489,7 +489,7 @@
   /* Section 2: Live activity strip */
   .strip {
     height: var(--control-sm);
-    padding: 0 14px;
+    padding: 0 var(--space-14);
     box-shadow: var(--sep-depth);
     display: flex;
     align-items: center;
@@ -505,7 +505,7 @@
   .strip-empty { color: var(--amber-dim); font-size: var(--type-caption-size); font-style: italic; letter-spacing: var(--type-caption-spacing); }
   .strip-events { display: flex; gap: var(--space-sm); flex: 1; overflow: hidden; }
   .strip-event {
-    padding: 1px 6px;
+    padding: 1px var(--space-sm);
     border: 1px solid var(--accent);
     color: var(--accent);
     font-size: var(--text-2xs);
@@ -581,8 +581,8 @@
 
   /* Vault-kind breakdown tags */
   .vault-kinds {
-    margin-top: 8px;
-    padding-top: 8px;
+    margin-top: var(--space-8);
+    padding-top: var(--space-8);
   }
   .vk-label {
     display: block;
@@ -591,7 +591,7 @@
     font-weight: var(--type-label-weight);
     letter-spacing: var(--type-label-spacing);
     text-transform: uppercase;
-    margin-bottom: 6px;
+    margin-bottom: var(--space-sm);
   }
   .vk-tags {
     display: flex;
@@ -599,7 +599,7 @@
     gap: var(--space-xs);
   }
   .vk-tag {
-    padding: 1px 6px;
+    padding: 1px var(--space-sm);
     border: 1px solid var(--accent);
     color: var(--accent);
     font-size: var(--text-2xs);
@@ -632,7 +632,7 @@
     color: var(--term-white);
     font-family: var(--font-family);
     font-size: var(--text-xs);
-    padding: 3px 8px;
+    padding: 3px var(--space-8);
     letter-spacing: 0.04em;
     outline: none;
     transition: border-color var(--duration-base) ease-out;
@@ -645,7 +645,7 @@
     border-color: var(--accent);
   }
   .vault-root-btn {
-    padding: 2px 8px;
+    padding: 2px var(--space-8);
     border: 1px solid var(--accent);
     color: var(--accent);
     background: rgba(74, 212, 212, 0.06);
@@ -664,7 +664,7 @@
     background: rgba(74, 212, 212, 0.22);
   }
   .vault-root-error {
-    padding: 2px 14px;
+    padding: 2px var(--space-14);
     color: var(--term-red);
     font-size: var(--text-2xs);
     font-style: italic;

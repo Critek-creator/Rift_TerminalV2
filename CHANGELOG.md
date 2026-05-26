@@ -6,9 +6,51 @@ loosely [Keep a Changelog](https://keepachangelog.com/), the project follows
 
 ---
 
+## [1.1.0] — 2026-05-26
+
+### Fixed
+
+- **Terminal prompt permanently fixed** — replaced Tauri `Channel<Vec<u8>>` with `emit_to`/`listen` events, eliminating the stale WebView2 callback reference that silently broke PTY output delivery on first mount (~40 prior fix attempts all targeted timing; root cause was a stale webview reference in the Channel mechanism)
+- **MCP server rewritten for reliability** — replaced persistent-connection architecture with connect-per-request + 5-second idle cache + `dispatch_with_retry`; PID-validated socket discovery prevents stale pipe connections
+- **App process now exits cleanly** — hidden cockpit window (which uses `prevent_close` for fast re-detach) is explicitly destroyed during `ExitRequested`, preventing the process from lingering after the main window closes
+- **Vite orphan cleanup** — added `predev` npm hook (`tools/kill-port.mjs`) that kills any process holding port 1420 before the dev server starts
+
+### Security
+
+- `open_url` command now validates URL scheme (http/https only) to prevent shell injection via `cmd /C start`
+
+### Changed
+
+- **Index tab: graph view replaced with Vault Observatory** — removed ~1000 lines of force-directed physics simulation; replaced with stats strip (vault/link/kind counts), horizontal recent-vault cards, kind-colored category headers with gradient tints, 2-line vault rows with animated state dots, and visual connection chips in the detail panel
+- **Design token migration** — 163 hardcoded spacing/font-size values migrated to CSS custom properties (98.3% coverage)
+- **Accessibility** — added `aria-label` to icon-only buttons across 6 components
+- 7 near-invisible rgba tint values bumped from 0.03/0.04 to 0.05 (meets minimum visibility threshold on dark theme)
+- ProfilePicker error timer now stored and cleared in `onDestroy`
+- Patreon link in Settings opens via `open_url` Tauri command (replaces broken `window.open`)
+
+### Infrastructure
+
+- 6-domain pre-release audit: Rust backend (182 tests, 0 clippy warnings), Svelte frontend (317 files, 0 errors), security, design tokens, integration boundaries, release readiness — all passing
+
+---
+
+## [1.0.0] — 2026-05-25
+
+### Changed
+
+- Design system v3 — palettes, file colors, empty states, a11y audit
+- App.svelte extraction, per-project tree cache, deferred PTY spawn, MCP idle timeout
+- Dead PTY tab indicator, close confirmation, parallel git commands
+- Comprehensive stability and performance overhaul
+- Canvas-based force graph view for Index tab
+- Aegis and Abyssal Index distributable as Claude Code plugins
+- Runtime integration toggles for optional Aegis + Index bundling
+
+---
+
 ## [Unreleased]
 
-Pre-v1.0 work-in-progress. Items move into a numbered release section once tagged.
+Items move into a numbered release section once tagged.
 
 ---
 
@@ -260,6 +302,8 @@ See `DEFERRED.md` for the full deferral log including unblocking events.
 
 ---
 
+[1.1.0]: https://github.com/Critek-creator/Rift_TerminalV2/releases/tag/v1.1.0
+[1.0.0]: https://github.com/Critek-creator/Rift_TerminalV2/releases/tag/v1.0.0
 [0.1.3]: https://github.com/Critek-creator/Rift_TerminalV2/releases/tag/v0.1.3
 [0.1.2]: https://github.com/Critek-creator/Rift_TerminalV2/releases/tag/v0.1.2
 [0.1.1]: https://github.com/Critek-creator/Rift_TerminalV2/releases/tag/v0.1.1

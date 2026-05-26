@@ -205,8 +205,9 @@
       class:active={!paused}
       onclick={() => (paused = !paused)}
       title={paused ? 'resume' : 'pause'}
+      aria-label={paused ? 'Resume event stream' : 'Pause event stream'}
     >{paused ? '▶' : '⏸'}</button>
-    <button type="button" class="ctrl-btn" onclick={clearEvents} title="clear">✕</button>
+    <button type="button" class="ctrl-btn" onclick={clearEvents} title="clear" aria-label="Clear events">✕</button>
   </header>
 
   <div class="heatstrip-row">
@@ -290,7 +291,7 @@
 <style>
   .connecting-state {
     color: var(--amber-faint);
-    padding: 1rem 14px;
+    padding: 1rem var(--space-14);
     font-style: italic;
     font-size: var(--text-sm);
     letter-spacing: 0.04em;
@@ -356,7 +357,7 @@
     color: var(--term-cyan);
     text-shadow: 0 0 4px rgba(111, 224, 224, 0.35);
   }
-  .status .icon { margin-right: 8px; opacity: 0.85; font-size: var(--text-lg); }
+  .status .icon { margin-right: var(--space-8); opacity: 0.85; font-size: var(--text-lg); }
   .status .state {
     font-size: var(--type-caption-size);
     font-weight: var(--type-caption-weight);
@@ -374,7 +375,7 @@
 
   .strip {
     height: 26px;
-    padding: 0 14px;
+    padding: 0 var(--space-14);
     box-shadow: var(--sep-depth);
     display: flex; align-items: center; gap: var(--space-14);
     background: linear-gradient(to bottom, rgba(111, 224, 224, 0.06), transparent);
@@ -387,7 +388,7 @@
   .strip-empty { color: var(--amber-faint); font-style: italic; font-size: var(--type-caption-size); }
   .strip-events { display: flex; gap: var(--space-sm); flex: 1; overflow: hidden; }
   .strip-event {
-    padding: 1px 6px;
+    padding: 1px var(--space-sm);
     border: 1px solid;
     font-size: var(--text-2xs);
     font-weight: 600;
@@ -492,7 +493,7 @@
     box-shadow: var(--sep-depth);
   }
   .state-body {
-    padding: 10px 16px 14px;
+    padding: var(--space-md) var(--space-lg) var(--space-14);
     display: flex; flex-direction: column; gap: var(--space-xs);
   }
   .k-row {
@@ -502,8 +503,8 @@
   .k-row .k { color: var(--amber-dim); }
   .k-row .v { color: var(--amber-warm); font-weight: 600; }
   .histogram {
-    margin-top: 4px;
-    padding-top: 4px;
+    margin-top: var(--space-xs);
+    padding-top: var(--space-xs);
     border-top: 1px solid var(--border-subtle);
     display: flex; flex-direction: column; gap: 2px;
   }
@@ -541,7 +542,7 @@
     color: var(--amber-faint);
     font-family: var(--font-family);
     font-size: var(--text-sm);
-    padding: 1px 6px;
+    padding: 1px var(--space-sm);
     cursor: pointer;
     border-radius: 3px;
     line-height: 1;

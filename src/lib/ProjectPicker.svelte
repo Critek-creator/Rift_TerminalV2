@@ -477,7 +477,7 @@
     align-items: flex-start;
     gap: var(--space-sm);
     padding: var(--space-md) var(--space-lg);
-    background: rgba(255, 72, 72, 0.04);
+    background: rgba(255, 72, 72, 0.05);
     box-shadow: inset 0 -1px 0 0 var(--term-red), 0 1px 3px rgba(255, 72, 72, 0.15);
     font-size: var(--text-xs);
   }

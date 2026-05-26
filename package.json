@@ -5,6 +5,7 @@
   "type": "module",
   "description": "Rift Terminal v2 — standalone terminal + GUI cockpit",
   "scripts": {
+    "predev": "node tools/kill-port.mjs",
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",

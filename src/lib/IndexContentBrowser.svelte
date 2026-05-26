@@ -229,7 +229,7 @@
     <div class="detail-panel">
       <div class="detail-header">
         <span class="detail-title">{selectedNode.title}</span>
-        <button type="button" class="detail-close" onclick={closeDetail}>×</button>
+        <button type="button" class="detail-close" onclick={closeDetail} aria-label="Close detail">×</button>
       </div>
       <div class="detail-meta">
         <span class="detail-domain" style="color: {domainColor(selectedNode.domain)}">{selectedNode.domain}</span>
@@ -303,7 +303,7 @@
     border: 1px solid var(--border-subtle);
     color: var(--amber-warm);
     font-family: inherit;
-    font-size: 11px;
+    font-size: var(--text-sm);
     padding: 0 var(--space-8);
     outline: none;
   }
@@ -358,7 +358,7 @@
     text-align: center;
     color: var(--amber-faint);
     font-style: italic;
-    font-size: 11px;
+    font-size: var(--text-sm);
   }
   .cb-error { color: var(--term-red, #FF4848); }
 
@@ -403,7 +403,7 @@
     border-left: 2px solid transparent;
     color: var(--amber-warm);
     font-family: inherit;
-    font-size: 11px;
+    font-size: var(--text-sm);
     cursor: pointer;
     text-align: left;
     transition: all 0.1s;
@@ -456,7 +456,7 @@
   }
   .detail-title {
     flex: 1;
-    font-size: 13px;
+    font-size: var(--text-md);
     font-weight: 700;
     color: var(--term-cyan);
   }
@@ -464,7 +464,7 @@
     background: none;
     border: none;
     color: var(--amber-dim);
-    font-size: 16px;
+    font-size: var(--text-xl);
     cursor: pointer;
     padding: 2px var(--space-sm);
     font-family: inherit;
@@ -474,7 +474,7 @@
   .detail-meta {
     display: flex;
     gap: var(--space-md);
-    font-size: 10px;
+    font-size: var(--text-xs);
     margin-bottom: var(--space-sm);
   }
   .detail-floor { color: var(--amber-dim); }
@@ -495,7 +495,7 @@
 
   .detail-summary {
     color: var(--amber-warm);
-    font-size: 11px;
+    font-size: var(--text-sm);
     font-style: italic;
     margin-bottom: var(--space-8);
     padding: var(--space-sm) var(--space-8);
@@ -505,11 +505,11 @@
 
   .detail-links {
     margin-bottom: var(--space-8);
-    font-size: 10px;
+    font-size: var(--text-xs);
   }
   .detail-links-label {
     display: block;
-    font-size: 8px;
+    font-size: var(--text-2xs);
     font-weight: 700;
     letter-spacing: 0.1em;
     color: var(--amber-faint);
@@ -525,7 +525,7 @@
   }
 
   .detail-body {
-    font-size: 11px;
+    font-size: var(--text-sm);
     color: var(--amber-dim);
     line-height: 1.6;
     white-space: pre-wrap;

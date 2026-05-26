@@ -1250,18 +1250,18 @@
     background: var(--bg-base, #1a1610);
     border: 1px solid var(--border-subtle, rgba(255, 168, 38, 0.15));
     border-radius: var(--radius-md, 6px);
-    padding: 20px 24px;
+    padding: var(--space-xl) var(--space-24);
     min-width: 300px;
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
   }
   .close-confirm-dialog p {
     color: var(--term-white, #e8e4d8);
     font-size: 14px;
-    margin: 0 0 16px 0;
+    margin: 0 0 var(--space-lg) 0;
   }
   .close-confirm-actions {
     display: flex;
-    gap: 8px;
+    gap: var(--space-8);
     justify-content: flex-end;
   }
   .close-confirm-actions .rift-btn.danger {

@@ -82,7 +82,7 @@
   /* Amber bordered AEGIS tag — matches §10.1 amber-primary lane */
   .tag {
     display: inline-block;
-    padding: 0 4px;
+    padding: 0 var(--space-xs);
     border: 1px solid var(--amber-primary, #FFA826);
     color: var(--amber-primary, #FFA826);
     font-size: var(--text-2xs);

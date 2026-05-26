@@ -190,7 +190,7 @@
 
   .results {
     overflow-y: auto;
-    padding: 4px 0;
+    padding: var(--space-xs)0;
   }
 
   .category-header {

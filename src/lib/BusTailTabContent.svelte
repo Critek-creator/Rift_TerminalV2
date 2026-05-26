@@ -336,7 +336,7 @@
     {#if activeQuery}
       <span class="active-query-badge" title="Active filter: {activeQuery.name}">
         {activeQuery.name}
-        <button type="button" class="query-clear" onclick={clearActiveQuery}>x</button>
+        <button type="button" class="query-clear" onclick={clearActiveQuery} aria-label="Clear active query">x</button>
       </span>
     {/if}
     <span class="spacer"></span>
@@ -869,7 +869,7 @@
     padding: 0 3px;
     border: 1px solid;
     border-radius: 2px;
-    font-size: 8px;
+    font-size: var(--text-2xs);
     font-weight: 600;
     letter-spacing: 0.04em;
     line-height: 13px;

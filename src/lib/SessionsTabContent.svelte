@@ -564,7 +564,7 @@
     pointer-events: none;
   }
   .session-badge {
-    font-size: 8px;
+    font-size: var(--text-2xs);
     font-weight: 700;
     letter-spacing: 0.08em;
     text-transform: uppercase;

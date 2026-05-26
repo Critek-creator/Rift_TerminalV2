@@ -359,7 +359,7 @@
   /* Phase 3.5a drag handle */
   .drag-handle {
     height: var(--control-sm);
-    padding: 0 12px;
+    padding: 0 var(--space-12);
     background: var(--bg-surface);
     box-shadow: var(--sep-depth);
     display: flex;
@@ -414,7 +414,7 @@
     overflow: hidden;
     text-overflow: ellipsis;
   }
-  .status .icon { margin-right: 8px; opacity: 0.85; font-size: var(--text-lg); }
+  .status .icon { margin-right: var(--space-8); opacity: 0.85; font-size: var(--text-lg); }
   .status .spacer { flex: 1; }
   .status .state {
     font-size: var(--type-caption-size);
@@ -444,7 +444,7 @@
   .strip-empty { color: var(--amber-faint); font-style: italic; font-size: var(--type-caption-size); letter-spacing: var(--type-caption-spacing); }
   .strip-events { display: flex; gap: var(--space-sm); flex: 1; overflow: hidden; }
   .strip-event {
-    padding: 1px 6px;
+    padding: 1px var(--space-sm);
     border: 1px solid var(--accent);
     color: var(--accent);
     font-size: var(--text-2xs);
@@ -477,7 +477,7 @@
   .log-body {
     flex: 1;
     overflow-y: auto;
-    padding: 10px 16px;
+    padding: var(--space-md) var(--space-lg);
     color: var(--amber-warm);
     font-size: var(--text-sm);
     line-height: 1.5;
@@ -504,7 +504,7 @@
     box-shadow: var(--sep-depth);
   }
   .state-body {
-    padding: 10px 16px 14px;
+    padding: var(--space-md) var(--space-lg) var(--space-14);
     display: flex;
     flex-direction: column;
     gap: var(--space-xs);
@@ -522,8 +522,8 @@
 
   /* Rule source tags */
   .rule-sources {
-    margin-top: 8px;
-    padding-top: 8px;
+    margin-top: var(--space-8);
+    padding-top: var(--space-8);
   }
   .rs-label {
     display: block;
@@ -531,7 +531,7 @@
     font-size: var(--text-2xs);
     font-weight: 700;
     letter-spacing: 0.12em;
-    margin-bottom: 6px;
+    margin-bottom: var(--space-sm);
   }
   .rs-tags {
     display: flex;
@@ -540,7 +540,7 @@
   }
   /* Scoped rule-source tag — amber-bordered small box per §10.1 style */
   .aegis-rule-source-tag {
-    padding: 1px 6px;
+    padding: 1px var(--space-sm);
     border: 1px solid var(--accent);
     color: var(--accent);
     font-size: var(--text-2xs);
@@ -551,7 +551,7 @@
 
   /* Skill path — faint italic (§10.1 meta lane: #A87830 faint amber italic) */
   .skill-path-row {
-    margin-top: 6px;
+    margin-top: var(--space-sm);
     display: flex;
     align-items: baseline;
     gap: var(--space-8);
@@ -576,11 +576,11 @@
     display: flex;
     flex-direction: row;
     gap: var(--space-sm);
-    margin-top: 10px;
-    padding-top: 8px;
+    margin-top: var(--space-md);
+    padding-top: var(--space-8);
   }
   .qa-btn {
-    padding: 2px 8px;
+    padding: 2px var(--space-8);
     border: 1px solid var(--accent);
     color: var(--accent);
     background: rgba(212, 137, 10, 0.06);
@@ -600,7 +600,7 @@
   }
   /* Error text — §10.1 terminal red lane */
   .qa-error {
-    margin-top: 4px;
+    margin-top: var(--space-xs);
     color: var(--term-red);
     font-size: var(--text-2xs);
     font-style: italic;

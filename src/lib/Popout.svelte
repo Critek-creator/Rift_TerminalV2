@@ -238,7 +238,7 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 12px 18px;
+    padding: var(--space-12) 18px;
     border-bottom: 1px solid var(--border-active);
     flex-shrink: 0;
   }
@@ -258,7 +258,7 @@
     background: transparent;
     border: none;
     color: var(--amber-faint);
-    font-size: 16px;
+    font-size: var(--text-xl);
     line-height: 1;
     cursor: pointer;
     padding: 0;
@@ -340,7 +340,7 @@
     display: flex;
     gap: var(--space-8);
     justify-content: flex-end;
-    margin-top: 16px;
+    margin-top: var(--space-lg);
   }
 
   .btn-cancel,

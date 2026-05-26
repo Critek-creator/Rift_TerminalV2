@@ -1,10 +1,11 @@
 <script lang="ts">
-  // IndexGraph.svelte — Vault Browser (list-based replacement for radial graph)
+  // IndexGraph.svelte — Vault Observatory (list-based vault browser)
   //
-  // Structured grouped list of Abyssal Index vaults. Categories collapse/expand,
-  // vaults show state dots + connection badges, search filters across all.
+  // Structured grouped list of Abyssal Index vaults with stats strip,
+  // horizontal recent cards, kind-colored category headers, 2-line vault
+  // rows, and visual connection chips in the detail panel.
   //
-  // Data flow (unchanged from graph era):
+  // Data flow:
   //   vault_walker (Rust) → Category::Index/vault.update → liveNodeMap
   //   vault_walker (Rust) → Category::Index/walk.complete → walkComplete flag
   //
@@ -18,7 +19,7 @@
   import { enrichmentStore } from './enrichmentStore.svelte';
   import IndexContentBrowser from './IndexContentBrowser.svelte';
 
-  type ViewMode = 'graph' | 'vaults' | 'content';
+  type ViewMode = 'vaults' | 'content';
   let viewMode = $state<ViewMode>('vaults');
 
   type VaultKind = 'p' | 'pr' | 'r' | 's' | 'lore' | 'agt' | 'h';
@@ -204,7 +205,7 @@
     collapsed: boolean;
   }
 
-  const RECENTS_LIMIT = 5;
+  const RECENTS_LIMIT = 6;
   const RECENTS_WINDOW_MS = 24 * 60 * 60 * 1000;
 
   const recentVaults = $derived.by<VaultNode[]>(() => {
@@ -250,13 +251,16 @@
   });
 
   const totalCount = $derived(activeNodes.length);
+  const totalEdgeCount = $derived(activeEdges.length);
+  const activeCategoryCount = $derived(
+    CATEGORY_ORDER.filter((k) => (kindCounts[k] ?? 0) > 0).length
+  );
 
   const hoveredConnections = $derived.by<Set<string>>(() => {
     if (!hoveredId) return new Set();
     return new Set(connectionsFor(hoveredId));
   });
 
-  /** Vault IDs highlighted by Tree enrichment-dot hover (cross-component). */
   const treeHighlightedVaultIds = $derived.by<Set<string>>(() => {
     const treePath = crossRefHighlight.hoveredTreePath;
     if (!treePath) return new Set();
@@ -266,538 +270,7 @@
   });
 
   // ---------------------------------------------------------------------------
-  // Graph simulation
-  // ---------------------------------------------------------------------------
-
-  interface SimNode extends VaultNode {
-    x: number;
-    y: number;
-    vx: number;
-    vy: number;
-    fx?: number;
-    fy?: number;
-  }
-
-  interface SimEdge {
-    source: SimNode;
-    target: SimNode;
-    parent?: boolean;
-  }
-
-  const CATEGORY_CENTERS: Record<VaultKind, { x: number; y: number }> = {
-    p:    { x: 0.3, y: 0.3 },
-    pr:   { x: 0.5, y: 0.2 },
-    r:    { x: 0.7, y: 0.3 },
-    s:    { x: 0.3, y: 0.7 },
-    lore: { x: 0.7, y: 0.7 },
-    agt:  { x: 0.5, y: 0.8 },
-    h:    { x: 0.5, y: 0.5 },
-  };
-
-  const SIM_REPULSION = 1500;
-  const SIM_SPRING_K = 0.03;
-  const SIM_SPRING_REST = 60;
-  const SIM_CATEGORY_GRAVITY = 0.015;
-  const SIM_CENTER_GRAVITY = 0.005;
-  const SIM_DAMPING = 0.85;
-  const SIM_MAX_V = 10;
-  const SIM_ALPHA_DECAY = 0.005;
-  const SIM_ALPHA_MIN = 0.01;
-
-  // --- Physics layer (plain JS, NOT reactive) ---
-  let _physNodes: SimNode[] = [];
-  let _physEdges: SimEdge[] = [];
-  let _alpha = 1.0;
-  let _rafId: number | null = null;
-  let _settled = false;
-
-  // Canvas refs
-  let _canvasEl: HTMLCanvasElement | undefined = $state(undefined);
-  let _ctx: CanvasRenderingContext2D | null = null;
-  let _resizeObs: ResizeObserver | null = null;
-
-  // Pan/zoom state (written on user interaction only, not per-frame)
-  let viewBoxX = $state(0);
-  let viewBoxY = $state(0);
-  let viewBoxW = $state(600);
-  let viewBoxH = $state(400);
-  let isPanning = false;
-  let panStartX = 0;
-  let panStartY = 0;
-  let panStartVBX = 0;
-  let panStartVBY = 0;
-
-  // Graph node drag state
-  let graphDragNode: SimNode | null = null;
-  let graphDragStartClientX = 0;
-  let graphDragStartClientY = 0;
-  let graphDragActive = false;
-
-  // Tooltip state (reactive — drives HTML overlay)
-  let tooltipVisible = $state(false);
-  let tooltipX = $state(0);
-  let tooltipY = $state(0);
-  let tooltipNode = $state<SimNode | null>(null);
-
-  // Hovered-node connections cache (non-reactive, used by drawFrame)
-  let _hoveredConns: Set<string> = new Set();
-
-  // --- Canvas color helpers ---
-  const KIND_COLORS: Record<VaultKind, string> = {
-    p: '#FFC840',     // amber-bright (projects)
-    pr: '#FFA826',    // amber-warm (practices)
-    r: '#6FE0E0',     // term-cyan (research)
-    s: '#6CB6FF',     // term-blue (skills)
-    lore: '#C58FFF',  // term-purple (lore)
-    agt: '#4FE855',   // term-green (agents)
-    h: '#C49A50',     // amber-faint (history)
-  };
-
-  function kindColor(kind: VaultKind): string {
-    return KIND_COLORS[kind] ?? '#FFA826';
-  }
-
-  function colorWithAlpha(hex: string, alpha: number): string {
-    const r = parseInt(hex.slice(1, 3), 16);
-    const g = parseInt(hex.slice(3, 5), 16);
-    const b = parseInt(hex.slice(5, 7), 16);
-    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-  }
-
-  function rebuildPhysNodes(nodes: VaultNode[], edges: VaultLink[]): void {
-    const existing = new Map<string, SimNode>();
-    for (const sn of _physNodes) existing.set(sn.id, sn);
-    _physNodes = nodes.map((n) => {
-      const prev = existing.get(n.id);
-      if (prev) {
-        return { ...prev, ...n, x: prev.x, y: prev.y, vx: prev.vx, vy: prev.vy, fx: prev.fx, fy: prev.fy };
-      }
-      const center = CATEGORY_CENTERS[n.kind] ?? { x: 0.5, y: 0.5 };
-      return {
-        ...n,
-        x: center.x * viewBoxW + viewBoxX + (Math.random() - 0.5) * 80,
-        y: center.y * viewBoxH + viewBoxY + (Math.random() - 0.5) * 80,
-        vx: 0,
-        vy: 0,
-      };
-    });
-    // Build edges referencing the new physics nodes
-    const nodeMap = new Map<string, SimNode>();
-    for (const sn of _physNodes) nodeMap.set(sn.id, sn);
-    _physEdges = [];
-    for (const e of edges) {
-      const src = nodeMap.get(e.source);
-      const tgt = nodeMap.get(e.target);
-      if (src && tgt) _physEdges.push({ source: src, target: tgt, parent: e.parent });
-    }
-  }
-
-  // --- Physics tick (plain JS — no reactivity) ---
-  function tickPhysics(): void {
-    const nodes = _physNodes;
-    const edges = _physEdges;
-    const cx = viewBoxX + viewBoxW / 2;
-    const cy = viewBoxY + viewBoxH / 2;
-    const alpha = _alpha;
-
-    // Repulsion (n^2)
-    for (let i = 0; i < nodes.length; i++) {
-      for (let j = i + 1; j < nodes.length; j++) {
-        const a = nodes[i];
-        const b = nodes[j];
-        let dx = b.x - a.x;
-        let dy = b.y - a.y;
-        let dist = Math.sqrt(dx * dx + dy * dy);
-        if (dist < 1) { dist = 1; dx = (Math.random() - 0.5) * 2; dy = (Math.random() - 0.5) * 2; }
-        const force = alpha * SIM_REPULSION / (dist * dist);
-        const fx = (dx / dist) * force;
-        const fy = (dy / dist) * force;
-        a.vx -= fx;
-        a.vy -= fy;
-        b.vx += fx;
-        b.vy += fy;
-      }
-    }
-
-    // Spring attraction along edges
-    for (const e of edges) {
-      const dx = e.target.x - e.source.x;
-      const dy = e.target.y - e.source.y;
-      const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-      const force = alpha * SIM_SPRING_K * (dist - SIM_SPRING_REST);
-      const fx = (dx / dist) * force;
-      const fy = (dy / dist) * force;
-      e.source.vx += fx;
-      e.source.vy += fy;
-      e.target.vx -= fx;
-      e.target.vy -= fy;
-    }
-
-    // Category gravity + center gravity
-    for (const node of nodes) {
-      const catCenter = CATEGORY_CENTERS[node.kind] ?? { x: 0.5, y: 0.5 };
-      const catX = viewBoxX + catCenter.x * viewBoxW;
-      const catY = viewBoxY + catCenter.y * viewBoxH;
-      node.vx += (catX - node.x) * SIM_CATEGORY_GRAVITY * alpha;
-      node.vy += (catY - node.y) * SIM_CATEGORY_GRAVITY * alpha;
-      node.vx += (cx - node.x) * SIM_CENTER_GRAVITY * alpha;
-      node.vy += (cy - node.y) * SIM_CENTER_GRAVITY * alpha;
-    }
-
-    // Damping + velocity cap + position integration
-    for (const node of nodes) {
-      node.vx *= SIM_DAMPING;
-      node.vy *= SIM_DAMPING;
-      const speed = Math.sqrt(node.vx * node.vx + node.vy * node.vy);
-      if (speed > SIM_MAX_V) {
-        node.vx = (node.vx / speed) * SIM_MAX_V;
-        node.vy = (node.vy / speed) * SIM_MAX_V;
-      }
-      if (node.fx !== undefined) { node.x = node.fx; node.vx = 0; }
-      else { node.x += node.vx; }
-      if (node.fy !== undefined) { node.y = node.fy; node.vy = 0; }
-      else { node.y += node.vy; }
-    }
-  }
-
-  // --- Canvas draw ---
-  function drawFrame(): void {
-    if (!_ctx || !_canvasEl) return;
-    const dpr = devicePixelRatio || 1;
-    const w = _canvasEl.width / dpr;
-    const h = _canvasEl.height / dpr;
-    _ctx.clearRect(0, 0, w, h);
-
-    _ctx.save();
-    // Map viewBox coordinates to canvas pixel space
-    const sx = w / viewBoxW;
-    const sy = h / viewBoxH;
-    _ctx.translate(-viewBoxX * sx, -viewBoxY * sy);
-    _ctx.scale(sx, sy);
-
-    // Draw edges
-    for (const edge of _physEdges) {
-      const dimmed = isNodeDimmedPhys(edge.source) || isNodeDimmedPhys(edge.target);
-      const isHovEdge = hoveredId !== null && (edge.source.id === hoveredId || edge.target.id === hoveredId);
-      _ctx.strokeStyle = dimmed ? 'rgba(168, 120, 48, 0.08)'
-        : isHovEdge ? 'rgba(255, 200, 64, 0.8)'
-        : 'rgba(168, 120, 48, 0.4)';
-      _ctx.lineWidth = edge.parent ? 2.5 : 1.5;
-      if (edge.parent && !dimmed && !isHovEdge) {
-        _ctx.setLineDash([4, 3]);
-      } else {
-        _ctx.setLineDash([]);
-      }
-      _ctx.beginPath();
-      _ctx.moveTo(edge.source.x, edge.source.y);
-      _ctx.lineTo(edge.target.x, edge.target.y);
-      _ctx.stroke();
-    }
-    _ctx.setLineDash([]);
-
-    // Draw nodes
-    for (const node of _physNodes) {
-      const dimmed = isNodeDimmedPhys(node);
-      const isHovered = hoveredId === node.id;
-      const isConnected = hoveredId !== null && _hoveredConns.has(node.id);
-      const r = isHovered ? 18 : 14;
-      const color = kindColor(node.kind);
-
-      _ctx.globalAlpha = dimmed ? 0.15 : 1;
-
-      // Circle fill
-      _ctx.fillStyle = colorWithAlpha(color, 0.2);
-      _ctx.beginPath();
-      _ctx.arc(node.x, node.y, r, 0, Math.PI * 2);
-      _ctx.fill();
-
-      // Circle stroke
-      _ctx.strokeStyle = color;
-      _ctx.lineWidth = isHovered ? 2.5 : (isConnected ? 2 : 1.5);
-      _ctx.stroke();
-
-      // Glow for hovered/connected
-      if (isHovered || isConnected) {
-        _ctx.save();
-        _ctx.shadowColor = color;
-        _ctx.shadowBlur = isHovered ? 12 : 6;
-        _ctx.beginPath();
-        _ctx.arc(node.x, node.y, r, 0, Math.PI * 2);
-        _ctx.stroke();
-        _ctx.restore();
-      }
-
-      // Label (vault ID only)
-      _ctx.fillStyle = dimmed ? 'rgba(168, 120, 48, 0.3)' : color;
-      _ctx.font = '8px "JetBrains Mono", monospace';
-      _ctx.textAlign = 'center';
-      _ctx.textBaseline = 'middle';
-      _ctx.fillText(node.id, node.x, node.y);
-
-      _ctx.globalAlpha = 1;
-    }
-
-    _ctx.restore();
-  }
-
-  // --- Simulation loop ---
-  function startPhysicsLoop(): void {
-    stopPhysicsLoop();
-    _alpha = 1.0;
-    _settled = false;
-    function loop(): void {
-      tickPhysics();
-      _alpha -= SIM_ALPHA_DECAY;
-      drawFrame();
-      if (_alpha >= SIM_ALPHA_MIN) {
-        _rafId = requestAnimationFrame(loop);
-      } else {
-        _rafId = null;
-        _settled = true;
-        drawFrame(); // final settled frame
-      }
-    }
-    _rafId = requestAnimationFrame(loop);
-  }
-
-  function stopPhysicsLoop(): void {
-    if (_rafId !== null) { cancelAnimationFrame(_rafId); _rafId = null; }
-  }
-
-  function requestRedraw(): void {
-    if (_settled && _rafId === null) {
-      drawFrame();
-    }
-  }
-
-  function reheat(): void {
-    _alpha = 0.5;
-    _settled = false;
-    if (_rafId === null) startPhysicsLoop();
-  }
-
-  // --- Debounced $effect to rebuild physics on data change ---
-  let _buildTimer: ReturnType<typeof setTimeout> | null = null;
-
-  $effect(() => {
-    if (viewMode !== 'graph') { stopPhysicsLoop(); return; }
-    const nodes = activeNodes;  // read reactive dep
-    const edges = activeEdges;  // read reactive dep
-    if (nodes.length === 0) { stopPhysicsLoop(); return; }
-
-    if (_buildTimer !== null) clearTimeout(_buildTimer);
-    _buildTimer = setTimeout(() => {
-      _buildTimer = null;
-      rebuildPhysNodes(nodes, edges);
-      startPhysicsLoop();
-    }, 200);
-  });
-
-  // Canvas setup + resize observer
-  $effect(() => {
-    if (viewMode === 'graph' && _canvasEl) {
-      _ctx = _canvasEl.getContext('2d');
-      const container = _canvasEl.parentElement;
-      if (container) {
-        const dpr = devicePixelRatio || 1;
-        const fitCanvas = () => {
-          if (!_canvasEl || !_canvasEl.parentElement) return;
-          const rect = _canvasEl.parentElement.getBoundingClientRect();
-          _canvasEl.width = rect.width * dpr;
-          _canvasEl.height = rect.height * dpr;
-          _canvasEl.style.width = rect.width + 'px';
-          _canvasEl.style.height = rect.height + 'px';
-          if (_ctx) {
-            _ctx.setTransform(1, 0, 0, 1, 0, 0);
-            _ctx.scale(dpr, dpr);
-          }
-          requestRedraw();
-        };
-        fitCanvas();
-
-        _resizeObs?.disconnect();
-        _resizeObs = new ResizeObserver(() => fitCanvas());
-        _resizeObs.observe(container);
-      }
-    }
-    return () => {
-      _resizeObs?.disconnect();
-      _resizeObs = null;
-    };
-  });
-
-  // Redraw when search/filter changes (settled sim, no RAF running)
-  $effect(() => {
-    void searchQuery;
-    void activeKindFilter;
-    requestRedraw();
-  });
-
-  // --- Canvas coordinate helper ---
-  function clientToSvgCanvas(clientX: number, clientY: number): { x: number; y: number } {
-    if (!_canvasEl) return { x: clientX, y: clientY };
-    const rect = _canvasEl.getBoundingClientRect();
-    return {
-      x: viewBoxX + ((clientX - rect.left) / rect.width) * viewBoxW,
-      y: viewBoxY + ((clientY - rect.top) / rect.height) * viewBoxH,
-    };
-  }
-
-  // --- Hit-testing ---
-  function findNodeAt(clientX: number, clientY: number): SimNode | null {
-    if (!_canvasEl) return null;
-    const rect = _canvasEl.getBoundingClientRect();
-    const px = viewBoxX + ((clientX - rect.left) / rect.width) * viewBoxW;
-    const py = viewBoxY + ((clientY - rect.top) / rect.height) * viewBoxH;
-    // Reverse order so topmost-drawn node wins
-    for (let i = _physNodes.length - 1; i >= 0; i--) {
-      const n = _physNodes[i];
-      const dx = n.x - px;
-      const dy = n.y - py;
-      if (dx * dx + dy * dy <= 18 * 18) return n;
-    }
-    return null;
-  }
-
-  // --- Canvas mouse handlers ---
-  function onCanvasMouseDown(e: MouseEvent): void {
-    if (e.button !== 0) return;
-    const node = findNodeAt(e.clientX, e.clientY);
-    if (node) {
-      graphDragNode = node;
-      graphDragStartClientX = e.clientX;
-      graphDragStartClientY = e.clientY;
-      graphDragActive = false;
-      const pos = clientToSvgCanvas(e.clientX, e.clientY);
-      node.fx = pos.x;
-      node.fy = pos.y;
-      reheat();
-    } else {
-      isPanning = true;
-      panStartX = e.clientX;
-      panStartY = e.clientY;
-      panStartVBX = viewBoxX;
-      panStartVBY = viewBoxY;
-    }
-    e.preventDefault();
-  }
-
-  function onCanvasMouseMove(e: MouseEvent): void {
-    if (graphDragNode) {
-      const pos = clientToSvgCanvas(e.clientX, e.clientY);
-      graphDragNode.fx = pos.x;
-      graphDragNode.fy = pos.y;
-      if (!graphDragActive) {
-        const dx = e.clientX - graphDragStartClientX;
-        const dy = e.clientY - graphDragStartClientY;
-        if (Math.abs(dx) + Math.abs(dy) >= DRAG_THRESHOLD_PX) graphDragActive = true;
-      }
-      // Check if dragged outside canvas for vault drop
-      if (graphDragActive && _canvasEl) {
-        const rect = _canvasEl.getBoundingClientRect();
-        if (e.clientX < rect.left || e.clientX > rect.right ||
-            e.clientY < rect.top || e.clientY > rect.bottom) {
-          draggingId = graphDragNode.id;
-          ghostLabel = graphDragNode.shortLabel || graphDragNode.displayName || graphDragNode.id;
-          ghostKind = graphDragNode.kind;
-          ghostX = e.clientX + 12;
-          ghostY = e.clientY - 8;
-          ghostVisible = true;
-        } else {
-          ghostVisible = false;
-          draggingId = null;
-        }
-      }
-      requestRedraw();
-      return;
-    }
-    if (isPanning) {
-      if (!_canvasEl) return;
-      const rect = _canvasEl.getBoundingClientRect();
-      const dx = ((e.clientX - panStartX) / rect.width) * viewBoxW;
-      const dy = ((e.clientY - panStartY) / rect.height) * viewBoxH;
-      viewBoxX = panStartVBX - dx;
-      viewBoxY = panStartVBY - dy;
-      requestRedraw();
-      return;
-    }
-    // Hover detection
-    const node = findNodeAt(e.clientX, e.clientY);
-    const newId = node?.id ?? null;
-    if (newId !== hoveredId) {
-      hoveredId = newId;
-      _hoveredConns = newId ? new Set(connectionsFor(newId)) : new Set();
-      requestRedraw();
-    }
-    if (node) {
-      tooltipNode = node;
-      tooltipX = e.clientX + 14;
-      tooltipY = e.clientY - 10;
-      tooltipVisible = true;
-    } else {
-      tooltipVisible = false;
-      tooltipNode = null;
-    }
-  }
-
-  function onCanvasMouseUp(e: MouseEvent): void {
-    if (graphDragNode) {
-      if (graphDragActive && graphDragNode.path) {
-        const target = document.elementFromPoint(e.clientX, e.clientY);
-        const terminal = target?.closest('.terminal-host');
-        if (terminal) {
-          terminal.dispatchEvent(new CustomEvent<RiftVaultDropDetail>(
-            RIFT_VAULT_DROP_EVENT,
-            { detail: { path: graphDragNode.path }, bubbles: true },
-          ));
-        }
-      }
-      graphDragNode.fx = undefined;
-      graphDragNode.fy = undefined;
-      graphDragNode = null;
-      graphDragActive = false;
-      ghostVisible = false;
-      draggingId = null;
-      requestRedraw();
-      return;
-    }
-    isPanning = false;
-  }
-
-  function onCanvasWheel(e: WheelEvent): void {
-    e.preventDefault();
-    if (!_canvasEl) return;
-    const scale = e.deltaY > 0 ? 1.1 : 0.9;
-    const rect = _canvasEl.getBoundingClientRect();
-    const mx = (e.clientX - rect.left) / rect.width;
-    const my = (e.clientY - rect.top) / rect.height;
-    const newW = viewBoxW * scale;
-    const newH = viewBoxH * scale;
-    viewBoxX += (viewBoxW - newW) * mx;
-    viewBoxY += (viewBoxH - newH) * my;
-    viewBoxW = newW;
-    viewBoxH = newH;
-    requestRedraw();
-  }
-
-  function onCanvasMouseLeave(): void {
-    hoveredId = null;
-    tooltipVisible = false;
-    tooltipNode = null;
-    _hoveredConns = new Set();
-    requestRedraw();
-  }
-
-  // --- Dimming helpers (read reactive search/filter values) ---
-  function isNodeDimmedPhys(node: SimNode): boolean {
-    const q = searchQuery.toLowerCase().trim();
-    if (q && !matchesSearch(node, q)) return true;
-    if (activeKindFilter && node.kind !== activeKindFilter) return true;
-    return false;
-  }
-
-  // ---------------------------------------------------------------------------
-  // Bus subscription (same debounce pattern as old graph)
+  // Bus subscription
   // ---------------------------------------------------------------------------
 
   onMount(() => {
@@ -871,11 +344,6 @@
         if (cancelled) { void u().catch(() => {}); }
         else { unsub = u; }
 
-        // Trigger a vault rescan after subscribing. Boot-walk events may have
-        // been evicted from the 512-entry replay ring buffer by other bus
-        // traffic (fs, status, hooks). The rescan re-publishes all vault.update
-        // + walk.complete events so this subscription picks them up as live
-        // events. Duplicates are harmless — liveNodeMap keys by vault_id.
         if (!cancelled) {
           invoke('vault_rescan').catch((err: unknown) => {
             console.warn('[IndexGraph] vault_rescan failed:', err);
@@ -896,10 +364,6 @@
       }
       pendingUpdates.clear();
       pendingDeletes.clear();
-      stopPhysicsLoop();
-      _resizeObs?.disconnect();
-      _resizeObs = null;
-      if (_buildTimer !== null) { clearTimeout(_buildTimer); _buildTimer = null; }
       if (dragActive || dragNode) {
         document.removeEventListener('mousemove', onDocMouseMove);
         document.removeEventListener('mouseup', onDocMouseUp);
@@ -987,14 +451,9 @@
 </script>
 
 <div class="index-browser">
-  <!-- Mode toggle + header -->
+  <!-- Header: mode toggle + count + search -->
   <div class="browser-header">
     <div class="mode-toggle">
-      <button type="button"
-        class="mode-btn"
-        class:active={viewMode === 'graph'}
-        onclick={() => { viewMode = 'graph'; }}
-      >GRAPH</button>
       <button type="button"
         class="mode-btn"
         class:active={viewMode === 'vaults'}
@@ -1006,12 +465,12 @@
         onclick={() => { viewMode = 'content'; }}
       >CONTENT</button>
     </div>
-    {#if viewMode === 'vaults' || viewMode === 'graph'}
+    {#if viewMode === 'vaults'}
       <span class="browser-count">{totalCount}</span>
       <input
         class="browser-search"
         type="text"
-        placeholder="filter vaults… ( / )"
+        placeholder="filter vaults... ( / )"
         aria-label="filter vault nodes"
         bind:value={searchQuery}
         bind:this={searchInput}
@@ -1021,8 +480,26 @@
 
   {#if viewMode === 'content'}
     <IndexContentBrowser />
-  {:else if viewMode === 'graph'}
-    <!-- Kind filter chips (shared with vaults) -->
+  {:else}
+    <!-- Stats strip -->
+    <div class="stats-strip">
+      <div class="stat-block">
+        <span class="stat-value">{totalCount}</span>
+        <span class="stat-label">VAULTS</span>
+      </div>
+      <div class="stat-divider"></div>
+      <div class="stat-block">
+        <span class="stat-value">{totalEdgeCount}</span>
+        <span class="stat-label">LINKS</span>
+      </div>
+      <div class="stat-divider"></div>
+      <div class="stat-block">
+        <span class="stat-value">{activeCategoryCount}</span>
+        <span class="stat-label">KINDS</span>
+      </div>
+    </div>
+
+    <!-- Kind filter chips -->
     {#if activeNodes.length > 0 || walkComplete}
       <div class="kind-chips">
         {#each CATEGORY_ORDER as kind (kind)}
@@ -1052,213 +529,148 @@
       </div>
     {/if}
 
-    <!-- Force-directed graph view -->
-    <div class="graph-container">
+    <!-- Vault list -->
+    <div class="browser-body">
       {#if activeNodes.length === 0 && !walkComplete}
         <div class="browser-loading">
           <span class="loading-glyph">◆</span>
-          <span>scanning vaults…</span>
+          <span>scanning vaults...</span>
         </div>
+      {:else if categories.length === 0 && searchQuery}
+        <div class="browser-empty">no vaults match "{searchQuery}"</div>
       {:else}
-        <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-        <canvas
-          class="graph-canvas"
-          bind:this={_canvasEl}
-          onmousedown={onCanvasMouseDown}
-          onmousemove={onCanvasMouseMove}
-          onmouseup={onCanvasMouseUp}
-          onwheel={onCanvasWheel}
-          onmouseleave={onCanvasMouseLeave}
-        ></canvas>
-      {/if}
-    </div>
-  {:else}
-  <!-- Tag chip filters -->
-  {#if activeNodes.length > 0 || walkComplete}
-    <div class="kind-chips">
-      {#each CATEGORY_ORDER as kind (kind)}
-        {@const count = kindCounts[kind] ?? 0}
-        {#if count > 0}
+        <!-- Recents strip -->
+        {#if recentVaults.length > 0 && !searchQuery && !activeKindFilter}
+          <div class="recents-strip">
+            <div class="recents-label">
+              <span class="recents-glyph">◆</span>
+              RECENT
+            </div>
+            <div class="recents-scroll">
+              {#each recentVaults as vault (vault.id)}
+                {@const state = nodeState(vault)}
+                <button
+                  type="button"
+                  class="recent-card"
+                  class:selected={selectedId === vault.id}
+                  onmouseenter={() => { hoveredId = vault.id; crossRefHighlight.hoveredVaultId = vault.id; }}
+                  onmouseleave={() => { if (hoveredId === vault.id) hoveredId = null; crossRefHighlight.hoveredVaultId = null; }}
+                  onclick={() => { selectedId = selectedId === vault.id ? null : vault.id; }}
+                  onmousedown={(e) => onRowMouseDown(e, vault)}
+                >
+                  <div class="rc-accent kind-bg-{vault.kind}"></div>
+                  <div class="rc-content">
+                    <div class="rc-top">
+                      <span class="state-dot state-{state}"></span>
+                      <span class="rc-glyph kind-{vault.kind}">{KIND_GLYPH[vault.kind]}</span>
+                      <span class="rc-id">{vault.id}</span>
+                    </div>
+                    <div class="rc-name">{vault.displayName || vault.shortLabel || ''}</div>
+                    <div class="rc-age">{formatAge(vault.updatedMs)}</div>
+                  </div>
+                </button>
+              {/each}
+            </div>
+          </div>
+        {/if}
+
+        <!-- Categories -->
+        {#each categories as group (group.kind)}
           <button
             type="button"
-            class="kind-chip kind-chip-{kind}"
-            class:active={activeKindFilter === kind}
-            onclick={() => toggleKindFilter(kind)}
-            title="{KIND_LABEL[kind]} ({count})"
+            class="category-header cat-{group.kind}"
+            onclick={() => toggleKind(group.kind)}
+            aria-expanded={!group.collapsed}
           >
-            <span class="chip-glyph">{KIND_GLYPH[kind]}</span>
-            <span class="chip-label">{KIND_LABEL[kind]}</span>
-            <span class="chip-count">{count}</span>
+            <span class="cat-accent kind-bg-{group.kind}"></span>
+            <span class="category-chevron" class:collapsed={group.collapsed}>&#9662;</span>
+            <span class="category-glyph kind-{group.kind}">{group.glyph}</span>
+            <span class="category-label">{group.label}</span>
+            <span class="category-count">{group.vaults.length}</span>
           </button>
-        {/if}
-      {/each}
-      {#if activeKindFilter}
-        <button
-          type="button"
-          class="kind-chip kind-chip-clear"
-          onclick={() => { activeKindFilter = null; }}
-          title="Clear filter"
-        >ALL</button>
+
+          {#if !group.collapsed}
+            <div class="category-body">
+              {#each group.vaults as vault (vault.id)}
+                {@const state = nodeState(vault)}
+                {@const conns = connectionsFor(vault.id)}
+                {@const isHighlighted = hoveredId === vault.id || hoveredConnections.has(vault.id)}
+                {@const isTreeHighlighted = treeHighlightedVaultIds.has(vault.id)}
+                {@const isSelected = selectedId === vault.id}
+                <button
+                  type="button"
+                  class="vault-row"
+                  class:highlighted={isHighlighted}
+                  class:tree-highlighted={isTreeHighlighted}
+                  class:selected={isSelected}
+                  class:dragging={draggingId === vault.id}
+                  onmouseenter={() => { hoveredId = vault.id; crossRefHighlight.hoveredVaultId = vault.id; }}
+                  onmouseleave={() => { if (hoveredId === vault.id) hoveredId = null; crossRefHighlight.hoveredVaultId = null; }}
+                  onclick={() => { selectedId = selectedId === vault.id ? null : vault.id; }}
+                  onmousedown={(e) => onRowMouseDown(e, vault)}
+                >
+                  <span class="vault-kind-bar kind-bg-{vault.kind}"></span>
+                  <div class="vault-inner">
+                    <div class="vault-main">
+                      <span class="state-dot state-{state}"></span>
+                      <span class="vault-glyph kind-{vault.kind}">{KIND_GLYPH[vault.kind]}</span>
+                      <span class="vault-id">{vault.id}</span>
+                      <span class="vault-name">{vault.displayName || vault.shortLabel || ''}</span>
+                    </div>
+                    <div class="vault-meta">
+                      {#if vault.updatedMs}
+                        <span class="vault-age">{formatAge(vault.updatedMs)}</span>
+                      {/if}
+                      {#if conns.length > 0}
+                        <span class="vault-conn-badge" title={conns.join(', ')}>&#10231; {conns.length}</span>
+                      {/if}
+                    </div>
+                  </div>
+                </button>
+
+                <!-- Expanded detail panel -->
+                {#if isSelected}
+                  <div class="vault-detail">
+                    {#if vault.path}
+                      <div class="detail-row">
+                        <span class="detail-label">PATH</span>
+                        <span class="detail-value">{vault.path}</span>
+                      </div>
+                    {/if}
+                    {#if vault.updatedMs}
+                      <div class="detail-row">
+                        <span class="detail-label">MODIFIED</span>
+                        <span class="detail-value">{new Date(vault.updatedMs).toLocaleString()}</span>
+                      </div>
+                    {/if}
+                    {#if conns.length > 0}
+                      <div class="detail-connections">
+                        <span class="detail-conn-label">CONNECTIONS</span>
+                        <div class="detail-conn-chips">
+                          {#each conns as ref}
+                            <button
+                              type="button"
+                              class="conn-chip kind-{inferKind(ref)}"
+                              onclick={(e) => { e.stopPropagation(); selectedId = ref; }}
+                              title={ref}
+                            >
+                              <span class="conn-chip-glyph">{KIND_GLYPH[inferKind(ref)]}</span>
+                              <span>{ref}</span>
+                            </button>
+                          {/each}
+                        </div>
+                      </div>
+                    {/if}
+                  </div>
+                {/if}
+              {/each}
+            </div>
+          {/if}
+        {/each}
       {/if}
     </div>
-  {/if}
-
-  <!-- Vault list -->
-  <div class="browser-body">
-    {#if activeNodes.length === 0 && !walkComplete}
-      <div class="browser-loading">
-        <span class="loading-glyph">◆</span>
-        <span>scanning vaults…</span>
-      </div>
-    {:else if categories.length === 0 && searchQuery}
-      <div class="browser-empty">no vaults match "{searchQuery}"</div>
-    {:else}
-      <!-- Recents section -->
-      {#if recentVaults.length > 0 && !searchQuery && !activeKindFilter}
-        <div class="recents-section">
-          <div class="recents-header">
-            <span class="recents-glyph">◆</span>
-            <span>RECENT</span>
-          </div>
-          {#each recentVaults as vault (vault.id)}
-            {@const state = nodeState(vault)}
-            {@const conns = connectionsFor(vault.id)}
-            <button
-              type="button"
-              class="vault-row recent-row"
-              class:selected={selectedId === vault.id}
-              class:dragging={draggingId === vault.id}
-              onmouseenter={() => { hoveredId = vault.id; crossRefHighlight.hoveredVaultId = vault.id; }}
-              onmouseleave={() => { if (hoveredId === vault.id) hoveredId = null; crossRefHighlight.hoveredVaultId = null; }}
-              onclick={() => { selectedId = selectedId === vault.id ? null : vault.id; }}
-              onmousedown={(e) => onRowMouseDown(e, vault)}
-            >
-              <span class="state-dot state-{state}"></span>
-              <span class="vault-glyph kind-{vault.kind}">{KIND_GLYPH[vault.kind]}</span>
-              <span class="vault-id">{vault.id}</span>
-              <span class="vault-name">{vault.displayName || vault.shortLabel || ''}</span>
-              <span class="vault-age">{formatAge(vault.updatedMs)}</span>
-              {#if conns.length > 0}
-                <span class="vault-refs" title={conns.join(', ')}>⟷{conns.length}</span>
-              {/if}
-            </button>
-          {/each}
-        </div>
-      {/if}
-
-      {#each categories as group (group.kind)}
-        <!-- Category header -->
-        <button
-          type="button"
-          class="category-header"
-          onclick={() => toggleKind(group.kind)}
-          aria-expanded={!group.collapsed}
-        >
-          <span class="category-chevron" class:collapsed={group.collapsed}>▾</span>
-          <span class="category-glyph kind-{group.kind}">{group.glyph}</span>
-          <span class="category-label">{group.label}</span>
-          <span class="category-count">{group.vaults.length}</span>
-        </button>
-
-        <!-- Vault rows -->
-        {#if !group.collapsed}
-          <div class="category-body">
-            {#each group.vaults as vault (vault.id)}
-              {@const state = nodeState(vault)}
-              {@const conns = connectionsFor(vault.id)}
-              {@const isHighlighted = hoveredId === vault.id || hoveredConnections.has(vault.id)}
-              {@const isTreeHighlighted = treeHighlightedVaultIds.has(vault.id)}
-              {@const isSelected = selectedId === vault.id}
-              <button
-                type="button"
-                class="vault-row"
-                class:highlighted={isHighlighted}
-                class:tree-highlighted={isTreeHighlighted}
-                class:selected={isSelected}
-                class:dragging={draggingId === vault.id}
-                onmouseenter={() => { hoveredId = vault.id; crossRefHighlight.hoveredVaultId = vault.id; }}
-                onmouseleave={() => { if (hoveredId === vault.id) hoveredId = null; crossRefHighlight.hoveredVaultId = null; }}
-                onclick={() => { selectedId = selectedId === vault.id ? null : vault.id; }}
-                onmousedown={(e) => onRowMouseDown(e, vault)}
-              >
-                <span class="state-dot state-{state}"></span>
-                <span class="vault-glyph kind-{vault.kind}">{KIND_GLYPH[vault.kind]}</span>
-                <span class="vault-id">{vault.id}</span>
-                <span class="vault-name">{vault.displayName || vault.shortLabel || ''}</span>
-                {#if vault.updatedMs}
-                  <span class="vault-age">{formatAge(vault.updatedMs)}</span>
-                {/if}
-                {#if conns.length > 0}
-                  <span class="vault-refs" title={conns.join(', ')}>
-                    ⟷{conns.length}
-                  </span>
-                {/if}
-              </button>
-
-              <!-- Expanded detail (Phase 2 click-to-expand) -->
-              {#if isSelected}
-                <div class="vault-detail">
-                  {#if vault.path}
-                    <div class="detail-row">
-                      <span class="detail-label">PATH</span>
-                      <span class="detail-value">{vault.path}</span>
-                    </div>
-                  {/if}
-                  {#if conns.length > 0}
-                    <div class="detail-row">
-                      <span class="detail-label">LINKS</span>
-                      <span class="detail-value detail-links">
-                        {#each conns as ref}
-                          <span
-                            class="detail-link kind-{inferKind(ref)}"
-                            role="button"
-                            tabindex="0"
-                            onclick={(e) => { e.stopPropagation(); selectedId = ref; }}
-                            onkeydown={(e) => { if (e.key === 'Enter') { selectedId = ref; } }}
-                          >{ref}</span>
-                        {/each}
-                      </span>
-                    </div>
-                  {/if}
-                  {#if vault.updatedMs}
-                    <div class="detail-row">
-                      <span class="detail-label">MODIFIED</span>
-                      <span class="detail-value">{new Date(vault.updatedMs).toLocaleString()}</span>
-                    </div>
-                  {/if}
-                </div>
-              {/if}
-            {/each}
-          </div>
-        {/if}
-      {/each}
-    {/if}
-  </div>
   {/if}
 </div>
-
-<!-- Graph tooltip -->
-{#if tooltipVisible && tooltipNode}
-  {@const conns = connectionsFor(tooltipNode.id)}
-  <div
-    class="graph-tooltip"
-    style="left: {tooltipX}px; top: {tooltipY}px;"
-  >
-    <div class="tooltip-title kind-{tooltipNode.kind}">
-      {tooltipNode.label}
-    </div>
-    <div class="tooltip-kind">{KIND_LABEL[tooltipNode.kind]}</div>
-    {#if tooltipNode.updatedMs}
-      <div class="tooltip-age">{formatAge(tooltipNode.updatedMs)} ago</div>
-    {/if}
-    {#if conns.length > 0}
-      <div class="tooltip-conns">
-        <span class="tooltip-conns-count">{conns.length} link{conns.length === 1 ? '' : 's'}</span>
-        <span class="tooltip-conns-ids">{conns.join(', ')}</span>
-      </div>
-    {/if}
-  </div>
-{/if}
 
 <!-- Drag ghost -->
 {#if ghostVisible}
@@ -1283,7 +695,7 @@
     user-select: none;
   }
 
-  /* Header: mode toggle + count + search */
+  /* ========== Header ========== */
   .browser-header {
     display: flex;
     align-items: center;
@@ -1293,10 +705,7 @@
     box-shadow: var(--sep-glow);
     flex-shrink: 0;
   }
-  .mode-toggle {
-    display: flex;
-    gap: 0;
-  }
+  .mode-toggle { display: flex; }
   .mode-btn {
     padding: 3px var(--space-md);
     border: 1px solid var(--border-subtle);
@@ -1311,8 +720,7 @@
     transition: all 0.12s;
   }
   .mode-btn:first-child { border-top-right-radius: 0; border-bottom-right-radius: 0; border-right: none; }
-  .mode-btn:not(:first-child):not(:last-child) { border-radius: 0; border-right: none; }
-  .mode-btn:last-child { border-top-left-radius: 0; border-bottom-left-radius: 0; }
+  .mode-btn:last-child  { border-top-left-radius: 0; border-bottom-left-radius: 0; }
   .mode-btn.active {
     color: var(--term-cyan, #6FE0E0);
     border-color: var(--term-cyan, #6FE0E0);
@@ -1323,12 +731,6 @@
     color: var(--amber-dim);
     border-color: var(--amber-dim);
     background: var(--bg-hover);
-  }
-  .browser-title {
-    font-size: var(--text-2xs);
-    font-weight: 700;
-    letter-spacing: 0.14em;
-    color: var(--amber-dim);
   }
   .browser-count {
     font-size: var(--text-2xs);
@@ -1354,17 +756,49 @@
     outline: none;
     transition: border-color 0.15s, box-shadow 0.15s;
   }
-  .browser-search::placeholder {
-    color: var(--amber-faint);
-    font-style: italic;
-  }
+  .browser-search::placeholder { color: var(--amber-faint); font-style: italic; }
   .browser-search:focus {
     border-color: var(--amber-dim);
-    box-shadow: 0 0 0 1px rgba(255, 168, 38, 0.15),
-                inset 0 1px 3px rgba(0, 0, 0, 0.2);
+    box-shadow: 0 0 0 1px rgba(255, 168, 38, 0.15), inset 0 1px 3px rgba(0, 0, 0, 0.2);
   }
 
-  /* Kind filter chips */
+  /* ========== Stats Strip ========== */
+  .stats-strip {
+    display: flex;
+    align-items: stretch;
+    flex-shrink: 0;
+    background: var(--bg-surface);
+    box-shadow: var(--sep-depth);
+  }
+  .stat-block {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: var(--space-8) var(--space-md);
+  }
+  .stat-divider {
+    width: 1px;
+    background: var(--border-subtle);
+    align-self: stretch;
+    margin: var(--space-sm)0;
+  }
+  .stat-value {
+    font-size: 18px;
+    font-weight: 800;
+    color: var(--amber-bright);
+    text-shadow: 0 0 12px rgba(255, 200, 64, 0.3);
+    line-height: 1;
+  }
+  .stat-label {
+    font-size: var(--text-2xs);
+    font-weight: 700;
+    letter-spacing: 0.16em;
+    color: var(--amber-faint);
+    margin-top: 2px;
+  }
+
+  /* ========== Kind filter chips ========== */
   .kind-chips {
     display: flex;
     flex-wrap: wrap;
@@ -1395,10 +829,7 @@
     background: var(--bg-hover);
     color: var(--amber-warm);
   }
-  .kind-chip.active {
-    border-color: currentColor;
-    box-shadow: 0 0 6px rgba(255, 168, 38, 0.15);
-  }
+  .kind-chip.active { border-color: currentColor; box-shadow: 0 0 6px rgba(255, 168, 38, 0.15); }
   .kind-chip-p.active       { color: var(--amber-bright); background: rgba(255, 200, 64, 0.1); }
   .kind-chip-pr.active      { color: var(--amber-warm);   background: rgba(240, 160, 48, 0.1); }
   .kind-chip-r.active       { color: var(--term-cyan);    background: rgba(111, 224, 224, 0.1); }
@@ -1409,25 +840,21 @@
   .kind-chip-clear {
     color: var(--amber-faint);
     border-style: dashed;
-    font-size: 8px;
+    font-size: var(--text-2xs);
     letter-spacing: 0.1em;
   }
   .kind-chip-clear:hover { color: var(--amber-warm); border-style: solid; }
-  .chip-glyph { font-size: 10px; }
+  .chip-glyph { font-size: var(--text-xs); }
   .chip-label { text-transform: uppercase; }
-  .chip-count {
-    font-size: 8px;
-    color: var(--amber-faint);
-    font-weight: 400;
-  }
+  .chip-count { font-size: var(--text-2xs); color: var(--amber-faint); font-weight: 400; }
   .kind-chip.active .chip-count { color: inherit; opacity: 0.7; }
 
-  /* Recents section */
-  .recents-section {
+  /* ========== Recents Strip ========== */
+  .recents-strip {
+    flex-shrink: 0;
     box-shadow: var(--sep-depth);
-    background: linear-gradient(to bottom, rgba(255, 200, 64, 0.03), transparent);
   }
-  .recents-header {
+  .recents-label {
     display: flex;
     align-items: center;
     gap: var(--space-sm);
@@ -1437,21 +864,67 @@
     letter-spacing: var(--type-label-spacing);
     color: var(--amber-bright);
     text-shadow: var(--glow-amber-faint);
-    box-shadow: var(--sep-depth);
     background: var(--bg-surface);
+    box-shadow: var(--sep-depth);
   }
   .recents-glyph {
     font-size: var(--text-xs);
     text-shadow: var(--glow-amber);
   }
-  .recent-row {
-    background: rgba(255, 200, 64, 0.02);
+  .recents-scroll {
+    display: flex;
+    gap: var(--space-8);
+    padding: var(--space-8) var(--space-12);
+    overflow-x: auto;
+    scrollbar-width: thin;
+    scrollbar-color: var(--amber-faint) transparent;
+    background: linear-gradient(to bottom, rgba(255, 200, 64, 0.05), transparent);
   }
-  .recent-row:hover {
-    background: rgba(255, 200, 64, 0.06);
-  }
+  .recents-scroll::-webkit-scrollbar { height: 4px; }
+  .recents-scroll::-webkit-scrollbar-thumb { background: var(--amber-faint); }
 
-  /* Scrollable body */
+  .recent-card {
+    flex-shrink: 0;
+    display: flex;
+    min-width: 100px;
+    max-width: 140px;
+    border: 1px solid var(--border-subtle);
+    background: var(--bg-elevated);
+    font-family: inherit;
+    cursor: pointer;
+    transition: all 0.15s;
+    overflow: hidden;
+  }
+  .recent-card:hover {
+    border-color: var(--amber-dim);
+    background: var(--bg-hover);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  }
+  .recent-card.selected {
+    border-color: var(--amber-bright);
+    box-shadow: 0 0 8px rgba(255, 200, 64, 0.2);
+  }
+  .rc-accent { width: 3px; flex-shrink: 0; }
+  .rc-content {
+    padding: var(--space-sm) var(--space-8);
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+  .rc-top { display: flex; align-items: center; gap: var(--space-xs); }
+  .rc-glyph { font-size: var(--text-xs); }
+  .rc-id { font-size: var(--text-xs); font-weight: 700; color: var(--amber-primary); }
+  .rc-name {
+    font-size: var(--text-2xs);
+    color: var(--amber-dim);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .rc-age { font-size: var(--text-2xs); color: var(--amber-faint); font-style: italic; }
+
+  /* ========== Scrollable body ========== */
   .browser-body {
     flex: 1;
     overflow-y: auto;
@@ -1462,7 +935,6 @@
   .browser-body::-webkit-scrollbar { width: 6px; }
   .browser-body::-webkit-scrollbar-thumb { background: var(--amber-faint); }
 
-  /* Loading / empty */
   .browser-loading, .browser-empty {
     display: flex;
     align-items: center;
@@ -1474,7 +946,7 @@
     font-style: italic;
   }
   .loading-glyph {
-    font-size: 16px;
+    font-size: var(--text-xl);
     font-style: normal;
     animation: pulse-glyph 1.6s ease-in-out infinite;
   }
@@ -1483,13 +955,13 @@
     50%      { opacity: 1;   text-shadow: var(--glow-amber); }
   }
 
-  /* Category header */
+  /* ========== Category header ========== */
   .category-header {
     display: flex;
     align-items: center;
     gap: var(--space-8);
     width: 100%;
-    padding: 7px var(--space-12);
+    padding: var(--space-8) var(--space-12) var(--space-8) var(--space-14);
     background: var(--bg-surface);
     border: none;
     box-shadow: var(--sep-depth);
@@ -1501,11 +973,32 @@
     cursor: pointer;
     transition: color 0.12s, background 0.12s;
     text-align: left;
+    position: relative;
+    overflow: hidden;
   }
-  .category-header:hover {
-    color: var(--amber-warm);
-    background: var(--bg-hover);
+  .category-header:hover { color: var(--amber-warm); }
+  .cat-accent {
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 3px;
   }
+  .cat-p    { background: linear-gradient(to right, rgba(255, 200, 64, 0.06), var(--bg-surface) 60%); }
+  .cat-pr   { background: linear-gradient(to right, rgba(255, 168, 38, 0.06), var(--bg-surface) 60%); }
+  .cat-r    { background: linear-gradient(to right, rgba(111, 224, 224, 0.06), var(--bg-surface) 60%); }
+  .cat-s    { background: linear-gradient(to right, rgba(108, 182, 255, 0.06), var(--bg-surface) 60%); }
+  .cat-lore { background: linear-gradient(to right, rgba(197, 143, 255, 0.06), var(--bg-surface) 60%); }
+  .cat-agt  { background: linear-gradient(to right, rgba(79, 232, 85, 0.06), var(--bg-surface) 60%); }
+  .cat-h    { background: linear-gradient(to right, rgba(168, 120, 48, 0.06), var(--bg-surface) 60%); }
+  .cat-p:hover    { background: linear-gradient(to right, rgba(255, 200, 64, 0.10), var(--bg-hover) 60%); }
+  .cat-pr:hover   { background: linear-gradient(to right, rgba(255, 168, 38, 0.10), var(--bg-hover) 60%); }
+  .cat-r:hover    { background: linear-gradient(to right, rgba(111, 224, 224, 0.10), var(--bg-hover) 60%); }
+  .cat-s:hover    { background: linear-gradient(to right, rgba(108, 182, 255, 0.10), var(--bg-hover) 60%); }
+  .cat-lore:hover { background: linear-gradient(to right, rgba(197, 143, 255, 0.10), var(--bg-hover) 60%); }
+  .cat-agt:hover  { background: linear-gradient(to right, rgba(79, 232, 85, 0.10), var(--bg-hover) 60%); }
+  .cat-h:hover    { background: linear-gradient(to right, rgba(168, 120, 48, 0.10), var(--bg-hover) 60%); }
+
   .category-chevron {
     font-size: var(--text-xs);
     transition: transform 0.15s ease;
@@ -1514,48 +1007,59 @@
     text-align: center;
   }
   .category-chevron.collapsed { transform: rotate(-90deg); }
-  .category-glyph { font-size: 11px; }
+  .category-glyph { font-size: var(--text-sm); }
   .category-label { flex: 1; }
-  .category-count {
-    font-size: var(--text-2xs);
-    color: var(--amber-faint);
-    font-weight: 400;
-  }
+  .category-count { font-size: var(--text-2xs); color: var(--amber-faint); font-weight: 400; }
+  .category-body { box-shadow: var(--sep-depth); }
 
-  /* Category body */
-  .category-body {
-    box-shadow: var(--sep-depth);
-  }
-
-  /* Vault row */
+  /* ========== Vault row (2-line) ========== */
   .vault-row {
+    display: flex;
+    width: 100%;
+    padding: 0;
+    background: transparent;
+    border: none;
+    color: var(--amber-warm);
+    font-family: inherit;
+    cursor: pointer;
+    text-align: left;
+    transition: background 0.1s, color 0.1s;
+    position: relative;
+  }
+  .vault-row:hover { background: var(--bg-hover); }
+  .vault-row:hover .vault-kind-bar { opacity: 1; }
+  .vault-kind-bar {
+    width: 2px;
+    flex-shrink: 0;
+    opacity: 0.4;
+    transition: opacity 0.15s;
+  }
+  .vault-inner {
+    flex: 1;
+    min-width: 0;
+    padding: 5px var(--space-12) 5px var(--space-8);
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+  }
+  .vault-main {
     display: flex;
     align-items: center;
     gap: var(--space-8);
-    width: 100%;
-    padding: 5px var(--space-12) 5px 22px;
-    background: transparent;
-    border: none;
-    border-left: 2px solid transparent;
-    color: var(--amber-warm);
-    font-family: inherit;
-    font-size: var(--text-sm);
-    cursor: pointer;
-    text-align: left;
-    transition: background 0.1s, border-color 0.1s, color 0.1s;
   }
-  .vault-row:hover {
-    background: var(--bg-hover);
-    border-left-color: var(--amber-dim);
+  .vault-meta {
+    display: flex;
+    align-items: center;
+    gap: var(--space-8);
+    padding-left: 34px;
   }
   .vault-row.highlighted {
     background: rgba(255, 168, 38, 0.12);
-    border-left-color: var(--amber-bright);
     animation: xref-flash 0.3s ease-out;
   }
+  .vault-row.highlighted .vault-kind-bar { opacity: 1; }
   .vault-row.tree-highlighted {
     background: rgba(74, 212, 212, 0.1);
-    border-left-color: var(--term-cyan);
     animation: xref-cyan-flash 0.3s ease-out;
   }
   @keyframes xref-flash {
@@ -1566,14 +1070,10 @@
     from { background: rgba(74, 212, 212, 0.22); }
     to   { background: rgba(74, 212, 212, 0.1); }
   }
-  .vault-row.selected {
-    background: var(--bg-hover);
-    border-left-color: var(--amber-bright);
-    color: var(--amber-bright);
-  }
-  .vault-row.dragging {
-    opacity: 0.4;
-  }
+  .vault-row.selected { background: var(--bg-hover); }
+  .vault-row.selected .vault-kind-bar { opacity: 1; }
+  .vault-row.selected .vault-id { color: var(--amber-bright); }
+  .vault-row.dragging { opacity: 0.4; }
 
   /* State dot */
   .state-dot {
@@ -1582,7 +1082,15 @@
     border-radius: 50%;
     flex-shrink: 0;
   }
-  .state-active    { background: var(--amber-bright); box-shadow: 0 0 6px var(--amber-bright); }
+  .state-active {
+    background: var(--amber-bright);
+    box-shadow: 0 0 6px var(--amber-bright);
+    animation: dot-pulse 2s ease-in-out infinite;
+  }
+  @keyframes dot-pulse {
+    0%, 100% { box-shadow: 0 0 4px var(--amber-bright); }
+    50%      { box-shadow: 0 0 10px var(--amber-bright), 0 0 16px rgba(255, 200, 64, 0.3); }
+  }
   .state-recent    { background: var(--amber-warm); }
   .state-ambient   { background: var(--amber-faint); }
   .state-background { background: var(--border-subtle); }
@@ -1599,6 +1107,8 @@
     color: var(--amber-primary);
     min-width: 48px;
     flex-shrink: 0;
+    font-size: var(--text-sm);
+    transition: color 0.12s;
   }
   .vault-name {
     flex: 1;
@@ -1615,16 +1125,18 @@
     font-style: italic;
     flex-shrink: 0;
   }
-  .vault-refs {
+  .vault-conn-badge {
     font-size: var(--text-2xs);
-    color: var(--amber-faint);
+    color: var(--amber-dim);
     flex-shrink: 0;
-    padding: 0 var(--space-xs);
+    padding: 1px var(--space-sm);
     border: 1px solid var(--border-subtle);
-    line-height: 14px;
+    letter-spacing: 0.04em;
+    transition: border-color 0.12s;
   }
+  .vault-row:hover .vault-conn-badge { border-color: var(--amber-dim); }
 
-  /* Kind colors — applied via .kind-X on glyphs */
+  /* Kind colors */
   .kind-p    { color: var(--amber-bright); }
   .kind-pr   { color: var(--amber-warm); }
   .kind-r    { color: var(--term-cyan); }
@@ -1633,12 +1145,21 @@
   .kind-agt  { color: var(--term-green); }
   .kind-h    { color: var(--amber-faint); }
 
-  /* Selected vault detail */
+  /* Kind background bars */
+  .kind-bg-p    { background: var(--amber-bright); }
+  .kind-bg-pr   { background: var(--amber-warm); }
+  .kind-bg-r    { background: var(--term-cyan); }
+  .kind-bg-s    { background: var(--term-blue); }
+  .kind-bg-lore { background: var(--term-purple); }
+  .kind-bg-agt  { background: var(--term-green); }
+  .kind-bg-h    { background: var(--amber-faint); }
+
+  /* ========== Vault detail panel ========== */
   .vault-detail {
-    padding: var(--space-sm) var(--space-md) var(--space-8) 42px;
+    padding: var(--space-sm) var(--space-md) var(--space-md) var(--space-lg);
     background: var(--bg-surface);
     border-left: 2px solid var(--amber-dim);
-    font-size: var(--text-xs);
+    margin-left: 2px;
   }
   .detail-row {
     display: flex;
@@ -1647,39 +1168,60 @@
     align-items: baseline;
   }
   .detail-label {
-    font-size: 8px;
+    font-size: var(--text-2xs);
     font-weight: 700;
     letter-spacing: 0.1em;
     color: var(--amber-faint);
-    min-width: 52px;
+    min-width: 60px;
     flex-shrink: 0;
   }
   .detail-value {
     color: var(--amber-dim);
+    font-size: var(--text-xs);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
     min-width: 0;
   }
-  .detail-links {
+  .detail-connections {
+    margin-top: var(--space-sm);
+    padding-top: var(--space-sm);
+    border-top: 1px solid var(--border-subtle);
+  }
+  .detail-conn-label {
+    display: block;
+    font-size: var(--text-2xs);
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    color: var(--amber-faint);
+    margin-bottom: var(--space-sm);
+  }
+  .detail-conn-chips {
     display: flex;
     flex-wrap: wrap;
     gap: var(--space-xs);
-    white-space: normal;
   }
-  .detail-link {
-    padding: 1px var(--space-sm);
-    border: 1px solid var(--border-subtle);
-    cursor: pointer;
+  .conn-chip {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    padding: 2px var(--space-8);
+    border: 1px solid currentColor;
+    background: transparent;
+    font-family: inherit;
     font-size: var(--text-2xs);
-    transition: border-color 0.12s, background 0.12s;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    cursor: pointer;
+    transition: background 0.12s, box-shadow 0.12s;
   }
-  .detail-link:hover {
-    border-color: currentColor;
-    background: rgba(255, 168, 38, 0.08);
+  .conn-chip:hover {
+    background: rgba(255, 168, 38, 0.1);
+    box-shadow: 0 0 6px rgba(255, 168, 38, 0.15);
   }
+  .conn-chip-glyph { font-size: var(--text-2xs); }
 
-  /* Drag ghost */
+  /* ========== Drag ghost ========== */
   .drag-ghost {
     position: fixed;
     pointer-events: none;
@@ -1696,77 +1238,5 @@
     box-shadow: 0 2px 12px rgba(0, 0, 0, 0.5);
     opacity: 0.92;
   }
-  .drag-ghost-glyph { font-size: 12px; }
-
-  /* =========================================================================
-     Force-directed graph view (Canvas)
-     ========================================================================= */
-
-  .graph-container {
-    flex: 1;
-    position: relative;
-    overflow: hidden;
-    background: var(--bg-base);
-    min-height: 0;
-  }
-
-  .graph-canvas {
-    width: 100%;
-    height: 100%;
-    display: block;
-    cursor: grab;
-  }
-  .graph-canvas:active {
-    cursor: grabbing;
-  }
-
-  /* Graph tooltip */
-  .graph-tooltip {
-    position: fixed;
-    pointer-events: none;
-    z-index: 5000;
-    padding: var(--space-sm) var(--space-md);
-    background: var(--bg-elevated);
-    border: 1px solid var(--amber-dim);
-    border-radius: var(--radius-md, 4px);
-    font-family: var(--font-family);
-    font-size: var(--text-xs);
-    color: var(--amber-warm);
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.6);
-    max-width: 260px;
-    white-space: nowrap;
-  }
-  .tooltip-title {
-    font-weight: 700;
-    font-size: var(--text-sm);
-    margin-bottom: 2px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  .tooltip-kind {
-    font-size: 8px;
-    font-weight: 700;
-    letter-spacing: 0.12em;
-    color: var(--amber-faint);
-    margin-bottom: 3px;
-  }
-  .tooltip-age {
-    font-size: var(--text-2xs);
-    color: var(--amber-faint);
-    font-style: italic;
-  }
-  .tooltip-conns {
-    margin-top: 4px;
-    font-size: var(--text-2xs);
-    color: var(--amber-dim);
-    border-top: 1px solid var(--border-subtle);
-    padding-top: 3px;
-  }
-  .tooltip-conns-count {
-    font-weight: 600;
-    margin-right: var(--space-xs);
-  }
-  .tooltip-conns-ids {
-    color: var(--amber-faint);
-  }
+  .drag-ghost-glyph { font-size: var(--text-base); }
 </style>

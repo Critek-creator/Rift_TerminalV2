@@ -132,7 +132,7 @@
     box-shadow: var(--sep-glow);
     display: flex;
     align-items: center;
-    padding: 0 12px;
+    padding: 0 var(--space-12);
     user-select: none;
     flex-shrink: 0;
   }
@@ -148,7 +148,7 @@
   }
   .glyph {
     color: var(--amber-bright);
-    margin-right: 6px;
+    margin-right: var(--space-sm);
     text-shadow: var(--glow-amber-strong);
   }
 
@@ -183,11 +183,11 @@
   /* ── Action buttons: PROJECT, SETTINGS, DETACH ──────────────────────────── */
   /* Visual separator before the first action button */
   .controls > .btn.project {
-    margin-left: 6px;
+    margin-left: var(--space-sm);
   }
   /* Thin visual gap before the window-control trio */
   .btn.winctrl-first {
-    margin-left: 10px;
+    margin-left: var(--space-md);
   }
 
   .btn.project,
@@ -195,7 +195,7 @@
   .btn.detach {
     width: auto;
     height: var(--space-24);
-    padding: 0 10px;
+    padding: 0 var(--space-md);
     font-size: var(--text-2xs);
     font-weight: 600;
     letter-spacing: 0.08em;

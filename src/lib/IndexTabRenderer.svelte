@@ -88,7 +88,7 @@
   /* Cyan-bordered INDEX tag — matches §10.1 cyan lane (#6FE0E0) */
   .tag {
     display: inline-block;
-    padding: 0 4px;
+    padding: 0 var(--space-xs);
     border: 1px solid var(--term-cyan, #6FE0E0);
     color: var(--term-cyan, #6FE0E0);
     font-size: var(--text-2xs);

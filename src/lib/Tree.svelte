@@ -989,7 +989,7 @@
     flex-direction: column;
     min-height: 0;
     overflow-y: auto;
-    padding: 4px 0;
+    padding: var(--space-xs)0;
   }
   .tree-container::-webkit-scrollbar { width: 5px; }
   .tree-container::-webkit-scrollbar-thumb { background: var(--amber-faint); }
@@ -1112,7 +1112,7 @@
     background: var(--bg-base);
     border: 1px solid var(--amber-faint);
     border-radius: 3px;
-    padding: 4px 7px;
+    padding: var(--space-xs) 7px;
     font-family: var(--font-family);
     font-size: var(--text-2xs);
     color: var(--amber-primary);
@@ -1133,9 +1133,9 @@
     color: var(--amber-faint);
   }
   :global(.et-tags) {
-    font-size: 8px;
+    font-size: var(--text-2xs);
     color: var(--amber-faint);
-    padding-left: 4px;
+    padding-left: var(--space-xs);
   }
 
   /* Unavailable / loading state */

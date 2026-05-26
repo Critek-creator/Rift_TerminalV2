@@ -162,6 +162,7 @@
       <button type="button"
         class="pane-tool-btn pane-tool-close"
         title="Close pane — Ctrl+Shift+W"
+        aria-label="Close pane"
         onclick={(e) => { e.stopPropagation(); onClose(node.id); }}
       >✕</button>
     </div>

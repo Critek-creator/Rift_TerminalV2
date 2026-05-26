@@ -64,11 +64,11 @@
     font-family: var(--font-family);
     font-size: var(--text-2xs);
     font-weight: 600;
-    padding: 0 4px;
+    padding: 0 var(--space-xs);
     border-radius: 3px;
     cursor: pointer;
     line-height: 14px;
-    margin-left: 4px;
+    margin-left: var(--space-xs);
     flex-shrink: 0;
   }
   .corr-badge:hover {
@@ -93,8 +93,8 @@
     font-weight: 700;
     letter-spacing: 0.08em;
     text-transform: uppercase;
-    margin-bottom: 6px;
-    padding-bottom: 4px;
+    margin-bottom: var(--space-sm);
+    padding-bottom: var(--space-xs);
     box-shadow: var(--sep-depth);
   }
   .corr-event {

@@ -315,7 +315,7 @@
     font-family: var(--font-family, 'JetBrains Mono', monospace);
     font-size: var(--text-2xs);
     letter-spacing: 0.04em;
-    padding: 2px 6px;
+    padding: 2px var(--space-sm);
     white-space: nowrap;
     pointer-events: none;
     z-index: 10;

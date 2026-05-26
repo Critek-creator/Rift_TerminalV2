@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount, onDestroy, tick } from 'svelte';
-  import { invoke, Channel } from '@tauri-apps/api/core';
+  import { invoke } from '@tauri-apps/api/core';
   import { listen, type UnlistenFn } from '@tauri-apps/api/event';
   import { Terminal as XTerm } from '@xterm/xterm';
   import { FitAddon } from '@xterm/addon-fit';
@@ -55,6 +55,7 @@
   let resizeObs: ResizeObserver | undefined;
   let resizeRaf: number | undefined;
   let unlistenExited: UnlistenFn | undefined;
+  let unlistenChunk: UnlistenFn | undefined;
 
   // Path intelligence tooltip state
   type FilePreview = { exists: boolean; size_bytes: number; modified_iso: string; language_hint: string; preview_lines: string[]; is_binary: boolean };
@@ -420,10 +421,27 @@
     // Cheap when redundant.
     if (term) term.refresh(0, term.rows - 1);
 
-    const onChunk = new Channel<number[]>();
-    onChunk.onmessage = (chunk) => {
-      term?.write(new Uint8Array(chunk));
-    };
+    // PTY output via Tauri events instead of Channel. The Channel mechanism
+    // holds a stale WebView2 reference from the initial page load — Vite's
+    // dep re-optimization causes an internal webview recreation that
+    // permanently breaks Channel callback delivery (runCallback never fires).
+    // Events use emit_to("main", ...) which resolves the CURRENT webview by
+    // label every time, so they always work.
+    //
+    // Buffer: events arrive before sessionId is known (PTY starts sending
+    // immediately). Buffer them and flush after pty_start returns.
+    type PtyChunkPayload = { id: number; bytes: number[] };
+    const chunkBuffer: { id: number; data: Uint8Array }[] = [];
+    let chunkListenerReady = false;
+
+    unlistenChunk = await listen<PtyChunkPayload>('pty-chunk', (event) => {
+      const data = new Uint8Array(event.payload.bytes);
+      if (sessionId !== null && event.payload.id === sessionId) {
+        term?.write(data);
+      } else if (!chunkListenerReady) {
+        chunkBuffer.push({ id: event.payload.id, data });
+      }
+    });
 
     let lastResizeRows = 0;
     let lastResizeCols = 0;
@@ -443,9 +461,6 @@
       }
     };
 
-    // Deferred PTY spawn: wait for the canvas to have real pixel dimensions
-    // before starting the shell. This eliminates the old Ctrl+L band-aid —
-    // the prompt bytes always arrive when the canvas can render them.
     let ptyStarted = false;
     const startPty = async () => {
       if (ptyStarted || !term) return;
@@ -462,10 +477,19 @@
         sessionId = await invoke<number>('pty_start', {
           rows: startRows,
           cols: startCols,
-          onChunk,
           cwd: projectPath ?? undefined,
         });
         alive = true;
+
+        // Flush buffered chunks that arrived before sessionId was known
+        for (const buffered of chunkBuffer) {
+          if (buffered.id === sessionId) {
+            term.write(buffered.data);
+          }
+        }
+        chunkBuffer.length = 0;
+        chunkListenerReady = true;
+
         invoke('terminal_mounted').catch(() => {});
       } catch (err) {
         term.writeln(`\r\n${laneFormatGated('ERR', `pty_start failed: ${err}`, lanesEnabled)}`);
@@ -476,12 +500,6 @@
       term.focus();
     };
 
-    // Start the PTY unconditionally — deferredFit already waited for layout
-    // to settle. Clamped dimensions in startPty() guarantee a valid size even
-    // if the host is still too small. Previous approach checked initiallyReady
-    // + a 3-second recovery interval, but multiple timing edge cases caused
-    // the prompt to disappear. This replaces all of that with "start now,
-    // detect blank, recover."
     await startPty();
     requestAnimationFrame(refitAndResize);
 
@@ -601,6 +619,7 @@
       invoke('pty_kill', { id: sessionId }).catch(() => {});
     }
     unlistenExited?.();
+    unlistenChunk?.();
     unsubscribeLane?.().catch(() => {});
     if (hoverTimer !== null) { clearTimeout(hoverTimer); hoverTimer = null; }
     if (recoveryTimer) clearInterval(recoveryTimer);

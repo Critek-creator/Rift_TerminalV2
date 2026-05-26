@@ -142,7 +142,7 @@
     font-size: var(--text-2xs, 9px);
     color: var(--bg-base);
     background: var(--amber-faint);
-    padding: 1px 4px;
+    padding: 1px var(--space-xs);
     border-radius: var(--radius-sm);
     white-space: nowrap;
     font-weight: 600;

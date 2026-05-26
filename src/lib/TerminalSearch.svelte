@@ -103,7 +103,7 @@
     background: var(--bg-surface, #1a1814);
     border: 1px solid var(--border-subtle, rgba(255, 168, 38, 0.15));
     border-radius: var(--radius-md, 6px);
-    padding: 3px 4px;
+    padding: 3px var(--space-xs);
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
   }
 
@@ -114,7 +114,7 @@
     font-family: 'JetBrains Mono', monospace;
     font-size: var(--text-base);
     width: 200px;
-    padding: 3px 6px;
+    padding: 3px var(--space-sm);
     outline: none;
   }
   input::placeholder {
@@ -150,6 +150,6 @@
 
   .nav {
     font-size: var(--text-2xs);
-    padding: 2px 4px;
+    padding: 2px var(--space-xs);
   }
 </style>
