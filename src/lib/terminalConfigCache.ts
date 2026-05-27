@@ -13,6 +13,7 @@ export interface TerminalSettings {
   scrollback: number;
   lanesEnabled: boolean;
   colorPalette: string;
+  customPalette: Record<string, string>;
 }
 
 const FALLBACK: TerminalSettings = {
@@ -21,6 +22,7 @@ const FALLBACK: TerminalSettings = {
   scrollback: TERM_DEFAULT_SCROLLBACK,
   lanesEnabled: true,
   colorPalette: 'amber',
+  customPalette: {},
 };
 
 let cached: TerminalSettings | null = null;
@@ -40,6 +42,7 @@ export async function getTerminalSettings(): Promise<TerminalSettings> {
       scrollback: Math.max(100, Math.min(100000, t.scrollback)),
       lanesEnabled: t.lanes_enabled,
       colorPalette: t.color_palette ?? 'amber',
+      customPalette: t.custom_palette ?? {},
     };
     return cached;
   } catch {

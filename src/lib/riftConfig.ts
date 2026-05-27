@@ -40,6 +40,7 @@ export interface TerminalConfig {
   scrollback: number;
   lanes_enabled: boolean;
   color_palette: string;
+  custom_palette: Record<string, string>;
 }
 
 export type ShellPref =

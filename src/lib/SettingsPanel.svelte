@@ -22,8 +22,8 @@
   import { popouts } from './popouts.svelte';
   import type { RiftConfig, McpConfig, ShellPref, SeverityLevel, StatusLineConfig, AlertRule, AlertAction } from './riftConfig';
   import { newAlertRuleId } from './alertRules';
-  import { PALETTES } from './terminalPalettes';
-  import { llmModels } from './llmModels.svelte';
+  import { PALETTES, CUSTOM_PALETTE_KEYS, PALETTE_KEY_LABELS, getDefaultCustomColors } from './terminalPalettes';
+  import { llmModels, loadFromConfig as loadLlmFromConfig } from './llmModels.svelte';
   import ModelCard from './ModelCard.svelte';
 
   interface Props {
@@ -128,6 +128,8 @@
   let termScrollback = $state(1000);
   let termLanesEnabled = $state(true);
   let termColorPalette = $state('amber');
+  let customColors = $state<Record<string, string>>({});
+  let customEditorOpen = $state(false);
 
   // Font presets — aesthetic templates
   const FONT_PRESETS: { label: string; value: string }[] = [
@@ -264,7 +266,7 @@
 
   // Notification filters
   const SEVERITY_OPTIONS: SeverityLevel[] = ['debug', 'info', 'warn', 'error'];
-  const NOTIF_TAB_IDS = ['errors', 'hooks', 'commands', 'aegis', 'index', 'bustail', 'todo', 'git', 'agents'];
+  const NOTIF_TAB_IDS = ['errors', 'hooks', 'commands', 'aegis', 'index', 'bustail', 'todo', 'git', 'agents', 'sentinel', 'filesystem', 'mcp', 'health', 'llm-activity'];
   let notifDefaultThreshold = $state<SeverityLevel>('info');
   let notifPerTab = $state<Record<string, SeverityLevel>>({});
   let savingNotif = $state(false);
@@ -440,6 +442,7 @@
       || termScrollback !== config.terminal.scrollback
       || termLanesEnabled !== config.terminal.lanes_enabled
       || termColorPalette !== (config.terminal.color_palette ?? 'amber')
+      || JSON.stringify(customColors) !== JSON.stringify(config.terminal.custom_palette ?? {})
     )
   );
 
@@ -473,6 +476,10 @@
     termScrollback = c.terminal.scrollback;
     termLanesEnabled = c.terminal.lanes_enabled;
     termColorPalette = c.terminal.color_palette ?? 'amber';
+    customColors = c.terminal.custom_palette ?? {};
+    if (termColorPalette === 'custom' && Object.keys(customColors).length === 0) {
+      customColors = getDefaultCustomColors();
+    }
     // Font preset mode detection
     const matchedPreset = FONT_PRESETS.find(p => p.value === termFontFamily);
     if (matchedPreset) {
@@ -507,6 +514,8 @@
     notifDefaultThreshold = (['debug', 'info', 'warn', 'error'].includes(nf.default_threshold)
       ? nf.default_threshold : 'info') as SeverityLevel;
     notifPerTab = { ...(nf.per_tab ?? {}) };
+    // LLM models snapshot.
+    loadLlmFromConfig(c.ensemble);
   }
 
   async function reloadConfig() {
@@ -564,6 +573,7 @@
     const prevScrollback = termScrollback;
     const prevLanesEnabled = termLanesEnabled;
     const prevColorPalette = termColorPalette;
+    const prevCustomColors = { ...customColors };
     try {
       const next: RiftConfig = {
         ...config,
@@ -575,6 +585,7 @@
           scrollback: Math.max(100, Math.min(100000, Math.floor(termScrollback || 1000))),
           lanes_enabled: termLanesEnabled,
           color_palette: termColorPalette,
+          custom_palette: customColors,
         },
       };
       await invoke('config_save', { cfg: next });
@@ -594,6 +605,7 @@
       termScrollback = prevScrollback;
       termLanesEnabled = prevLanesEnabled;
       termColorPalette = prevColorPalette;
+      customColors = prevCustomColors;
       saveBanner = { section: 'terminal', ok: false, msg: String(err) };
     } finally {
       savingTerminal = false;
@@ -1090,13 +1102,101 @@
                   <span class="palette-swatch" style="background: {palette.theme.background}; color: {palette.theme.foreground}">Aa</span>
                   <span class="palette-swatch" style="background: {palette.theme.background}; color: {palette.theme.red}">Er</span>
                   <span class="palette-swatch" style="background: {palette.theme.background}; color: {palette.theme.green}">Ok</span>
+                  <span class="palette-swatch" style="background: {palette.theme.background}; color: {palette.theme.yellow}">Yl</span>
                   <span class="palette-swatch" style="background: {palette.theme.background}; color: {palette.theme.blue}">Cl</span>
+                  <span class="palette-swatch" style="background: {palette.theme.background}; color: {palette.theme.magenta}">Ag</span>
                   <span class="palette-swatch" style="background: {palette.theme.background}; color: {palette.theme.cyan}">Hk</span>
+                  <span class="palette-swatch" style="background: {palette.theme.background}; color: {palette.theme.white}">Wh</span>
                 </span>
               </span>
             </label>
           {/each}
+          <label class="radio palette-radio"
+            onmouseenter={() => previewPalette('custom')}
+            onmouseleave={() => previewPalette(null)}
+          >
+            <input type="radio" name="color-palette" value="custom"
+              checked={termColorPalette === 'custom'}
+              onchange={() => {
+                termColorPalette = 'custom';
+                if (Object.keys(customColors).length === 0) {
+                  customColors = getDefaultCustomColors();
+                }
+                customEditorOpen = true;
+              }}
+            />
+            <span class="palette-option">
+              <span class="palette-name">Custom</span>
+              <span class="palette-desc">Define your own color scheme</span>
+              {#if Object.keys(customColors).length > 0}
+                {@const bg = customColors.background ?? '#080806'}
+                <span class="palette-preview">
+                  <span class="palette-swatch" style="background: {bg}; color: {customColors.foreground ?? '#FFA826'}">Aa</span>
+                  <span class="palette-swatch" style="background: {bg}; color: {customColors.red ?? '#FF4848'}">Er</span>
+                  <span class="palette-swatch" style="background: {bg}; color: {customColors.green ?? '#4FE855'}">Ok</span>
+                  <span class="palette-swatch" style="background: {bg}; color: {customColors.yellow ?? '#FFC840'}">Yl</span>
+                  <span class="palette-swatch" style="background: {bg}; color: {customColors.blue ?? '#6CB6FF'}">Cl</span>
+                  <span class="palette-swatch" style="background: {bg}; color: {customColors.magenta ?? '#C58FFF'}">Ag</span>
+                  <span class="palette-swatch" style="background: {bg}; color: {customColors.cyan ?? '#6FE0E0'}">Hk</span>
+                  <span class="palette-swatch" style="background: {bg}; color: {customColors.white ?? '#E8E4D8'}">Wh</span>
+                </span>
+              {/if}
+            </span>
+          </label>
         </div>
+
+        {#if termColorPalette === 'custom'}
+          <button type="button" class="disclosure-toggle" onclick={() => (customEditorOpen = !customEditorOpen)}>
+            <span class="disclosure-caret">{customEditorOpen ? '▾' : '▸'}</span>
+            Custom Colors
+          </button>
+
+          {#if customEditorOpen}
+            <div class="custom-palette-editor">
+              <div class="custom-palette-actions">
+                <span class="field-label">base on preset:</span>
+                {#each PALETTES.slice(0, 4) as preset (preset.id)}
+                  <button type="button" class="btn" onclick={() => {
+                    const fresh: Record<string, string> = {};
+                    for (const key of CUSTOM_PALETTE_KEYS) {
+                      const val = preset.theme[key as keyof typeof preset.theme];
+                      if (typeof val === 'string') fresh[key] = val;
+                    }
+                    customColors = fresh;
+                    previewPalette('custom');
+                  }}>{preset.label}</button>
+                {/each}
+              </div>
+              <div class="custom-palette-grid">
+                {#each CUSTOM_PALETTE_KEYS as key (key)}
+                  <label class="custom-color-field">
+                    <span class="custom-color-label">{PALETTE_KEY_LABELS[key]}</span>
+                    <span class="custom-color-input-row">
+                      <input
+                        type="color"
+                        class="custom-color-picker"
+                        value={customColors[key]?.startsWith('rgba') ? '#000000' : (customColors[key] ?? '#000000')}
+                        oninput={(e) => {
+                          customColors = { ...customColors, [key]: (e.target as HTMLInputElement).value };
+                        }}
+                      />
+                      <input
+                        type="text"
+                        class="custom-color-hex"
+                        value={customColors[key] ?? ''}
+                        placeholder="#000000"
+                        spellcheck="false"
+                        oninput={(e) => {
+                          customColors = { ...customColors, [key]: (e.target as HTMLInputElement).value };
+                        }}
+                      />
+                    </span>
+                  </label>
+                {/each}
+              </div>
+            </div>
+          {/if}
+        {/if}
 
         <div class="section-label" style="margin-top: 12px;">Font</div>
         <div class="radio-row">
@@ -1592,7 +1692,7 @@
         <button type="button" class="rift-btn" onclick={() => llmModels.addModel('open_ai_compat')}>+ OpenAI-compat</button>
       </div>
       <div style="margin-top: 12px; display: flex; justify-content: flex-end;">
-        <button type="button" class="rift-btn primary" onclick={() => llmModels.save()}>Save Models</button>
+        <button type="button" class="rift-btn primary" onclick={async () => { await llmModels.save(); broadcastConfigChanged(); }}>Save Models</button>
       </div>
     </section>
     {/if}
@@ -2256,5 +2356,82 @@
   .disclosure-caret {
     font-size: var(--text-xs);
     color: var(--amber-faint);
+  }
+
+  /* ─── Custom palette editor ──────────────────────────────────────────── */
+  .custom-palette-editor {
+    margin-top: var(--space-sm);
+    padding: var(--space-md);
+    background: var(--bg-base);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+  }
+  .custom-palette-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    margin-bottom: var(--space-md);
+    flex-wrap: wrap;
+  }
+  .custom-palette-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: var(--space-sm) var(--space-lg);
+  }
+  .custom-color-field {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .custom-color-label {
+    color: var(--amber-dim);
+    font-size: var(--text-2xs);
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  .custom-color-input-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+  }
+  .custom-color-picker {
+    appearance: none;
+    -webkit-appearance: none;
+    width: 28px;
+    height: 24px;
+    border: 1px solid var(--border-active);
+    border-radius: var(--radius-sm);
+    background: transparent;
+    cursor: pointer;
+    padding: 0;
+    flex-shrink: 0;
+  }
+  .custom-color-picker::-webkit-color-swatch-wrapper {
+    padding: 2px;
+  }
+  .custom-color-picker::-webkit-color-swatch {
+    border: none;
+    border-radius: 2px;
+  }
+  .custom-color-hex {
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+    color: var(--amber-warm);
+    font-family: var(--font-family);
+    font-size: var(--text-2xs);
+    padding: 2px var(--space-sm);
+    height: 24px;
+    width: 82px;
+    transition: border-color var(--duration-base) var(--ease-out);
+  }
+  .custom-color-hex:focus {
+    outline: 2px solid transparent;
+    border-color: var(--amber-primary);
+  }
+  .custom-color-hex::placeholder {
+    color: var(--amber-faint);
+    font-style: italic;
   }
 </style>

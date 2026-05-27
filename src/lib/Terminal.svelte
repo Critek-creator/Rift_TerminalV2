@@ -29,7 +29,7 @@
   import PathTooltip from './PathTooltip.svelte';
   import { subscribe as busSubscribe, type Envelope } from './bus';
   import { getTerminalSettings, invalidateTerminalSettingsCache } from './terminalConfigCache';
-  import { getPalette } from './terminalPalettes';
+  import { resolveTheme } from './terminalPalettes';
   import { LaneTintManager } from './laneTint';
 
   type PtyExited = { id: number; code: number };
@@ -181,10 +181,10 @@
     runtimeFontSize = settings.fontSize;
     lanesEnabled = settings.lanesEnabled;
 
-    const initPalette = getPalette(settings.colorPalette);
+    const initTheme = resolveTheme(settings.colorPalette, settings.customPalette);
     // Sync CSS --bg-base to palette background so container gaps match.
-    if (initPalette.theme.background) {
-      document.documentElement.style.setProperty('--bg-base', initPalette.theme.background);
+    if (initTheme.background) {
+      document.documentElement.style.setProperty('--bg-base', initTheme.background);
     }
     term = new XTerm({
       fontFamily: '"JetBrains Mono", monospace',
@@ -192,7 +192,7 @@
       lineHeight: settings.lineHeight,
       scrollback: settings.scrollback,
       cursorBlink: true,
-      theme: initPalette.theme,
+      theme: initTheme,
     });
     fit = new FitAddon();
     term.loadAddon(fit);
@@ -597,8 +597,8 @@
       invalidateTerminalSettingsCache();
       const fresh = await getTerminalSettings();
       if (!term) return;
-      const palette = getPalette(fresh.colorPalette);
-      term.options.theme = palette.theme;
+      const theme = resolveTheme(fresh.colorPalette, fresh.customPalette);
+      term.options.theme = theme;
       if (fresh.fontSize !== runtimeFontSize) {
         runtimeFontSize = fresh.fontSize;
         configFontSize = fresh.fontSize;
@@ -608,8 +608,8 @@
       term.options.scrollback = fresh.scrollback;
       lanesEnabled = fresh.lanesEnabled;
       // Sync CSS --bg-base so container/shell backgrounds match the palette.
-      if (palette.theme.background) {
-        document.documentElement.style.setProperty('--bg-base', palette.theme.background);
+      if (theme.background) {
+        document.documentElement.style.setProperty('--bg-base', theme.background);
       }
       try { fit?.fit(); } catch { /* best-effort */ }
       term.refresh(0, term.rows - 1);
@@ -623,17 +623,17 @@
       if (!term) return;
       if (id) {
         if (!savedPaletteId) savedPaletteId = settings.colorPalette;
-        const preview = getPalette(id);
-        term.options.theme = preview.theme;
-        if (preview.theme.background) {
-          document.documentElement.style.setProperty('--bg-base', preview.theme.background);
+        const previewTheme = resolveTheme(id, settings.customPalette);
+        term.options.theme = previewTheme;
+        if (previewTheme.background) {
+          document.documentElement.style.setProperty('--bg-base', previewTheme.background);
         }
         term.refresh(0, term.rows - 1);
       } else if (savedPaletteId) {
-        const restored = getPalette(savedPaletteId);
-        term.options.theme = restored.theme;
-        if (restored.theme.background) {
-          document.documentElement.style.setProperty('--bg-base', restored.theme.background);
+        const restoredTheme = resolveTheme(savedPaletteId, settings.customPalette);
+        term.options.theme = restoredTheme;
+        if (restoredTheme.background) {
+          document.documentElement.style.setProperty('--bg-base', restoredTheme.background);
         }
         term.refresh(0, term.rows - 1);
         savedPaletteId = null;

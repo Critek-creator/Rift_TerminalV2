@@ -709,6 +709,11 @@ pub struct TerminalConfig {
     /// Named color palette applied to the xterm.js theme. Defaults to `"amber"`
     /// (the original CRT look). Frontend resolves the name to a full ITheme object.
     pub color_palette: String,
+    /// User-defined color overrides for the `"custom"` palette. Keys are xterm
+    /// ITheme property names (`background`, `foreground`, `cursor`, `black`,
+    /// `red`, etc.); values are CSS hex color strings. Ignored when
+    /// `color_palette` is not `"custom"`.
+    pub custom_palette: std::collections::HashMap<String, String>,
 }
 
 /// Default CSS font-family stack.
@@ -724,6 +729,7 @@ impl Default for TerminalConfig {
             scrollback: TERMINAL_DEFAULT_SCROLLBACK,
             lanes_enabled: true,
             color_palette: "amber".to_string(),
+            custom_palette: std::collections::HashMap::new(),
         }
     }
 }

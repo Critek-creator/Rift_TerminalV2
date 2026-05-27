@@ -1110,6 +1110,18 @@ fn tool_rift_config_set(
         changed = true;
     }
 
+    // custom_palette: Record<string, string>
+    if let Some(v) = payload.get("custom_palette").and_then(|v| v.as_object()) {
+        let mut map = std::collections::HashMap::new();
+        for (k, val) in v {
+            if let Some(s) = val.as_str() {
+                map.insert(k.clone(), s.to_string());
+            }
+        }
+        cfg.terminal.custom_palette = map;
+        changed = true;
+    }
+
     // shell: string → ShellPref
     if let Some(v) = payload.get("shell").and_then(|v| v.as_str()) {
         let pref = match v {
