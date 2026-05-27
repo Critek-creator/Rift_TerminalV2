@@ -406,5 +406,68 @@ pub fn tool_catalog() -> Vec<ToolSpec> {
                 "additionalProperties": false,
             }),
         },
+        // Ensemble Router — LLM model management + prompt
+        ToolSpec {
+            name: "llm_models",
+            description: "List configured LLM models with health status, hosting mode, and capabilities.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {},
+            }),
+        },
+        ToolSpec {
+            name: "llm_switch",
+            description: "Set the active model for Rift router prompts.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "model_id": {
+                        "type": "string",
+                        "description": "Model ID to activate (from llm_models output).",
+                    },
+                },
+                "required": ["model_id"],
+            }),
+        },
+        ToolSpec {
+            name: "llm_health",
+            description: "Run a health check against a configured model endpoint and return status + latency.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "model_id": {
+                        "type": "string",
+                        "description": "Model ID to health-check. Omit to check all.",
+                    },
+                },
+            }),
+        },
+        ToolSpec {
+            name: "llm_prompt",
+            description: "Send a prompt through the Rift router to the active (or specified) model and return the response with token counts and latency.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "prompt": {
+                        "type": "string",
+                        "description": "The prompt text to send.",
+                    },
+                    "model_id": {
+                        "type": "string",
+                        "description": "Optional model ID override. If omitted, uses the active model.",
+                    },
+                    "system_prompt": {
+                        "type": "string",
+                        "description": "Optional system prompt.",
+                    },
+                    "max_tokens": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "description": "Max tokens to generate.",
+                    },
+                },
+                "required": ["prompt"],
+            }),
+        },
     ]
 }

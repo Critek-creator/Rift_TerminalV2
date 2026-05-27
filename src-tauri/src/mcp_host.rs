@@ -407,6 +407,11 @@ async fn dispatch_tool(
             }
             tool_rift_config_set(bus, app_handle, payload)
         }
+        // Ensemble Router — LLM tools
+        "llm_models" => tool_llm_models(),
+        "llm_switch" => tool_llm_switch(bus, payload),
+        "llm_health" => tool_llm_health(payload).await,
+        "llm_prompt" => tool_llm_prompt(payload).await,
         other => Err(format!("unknown MCP tool: {other}")),
     }
 }
@@ -1365,4 +1370,212 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
     diff == 0
 }
 
-// (Audit publishes use `publish_audit` directly — no extension trait needed.)
+// ---------------------------------------------------------------------------
+// Ensemble Router LLM tools
+// ---------------------------------------------------------------------------
+
+/// `llm_models` — list all configured models with status.
+fn tool_llm_models() -> Result<Value, String> {
+    let config = rift_bus::config::load_config().map_err(|e| format!("{e}"))?;
+    let models: Vec<Value> = config
+        .ensemble
+        .models
+        .iter()
+        .map(|m| {
+            json!({
+                "id": m.id,
+                "display_name": m.display_name,
+                "provider": format!("{:?}", m.provider),
+                "model_identifier": m.model_identifier,
+                "hosting_mode": match &m.hosting {
+                    rift_bus::config::HostingMode::Cloud => "cloud",
+                    rift_bus::config::HostingMode::Local { .. } => "local",
+                    rift_bus::config::HostingMode::Remote { .. } => "remote",
+                },
+                "endpoint": m.endpoint,
+                "short_id": m.short_id,
+                "color": m.color,
+                "capabilities": {
+                    "max_context_tokens": m.capabilities.max_context_tokens,
+                    "supports_streaming": m.capabilities.supports_streaming,
+                    "supports_tool_use": m.capabilities.supports_tool_use,
+                    "cost_per_1m_input": m.capabilities.cost_per_1m_input,
+                    "cost_per_1m_output": m.capabilities.cost_per_1m_output,
+                    "strength_tags": m.capabilities.strength_tags,
+                },
+            })
+        })
+        .collect();
+
+    Ok(json!({
+        "enabled": config.ensemble.enabled,
+        "active_profile": format!("{:?}", config.ensemble.active_profile),
+        "default_model": config.ensemble.default_model,
+        "models": models,
+    }))
+}
+
+/// `llm_switch` — set the active model (publishes a bus event).
+fn tool_llm_switch(bus: &RiftBus, payload: &Value) -> Result<Value, String> {
+    let model_id = payload
+        .get("model_id")
+        .and_then(|v| v.as_str())
+        .ok_or("missing required argument: model_id")?;
+
+    let config = rift_bus::config::load_config().map_err(|e| format!("{e}"))?;
+    let model = config
+        .ensemble
+        .models
+        .iter()
+        .find(|m| m.id == model_id)
+        .ok_or_else(|| format!("model not found: {model_id}"))?;
+
+    if let Ok(env) = Envelope::new(Category::Llm, "llm.switch").with_payload(&json!({
+        "model_id": model_id,
+        "display_name": model.display_name,
+        "short_id": model.short_id,
+    })) {
+        bus.publish(env);
+    }
+
+    Ok(json!({
+        "switched_to": model_id,
+        "display_name": model.display_name,
+        "short_id": model.short_id,
+    }))
+}
+
+/// `llm_health` — run health check on one or all models.
+async fn tool_llm_health(payload: &Value) -> Result<Value, String> {
+    use rift_bus::translators::llm::LlmProvider;
+    use rift_bus::translators::llm_server::LlamaServerProvider;
+
+    let config = rift_bus::config::load_config().map_err(|e| format!("{e}"))?;
+    let target_id = payload.get("model_id").and_then(|v| v.as_str());
+
+    let models: Vec<_> = config
+        .ensemble
+        .models
+        .iter()
+        .filter(|m| target_id.is_none() || target_id == Some(m.id.as_str()))
+        .collect();
+
+    let mut results = Vec::new();
+    for m in &models {
+        let provider: Box<dyn LlmProvider> = match &m.hosting {
+            rift_bus::config::HostingMode::Local { process_config } => {
+                let ep = format!("http://127.0.0.1:{}", process_config.port);
+                Box::new(LlamaServerProvider::new(ep, &m.model_identifier))
+            }
+            rift_bus::config::HostingMode::Remote { .. } => {
+                Box::new(LlamaServerProvider::new(&m.endpoint, &m.model_identifier))
+            }
+            rift_bus::config::HostingMode::Cloud => {
+                results.push(json!({
+                    "model_id": m.id,
+                    "status": "skipped",
+                    "reason": "cloud health check not implemented — use API dashboard",
+                }));
+                continue;
+            }
+        };
+
+        let status = provider.health_check().await;
+        results.push(json!({
+            "model_id": m.id,
+            "display_name": m.display_name,
+            "status": serde_json::to_value(&status).unwrap_or(json!("unknown")),
+        }));
+    }
+
+    Ok(json!({ "results": results }))
+}
+
+/// `llm_prompt` — send a prompt to a model and return the response.
+async fn tool_llm_prompt(payload: &Value) -> Result<Value, String> {
+    use rift_bus::translators::llm::{CompletionRequest, LlmProvider, Message, Role};
+    use rift_bus::translators::llm_anthropic::AnthropicProvider;
+    use rift_bus::translators::llm_gemini::GeminiProvider;
+    use rift_bus::translators::llm_server::LlamaServerProvider;
+
+    let prompt = payload
+        .get("prompt")
+        .and_then(|v| v.as_str())
+        .ok_or("missing required argument: prompt")?;
+
+    let config = rift_bus::config::load_config().map_err(|e| format!("{e}"))?;
+
+    let model_id = payload
+        .get("model_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or(&config.ensemble.default_model);
+
+    let model = config
+        .ensemble
+        .models
+        .iter()
+        .find(|m| m.id == model_id)
+        .ok_or_else(|| format!("model not found: {model_id}"))?;
+
+    let api_key = model.api_key_ref.clone().unwrap_or_default();
+
+    let provider: Box<dyn LlmProvider> = match (&model.hosting, &model.provider) {
+        (rift_bus::config::HostingMode::Cloud, rift_bus::config::ProviderType::Anthropic) => {
+            Box::new(AnthropicProvider::new(
+                &model.endpoint,
+                &api_key,
+                &model.model_identifier,
+            ))
+        }
+        (rift_bus::config::HostingMode::Cloud, rift_bus::config::ProviderType::Google) => Box::new(
+            GeminiProvider::new(&model.endpoint, &api_key, &model.model_identifier),
+        ),
+        (rift_bus::config::HostingMode::Cloud, _) => {
+            return Err(format!("unsupported cloud provider: {:?}", model.provider));
+        }
+        (rift_bus::config::HostingMode::Local { process_config }, _) => {
+            let ep = format!("http://127.0.0.1:{}", process_config.port);
+            Box::new(LlamaServerProvider::new(ep, &model.model_identifier))
+        }
+        (rift_bus::config::HostingMode::Remote { .. }, _) => Box::new(LlamaServerProvider::new(
+            &model.endpoint,
+            &model.model_identifier,
+        )),
+    };
+
+    let system_prompt = payload
+        .get("system_prompt")
+        .and_then(|v| v.as_str())
+        .map(String::from);
+
+    let max_tokens = payload
+        .get("max_tokens")
+        .and_then(|v| v.as_u64())
+        .map(|v| v as u32);
+
+    let request = CompletionRequest {
+        messages: vec![Message {
+            role: Role::User,
+            content: prompt.to_string(),
+        }],
+        max_tokens,
+        temperature: None,
+        stop_sequences: vec![],
+        system_prompt,
+        provider_options: None,
+    };
+
+    let resp = provider
+        .complete(request)
+        .await
+        .map_err(|e| format!("{e}"))?;
+
+    Ok(json!({
+        "content": resp.content,
+        "tokens_in": resp.tokens_in,
+        "tokens_out": resp.tokens_out,
+        "model_used": resp.model_used,
+        "latency_ms": resp.latency_ms,
+        "stop_reason": format!("{:?}", resp.stop_reason),
+    }))
+}
