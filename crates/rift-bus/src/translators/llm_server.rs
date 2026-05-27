@@ -283,7 +283,7 @@ fn spawn_sse_reader(mut resp: reqwest::Response) -> CompletionStream {
 
 /// Minimal Stream wrapper around `tokio::sync::mpsc::Receiver`.
 /// Avoids pulling in `tokio-stream` for a single adapter.
-struct ReceiverStream<T>(tokio::sync::mpsc::Receiver<T>);
+pub struct ReceiverStream<T>(pub tokio::sync::mpsc::Receiver<T>);
 
 impl<T> futures_core::Stream for ReceiverStream<T> {
     type Item = T;

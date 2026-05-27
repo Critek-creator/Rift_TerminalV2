@@ -4,8 +4,10 @@
 //! Commands look up the model config, create the appropriate provider,
 //! and execute the request.
 
-use rift_bus::config::{load_config, HostingMode};
+use rift_bus::config::{load_config, HostingMode, ProviderType};
 use rift_bus::translators::llm::{CompletionRequest, LlmProvider, Message, Role};
+use rift_bus::translators::llm_anthropic::AnthropicProvider;
+use rift_bus::translators::llm_gemini::GeminiProvider;
 use rift_bus::translators::llm_server::LlamaServerProvider;
 use serde::Serialize;
 
@@ -30,18 +32,27 @@ pub async fn llm_complete(model_id: String, prompt: String) -> Result<LlmComplet
         .ok_or_else(|| format!("model not found: {model_id}"))?
         .clone();
 
-    let provider: Box<dyn LlmProvider> = match &model.hosting {
-        HostingMode::Cloud => {
-            return Err(
-                "Cloud providers not yet implemented — use a local or remote llama-server model"
-                    .into(),
-            );
+    let api_key = model.api_key_ref.clone().unwrap_or_default();
+
+    let provider: Box<dyn LlmProvider> = match (&model.hosting, &model.provider) {
+        (HostingMode::Cloud, ProviderType::Anthropic) => Box::new(AnthropicProvider::new(
+            &model.endpoint,
+            &api_key,
+            &model.model_identifier,
+        )),
+        (HostingMode::Cloud, ProviderType::Google) => Box::new(GeminiProvider::new(
+            &model.endpoint,
+            &api_key,
+            &model.model_identifier,
+        )),
+        (HostingMode::Cloud, _) => {
+            return Err(format!("unsupported cloud provider: {:?}", model.provider));
         }
-        HostingMode::Local { process_config } => {
+        (HostingMode::Local { process_config }, _) => {
             let endpoint = format!("http://127.0.0.1:{}", process_config.port);
             Box::new(LlamaServerProvider::new(endpoint, &model.model_identifier))
         }
-        HostingMode::Remote { .. } => Box::new(LlamaServerProvider::new(
+        (HostingMode::Remote { .. }, _) => Box::new(LlamaServerProvider::new(
             &model.endpoint,
             &model.model_identifier,
         )),
