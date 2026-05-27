@@ -42,6 +42,8 @@
         action: () => { popouts.summon({ content: { kind: 'settings' } }); onclose(); } },
       { id: 'act:notif-manager', label: 'Notification Manager', icon: '◫', category: 'action',
         action: () => { onclose(); } },
+      { id: 'act:llm-chat', label: 'Router Prompt', icon: '◆', category: 'action',
+        action: () => { popouts.summon({ content: { kind: 'llm-chat' }, width: 'min(720px, 85vw)' }); onclose(); } },
     );
 
     if (llmModels.enabled) {

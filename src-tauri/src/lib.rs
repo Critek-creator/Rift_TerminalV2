@@ -3,6 +3,7 @@ mod cockpit_window;
 mod git_status;
 #[cfg(feature = "index")]
 mod index_bridge;
+mod llm_commands;
 #[cfg(not(feature = "index"))]
 mod index_bridge {
     #[tauri::command]
@@ -2146,6 +2147,7 @@ pub fn run() {
             command_history::command_stats,
             command_history::command_suggestions,
             integrations::integration_detect,
+            llm_commands::llm_complete,
         ]))
         .build(tauri::generate_context!())
         .expect("rift: tauri runtime failed to start")

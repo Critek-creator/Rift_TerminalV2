@@ -72,6 +72,9 @@ export type PopoutContent =
        *  status so users have a discoverable path to "is there a new
        *  version available right now?". */
       kind: 'settings';
+    }
+  | {
+      kind: 'llm-chat';
     };
 
 export interface PopoutEntry {

@@ -13,6 +13,7 @@
   import Viewer from './Viewer.svelte';
   import NotifManager from './NotifManager.svelte';
   import SettingsPanel from './SettingsPanel.svelte';
+  import LlmChat from './LlmChat.svelte';
 
   interface Props {
     entry: PopoutEntry;
@@ -104,6 +105,8 @@
           ? 'Manage Notification Tabs'
           : entry.content.kind === 'settings'
             ? 'Settings'
+            : entry.content.kind === 'llm-chat'
+              ? 'Router Prompt'
             : entry.content.title,
   );
 </script>
@@ -143,7 +146,7 @@
       class:card-body-viewer={entry.content.kind === 'viewer'}
       class:card-body-picker={entry.content.kind === 'project-picker'}
       class:card-body-manager={entry.content.kind === 'notif-manager'}
-      class:card-body-settings={entry.content.kind === 'settings'}
+      class:card-body-settings={entry.content.kind === 'settings' || entry.content.kind === 'llm-chat'}
     >
       {#if entry.content.kind === 'text'}
         <p class="text-body">{entry.content.body}</p>
@@ -179,6 +182,8 @@
         <!-- Phase 8.7l: Settings panel — self-contained; reads RiftConfig
              via config_get and saves via config_save per-section. -->
         <SettingsPanel popoutId={entry.id} />
+      {:else if entry.content.kind === 'llm-chat'}
+        <LlmChat popoutId={entry.id} />
       {/if}
     </div>
   </div>
