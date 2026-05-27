@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/svelte';
 import TabBar from '../TabBar.svelte';
 import type { SessionTab, NotifTab, ActiveSurface } from '../TabBar.svelte';
+import type { NotifGroupState } from '../notifState.svelte';
 
 function makeSession(overrides: Partial<SessionTab> = {}): SessionTab {
   return { id: 1, title: 'Session 1', projectPath: null, layout: { type: 'terminal', id: 1 }, ...overrides };
@@ -20,10 +21,24 @@ function makeNotif(overrides: Partial<NotifTab> = {}): NotifTab {
   };
 }
 
+function makeGroup(tabs: NotifTab[], overrides: Partial<NotifGroupState> = {}): NotifGroupState {
+  return {
+    id: 'system',
+    title: 'System',
+    icon: '⚡',
+    order: 0,
+    accent: 'errors',
+    tabs,
+    aggregateBadge: tabs.reduce((sum, t) => sum + t.unreadCount, 0),
+    ...overrides,
+  };
+}
+
 const noop = () => {};
+const defaultNotifs = [makeNotif()];
 const defaultProps = {
   sessions: [makeSession()],
-  notifs: [makeNotif()],
+  groupedNotifs: [makeGroup(defaultNotifs)],
   active: { kind: 'session', id: 1 } as ActiveSurface,
   promotedId: null,
   tickNow: Date.now(),
@@ -34,10 +49,8 @@ const defaultProps = {
   onReorderSession: noop,
   onRenameSession: noop,
   onToggleNotif: noop,
-  onPromote: noop,
   onDemote: noop,
   onManageNotifs: noop,
-  onReorderNotif: noop,
   onDetach: noop,
   detachedIds: new Set<string>(),
 };
@@ -48,30 +61,28 @@ describe('TabBar', () => {
     expect(screen.getByText('Session 1')).toBeTruthy();
   });
 
-  it('renders notification tabs that are detected and enabled', () => {
+  it('renders notification groups with tabs inside', () => {
+    const tabs = [
+      makeNotif({ id: 'errors', title: 'errors', icon: '⚡' }),
+      makeNotif({ id: 'hooks', title: 'hooks', icon: '⚓' }),
+    ];
     render(TabBar, {
       props: {
         ...defaultProps,
-        notifs: [
-          makeNotif({ id: 'errors', title: 'errors', icon: '⚡' }),
-          makeNotif({ id: 'hooks', title: 'hooks', icon: '⚓' }),
-        ],
+        groupedNotifs: [makeGroup(tabs)],
       },
     });
-    expect(screen.getByText('errors')).toBeTruthy();
-    expect(screen.getByText('hooks')).toBeTruthy();
+    expect(screen.getByText('System')).toBeTruthy();
   });
 
-  it('hides notification tabs that are not detected', () => {
+  it('hides groups with no visible tabs', () => {
     render(TabBar, {
       props: {
         ...defaultProps,
-        notifs: [
-          makeNotif({ id: 'aegis', title: 'aegis', detected: false }),
-        ],
+        groupedNotifs: [],
       },
     });
-    expect(screen.queryByText('aegis')).toBeNull();
+    expect(screen.queryByText('System')).toBeNull();
   });
 
   it('marks the active session tab with aria-selected', () => {
@@ -82,24 +93,26 @@ describe('TabBar', () => {
     expect(activeTab?.textContent).toContain('Session 1');
   });
 
-  it('shows unread badge when count > 0', () => {
+  it('shows aggregate unread badge on group', () => {
+    const tabs = [makeNotif({ unreadCount: 5 })];
     render(TabBar, {
       props: {
         ...defaultProps,
-        notifs: [makeNotif({ unreadCount: 5 })],
+        groupedNotifs: [makeGroup(tabs)],
       },
     });
     expect(screen.getByText('5')).toBeTruthy();
   });
 
-  it('caps unread badge at 99+', () => {
+  it('shows large aggregate badge count', () => {
+    const tabs = [makeNotif({ unreadCount: 150 })];
     render(TabBar, {
       props: {
         ...defaultProps,
-        notifs: [makeNotif({ unreadCount: 150 })],
+        groupedNotifs: [makeGroup(tabs)],
       },
     });
-    expect(screen.getByText('99+')).toBeTruthy();
+    expect(screen.getByText('150')).toBeTruthy();
   });
 
   it('renders add-session button', () => {
@@ -115,7 +128,7 @@ describe('TabBar', () => {
   it('calls onCloseSession when close button clicked', () => {
     const onCloseSession = vi.fn();
     render(TabBar, {
-      props: { ...defaultProps, onCloseSession },
+      props: { ...defaultProps, onCloseSession, groupedNotifs: defaultProps.groupedNotifs },
     });
     const closeBtn = screen.getByLabelText('close tab');
     closeBtn.click();

@@ -1581,7 +1581,7 @@
     background: var(--bg-hover);
   }
   .tab-btn:focus-visible {
-    outline: none;
+    outline: 2px solid transparent;
     box-shadow: inset 0 -2px 0 var(--amber-bright), 0 0 0 1px rgba(255, 200, 64, 0.3);
   }
   .tab-btn.active {
@@ -1702,7 +1702,7 @@
     background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Cpath d='M1.5 5l2.5 2.5 4.5-4.5' stroke='%23080806' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center/10px no-repeat;
   }
   .kv-toggle input[type="checkbox"]:focus-visible {
-    outline: none;
+    outline: 2px solid transparent;
     box-shadow: 0 0 0 2px rgba(255, 200, 64, 0.4);
   }
   .kv-toggle input[type="checkbox"]:disabled {
@@ -1871,7 +1871,7 @@
     resize: vertical;
   }
   .field-input:focus {
-    outline: none;
+    outline: 2px solid transparent;
     border-color: var(--amber-primary);
     box-shadow: 0 0 0 1px var(--amber-dim), var(--glow-amber);
   }
@@ -1910,7 +1910,7 @@
     border-color: var(--amber-dim);
   }
   .select:focus {
-    outline: none;
+    outline: 2px solid transparent;
     border-color: var(--amber-primary);
     box-shadow: 0 0 0 1px var(--amber-dim), var(--glow-amber);
   }
@@ -1983,7 +1983,7 @@
     background: var(--amber-bright);
   }
   .radio input[type="radio"]:focus-visible {
-    outline: none;
+    outline: 2px solid transparent;
     box-shadow: 0 0 0 2px rgba(255, 200, 64, 0.4);
   }
 
@@ -2095,7 +2095,7 @@
   }
   .inline-select:hover { border-color: var(--amber-dim); }
   .inline-select:focus {
-    outline: none;
+    outline: 2px solid transparent;
     border-color: var(--amber-primary);
   }
   .inline-select option {
@@ -2115,7 +2115,7 @@
     transition: border-color var(--duration-base) var(--ease-out);
   }
   .inline-number:focus {
-    outline: none;
+    outline: 2px solid transparent;
     border-color: var(--amber-primary);
   }
   .btn-danger-sm {

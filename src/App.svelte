@@ -750,7 +750,7 @@
 
   <TabBar
     sessions={sm.sessions}
-    notifs={nm.notifs}
+    groupedNotifs={nm.groupedNotifs}
     active={sm.active}
     {tickNow}
     promotedId={nm.promoted}
@@ -761,10 +761,8 @@
     onReorderSession={sm.reorderSession}
     onRenameSession={sm.renameSession}
     onToggleNotif={nm.toggleNotif}
-    onPromote={nm.promoteTab}
     onDemote={nm.demoteTab}
     onManageNotifs={nm.openNotifManager}
-    onReorderNotif={nm.reorderNotif}
     onDetach={nm.detachNotif}
     detachedIds={nm.detachedIds}
     multiProject={sm.multiProject}
@@ -973,9 +971,8 @@
   {/if}
 
   {#if sm.pendingCloseId !== null}
-    <!-- svelte-ignore a11y_no_static_element_interactions -->
     <!-- svelte-ignore a11y_click_events_have_key_events -->
-    <div class="close-confirm-backdrop" onclick={sm.cancelClose}>
+    <div class="close-confirm-backdrop" role="presentation" onclick={sm.cancelClose}>
       <div
         class="close-confirm-dialog"
         onclick={(e) => e.stopPropagation()}

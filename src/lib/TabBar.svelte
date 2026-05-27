@@ -1,11 +1,11 @@
 <script lang="ts">
   import { NOTIF_TAB_MIME } from './dragMime';
+  import NotifGroupButton from './NotifGroupButton.svelte';
+  import type { NotifGroupState } from './notifState.svelte';
 
   // §10.5 — tab strip; left group = session tabs, right group = notification
-  // tabs. Phase 3 ships click-to-switch + +/× for sessions + per-tab toggle
-  // for notifications (§10.6). Phase 3.5a adds drag-promote: drag a notif
-  // tab off the strip → App promotes it to a fixed-width right-side pane;
-  // drag the pane handle back onto the strip → demote.
+  // tab groups. Groups collapse 15 flat notification tabs into 3 category
+  // dropdowns (System/Activity/Intel) to reduce strip clutter.
 
   import type { SplitNode } from './splitTypes';
 
@@ -40,7 +40,7 @@
 
   interface Props {
     sessions: SessionTab[];
-    notifs: NotifTab[];
+    groupedNotifs: NotifGroupState[];
     active: ActiveSurface;
     promotedId: string | null;
     /** Updated every ~1s by App.svelte; drives the live-border decay window. */
@@ -52,13 +52,9 @@
     onReorderSession: (srcId: number, dstId: number) => void;
     onRenameSession: (id: number, title: string) => void;
     onToggleNotif: (id: string) => void;
-    onPromote: (id: string) => void;
     onDemote: () => void;
     /** Phase 8.7h — open the notif tab manager popout. */
     onManageNotifs: () => void;
-    /** Phase 8.7j — reorder via drag-onto-other-tab. App splices `srcId`
-     *  into `dstId`'s slot and persists the new order to localStorage. */
-    onReorderNotif: (srcId: string, dstId: string) => void;
     /** Detach a notification tab into its own window. */
     onDetach: (id: string) => void;
     /** Set of currently detached tab IDs — visual state. */
@@ -77,7 +73,7 @@
 
   let {
     sessions,
-    notifs,
+    groupedNotifs,
     active,
     promotedId,
     tickNow,
@@ -88,10 +84,8 @@
     onReorderSession,
     onRenameSession,
     onToggleNotif,
-    onPromote,
     onDemote,
     onManageNotifs,
-    onReorderNotif,
     onDetach,
     detachedIds,
     multiProject = false,
@@ -101,29 +95,11 @@
     onToggleCockpit,
   }: Props = $props();
 
-  function isDetached(id: string): boolean {
-    return detachedIds.has(id);
-  }
-
   function tabDisplayTitle(tab: SessionTab): string {
     if (!multiProject || !tab.projectPath) return tab.title;
     const name = tab.projectPath.split(/[\\/]/).at(-1) ?? '';
     return name ? `${tab.title} · ${name}` : tab.title;
   }
-
-  // §10.9 — "Amber border animates around a tab when something is live/active
-  // inside it." A tab is "live" if any envelope arrived in the last 3 seconds.
-  const LIVE_WINDOW_MS = 3000;
-  function isLive(tab: NotifTab): boolean {
-    return tab.lastActivityTs !== null && (tickNow - tab.lastActivityTs) < LIVE_WINDOW_MS;
-  }
-  // Visible notifs are detected AND enabled.
-  //   - undetected: capability-gate hide (§10.7) — integration hasn't loaded.
-  //   - disabled:   user-hidden via right-click or NotifManager popout.
-  // Re-enable through the `⋯` manager button at the right edge of the strip
-  // (Phase 8.7j: prior behaviour was struck-through-but-still-rendered, which
-  // didn't actually clear the strip when the user wanted to declutter).
-  const visibleNotifs = $derived(notifs.filter((n) => n.detected && n.enabled));
 
   // Drop-target highlight state — true while a drag is hovering the strip.
   let dropActive = $state(false);
@@ -191,83 +167,12 @@
   function isActiveSession(id: number) {
     return active.kind === 'session' && active.id === id;
   }
-  function isPromoted(id: string) {
-    return promotedId === id;
-  }
 
-  function onNotifClick(tab: NotifTab) {
-    if (!tab.enabled) return;
-    onActivateNotif(tab.id);
-  }
-
-  // Phase 8.7j — drag-to-reorder. When the drop lands on another notif
-  // tab (not the strip background), we treat the gesture as "reorder, not
-  // promote" and undo the promote-on-dragstart. `reorderHoverId` drives
-  // the per-tab insertion-line indicator.
-  let reorderHoverId = $state<string | null>(null);
-  let didReorder = false;
-  let didDropInside = false;
-
-  function onTabDragOver(e: DragEvent, tab: NotifTab) {
-    if (!e.dataTransfer?.types.includes(NOTIF_TAB_MIME)) return;
-    const payload = e.dataTransfer.getData(NOTIF_TAB_MIME);
-    // Pane-source drags carry the sentinel — they're for demote, not reorder.
-    if (payload === '__promoted_pane__') return;
-    e.preventDefault();
-    e.stopPropagation();
-    e.dataTransfer.dropEffect = 'move';
-    reorderHoverId = tab.id;
-  }
-  function onTabDragLeave(tab: NotifTab) {
-    if (reorderHoverId === tab.id) reorderHoverId = null;
-  }
-  function onTabDrop(e: DragEvent, tab: NotifTab) {
-    if (!e.dataTransfer?.types.includes(NOTIF_TAB_MIME)) return;
-    const srcId = e.dataTransfer.getData(NOTIF_TAB_MIME);
-    if (!srcId || srcId === '__promoted_pane__' || srcId === tab.id) {
-      reorderHoverId = null;
-      return;
-    }
-    e.preventDefault();
-    e.stopPropagation();
-    onReorderNotif(srcId, tab.id);
-    // Reorder gesture supersedes the promote that fired on dragstart —
-    // immediately demote so the tab settles back into the strip.
-    if (isPromoted(srcId)) onDemote();
-    didReorder = true;
-    didDropInside = true;
-    reorderHoverId = null;
-  }
-
-  // Tracks whether the tab being dragged was ALREADY promoted at dragstart time.
-  // Used by onStripDrop to decide demote-vs-keep on drop-back-to-strip:
-  //   - dragged-from-promoted + dropped-on-strip = explicit demote (user dragging
-  //     the promoted tab back to the strip cancels promotion)
-  //   - dragged-from-strip + dropped-on-strip = keep promoted (user started a
-  //     drag-to-promote gesture but released within the strip; we still want
-  //     the promote to stick rather than silently undo within the same gesture)
-  // Without this state, the original code auto-demoted on any strip drop, which
-  // made drag-to-promote appear broken — promote+demote happened in one gesture.
-  let draggedFromPromoted = false;
-
-  function onNotifDragStart(e: DragEvent, tab: NotifTab) {
-    if (!tab.enabled) return;
-    draggedFromPromoted = isPromoted(tab.id);
-    if (e.dataTransfer) {
-      e.dataTransfer.effectAllowed = 'move';
-      // Phase 6.6: marker MIME lets onStripDrop identify notif-tab drags and
-      // ignore drops from other sources (e.g. tree-node drags).
-      e.dataTransfer.setData(NOTIF_TAB_MIME, tab.id);
-      e.dataTransfer.setData('text/plain', tab.id);
-    }
-    // Promote on dragstart only if the tab wasn't already promoted; dragging an
-    // already-promoted tab from the strip is a demote gesture (resolved on drop).
-    if (!draggedFromPromoted) onPromote(tab.id);
-    didDropInside = false;
-  }
-
+  // Strip-level drag handlers — pane→strip demote gesture.
+  // With grouped tabs, per-tab drag is handled inside NotifGroupButton.
+  // The strip still accepts drops for pane-source demote (NotificationPane /
+  // AegisTabContent / IndexTabContent drag-handle writes '__promoted_pane__').
   function onStripDragOver(e: DragEvent) {
-    // preventDefault to mark the strip as a valid drop target.
     e.preventDefault();
     if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
     dropActive = true;
@@ -282,37 +187,11 @@
   function onStripDrop(e: DragEvent) {
     e.preventDefault();
     dropActive = false;
-    // Phase 8.7j — if a per-tab drop already handled this gesture as a
-    // reorder, the strip-level drop must not also fire its demote/keep
-    // logic (would otherwise clobber the reorder by demoting).
-    if (didReorder) {
-      didReorder = false;
-      draggedFromPromoted = false;
-      return;
-    }
-    // Phase 6.6: only act when the drop carries a notif-tab payload.
-    // Drops from foreign sources (e.g. tree-node paths) are acknowledged
-    // (preventDefault already ran for visual coherence) but otherwise ignored.
     if (!e.dataTransfer?.types.includes(NOTIF_TAB_MIME)) return;
-
-    // Two valid demote paths:
-    //   1. Tab-source drag from an already-promoted strip tab dropped back
-    //      on the strip (draggedFromPromoted, set in onNotifDragStart).
-    //   2. Pane-source drag from a NotificationPane / AegisTabContent /
-    //      IndexTabContent drag-handle dropped on the strip — these write
-    //      the sentinel value '__promoted_pane__' as their NOTIF_TAB_MIME
-    //      payload (vs tab.id for tab-source drags). draggedFromPromoted is
-    //      not set for pane-source drags because onNotifDragStart never ran.
-    // The promote-then-demote self-cancel guard (pr003 `tabbar-drag-promote-
-    // demote-self-cancel-on-strip-drop`) only applies to case 1 — pane-source
-    // drags by definition come from an already-promoted tab.
     const payload = e.dataTransfer.getData(NOTIF_TAB_MIME);
-    const isPaneSourceDrag = payload === '__promoted_pane__';
-    didDropInside = true;
-    if (isPaneSourceDrag || draggedFromPromoted) {
+    if (payload === '__promoted_pane__') {
       onDemote();
     }
-    draggedFromPromoted = false;
   }
 </script>
 
@@ -392,63 +271,18 @@
   </div>
 
   <div class="group right">
-    {#each visibleNotifs as tab (tab.id)}
-      <button
-        type="button"
-        class="tab notif"
-        class:disabled={!tab.enabled}
-        class:promoted={isPromoted(tab.id)}
-        class:promoted-cyan={isPromoted(tab.id) && tab.id === 'hooks'}
-        class:promoted-red={isPromoted(tab.id) && tab.id === 'errors'}
-        class:detached={isDetached(tab.id)}
-        class:live={isLive(tab) && tab.enabled}
-        class:reorder-target={reorderHoverId === tab.id}
-        data-accent={tab.id}
-        aria-current="false"
-        draggable={tab.enabled && !isDetached(tab.id)}
-        onclick={() => onNotifClick(tab)}
-        ondragstart={(e) => onNotifDragStart(e, tab)}
-        ondragend={(e) => {
-          if (e.dataTransfer?.dropEffect === 'none' && !didDropInside && tab.enabled && !isDetached(tab.id)) {
-            onDetach(tab.id);
-          }
-          didDropInside = false;
-        }}
-        ondragover={(e) => onTabDragOver(e, tab)}
-        ondragleave={() => onTabDragLeave(tab)}
-        ondrop={(e) => onTabDrop(e, tab)}
-        oncontextmenu={(e) => { e.preventDefault(); onToggleNotif(tab.id); }}
-        title={tab.enabled
-          ? (isDetached(tab.id)
-              ? 'detached to own window · click to focus'
-              : isPromoted(tab.id)
-                ? 'click to close side pane · drag to reorder · right-click to hide'
-                : 'click to open · drag onto another tab to reorder · drag off strip to promote · right-click to hide')
-          : 'right-click to enable'}
-      >
-        <span class="icon">{isDetached(tab.id) ? '⬡' : isPromoted(tab.id) ? '↗' : tab.icon}</span>
-        <span>{tab.title}</span>
-        {#if tab.unreadCount > 0 && tab.enabled}
-          <span class="badge" class:alert-flash={alertTriggered[tab.id]} aria-label="{tab.unreadCount} unread events">
-            {tab.unreadCount > 99 ? '99+' : tab.unreadCount}
-          </span>
-        {/if}
-        {#if tab.enabled && !isDetached(tab.id)}
-          <!-- svelte-ignore a11y_click_events_have_key_events -->
-          <span
-            role="button"
-            tabindex="-1"
-            class="popout-btn"
-            aria-label="detach {tab.title} to own window"
-            onclick={(e) => { e.stopPropagation(); onDetach(tab.id); }}
-            title="pop out to own window"
-          >⧉</span>
-        {/if}
-      </button>
+    {#each groupedNotifs as group (group.id)}
+      <NotifGroupButton
+        {group}
+        {promotedId}
+        {tickNow}
+        {detachedIds}
+        {alertTriggered}
+        {onActivateNotif}
+        {onToggleNotif}
+        {onDetach}
+      />
     {/each}
-    <!-- Phase 8.7h — notif manager trigger. Right-click on a tab still
-         toggles enabled directly; this gear opens the discoverable
-         management popout. -->
     <button
       type="button"
       class="manage"
@@ -557,31 +391,6 @@
     background: var(--bg-base);
     pointer-events: none;
   }
-  /* Disabled tabs — visually distinct from hover, not just low opacity */
-  .tab.notif.disabled {
-    color: var(--amber-faint);
-    text-decoration: line-through;
-    cursor: pointer;
-    opacity: 0.45;
-    filter: saturate(0.4);
-  }
-  .tab.notif.disabled:hover {
-    color: var(--amber-dim);
-    opacity: 0.75;
-    filter: saturate(0.7);
-  }
-  /* Suppress hover ::before tease on disabled tabs */
-  .tab.notif.disabled:hover::before {
-    display: none;
-  }
-  /* Promoted tabs get a subtle hover glow to signal click-to-close */
-  .tab.notif.promoted:hover {
-    opacity: 0.75;
-    background: var(--bg-hover);
-  }
-  .tab.notif.promoted:hover::before {
-    display: none;
-  }
   /* U-06: dead PTY tab indicator */
   .tab.session.dead { opacity: 0.5; }
   .tab.session.dead .icon { color: var(--term-red); }
@@ -606,62 +415,12 @@
     padding: 0 var(--space-xs);
     height: var(--space-xl);
     width: 100px;
-    outline: none;
+    outline: 2px solid transparent;
     box-shadow: 0 0 6px rgba(255, 168, 38, 0.3);
   }
   .tab-rename-input::selection {
     background: rgba(255, 168, 38, 0.3);
   }
-  .tab.notif { cursor: grab; }
-  .tab.notif:active { cursor: grabbing; }
-  /* Phase 8.7j — drop-target indicator */
-  .tab.notif.reorder-target {
-    box-shadow: inset 3px 0 0 var(--amber-bright);
-    background: var(--bg-hover);
-  }
-  .tab.notif.promoted {
-    opacity: 0.55;
-    cursor: pointer;
-  }
-  .tab.notif.promoted .icon {
-    color: var(--amber-bright);
-    text-shadow: var(--glow-amber-faint);
-    opacity: 1;
-  }
-  .tab.notif.promoted-cyan .icon { color: var(--term-cyan); }
-  .tab.notif.promoted-red .icon { color: var(--term-red); }
-
-  .tab.notif.detached {
-    opacity: 0.45;
-    cursor: pointer;
-  }
-  .tab.notif.detached .icon {
-    color: var(--term-blue);
-    opacity: 1;
-  }
-
-  .popout-btn {
-    display: none;
-    margin-left: 2px;
-    padding: 0 3px;
-    height: var(--space-lg);
-    line-height: var(--space-lg);
-    background: transparent;
-    border: 1px solid var(--amber-faint);
-    color: var(--amber-faint);
-    font-size: var(--text-2xs);
-    font-family: inherit;
-    cursor: pointer;
-    border-radius: 2px;
-    flex-shrink: 0;
-  }
-  .tab.notif:hover .popout-btn { display: inline-flex; }
-  .popout-btn:hover {
-    color: var(--term-blue);
-    border-color: var(--term-blue);
-    background: rgba(108, 182, 255, 0.08);
-  }
-
   .icon { font-size: var(--text-sm); opacity: 0.85; transition: opacity 0.12s; }
   .tab.active .icon { opacity: 1; color: var(--amber-bright); }
 
@@ -739,87 +498,4 @@
     color: var(--amber-dim);
   }
 
-  .badge {
-    background: var(--amber-bright);
-    color: var(--bg-base);
-    font-size: var(--text-2xs);
-    font-weight: 700;
-    padding: 1px 5px;
-    margin-left: 2px;
-    min-width: var(--space-lg);
-    text-align: center;
-    letter-spacing: 0.04em;
-    line-height: var(--space-14);
-    border-radius: var(--space-8);
-    box-shadow: 0 0 6px rgba(255, 200, 64, 0.4);
-    animation: badge-pulse 2s ease-in-out infinite;
-  }
-  @keyframes badge-pulse {
-    0%, 100% { opacity: 1; }
-    50%       { opacity: 0.7; }
-  }
-  .badge.alert-flash {
-    background: var(--term-red, #FF4848);
-    box-shadow: 0 0 8px rgba(255, 72, 72, 0.6);
-    animation: alert-flash-anim 0.5s ease-in-out 4;
-  }
-  @keyframes alert-flash-anim {
-    0%, 100% { opacity: 1; transform: scale(1); }
-    50% { opacity: 0.4; transform: scale(1.3); }
-  }
-
-  /* §10.9 — live-active animated amber border. The pulse runs on the bottom
-     border (sits under the existing 3px amber active-state border without
-     conflicting) plus a soft outer glow. Disabled / promoted tabs do not
-     pulse — the strip is for "look here" signaling, and a promoted tab is
-     already living in its side pane. */
-  .tab.notif.live::after {
-    content: '';
-    position: absolute;
-    inset: auto 0 0 0;
-    height: 2px;
-    background: var(--amber-bright);
-    box-shadow: 0 0 6px var(--amber-bright);
-    animation: notif-live-pulse 1.4s ease-in-out infinite;
-    pointer-events: none;
-  }
-  @keyframes notif-live-pulse {
-    0%, 100% { opacity: 1;   box-shadow: 0 0 6px  var(--amber-bright); }
-    50%      { opacity: 0.55; box-shadow: 0 0 12px var(--amber-bright); }
-  }
-
-  /* Lane-colored accent edges for notification tabs */
-  .tab.notif[data-accent="hooks"]:hover::before,
-  .tab.notif[data-accent="hooks"].promoted::before { background: var(--term-cyan); }
-  .tab.notif[data-accent="hooks"].promoted { border-color: color-mix(in srgb, var(--term-cyan) 30%, var(--border-active)); }
-  .tab.notif[data-accent="hooks"] .badge { background: var(--term-cyan); box-shadow: 0 0 6px rgba(111, 224, 224, 0.4); }
-
-  .tab.notif[data-accent="errors"]:hover::before,
-  .tab.notif[data-accent="errors"].promoted::before { background: var(--term-red); }
-  .tab.notif[data-accent="errors"].promoted { border-color: color-mix(in srgb, var(--term-red) 30%, var(--border-active)); }
-  .tab.notif[data-accent="errors"] .badge { background: var(--term-red); box-shadow: 0 0 6px rgba(255, 72, 72, 0.4); }
-
-  .tab.notif[data-accent="agents"]:hover::before,
-  .tab.notif[data-accent="agents"].promoted::before { background: var(--term-purple); }
-  .tab.notif[data-accent="agents"].promoted { border-color: color-mix(in srgb, var(--term-purple) 30%, var(--border-active)); }
-  .tab.notif[data-accent="agents"] .badge { background: var(--term-purple); box-shadow: 0 0 6px rgba(197, 143, 255, 0.4); }
-
-  .tab.notif[data-accent="git"]:hover::before,
-  .tab.notif[data-accent="git"].promoted::before { background: var(--term-green); }
-  .tab.notif[data-accent="git"].promoted { border-color: color-mix(in srgb, var(--term-green) 30%, var(--border-active)); }
-  .tab.notif[data-accent="git"] .badge { background: var(--term-green); box-shadow: 0 0 6px rgba(79, 232, 85, 0.4); }
-
-  .tab.notif[data-accent="sessions"]:hover::before,
-  .tab.notif[data-accent="sessions"].promoted::before,
-  .tab.notif[data-accent="cmd-intelligence"]:hover::before,
-  .tab.notif[data-accent="cmd-intelligence"].promoted::before { background: var(--term-blue); }
-  .tab.notif[data-accent="sessions"].promoted,
-  .tab.notif[data-accent="cmd-intelligence"].promoted { border-color: color-mix(in srgb, var(--term-blue) 30%, var(--border-active)); }
-  .tab.notif[data-accent="sessions"] .badge,
-  .tab.notif[data-accent="cmd-intelligence"] .badge { background: var(--term-blue); box-shadow: 0 0 6px rgba(108, 182, 255, 0.4); }
-
-  .tab.notif[data-accent="mcp"]:hover::before,
-  .tab.notif[data-accent="mcp"].promoted::before { background: var(--term-cyan); }
-  .tab.notif[data-accent="mcp"].promoted { border-color: color-mix(in srgb, var(--term-cyan) 30%, var(--border-active)); }
-  .tab.notif[data-accent="mcp"] .badge { background: var(--term-cyan); box-shadow: 0 0 6px rgba(111, 224, 224, 0.4); }
 </style>

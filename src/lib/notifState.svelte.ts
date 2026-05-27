@@ -9,7 +9,7 @@ import type { NotifTab } from './TabBar.svelte';
 import { publish, type Category } from './bus';
 import { parseSeverity, type SeverityLevel } from './notifFilter';
 import type { RiftConfig as RiftConfigType } from './riftConfig';
-import { sectionCatalog } from './sectionCatalog.svelte';
+import { sectionCatalog, NOTIF_GROUPS, type GroupDescriptor } from './sectionCatalog.svelte';
 import { popouts } from './popouts.svelte';
 
 // ---------------------------------------------------------------------------
@@ -62,6 +62,33 @@ let detachedIds = $state<Set<string>>(new Set());
 const promotedTab = $derived.by(() => {
   if (promoted === null) return undefined;
   return notifs.find((n) => n.id === promoted);
+});
+
+export interface NotifGroupState extends GroupDescriptor {
+  tabs: NotifTab[];
+  aggregateBadge: number;
+}
+
+const groupedNotifs = $derived.by((): NotifGroupState[] => {
+  const result: NotifGroupState[] = NOTIF_GROUPS.map((g) => ({
+    ...g,
+    tabs: [],
+    aggregateBadge: 0,
+  }));
+  const groupMap = new Map(result.map((g) => [g.id, g]));
+
+  for (const tab of notifs) {
+    if (!tab.detected || !tab.enabled) continue;
+    const desc = sectionCatalog.get(tab.id);
+    if (!desc?.group) continue;
+    const group = groupMap.get(desc.group);
+    if (group) {
+      group.tabs.push(tab);
+      group.aggregateBadge += tab.unreadCount;
+    }
+  }
+
+  return result.filter((g) => g.tabs.length > 0);
 });
 
 // ---------------------------------------------------------------------------
@@ -336,6 +363,7 @@ $effect.root(() => {
 export const notifManager = {
   get notifs(): NotifTab[] { return notifs; },
   set notifs(v: NotifTab[]) { notifs = v; },
+  get groupedNotifs(): NotifGroupState[] { return groupedNotifs; },
   get promoted(): string | null { return promoted; },
   set promoted(v: string | null) { promoted = v; },
   get promotedTab(): NotifTab | undefined { return promotedTab; },

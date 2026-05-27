@@ -15,6 +15,27 @@
 
 import type { Category } from './bus';
 
+// ---------------------------------------------------------------------------
+// Notification tab groups — collapse 15 flat tabs into 3 category dropdowns
+// ---------------------------------------------------------------------------
+
+export type NotifGroup = 'system' | 'activity' | 'intel';
+
+export interface GroupDescriptor {
+  id: NotifGroup;
+  title: string;
+  icon: string;
+  order: number;
+  /** data-accent value for the group badge — reuses per-tab accent CSS. */
+  accent: string;
+}
+
+export const NOTIF_GROUPS: GroupDescriptor[] = [
+  { id: 'system',   title: 'System',   icon: '⚡', order: 0, accent: 'errors' },
+  { id: 'activity', title: 'Activity', icon: '◊',  order: 1, accent: 'agents' },
+  { id: 'intel',    title: 'Intel',    icon: '◈',  order: 2, accent: 'aegis' },
+];
+
 /** The 4 canonical section types from §10.4 + extensible custom type. */
 export type SectionType =
   | 'status-header'
@@ -48,6 +69,8 @@ export interface TabDescriptor {
   /** Source of the registration — 'builtin' for first-party, integration
    *  name for third-party. Enables unregister-by-source cleanup. */
   source: string;
+  /** Which notification group this tab belongs to. */
+  group?: NotifGroup;
 }
 
 // §10.4 standard 4-section anatomy — reused by all tabs.
@@ -67,91 +90,91 @@ const BUILTIN_TABS: TabDescriptor[] = [
     id: 'errors', title: 'errors', icon: '⚡',
     category: 'system', detectedByDefault: true,
     sections: [...STANDARD_SECTIONS],
-    source: 'builtin',
+    source: 'builtin', group: 'system',
   },
   {
     id: 'hooks', title: 'hooks', icon: '⚓',
     category: 'hook', detectedByDefault: true,
     sections: [...STANDARD_SECTIONS],
-    source: 'builtin',
+    source: 'builtin', group: 'system',
   },
   {
     id: 'commands', title: 'commands', icon: '⌘',
     category: 'pty', detectedByDefault: true,
     sections: [...STANDARD_SECTIONS],
-    source: 'builtin',
+    source: 'builtin', group: 'system',
   },
   {
     id: 'aegis', title: 'aegis', icon: '◉',
     category: 'aegis', detectedByDefault: false,
     sections: [...STANDARD_SECTIONS],
-    source: 'builtin',
+    source: 'builtin', group: 'intel',
   },
   {
     id: 'index', title: 'index', icon: '◈',
     category: 'index', detectedByDefault: true,
     sections: [...STANDARD_SECTIONS],
-    source: 'builtin',
+    source: 'builtin', group: 'intel',
   },
   {
     id: 'bustail', title: 'bus tail', icon: '⌁',
     category: undefined, detectedByDefault: true,
     sections: [...STANDARD_SECTIONS],
-    source: 'builtin',
+    source: 'builtin', group: 'activity',
   },
   {
     id: 'todo', title: 'todo', icon: '⊜',
     category: undefined, detectedByDefault: true,
     sections: [...STANDARD_SECTIONS],
-    source: 'builtin',
+    source: 'builtin', group: 'intel',
   },
   {
     id: 'git', title: 'git', icon: '⎇',
     category: undefined, detectedByDefault: true,
     sections: [...STANDARD_SECTIONS],
-    source: 'builtin',
+    source: 'builtin', group: 'intel',
   },
   {
     id: 'agents', title: 'agents', icon: '◊',
     category: 'agent', detectedByDefault: true,
     sections: [...STANDARD_SECTIONS],
-    source: 'builtin',
+    source: 'builtin', group: 'activity',
   },
   {
     id: 'sentinel', title: 'sentinel', icon: '⊘',
     category: 'sentinel', detectedByDefault: true,
     sections: [...STANDARD_SECTIONS],
-    source: 'builtin',
+    source: 'builtin', group: 'system',
   },
   {
     id: 'filesystem', title: 'files', icon: '⊞',
     category: 'fs', detectedByDefault: true,
     sections: [...STANDARD_SECTIONS],
-    source: 'builtin',
+    source: 'builtin', group: 'activity',
   },
   {
     id: 'mcp', title: 'mcp', icon: '⬡',
     category: 'mcp', detectedByDefault: false,
     sections: [...STANDARD_SECTIONS],
-    source: 'builtin',
+    source: 'builtin', group: 'activity',
   },
   {
     id: 'sessions', title: 'sessions', icon: '⏱',
     category: undefined, detectedByDefault: true,
     sections: [...STANDARD_SECTIONS],
-    source: 'builtin',
+    source: 'builtin', group: 'activity',
   },
   {
     id: 'cmd-intelligence', title: 'analytics', icon: '◇',
     category: undefined, detectedByDefault: true,
     sections: [...STANDARD_SECTIONS],
-    source: 'builtin',
+    source: 'builtin', group: 'intel',
   },
   {
     id: 'health', title: 'health', icon: '⊕',
     category: 'system', detectedByDefault: true,
     sections: [...STANDARD_SECTIONS],
-    source: 'builtin',
+    source: 'builtin', group: 'system',
   },
 ];
 
@@ -234,5 +257,15 @@ export const sectionCatalog = {
   /** Get the standard 4-section anatomy (for tabs that use the default). */
   get standardSections(): SectionDescriptor[] {
     return [...STANDARD_SECTIONS];
+  },
+
+  /** All group descriptors. */
+  get groups(): GroupDescriptor[] {
+    return NOTIF_GROUPS;
+  },
+
+  /** Look up which group a tab belongs to. */
+  groupFor(tabId: string): NotifGroup | undefined {
+    return registry.get(tabId)?.group;
   },
 };
