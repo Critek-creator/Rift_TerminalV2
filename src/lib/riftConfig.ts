@@ -77,6 +77,7 @@ export interface StatusLineConfig {
   show_repo: boolean;
   show_session: boolean;
   show_skill: boolean;
+  show_thinking: boolean;
   show_effort: boolean;
   show_model: boolean;
   show_ctx: boolean;
@@ -106,6 +107,59 @@ interface IntegrationsConfig {
   index_enabled: boolean;
 }
 
+export type ProviderType = 'anthropic' | 'google' | 'llama_server' | 'open_ai_compat';
+export type RoutingProfile = 'manual' | 'cost_optimized' | 'quality_first' | 'balanced';
+export type KvCacheType = 'f32' | 'f16' | 'bf16' | 'q8_0' | 'q4_0' | 'q4_1' | 'iq4_nl' | 'q5_0' | 'q5_1';
+
+export interface LlamaServerConfig {
+  model_path: string;
+  flash_attention: boolean;
+  ctx_size: number;
+  cache_type_k: KvCacheType;
+  cache_type_v: KvCacheType;
+  n_gpu_layers: number;
+  threads: number | null;
+  parallel: number;
+  port: number;
+  cuda_visible_devices: string | null;
+  auto_start: boolean;
+  extra_flags: string[];
+}
+
+export type HostingMode =
+  | { mode: 'cloud' }
+  | { mode: 'local' } & LlamaServerConfig
+  | { mode: 'remote'; health_check_interval_secs: number };
+
+export interface ModelCapabilities {
+  max_context_tokens: number;
+  supports_streaming: boolean;
+  supports_tool_use: boolean;
+  cost_per_1m_input: number;
+  cost_per_1m_output: number;
+  strength_tags: string[];
+}
+
+export interface ModelConfig {
+  id: string;
+  display_name: string;
+  provider: ProviderType;
+  model_identifier: string;
+  hosting: HostingMode;
+  endpoint: string;
+  api_key_ref: string | null;
+  color: string;
+  short_id: string;
+  capabilities: ModelCapabilities;
+}
+
+export interface EnsembleConfig {
+  enabled: boolean;
+  active_profile: RoutingProfile;
+  default_model: string;
+  models: ModelConfig[];
+}
+
 export interface RiftConfig {
   projects: ProjectEntry[];
   fs: FsConfig;
@@ -120,4 +174,5 @@ export interface RiftConfig {
   alerts: AlertsConfig;
   first_run_completed: boolean;
   integrations: IntegrationsConfig;
+  ensemble: EnsembleConfig;
 }

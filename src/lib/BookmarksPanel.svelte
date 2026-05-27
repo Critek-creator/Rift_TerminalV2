@@ -116,6 +116,7 @@
     system:   'var(--term-red)',
     mcp:      'var(--term-purple, #C58FFF)',
     sentinel: 'var(--term-red)',
+    llm:      'var(--amber-primary)',
   };
 
   function formatTs(ts: number): string {

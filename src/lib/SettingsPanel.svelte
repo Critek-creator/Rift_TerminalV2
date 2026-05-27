@@ -23,6 +23,8 @@
   import type { RiftConfig, McpConfig, ShellPref, SeverityLevel, StatusLineConfig, AlertRule, AlertAction } from './riftConfig';
   import { newAlertRuleId } from './alertRules';
   import { PALETTES } from './terminalPalettes';
+  import { llmModels } from './llmModels.svelte';
+  import ModelCard from './ModelCard.svelte';
 
   interface Props {
     popoutId: number;
@@ -30,7 +32,7 @@
 
   let { popoutId }: Props = $props();
 
-  type SettingsTab = 'general' | 'terminal' | 'integrations' | 'index' | 'tree' | 'mcp' | 'statusline' | 'alerts';
+  type SettingsTab = 'general' | 'terminal' | 'integrations' | 'index' | 'tree' | 'mcp' | 'statusline' | 'alerts' | 'models';
   let activeTab = $state<SettingsTab>('general');
 
   // ---------------------------------------------------------------------
@@ -145,6 +147,7 @@
   let slShowRepo = $state(true);
   let slShowSession = $state(true);
   let slShowSkill = $state(true);
+  let slShowThinking = $state(true);
   let slShowEffort = $state(true);
   let slShowModel = $state(true);
   let slShowCtx = $state(true);
@@ -448,6 +451,7 @@
       || slShowRepo !== (config.statusline?.show_repo ?? true)
       || slShowSession !== (config.statusline?.show_session ?? true)
       || slShowSkill !== (config.statusline?.show_skill ?? true)
+      || slShowThinking !== (config.statusline?.show_thinking ?? true)
       || slShowEffort !== (config.statusline?.show_effort ?? true)
       || slShowModel !== (config.statusline?.show_model ?? true)
       || slShowCtx !== (config.statusline?.show_ctx ?? true)
@@ -485,6 +489,7 @@
     slShowRepo = sl.show_repo ?? true;
     slShowSession = sl.show_session ?? true;
     slShowSkill = sl.show_skill ?? true;
+    slShowThinking = sl.show_thinking ?? true;
     slShowEffort = sl.show_effort ?? true;
     slShowModel = sl.show_model ?? true;
     slShowCtx = sl.show_ctx ?? true;
@@ -601,8 +606,8 @@
     saveBanner = null;
     const prevSl = {
       dir: slShowDir, git: slShowGit, repo: slShowRepo,
-      session: slShowSession, skill: slShowSkill, effort: slShowEffort,
-      model: slShowModel, ctx: slShowCtx, sessionUse: slShowSessionUse,
+      session: slShowSession, skill: slShowSkill, thinking: slShowThinking,
+      effort: slShowEffort, model: slShowModel, ctx: slShowCtx, sessionUse: slShowSessionUse,
       week: slShowWeek,
     };
     try {
@@ -614,6 +619,7 @@
           show_repo: slShowRepo,
           show_session: slShowSession,
           show_skill: slShowSkill,
+          show_thinking: slShowThinking,
           show_effort: slShowEffort,
           show_model: slShowModel,
           show_ctx: slShowCtx,
@@ -628,8 +634,8 @@
       saveBanner = { section: 'statusline', ok: true, msg: 'status line saved' };
     } catch (err) {
       slShowDir = prevSl.dir; slShowGit = prevSl.git; slShowRepo = prevSl.repo;
-      slShowSession = prevSl.session; slShowSkill = prevSl.skill; slShowEffort = prevSl.effort;
-      slShowModel = prevSl.model; slShowCtx = prevSl.ctx; slShowSessionUse = prevSl.sessionUse;
+      slShowSession = prevSl.session; slShowSkill = prevSl.skill; slShowThinking = prevSl.thinking;
+      slShowEffort = prevSl.effort; slShowModel = prevSl.model; slShowCtx = prevSl.ctx; slShowSessionUse = prevSl.sessionUse;
       slShowWeek = prevSl.week;
       saveBanner = { section: 'statusline', ok: false, msg: String(err) };
     } finally {
@@ -700,6 +706,7 @@
       { id: 'tree',       label: 'TREE' },
       { id: 'mcp',        label: 'MCP' },
       { id: 'alerts',     label: 'ALERTS' },
+      { id: 'models',     label: 'MODELS' },
     ] as tab (tab.id)}
       <button type="button"
         role="tab"
@@ -1217,6 +1224,7 @@
         <div class="toggle-grid">
           <label class="kv-toggle"><input type="checkbox" bind:checked={slShowDir} /><span>DIR</span></label>
           <label class="kv-toggle"><input type="checkbox" bind:checked={slShowModel} /><span>MODEL</span></label>
+          <label class="kv-toggle"><input type="checkbox" bind:checked={slShowThinking} /><span>THINKING</span></label>
           <label class="kv-toggle"><input type="checkbox" bind:checked={slShowCtx} /><span>CTX%</span></label>
           <label class="kv-toggle"><input type="checkbox" bind:checked={slShowSession} /><span>SESSION</span></label>
           <label class="kv-toggle"><input type="checkbox" bind:checked={slShowSkill} /><span>SKILL</span></label>
@@ -1531,6 +1539,61 @@
       </section>
     {:else}
       <div class="hint">loading config…</div>
+    {/if}
+    {/if}
+
+    {#if activeTab === 'models'}
+    <section class="section">
+      <div class="section-label">Ensemble Router</div>
+      <div class="kv">
+        <div class="k">enabled</div>
+        <div class="v">
+          <label>
+            <input
+              type="checkbox"
+              checked={llmModels.enabled}
+              onchange={(e) => llmModels.setEnabled((e.target as HTMLInputElement).checked)}
+            />
+          </label>
+        </div>
+      </div>
+      {#if llmModels.enabled}
+      <div class="kv" style="margin-top: 8px;">
+        <div class="k">routing</div>
+        <div class="v">
+          <select
+            value={llmModels.activeProfile}
+            onchange={(e) => llmModels.setActiveProfile((e.target as HTMLSelectElement).value as any)}
+            style="background: rgba(0,0,0,0.4); border: 1px solid rgba(168,120,48,0.25); border-radius: var(--radius-md, 4px); color: var(--term-white); font-family: 'JetBrains Mono', monospace; font-size: 11px; padding: 3px 6px;"
+          >
+            <option value="manual">Manual</option>
+            <option value="cost_optimized">Cost Optimized</option>
+            <option value="quality_first">Quality First</option>
+            <option value="balanced">Balanced</option>
+          </select>
+        </div>
+      </div>
+      {/if}
+    </section>
+    {#if llmModels.enabled}
+    <section class="section">
+      <div class="section-label">Configured Models</div>
+      {#if llmModels.models.length === 0}
+        <div class="hint" style="padding: 12px 0;">No models configured. Add one below.</div>
+      {/if}
+      {#each llmModels.models as model (model.id)}
+        <ModelCard {model} onremove={() => llmModels.removeModel(model.id)} />
+      {/each}
+      <div style="display: flex; gap: 6px; margin-top: 8px;">
+        <button type="button" class="rift-btn" onclick={() => llmModels.addModel('llama_server')}>+ Local</button>
+        <button type="button" class="rift-btn" onclick={() => llmModels.addModel('anthropic')}>+ Anthropic</button>
+        <button type="button" class="rift-btn" onclick={() => llmModels.addModel('google')}>+ Gemini</button>
+        <button type="button" class="rift-btn" onclick={() => llmModels.addModel('open_ai_compat')}>+ OpenAI-compat</button>
+      </div>
+      <div style="margin-top: 12px; display: flex; justify-content: flex-end;">
+        <button type="button" class="rift-btn primary" onclick={() => llmModels.save()}>Save Models</button>
+      </div>
+    </section>
     {/if}
     {/if}
 

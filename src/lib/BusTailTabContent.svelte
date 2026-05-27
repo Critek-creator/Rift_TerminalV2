@@ -42,7 +42,7 @@
   const LIVE_ACTIVITY_WINDOW_MS = 4000;
 
   const ALL_CATEGORIES: Category[] = [
-    'pty', 'hook', 'agent', 'fs', 'index', 'aegis', 'status', 'system', 'mcp', 'sentinel',
+    'pty', 'hook', 'agent', 'fs', 'index', 'aegis', 'status', 'system', 'mcp', 'sentinel', 'llm',
   ];
 
   // §10.1 lane palette → category accent colour
@@ -57,6 +57,7 @@
     system: 'var(--term-red)',
     mcp:      'var(--term-purple, #C58FFF)',
     sentinel: 'var(--term-red)',
+    llm:      'var(--amber-primary)',
   };
 
   let connected = $state(false);

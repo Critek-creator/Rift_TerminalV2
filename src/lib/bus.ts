@@ -22,7 +22,8 @@ export type Category =
   | 'status'
   | 'system'
   | 'mcp'
-  | 'sentinel';
+  | 'sentinel'
+  | 'llm';
 
 export interface Envelope {
   version: number;

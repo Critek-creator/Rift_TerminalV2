@@ -34,6 +34,7 @@ const NOTIF_BY_CATEGORY: Record<string, string> = {
   fs: 'filesystem',
   mcp: 'mcp',
   sentinel: 'sentinel',
+  llm: 'llm-activity',
 };
 
 let notifs = $state<NotifTab[]>(

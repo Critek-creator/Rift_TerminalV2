@@ -54,6 +54,7 @@ describe('StatusLine', () => {
           show_ctx: false,
           show_session: false,
           show_skill: false,
+          show_thinking: false,
           show_effort: false,
           show_git: false,
           show_repo: false,

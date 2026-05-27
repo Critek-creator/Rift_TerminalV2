@@ -2,18 +2,19 @@
   // §10.2 — two-row status line. Color-block segments, dark text on
   // category-tinted backgrounds. All values bold.
   //
-  // Row 1: DIR / MODEL / CTX% / SESSION / SKILL
+  // Row 1: DIR / MODEL / THINKING / CTX% / SESSION / SKILL
   // Row 2: GIT / REPO / SESSION USE% / WEEK% / EFFORT
   //
   // Segment data sources:
   //   * dir / git / repo       → live via translators/status.rs (5s poll)
+  //   * thinking               → CC StatusJSON thinking.effort level
   //   * skill / effort         → live via Aegis integration (feature-gated)
   //   * model / ctx / session  → CC StatusJSON via cc_status translator
   //   * sessionUse / week      → CC StatusJSON rate_limits
   //
   // Phase 8.7g.2 color families:
   //   GREEN  — env locale (DIR, GIT, REPO)
-  //   CYAN   — model identity (MODEL)
+  //   CYAN   — model identity (MODEL, THINKING)
   //   BLUE   — usage metrics (CTX%, SESSION USE%, WEEK%)
   //   AMBER  — aegis state (SKILL, EFFORT)
   //   PURPLE — session/clock (SESSION)
@@ -26,6 +27,7 @@
   interface Props {
     dir?: string;
     model?: string;
+    thinking?: string;
     ctx?: string;
     session?: string;
     skill?: string;
@@ -40,6 +42,7 @@
   let {
     dir = '—',
     model = '—',
+    thinking = '—',
     ctx = '—',
     session = '—',
     skill = '—',
@@ -54,6 +57,7 @@
   const show = $derived({
     dir: visibility?.show_dir ?? true,
     model: visibility?.show_model ?? true,
+    thinking: visibility?.show_thinking ?? true,
     ctx: visibility?.show_ctx ?? true,
     session: visibility?.show_session ?? true,
     skill: visibility?.show_skill ?? true,
@@ -79,6 +83,11 @@
     {#if show.model}
       <div class="seg model" style:background={override('model')}>
         <span class="label">MODEL</span><span class="value">{model}</span>
+      </div>
+    {/if}
+    {#if show.thinking}
+      <div class="seg thinking" style:background={override('thinking')}>
+        <span class="label">THINKING</span><span class="value">{thinking}</span>
       </div>
     {/if}
     {#if show.ctx}
@@ -182,8 +191,9 @@
   .git    { background: var(--status-green-mid); }
   .repo   { background: var(--status-green-dim); }
 
-  /* CYAN — model identity */
-  .model  { background: var(--status-cyan-bright); }
+  /* CYAN — model identity + thinking */
+  .model    { background: var(--status-cyan-bright); }
+  .thinking { background: var(--status-cyan-dim); }
 
   /* BLUE family — usage metrics */
   .ctx         { background: var(--status-blue-mid); }

@@ -84,6 +84,7 @@
 
   // ----- command palette -----
   let paletteOpen = $state(false);
+  let paletteInitialQuery = $state('');
 
   // ----- shortcut overlay -----
   let shortcutsOpen = $state(false);
@@ -270,6 +271,7 @@
   let statusSession = $state('');
   let ccSkill = $state('');
   let ccEffort = $state('');
+  let statusThinking = $state('');
   let statuslineConfig = $state<StatusLineConfig | undefined>(undefined);
 
   // Immediate status update on focus change — don't wait for the 5s Rust poll.
@@ -331,7 +333,7 @@
               dir?: string; git?: string; repo?: string;
               model?: string; ctx_pct?: number; session_use_pct?: number; week_pct?: number;
               github_owner?: string; github_repo?: string;
-              skill?: string; effort?: string;
+              skill?: string; effort?: string; thinking?: string;
             };
             if (p.dir  !== undefined) statusDir  = p.dir;
             if (p.git  !== undefined) statusGit  = p.git;
@@ -346,6 +348,7 @@
             if (p.week_pct !== undefined) statusWeek = `${p.week_pct}%`;
             if (p.skill !== undefined) ccSkill = p.skill;
             if (p.effort !== undefined) ccEffort = p.effort;
+            if (p.thinking !== undefined) statusThinking = p.thinking;
           }
         });
         if (cancelled) {
@@ -656,7 +659,14 @@
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.ctrlKey && e.key === 'k') {
         e.preventDefault();
+        paletteInitialQuery = '';
         paletteOpen = !paletteOpen;
+        return;
+      }
+      if (e.ctrlKey && e.shiftKey && e.key === 'M') {
+        e.preventDefault();
+        paletteInitialQuery = 'model';
+        paletteOpen = true;
         return;
       }
       if (e.ctrlKey && e.key === 'b') {
@@ -931,6 +941,7 @@
   <StatusLine
     dir={statusDir || '—'}
     model={statusModel || '—'}
+    thinking={statusThinking || '—'}
     ctx={statusCtx || '—'}
     session={statusSession || '—'}
     repo={statusRepo || '—'}
@@ -957,8 +968,9 @@
 
   {#if paletteOpen}
     <CommandPalette
-      onclose={() => { paletteOpen = false; }}
+      onclose={() => { paletteOpen = false; paletteInitialQuery = ''; }}
       onActivateNotif={nm.activateNotif}
+      initialQuery={paletteInitialQuery}
     />
   {/if}
 

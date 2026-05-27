@@ -111,6 +111,10 @@ pub struct RiftConfig {
     /// binary compiles both features but only activates translators when
     /// the user opts in via the welcome overlay or Settings panel.
     pub integrations: IntegrationsConfig,
+    /// Ensemble Router — multi-model LLM orchestration (Phase 1+).
+    /// Off by default. When enabled, Rift manages local llama-server
+    /// processes and routes prompts to configured models.
+    pub ensemble: EnsembleConfig,
 }
 
 /// A recently-used project entry stored in the config.
@@ -556,14 +560,15 @@ pub struct StatusLineConfig {
     pub show_repo: bool,
     pub show_session: bool,
     pub show_skill: bool,
+    pub show_thinking: bool,
     pub show_effort: bool,
     pub show_model: bool,
     pub show_ctx: bool,
     pub show_session_use: bool,
     pub show_week: bool,
     /// Optional per-segment color overrides (CSS color strings).
-    /// Keys: "dir", "git", "repo", "session", "skill", "effort",
-    /// "model", "ctx", "session_use", "week".
+    /// Keys: "dir", "git", "repo", "session", "skill", "thinking",
+    /// "effort", "model", "ctx", "session_use", "week".
     pub color_overrides: std::collections::HashMap<String, String>,
 }
 
@@ -575,6 +580,7 @@ impl Default for StatusLineConfig {
             show_repo: true,
             show_session: true,
             show_skill: true,
+            show_thinking: true,
             show_effort: true,
             show_model: true,
             show_ctx: true,
@@ -785,6 +791,230 @@ pub enum SyncMode {
     /// Allows newer-version configs to be read by older Rift without crashing.
     #[serde(other)]
     Unknown,
+}
+
+// ---------------------------------------------------------------------------
+// EnsembleConfig (Ensemble Router — multi-model LLM orchestration)
+// ---------------------------------------------------------------------------
+
+/// Ensemble Router configuration. Controls multi-model LLM management,
+/// routing profiles, and local llama-server process settings.
+///
+/// Off by default — zero impact on startup for single-model users.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(default)]
+pub struct EnsembleConfig {
+    /// Master switch. When `false`, no LLM translators start and no
+    /// `Category::Llm` envelopes are published.
+    pub enabled: bool,
+    /// Active routing profile. `Manual` = user picks model explicitly.
+    pub active_profile: RoutingProfile,
+    /// Model ID to use when no routing rule matches (fallback).
+    pub default_model: String,
+    /// Configured models (cloud APIs, local llama-server, remote endpoints).
+    pub models: Vec<ModelConfig>,
+}
+
+impl Default for EnsembleConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            active_profile: RoutingProfile::Manual,
+            default_model: String::new(),
+            models: Vec::new(),
+        }
+    }
+}
+
+/// Routing profile — how the router decides which model handles a prompt.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RoutingProfile {
+    /// No auto-routing. User selects model via quick switcher.
+    #[default]
+    Manual,
+    /// Routes to cheapest viable model. Local → Server → Flash → Pro.
+    CostOptimized,
+    /// Routes to most capable model for the detected task type.
+    QualityFirst,
+    /// Heuristic blend of cost and capability.
+    Balanced,
+}
+
+/// A configured LLM model available in Rift.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ModelConfig {
+    /// Internal unique identifier (e.g. `"claude-opus"`, `"local-gemma"`).
+    pub id: String,
+    /// User-facing display name.
+    pub display_name: String,
+    /// Provider type — determines which translator handles requests.
+    pub provider: ProviderType,
+    /// Provider-specific model identifier (e.g. `"claude-opus-4-6"`,
+    /// `"gemma-4-27b-it-Q4_K_M.gguf"`).
+    pub model_identifier: String,
+    /// How the model is hosted — cloud API, local process, or remote endpoint.
+    pub hosting: HostingMode,
+    /// API endpoint URL (auto-filled for known cloud providers).
+    pub endpoint: String,
+    /// Keyring service name for the API key. `None` for local/remote
+    /// llama-server (no auth needed). The actual key is never stored here.
+    pub api_key_ref: Option<String>,
+    /// CSS variable name for the model indicator color (e.g. `"--model-claude"`).
+    pub color: String,
+    /// 2-4 character short identifier for the gutter glyph (e.g. `"CLD"`).
+    pub short_id: String,
+    /// Model capabilities — used for routing decisions.
+    pub capabilities: ModelCapabilities,
+}
+
+/// Provider type — determines which LLM translator handles requests.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProviderType {
+    Anthropic,
+    Google,
+    LlamaServer,
+    OpenAiCompat,
+}
+
+/// How a model is hosted — determines process management and health-check
+/// behavior.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(tag = "mode", rename_all = "snake_case")]
+pub enum HostingMode {
+    /// Cloud API (Anthropic, Google, etc.) — Rift sends HTTP requests.
+    Cloud,
+    /// Local llama-server process — Rift manages the process lifecycle.
+    Local {
+        #[serde(flatten)]
+        process_config: LlamaServerConfig,
+    },
+    /// Remote llama-server — Rift connects but does not manage the process.
+    Remote { health_check_interval_secs: u64 },
+}
+
+/// Configuration for a Rift-managed local llama-server instance.
+///
+/// All fields map to llama-server CLI flags. Rift's Settings UI writes these;
+/// the process manager reads them when spawning.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(default)]
+pub struct LlamaServerConfig {
+    /// Path to the GGUF model file.
+    pub model_path: PathBuf,
+    /// `--flash-attn` — hardware-accelerated attention kernels.
+    pub flash_attention: bool,
+    /// `--ctx-size` — maximum context window in tokens.
+    pub ctx_size: u32,
+    /// `--cache-type-k` — KV cache key quantization type.
+    pub cache_type_k: KvCacheType,
+    /// `--cache-type-v` — KV cache value quantization type.
+    pub cache_type_v: KvCacheType,
+    /// `--n-gpu-layers` — transformer layers offloaded to GPU. 99 = all.
+    pub n_gpu_layers: i32,
+    /// `--threads` — CPU thread count. `None` = auto-detect.
+    pub threads: Option<u32>,
+    /// `--parallel` — concurrent request slots.
+    pub parallel: u32,
+    /// `--port` — HTTP server port.
+    pub port: u16,
+    /// `CUDA_VISIBLE_DEVICES` env var for GPU selection on multi-GPU systems.
+    pub cuda_visible_devices: Option<String>,
+    /// Launch this model automatically when Rift starts.
+    pub auto_start: bool,
+    /// Additional CLI flags (validated against known llama-server flags).
+    pub extra_flags: Vec<String>,
+}
+
+impl Default for LlamaServerConfig {
+    fn default() -> Self {
+        Self {
+            model_path: PathBuf::new(),
+            flash_attention: true,
+            ctx_size: 32768,
+            cache_type_k: KvCacheType::Q8_0,
+            cache_type_v: KvCacheType::Q8_0,
+            n_gpu_layers: 99,
+            threads: None,
+            parallel: 1,
+            port: 8081,
+            cuda_visible_devices: None,
+            auto_start: false,
+            extra_flags: Vec::new(),
+        }
+    }
+}
+
+/// KV cache quantization type for llama-server.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[allow(non_camel_case_types)]
+pub enum KvCacheType {
+    F32,
+    F16,
+    #[serde(rename = "bf16")]
+    BF16,
+    #[serde(rename = "q8_0")]
+    Q8_0,
+    #[serde(rename = "q4_0")]
+    Q4_0,
+    #[serde(rename = "q4_1")]
+    Q4_1,
+    #[serde(rename = "iq4_nl")]
+    IQ4_NL,
+    #[serde(rename = "q5_0")]
+    Q5_0,
+    #[serde(rename = "q5_1")]
+    Q5_1,
+}
+
+impl KvCacheType {
+    /// Return the llama-server CLI flag value for this cache type.
+    pub fn as_flag(&self) -> &'static str {
+        match self {
+            Self::F32 => "f32",
+            Self::F16 => "f16",
+            Self::BF16 => "bf16",
+            Self::Q8_0 => "q8_0",
+            Self::Q4_0 => "q4_0",
+            Self::Q4_1 => "q4_1",
+            Self::IQ4_NL => "iq4_nl",
+            Self::Q5_0 => "q5_0",
+            Self::Q5_1 => "q5_1",
+        }
+    }
+}
+
+/// Model capabilities — used by the routing rules engine for model selection.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ModelCapabilities {
+    /// Maximum context window in tokens.
+    pub max_context_tokens: u64,
+    /// Whether the provider supports streaming responses.
+    pub supports_streaming: bool,
+    /// Whether the provider supports tool use / function calling.
+    pub supports_tool_use: bool,
+    /// Cost per 1M input tokens (USD). 0.0 for local/server models.
+    pub cost_per_1m_input: f64,
+    /// Cost per 1M output tokens (USD). 0.0 for local/server models.
+    pub cost_per_1m_output: f64,
+    /// Free-form strength tags for routing (e.g. `["code", "fast", "large-context"]`).
+    pub strength_tags: Vec<String>,
+}
+
+impl Default for ModelCapabilities {
+    fn default() -> Self {
+        Self {
+            max_context_tokens: 32768,
+            supports_streaming: true,
+            supports_tool_use: false,
+            cost_per_1m_input: 0.0,
+            cost_per_1m_output: 0.0,
+            strength_tags: Vec::new(),
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1347,5 +1577,172 @@ max_depth = 4
         let back: TreeConfig = toml::from_str(&toml_str).expect("deserialize");
         assert!(back.heatmap_enabled);
         assert_eq!(back.heatmap_window_minutes, 60);
+    }
+
+    // T32 — parse_config_without_ensemble_section_uses_defaults
+    //
+    // Existing configs without [ensemble] must parse and produce
+    // EnsembleConfig::default(). Zero impact on single-model users.
+    #[test]
+    fn parse_config_without_ensemble_section_uses_defaults() {
+        let toml_str = r#"
+[fs]
+max_depth = 4
+"#;
+        let cfg: RiftConfig = toml::from_str(toml_str).expect("parse should succeed");
+        assert!(
+            !cfg.ensemble.enabled,
+            "ensemble.enabled should default to false"
+        );
+        assert_eq!(
+            cfg.ensemble.active_profile,
+            RoutingProfile::Manual,
+            "active_profile should default to Manual"
+        );
+        assert!(
+            cfg.ensemble.default_model.is_empty(),
+            "default_model should default to empty"
+        );
+        assert!(
+            cfg.ensemble.models.is_empty(),
+            "models should default to empty"
+        );
+    }
+
+    // T33 — ensemble_config_round_trips
+    #[test]
+    fn ensemble_config_round_trips() {
+        let original = EnsembleConfig {
+            enabled: true,
+            active_profile: RoutingProfile::Balanced,
+            default_model: "local-gemma".to_string(),
+            models: vec![ModelConfig {
+                id: "local-gemma".to_string(),
+                display_name: "Gemma 4 27B".to_string(),
+                provider: ProviderType::LlamaServer,
+                model_identifier: "gemma-4-27b-it-Q4_K_M.gguf".to_string(),
+                hosting: HostingMode::Local {
+                    process_config: LlamaServerConfig {
+                        model_path: PathBuf::from("C:\\Models\\gemma-4-27b-it-Q4_K_M.gguf"),
+                        flash_attention: true,
+                        ctx_size: 32768,
+                        cache_type_k: KvCacheType::Q8_0,
+                        cache_type_v: KvCacheType::Q8_0,
+                        n_gpu_layers: 99,
+                        threads: None,
+                        parallel: 1,
+                        port: 8081,
+                        cuda_visible_devices: Some("0".to_string()),
+                        auto_start: true,
+                        extra_flags: vec![],
+                    },
+                },
+                endpoint: "http://127.0.0.1:8081".to_string(),
+                api_key_ref: None,
+                color: "--model-local".to_string(),
+                short_id: "LOC".to_string(),
+                capabilities: ModelCapabilities {
+                    max_context_tokens: 32768,
+                    supports_streaming: true,
+                    supports_tool_use: false,
+                    cost_per_1m_input: 0.0,
+                    cost_per_1m_output: 0.0,
+                    strength_tags: vec!["fast".to_string(), "private".to_string()],
+                },
+            }],
+        };
+        let toml_str = toml::to_string_pretty(&original).expect("serialize");
+        let back: EnsembleConfig = toml::from_str(&toml_str).expect("deserialize");
+        assert!(back.enabled);
+        assert_eq!(back.active_profile, RoutingProfile::Balanced);
+        assert_eq!(back.default_model, "local-gemma");
+        assert_eq!(back.models.len(), 1);
+        assert_eq!(back.models[0].id, "local-gemma");
+        assert_eq!(back.models[0].provider, ProviderType::LlamaServer);
+        assert_eq!(back.models[0].short_id, "LOC");
+    }
+
+    // T34 — kv_cache_type_round_trips
+    #[test]
+    fn kv_cache_type_round_trips() {
+        for variant in [
+            KvCacheType::F32,
+            KvCacheType::F16,
+            KvCacheType::BF16,
+            KvCacheType::Q8_0,
+            KvCacheType::Q4_0,
+            KvCacheType::Q4_1,
+            KvCacheType::IQ4_NL,
+            KvCacheType::Q5_0,
+            KvCacheType::Q5_1,
+        ] {
+            let json = serde_json::to_string(&variant).expect("serialize");
+            let back: KvCacheType = serde_json::from_str(&json).expect("deserialize");
+            assert_eq!(back, variant, "round-trip failed for {variant:?}");
+        }
+    }
+
+    // T35 — routing_profile_round_trips
+    #[test]
+    fn routing_profile_round_trips() {
+        for variant in [
+            RoutingProfile::Manual,
+            RoutingProfile::CostOptimized,
+            RoutingProfile::QualityFirst,
+            RoutingProfile::Balanced,
+        ] {
+            let json = serde_json::to_string(&variant).expect("serialize");
+            let back: RoutingProfile = serde_json::from_str(&json).expect("deserialize");
+            assert_eq!(back, variant, "round-trip failed for {variant:?}");
+        }
+    }
+
+    // T36 — hosting_mode_cloud_round_trips
+    #[test]
+    fn hosting_mode_cloud_round_trips() {
+        let original = HostingMode::Cloud;
+        let json = serde_json::to_string(&original).expect("serialize");
+        assert!(json.contains("\"mode\":\"cloud\""));
+        let back: HostingMode = serde_json::from_str(&json).expect("deserialize");
+        assert!(matches!(back, HostingMode::Cloud));
+    }
+
+    // T37 — hosting_mode_remote_round_trips
+    #[test]
+    fn hosting_mode_remote_round_trips() {
+        let original = HostingMode::Remote {
+            health_check_interval_secs: 30,
+        };
+        let json = serde_json::to_string(&original).expect("serialize");
+        let back: HostingMode = serde_json::from_str(&json).expect("deserialize");
+        match back {
+            HostingMode::Remote {
+                health_check_interval_secs,
+            } => assert_eq!(health_check_interval_secs, 30),
+            _ => panic!("expected Remote variant"),
+        }
+    }
+
+    // T38 — llama_server_config_defaults
+    #[test]
+    fn llama_server_config_defaults() {
+        let cfg = LlamaServerConfig::default();
+        assert!(cfg.flash_attention);
+        assert_eq!(cfg.ctx_size, 32768);
+        assert_eq!(cfg.cache_type_k, KvCacheType::Q8_0);
+        assert_eq!(cfg.cache_type_v, KvCacheType::Q8_0);
+        assert_eq!(cfg.n_gpu_layers, 99);
+        assert!(cfg.threads.is_none());
+        assert_eq!(cfg.parallel, 1);
+        assert!(!cfg.auto_start);
+    }
+
+    // T39 — kv_cache_type_as_flag
+    #[test]
+    fn kv_cache_type_as_flag() {
+        assert_eq!(KvCacheType::Q8_0.as_flag(), "q8_0");
+        assert_eq!(KvCacheType::F16.as_flag(), "f16");
+        assert_eq!(KvCacheType::BF16.as_flag(), "bf16");
+        assert_eq!(KvCacheType::IQ4_NL.as_flag(), "iq4_nl");
     }
 }

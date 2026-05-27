@@ -43,6 +43,7 @@
   --status-blue-mid:     #5AA0E6;   /* CTX% */
   --status-blue-dim:     #3A7DCC;   /* WEEK */
   --status-cyan-bright:  #6FE0E0;   /* MODEL */
+  --status-cyan-dim:     #4ABCBC;   /* THINKING */
   --status-time:         #C58FFF;   /* SESSION TIME (purple — clock) */
 
   /* Brightened glows to match the lifted amber palette. */

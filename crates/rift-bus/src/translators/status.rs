@@ -37,7 +37,7 @@
 //!   "github_owner": "Critek-creator",
 //!   "github_repo": "Rift_TerminalV2",
 //!   "skill": "aegis",
-//!   "effort": "high"
+//!   "thinking": "high"
 //! }
 //! ```
 //!
@@ -168,7 +168,7 @@ pub fn publish_status_snapshot(bus: &RiftBus, project_root: &Path) {
             map.insert("skill".into(), json!(v));
         }
         if let Some(v) = cc.thinking_effort {
-            map.insert("effort".into(), json!(v));
+            map.insert("thinking".into(), json!(v));
         }
     }
 

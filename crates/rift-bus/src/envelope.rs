@@ -44,6 +44,9 @@ pub enum Category {
     /// Sentinel watchdog events — rule violations, detection status,
     /// health checks. Integration-provided (D-010, post-v1).
     Sentinel,
+    /// LLM router events — routing decisions, provider requests/responses,
+    /// model health, process lifecycle. Integration-provided (Ensemble Router).
+    Llm,
 }
 
 /// The wire envelope. Every event on the bus and across the IPC boundary
@@ -161,6 +164,7 @@ mod tests {
             Category::System,
             Category::Mcp,
             Category::Sentinel,
+            Category::Llm,
         ] {
             let env = Envelope::new(c, "smoke");
             let json = serde_json::to_string(&env).expect("encode");

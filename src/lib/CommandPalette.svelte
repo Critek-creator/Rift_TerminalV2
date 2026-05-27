@@ -2,23 +2,25 @@
   import { fade } from 'svelte/transition';
   import { sectionCatalog } from './sectionCatalog.svelte';
   import { popouts } from './popouts.svelte';
+  import { llmModels } from './llmModels.svelte';
 
   interface PaletteEntry {
     id: string;
     label: string;
     icon: string;
-    category: 'tab' | 'action' | 'shortcut';
+    category: 'tab' | 'action' | 'shortcut' | 'model';
     action?: () => void;
   }
 
   interface Props {
     onclose: () => void;
     onActivateNotif: (id: string) => void;
+    initialQuery?: string;
   }
 
-  let { onclose, onActivateNotif }: Props = $props();
+  let { onclose, onActivateNotif, initialQuery = '' }: Props = $props();
 
-  let query = $state('');
+  let query = $state(initialQuery);
   let selectedIdx = $state(0);
   let inputEl: HTMLInputElement = $state(undefined!);
 
@@ -41,6 +43,23 @@
       { id: 'act:notif-manager', label: 'Notification Manager', icon: '◫', category: 'action',
         action: () => { onclose(); } },
     );
+
+    if (llmModels.enabled) {
+      const statusIcon = (id: string) => {
+        const s = llmModels.processStatus[id];
+        return s === 'running' ? '●' : s === 'starting' ? '◐' : s === 'error' ? '✕' : '○';
+      };
+      for (const m of llmModels.models) {
+        const isActive = llmModels.activeModelId === m.id;
+        items.push({
+          id: `model:${m.id}`,
+          label: `${m.short_id || '???'}  ${m.display_name || m.model_identifier}${isActive ? '  (active)' : ''}`,
+          icon: statusIcon(m.id),
+          category: 'model',
+          action: () => { llmModels.setActiveModel(m.id); onclose(); },
+        });
+      }
+    }
 
     items.push(
       { id: 'key:search', label: 'Ctrl+Shift+F — Search terminal', icon: '⌕', category: 'shortcut' },
@@ -102,6 +121,7 @@
   function categoryLabel(cat: string): string {
     if (cat === 'tab') return 'TABS';
     if (cat === 'action') return 'ACTIONS';
+    if (cat === 'model') return 'MODELS';
     if (cat === 'shortcut') return 'SHORTCUTS';
     return cat.toUpperCase();
   }

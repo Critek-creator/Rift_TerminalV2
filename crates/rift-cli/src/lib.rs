@@ -148,6 +148,7 @@ fn parse_category(s: &str) -> Category {
         "system" => Category::System,
         "mcp" => Category::Mcp,
         "sentinel" => Category::Sentinel,
+        "llm" => Category::Llm,
         _ => Category::Hook,
     }
 }
