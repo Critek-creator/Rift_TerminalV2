@@ -14,6 +14,7 @@
   import TodoTabContent from './lib/TodoTabContent.svelte';
   import GitTabContent from './lib/GitTabContent.svelte';
   import AgentsTabContent from './lib/AgentsTabContent.svelte';
+  import LlmActivityTabContent from './lib/LlmActivityTabContent.svelte';
   import FsTabContent from './lib/FsTabContent.svelte';
   import McpTabContent from './lib/McpTabContent.svelte';
   import SentinelTabContent from './lib/SentinelTabContent.svelte';
@@ -853,6 +854,8 @@
               <FsTabContent severityThreshold={nm.thresholdFor('filesystem')} onDragBack={nm.demoteTab} />
             {:else if nm.promotedTab.id === 'mcp'}
               <McpTabContent severityThreshold={nm.thresholdFor('mcp')} onDragBack={nm.demoteTab} {correlationIndex} />
+            {:else if nm.promotedTab.id === 'llm-activity'}
+              <LlmActivityTabContent severityThreshold={nm.thresholdFor('llm-activity')} onDragBack={nm.demoteTab} />
             {:else if nm.promotedTab.id === 'sentinel'}
               <SentinelTabContent severityThreshold={nm.thresholdFor('sentinel')} onDragBack={nm.demoteTab} />
             {:else if nm.promotedTab.id === 'health'}
