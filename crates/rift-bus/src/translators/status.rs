@@ -167,8 +167,11 @@ pub fn publish_status_snapshot(bus: &RiftBus, project_root: &Path) {
         if let Some(v) = cc.skill {
             map.insert("skill".into(), json!(v));
         }
-        if let Some(v) = cc.thinking_effort {
+        if let Some(v) = cc.thinking {
             map.insert("thinking".into(), json!(v));
+        }
+        if let Some(v) = cc.effort {
+            map.insert("effort".into(), json!(v));
         }
     }
 
@@ -190,7 +193,8 @@ struct CcStatus {
     github_owner: Option<String>,
     github_repo: Option<String>,
     skill: Option<String>,
-    thinking_effort: Option<String>,
+    thinking: Option<String>,
+    effort: Option<String>,
 }
 
 /// Read and parse `$TEMP/rift-cc-status.json`. Returns `None` if the file
@@ -290,9 +294,21 @@ fn read_cc_status() -> Option<CcStatus> {
                 .map(|s| s.to_string())
         });
 
-    // effort — try top-level effort.level (current CC schema), then
-    // thinking.effort, then budget-derived from thinking.budget_tokens
-    let thinking_effort = v
+    // thinking — "on"/"off" based on whether extended thinking is enabled
+    let thinking = v
+        .get("thinking")
+        .and_then(|t| t.get("type").and_then(|ty| ty.as_str()))
+        .map(|ty| if ty == "enabled" { "on" } else { "off" })
+        .or_else(|| {
+            v.get("effort")
+                .and_then(|e| e.get("level"))
+                .and_then(|l| l.as_str())
+                .map(|_| "on")
+        })
+        .map(|s| s.to_string());
+
+    // effort — the active effort level (low/medium/high/max)
+    let effort = v
         .get("effort")
         .and_then(|e| e.get("level"))
         .and_then(|l| l.as_str())
@@ -302,21 +318,20 @@ fn read_cc_status() -> Option<CcStatus> {
                 if let Some(e) = t.get("effort").and_then(|e| e.as_str()) {
                     return Some(e.to_string());
                 }
-                match t.get("type").and_then(|ty| ty.as_str()) {
-                    Some("enabled") => {
-                        let budget = t.get("budget_tokens").and_then(as_f64);
-                        Some(
-                            match budget {
-                                Some(b) if b >= 32000.0 => "max",
-                                Some(b) if b >= 16000.0 => "high",
-                                Some(b) if b >= 8000.0 => "medium",
-                                Some(_) => "low",
-                                None => "on",
-                            }
-                            .to_string(),
-                        )
-                    }
-                    _ => None,
+                if t.get("type").and_then(|ty| ty.as_str()) == Some("enabled") {
+                    let budget = t.get("budget_tokens").and_then(as_f64);
+                    Some(
+                        match budget {
+                            Some(b) if b >= 32000.0 => "max",
+                            Some(b) if b >= 16000.0 => "high",
+                            Some(b) if b >= 8000.0 => "medium",
+                            Some(_) => "low",
+                            None => "medium",
+                        }
+                        .to_string(),
+                    )
+                } else {
+                    None
                 }
             })
         });
@@ -329,7 +344,8 @@ fn read_cc_status() -> Option<CcStatus> {
         github_owner,
         github_repo,
         skill,
-        thinking_effort,
+        thinking,
+        effort,
     })
 }
 

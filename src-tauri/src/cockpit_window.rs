@@ -107,7 +107,10 @@ fn emit_to_main(app: &AppHandle, event: &str) {
 /// built, it persists for the session — subsequent detach/reattach cycles
 /// use show/hide on the same window.
 #[tauri::command]
-pub fn cockpit_detach(app: AppHandle, state: State<'_, CockpitWindowState>) -> Result<(), String> {
+pub async fn cockpit_detach(
+    app: AppHandle,
+    state: State<'_, CockpitWindowState>,
+) -> Result<(), String> {
     // Atomic double-detach guard: only proceed if we flip false → true.
     state
         .is_detached

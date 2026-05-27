@@ -1669,10 +1669,13 @@ fn cleanup_orphaned_webview2() {
 
     let script = r#"Get-CimInstance Win32_Process -Filter "Name='msedgewebview2.exe'" | Where-Object { $_.CommandLine -match 'com\.abyssal\.rift' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }"#;
 
+    // Must block (.output()) — .spawn() is fire-and-forget and races
+    // with Tauri's window creation: by the time PowerShell enumerates
+    // processes, the app's OWN WebView2 exists and gets killed → white screen.
     let _ = std::process::Command::new("powershell")
         .args(["-NoProfile", "-NonInteractive", "-Command", script])
         .creation_flags(CREATE_NO_WINDOW)
-        .spawn();
+        .output();
 }
 
 #[cfg(not(windows))]

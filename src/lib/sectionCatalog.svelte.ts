@@ -154,7 +154,7 @@ const BUILTIN_TABS: TabDescriptor[] = [
   },
   {
     id: 'mcp', title: 'mcp', icon: '⬡',
-    category: 'mcp', detectedByDefault: false,
+    category: 'mcp', detectedByDefault: true,
     sections: [...STANDARD_SECTIONS],
     source: 'builtin', group: 'activity',
   },
