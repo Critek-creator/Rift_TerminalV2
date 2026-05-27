@@ -75,6 +75,16 @@ export type PopoutContent =
     }
   | {
       kind: 'llm-chat';
+      /** Per-pane model override — when set, this chat instance uses the
+       *  specified model instead of the global `llmModels.activeModelId`. */
+      modelId?: string;
+    }
+  | {
+      /** Phase 3 — Ensemble Compare split-view: sends the same prompt to two
+       *  models in parallel, optionally with a critique step. */
+      kind: 'llm-ensemble';
+      modelA?: string;
+      modelB?: string;
     };
 
 export interface PopoutEntry {

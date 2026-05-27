@@ -1,4 +1,4 @@
-//! Tool catalog — Phase A (4) + Phase B (6) + Phase C (3) + Phase D (7) + diagnostic (2) = 22 tools.
+//! Tool catalog — Phase A (4) + Phase B (6) + Phase C (3) + Phase D (7) + diagnostic (2) + LLM router (5) + process mgmt (2) = 30 tools (count reflects all additions after initial Phase A–D).
 //!
 //! Each tool's `inputSchema` is a JSON Schema object understood by MCP
 //! clients. Per-tool semantics live host-side in `src-tauri/src/mcp_host.rs`;
@@ -29,7 +29,7 @@ pub struct ToolSpec {
     pub input_schema: Value,
 }
 
-/// Phase A + B + C + D tool catalog (22 tools — D-014 §3 Tier 1 + Tier 2 + Tier 3 + diagnostic).
+/// Full tool catalog (30 tools — D-014 §3 Tier 1 + Tier 2 + Tier 3 + diagnostic + LLM router + process mgmt).
 pub fn tool_catalog() -> Vec<ToolSpec> {
     vec![
         ToolSpec {
@@ -464,6 +464,61 @@ pub fn tool_catalog() -> Vec<ToolSpec> {
                         "type": "integer",
                         "minimum": 1,
                         "description": "Max tokens to generate.",
+                    },
+                },
+                "required": ["prompt"],
+            }),
+        },
+        // ----- Process management — local llama-server lifecycle -----
+        ToolSpec {
+            name: "llm_process_start",
+            description: "Start a local llama-server for a configured model. The model must have hosting mode 'local' with a valid model_path. Requires `mcp.allow_mutations = true`.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "model_id": {
+                        "type": "string",
+                        "description": "ID of the local model to start (from llm_models output).",
+                    },
+                },
+                "required": ["model_id"],
+            }),
+        },
+        ToolSpec {
+            name: "llm_process_stop",
+            description: "Stop a running local llama-server process. Requires `mcp.allow_mutations = true`.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "model_id": {
+                        "type": "string",
+                        "description": "ID of the local model to stop.",
+                    },
+                },
+                "required": ["model_id"],
+            }),
+        },
+        ToolSpec {
+            name: "llm_ensemble",
+            description: "Send the same prompt to two models in parallel and optionally run a critique step where model B reviews model A's output. Returns both responses with token/cost metadata plus the critique text.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "prompt": {
+                        "type": "string",
+                        "description": "The prompt to send to both models.",
+                    },
+                    "model_a": {
+                        "type": "string",
+                        "description": "First model ID. Omit both model_a and model_b to let the router auto-pick two diverse models.",
+                    },
+                    "model_b": {
+                        "type": "string",
+                        "description": "Second model ID.",
+                    },
+                    "critique": {
+                        "type": "boolean",
+                        "description": "If true, after both models respond, model B critiques model A's output. Default false.",
                     },
                 },
                 "required": ["prompt"],

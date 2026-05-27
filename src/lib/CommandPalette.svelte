@@ -44,6 +44,8 @@
         action: () => { onclose(); } },
       { id: 'act:llm-chat', label: 'Router Prompt', icon: '◆', category: 'action',
         action: () => { popouts.summon({ content: { kind: 'llm-chat' }, width: 'min(720px, 85vw)' }); onclose(); } },
+      { id: 'act:llm-ensemble', label: 'Ensemble Compare', icon: '⊞', category: 'action',
+        action: () => { popouts.summon({ content: { kind: 'llm-ensemble' }, width: 'min(1100px, 95vw)' }); onclose(); } },
     );
 
     if (llmModels.enabled) {

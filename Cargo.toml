@@ -42,8 +42,10 @@ getrandom = "0.2"
 parking_lot = "0.12"
 async-trait = "0.1"
 futures-core = "0.3"
+futures-util = "0.3"
 reqwest = { version = "0.12", features = ["json", "stream"] }
 windows-sys = { version = "0.59" }
+keyring = { version = "3", features = ["sync-secret-service", "windows-native"] }
 
 [profile.release]
 codegen-units = 1

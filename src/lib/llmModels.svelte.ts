@@ -57,10 +57,9 @@ function buildEnsembleConfig(): EnsembleConfig {
 }
 
 async function saveEnsemble(): Promise<void> {
-  await invoke('config_save', {
-    section: 'ensemble',
-    value: JSON.stringify(buildEnsembleConfig()),
-  });
+  const config = await invoke<import('./riftConfig').RiftConfig>('config_get');
+  const next = { ...config, ensemble: buildEnsembleConfig() };
+  await invoke('config_save', { cfg: next });
 }
 
 // ---------------------------------------------------------------------------

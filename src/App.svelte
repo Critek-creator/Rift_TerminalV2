@@ -164,6 +164,32 @@
   // the live window itself is 3s in TabBar.
   let tickNow = $state(Date.now());
 
+  // Batched badge accumulator — coalesces rapid bus envelopes into one
+  // Svelte reactivity update per animation frame. Under multi-session
+  // traffic (3+ concurrent Claude Code sessions), the master subscriber
+  // receives 10+ envelopes/sec. Without batching, each triggers
+  // nm.notifs = nm.notifs.map(...) → full reactive graph propagation.
+  // Batching reduces this to ≤1 mutation per frame (~60Hz).
+  const _pendingBadges = new Map<string, { lastActivityTs: number; unreadDelta: number }>();
+  let _badgeFlushId = 0;
+
+  function _flushBadges() {
+    _badgeFlushId = 0;
+    if (_pendingBadges.size === 0) return;
+    nm.notifs = nm.notifs.map((n) => {
+      const p = _pendingBadges.get(n.id);
+      if (!p) return n;
+      const inView = nm.promoted === n.id;
+      return {
+        ...n,
+        detected: true,
+        lastActivityTs: p.lastActivityTs,
+        unreadCount: n.enabled ? (inView ? 0 : n.unreadCount + p.unreadDelta) : n.unreadCount,
+      };
+    });
+    _pendingBadges.clear();
+  }
+
   // §10.7 capability-gate + §10.9 badge counter + live border —
   // master envelope subscription lives at App level so it works regardless
   // of which tab is currently mounted (panes only mount when active).
@@ -199,18 +225,17 @@
           const target = nm.notifs.find((n) => n.id === id);
           if (!target) return;
           const inView = nm.promoted === id;
-          // Skip reassignment when nothing observable changes — avoids
-          // hundreds of Svelte reactivity triggers/sec under heavy bus traffic.
-          const nextUnread = target.enabled ? (inView ? 0 : target.unreadCount + 1) : target.unreadCount;
-          if (target.detected && target.lastActivityTs === now && target.unreadCount === nextUnread) return;
-          nm.notifs = nm.notifs.map((n) =>
-            n.id !== id ? n : {
-              ...n,
-              detected: true,
-              lastActivityTs: now,
-              unreadCount: nextUnread,
-            },
-          );
+          const delta = (target.enabled && !inView) ? 1 : 0;
+          const existing = _pendingBadges.get(id);
+          if (existing) {
+            existing.lastActivityTs = now;
+            existing.unreadDelta += delta;
+          } else {
+            _pendingBadges.set(id, { lastActivityTs: now, unreadDelta: delta });
+          }
+          if (!_badgeFlushId) {
+            _badgeFlushId = requestAnimationFrame(_flushBadges);
+          }
 
           // Adaptive notification priority: seed baseline from all envelopes.
           if (notifPriority.isEnabled()) {
@@ -252,6 +277,8 @@
 
     return () => {
       cancelled = true;
+      if (_badgeFlushId) { cancelAnimationFrame(_badgeFlushId); _badgeFlushId = 0; }
+      _pendingBadges.clear();
       void (async () => {
         await unsub?.();
       })();
@@ -677,6 +704,10 @@
       if (e.ctrlKey && e.shiftKey && e.key === '?') {
         e.preventDefault();
         shortcutsOpen = !shortcutsOpen;
+      }
+      if (e.ctrlKey && e.shiftKey && (e.key === 'L' || e.key === 'l')) {
+        e.preventDefault();
+        popouts.summon({ content: { kind: 'llm-ensemble' }, width: 'min(1100px, 95vw)' });
       }
       // Split-pane shortcuts — only when a session tab is active.
       if (sm.active.kind === 'session') {

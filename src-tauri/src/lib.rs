@@ -97,6 +97,7 @@ type DrainHandle = tauri::async_runtime::JoinHandle<()>;
 #[cfg(feature = "aegis-private")]
 use rift_aegis::probe as aegis_probe;
 
+use rift_bus::translators::llm_process::ProcessManager;
 use rift_bus::{
     build_tree, load_config, prepare_lane_prelude, publish_command, publish_error, read_text,
     save_config, spawn_fs_watcher, spawn_session_logger, spawn_status_translator,
@@ -2024,6 +2025,18 @@ pub fn run() {
                 });
             }
 
+            // Shared ProcessManager for MCP llm_process_start / llm_process_stop tools.
+            // Must be managed before spawn_mcp_host so app_handle.try_state() resolves
+            // inside the tool handlers. llama-server path is resolved lazily per-call
+            // via ProcessManager::detect_llama_server(); the manager itself only needs
+            // the bus for publishing lifecycle events.
+            {
+                let pm_bus = app.state::<RiftBus>().inner().clone();
+                let llama_path = ProcessManager::detect_llama_server()
+                    .unwrap_or_else(|| std::path::PathBuf::from("llama-server"));
+                app.manage(std::sync::Arc::new(ProcessManager::new(llama_path, pm_bus)));
+            }
+
             // D-014 Phase A — MCP host subscriber (off by default).
             //
             // Reads RiftConfig.mcp; if disabled, the spawn is a no-op and no
@@ -2148,6 +2161,10 @@ pub fn run() {
             command_history::command_suggestions,
             integrations::integration_detect,
             llm_commands::llm_complete,
+            llm_commands::llm_stream,
+            llm_commands::llm_ensemble,
+            llm_commands::llm_key_store,
+            llm_commands::llm_key_delete,
         ]))
         .build(tauri::generate_context!())
         .expect("rift: tauri runtime failed to start")

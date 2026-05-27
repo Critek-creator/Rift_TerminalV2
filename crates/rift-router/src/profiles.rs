@@ -21,6 +21,9 @@ pub struct RoutingDecision {
     pub reason: String,
     /// Whether the user explicitly overrode routing.
     pub was_overridden: bool,
+    /// Ordered fallback models for escalation on retryable failure.
+    #[serde(default)]
+    pub fallback_chain: Vec<String>,
 }
 
 /// Select the best model for a task given a profile.
@@ -98,7 +101,7 @@ fn select_balanced(
     models.first().map(|m| m.id.clone())
 }
 
-fn task_type_tag(task_type: &TaskType) -> &'static str {
+pub fn task_type_tag(task_type: &TaskType) -> &'static str {
     match task_type {
         TaskType::CodeGeneration | TaskType::CodeRefactoring => "code",
         TaskType::LintFormat => "lint",

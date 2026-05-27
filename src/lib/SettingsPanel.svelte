@@ -625,6 +625,7 @@
           show_ctx: slShowCtx,
           show_session_use: slShowSessionUse,
           show_week: slShowWeek,
+          show_cost: config.statusline?.show_cost ?? true,
           color_overrides: config.statusline?.color_overrides ?? {},
         },
       };

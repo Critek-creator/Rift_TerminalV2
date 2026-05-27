@@ -1,55 +1,100 @@
 //! Ensemble Router — LLM routing logic.
 //!
-//! This crate contains the routing rules engine, task classifier, and
-//! profile management. It has NO external calls — all provider
-//! interaction goes through `rift-bus` translators (§9 compliant).
-//!
-//! Phase 1: manual routing only (user selects model explicitly).
-//! Phase 2: automatic routing via rules engine + task classifier.
+//! This crate contains the routing rules engine, task classifier,
+//! profile management, and @model tag parser. It has NO external calls
+//! — all provider interaction goes through `rift-bus` translators
+//! (§9 compliant).
+
+use std::collections::HashSet;
 
 use rift_bus::config::{EnsembleConfig, ModelConfig, RoutingProfile};
 
-mod classifier;
-mod profiles;
+pub mod classifier;
+pub mod profiles;
+pub mod tags;
 
 pub use classifier::TaskType;
 pub use profiles::RoutingDecision;
+pub use tags::{parse_model_tag, resolve_tag, ParsedPrompt};
 
 /// The core routing service. Holds the active configuration and
 /// resolves which model should handle a given prompt.
 pub struct RouterService {
     config: EnsembleConfig,
+    /// Model IDs currently known to be unavailable (health check failed
+    /// or recent error). Callers update this via `mark_unavailable` /
+    /// `mark_available`. The router skips these during auto-routing.
+    unavailable: HashSet<String>,
 }
 
 impl RouterService {
-    /// Create a new router from config.
     pub fn new(config: EnsembleConfig) -> Self {
-        Self { config }
+        Self {
+            config,
+            unavailable: HashSet::new(),
+        }
     }
 
-    /// Reload configuration (e.g., after settings change).
     pub fn reload(&mut self, config: EnsembleConfig) {
         self.config = config;
+        self.unavailable.clear();
     }
 
-    /// Route a prompt to the appropriate model. Returns the model config
-    /// and the routing decision metadata.
+    pub fn mark_unavailable(&mut self, model_id: &str) {
+        self.unavailable.insert(model_id.to_string());
+    }
+
+    pub fn mark_available(&mut self, model_id: &str) {
+        self.unavailable.remove(model_id);
+    }
+
+    pub fn is_available(&self, model_id: &str) -> bool {
+        !self.unavailable.contains(model_id)
+    }
+
+    /// Route a prompt to the appropriate model.
     ///
-    /// Phase 1: Manual profile always returns `default_model` or `override_id`.
-    /// Phase 2: Rules engine evaluates task type, token estimate, availability.
+    /// Full Phase 2 routing pipeline:
+    /// 1. Parse @model tags from the prompt
+    /// 2. If tag found, resolve to model ID (override)
+    /// 3. If explicit override_model_id, use that
+    /// 4. Otherwise, use active profile (Manual → default, auto → classifier + rules)
+    /// 5. Skip unavailable models in auto-routing
     pub fn route(
         &self,
         prompt: &str,
         override_model_id: Option<&str>,
     ) -> Result<RoutingDecision, RoutingError> {
-        if let Some(id) = override_model_id {
+        // Phase 2: Parse @model tags from prompt
+        let parsed = tags::parse_model_tag(prompt);
+        let effective_prompt = &parsed.clean_prompt;
+
+        // Resolve tag to model ID if present
+        let tag_override = parsed
+            .model_tag
+            .as_ref()
+            .and_then(|tag| tags::resolve_tag(tag, &self.config.models));
+
+        // Priority: explicit override > @tag override > profile routing
+        let effective_override = override_model_id.map(|s| s.to_string()).or(tag_override);
+
+        if let Some(ref id) = effective_override {
             let model = self.find_model(id)?;
+            let was_tag = parsed.model_tag.is_some() && override_model_id.is_none();
             return Ok(RoutingDecision {
                 model_id: model.id.clone(),
-                task_type: classifier::classify(prompt),
+                task_type: classifier::classify(effective_prompt),
                 profile: self.config.active_profile.clone(),
-                reason: "explicit override".to_string(),
+                reason: if was_tag {
+                    format!(
+                        "@{} tag override",
+                        parsed.model_tag.as_deref().unwrap_or("")
+                    )
+                } else {
+                    "explicit override".to_string()
+                },
                 was_overridden: true,
+                fallback_chain: vec![],
             });
         }
 
@@ -61,19 +106,36 @@ impl RouterService {
                 let model = self.find_model(&self.config.default_model)?;
                 Ok(RoutingDecision {
                     model_id: model.id.clone(),
-                    task_type: classifier::classify(prompt),
+                    task_type: classifier::classify(effective_prompt),
                     profile: RoutingProfile::Manual,
                     reason: "manual profile — using default model".to_string(),
                     was_overridden: false,
+                    fallback_chain: vec![],
                 })
             }
             _ => {
-                let task_type = classifier::classify(prompt);
+                let task_type = classifier::classify(effective_prompt);
+
+                // Filter to available models only
+                let available_models: Vec<&ModelConfig> = self
+                    .config
+                    .models
+                    .iter()
+                    .filter(|m| self.is_available(&m.id))
+                    .collect();
+
+                if available_models.is_empty() {
+                    return Err(RoutingError::AllModelsUnavailable);
+                }
+
                 let model_id = profiles::select_model(
-                    &self.config.models,
+                    &available_models
+                        .iter()
+                        .map(|m| (*m).clone())
+                        .collect::<Vec<_>>(),
                     &self.config.active_profile,
                     &task_type,
-                    prompt.len(),
+                    effective_prompt.len(),
                 );
 
                 match model_id {
@@ -86,10 +148,13 @@ impl RouterService {
                             self.config.active_profile, task_type
                         ),
                         was_overridden: false,
+                        fallback_chain: self.build_fallback_chain(&id, &task_type),
                     }),
                     None => {
                         if self.config.default_model.is_empty() {
                             Err(RoutingError::NoDefaultModel)
+                        } else if !self.is_available(&self.config.default_model) {
+                            Err(RoutingError::AllModelsUnavailable)
                         } else {
                             Ok(RoutingDecision {
                                 model_id: self.config.default_model.clone(),
@@ -97,6 +162,7 @@ impl RouterService {
                                 profile: self.config.active_profile.clone(),
                                 reason: "no rule matched — fallback to default".to_string(),
                                 was_overridden: false,
+                                fallback_chain: vec![],
                             })
                         }
                     }
@@ -105,7 +171,66 @@ impl RouterService {
         }
     }
 
-    /// Look up a model by ID.
+    /// Build a ranked fallback chain for escalation. Excludes the primary
+    /// model and any unavailable models. Used when the primary model fails
+    /// with a retryable error.
+    fn build_fallback_chain(&self, primary_id: &str, task_type: &TaskType) -> Vec<String> {
+        let tag = profiles::task_type_tag(task_type);
+        let mut candidates: Vec<&ModelConfig> = self
+            .config
+            .models
+            .iter()
+            .filter(|m| m.id != primary_id && self.is_available(&m.id))
+            .collect();
+
+        // Sort: tag-matched first, then by cost (cheapest first)
+        candidates.sort_by(|a, b| {
+            let a_match = a.capabilities.strength_tags.iter().any(|t| t == tag);
+            let b_match = b.capabilities.strength_tags.iter().any(|t| t == tag);
+            b_match.cmp(&a_match).then_with(|| {
+                a.capabilities
+                    .cost_per_1m_input
+                    .partial_cmp(&b.capabilities.cost_per_1m_input)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+        });
+
+        candidates.iter().map(|m| m.id.clone()).collect()
+    }
+
+    /// Route to the next model in the fallback chain after a failure.
+    /// Returns None if no more fallbacks are available.
+    pub fn escalate(
+        &self,
+        failed_model_id: &str,
+        fallback_chain: &[String],
+        prompt: &str,
+    ) -> Option<RoutingDecision> {
+        let task_type = classifier::classify(prompt);
+
+        for candidate_id in fallback_chain {
+            if candidate_id == failed_model_id || !self.is_available(candidate_id) {
+                continue;
+            }
+            if self.find_model(candidate_id).is_ok() {
+                return Some(RoutingDecision {
+                    model_id: candidate_id.clone(),
+                    task_type,
+                    profile: self.config.active_profile.clone(),
+                    reason: format!("escalation — {} failed", failed_model_id),
+                    was_overridden: false,
+                    fallback_chain: fallback_chain
+                        .iter()
+                        .filter(|id| id.as_str() != candidate_id && id.as_str() != failed_model_id)
+                        .cloned()
+                        .collect(),
+                });
+            }
+        }
+
+        None
+    }
+
     pub fn find_model(&self, id: &str) -> Result<&ModelConfig, RoutingError> {
         self.config
             .models
@@ -114,22 +239,28 @@ impl RouterService {
             .ok_or_else(|| RoutingError::ModelNotFound(id.to_string()))
     }
 
-    /// List all configured models.
     pub fn models(&self) -> &[ModelConfig] {
         &self.config.models
     }
+
+    pub fn config(&self) -> &EnsembleConfig {
+        &self.config
+    }
 }
 
-/// Errors from the routing engine.
 #[derive(Debug, thiserror::Error)]
 pub enum RoutingError {
-    /// No default model configured and no override specified.
     #[error("no default model configured — select one in Settings → Models")]
     NoDefaultModel,
 
-    /// Requested model ID not found in config.
     #[error("model not found: {0}")]
     ModelNotFound(String),
+
+    #[error("all configured models are unavailable")]
+    AllModelsUnavailable,
+
+    #[error("@model tag '{0}' did not match any configured model")]
+    TagNotResolved(String),
 }
 
 #[cfg(test)]
@@ -226,5 +357,63 @@ mod tests {
         svc.reload(new_cfg);
         let decision = svc.route("hello", None).unwrap();
         assert_eq!(decision.model_id, "cloud-test");
+    }
+
+    #[test]
+    fn tag_override_routes_to_tagged_model() {
+        let svc = RouterService::new(test_config());
+        let decision = svc.route("@CLD explain this code", None).unwrap();
+        assert_eq!(decision.model_id, "cloud-test");
+        assert!(decision.was_overridden);
+        assert!(decision.reason.contains("@CLD"));
+    }
+
+    #[test]
+    fn unavailable_model_skipped_in_auto_routing() {
+        let mut cfg = test_config();
+        cfg.active_profile = RoutingProfile::CostOptimized;
+        let mut svc = RouterService::new(cfg);
+        svc.mark_unavailable("local-test");
+        let decision = svc.route("hello world", None).unwrap();
+        assert_eq!(decision.model_id, "cloud-test");
+    }
+
+    #[test]
+    fn all_unavailable_returns_error() {
+        let mut cfg = test_config();
+        cfg.active_profile = RoutingProfile::CostOptimized;
+        let mut svc = RouterService::new(cfg);
+        svc.mark_unavailable("local-test");
+        svc.mark_unavailable("cloud-test");
+        let err = svc.route("hello", None).unwrap_err();
+        assert!(matches!(err, RoutingError::AllModelsUnavailable));
+    }
+
+    #[test]
+    fn escalate_picks_next_in_chain() {
+        let svc = RouterService::new(test_config());
+        let fallback = vec!["cloud-test".to_string()];
+        let decision = svc.escalate("local-test", &fallback, "hello").unwrap();
+        assert_eq!(decision.model_id, "cloud-test");
+        assert!(decision.reason.contains("escalation"));
+    }
+
+    #[test]
+    fn escalate_returns_none_when_exhausted() {
+        let mut svc = RouterService::new(test_config());
+        svc.mark_unavailable("cloud-test");
+        let fallback = vec!["cloud-test".to_string()];
+        assert!(svc.escalate("local-test", &fallback, "hello").is_none());
+    }
+
+    #[test]
+    fn fallback_chain_excludes_primary() {
+        let mut cfg = test_config();
+        cfg.active_profile = RoutingProfile::Balanced;
+        let svc = RouterService::new(cfg);
+        let decision = svc
+            .route("implement a new feature with lots of code that goes beyond the short prompt threshold", None)
+            .unwrap();
+        assert!(!decision.fallback_chain.contains(&decision.model_id));
     }
 }

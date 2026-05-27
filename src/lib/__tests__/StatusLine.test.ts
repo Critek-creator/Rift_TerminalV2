@@ -60,6 +60,7 @@ describe('StatusLine', () => {
           show_repo: false,
           show_session_use: false,
           show_week: false,
+          show_cost: false,
           color_overrides: {},
         },
       },

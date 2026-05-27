@@ -83,6 +83,7 @@ export interface StatusLineConfig {
   show_ctx: boolean;
   show_session_use: boolean;
   show_week: boolean;
+  show_cost: boolean;
   color_overrides: Record<string, string>;
 }
 

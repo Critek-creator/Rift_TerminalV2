@@ -411,7 +411,21 @@ async fn dispatch_tool(
         "llm_models" => tool_llm_models(),
         "llm_switch" => tool_llm_switch(bus, payload),
         "llm_health" => tool_llm_health(payload).await,
-        "llm_prompt" => tool_llm_prompt(payload).await,
+        "llm_prompt" => tool_llm_prompt(bus, payload).await,
+        "llm_ensemble" => tool_llm_ensemble(bus, payload).await,
+        // Process management — local llama-server lifecycle
+        "llm_process_start" => {
+            if !cfg.allow_mutations {
+                return Err("llm_process_start requires mcp.allow_mutations = true".into());
+            }
+            tool_llm_process_start(app_handle, payload)
+        }
+        "llm_process_stop" => {
+            if !cfg.allow_mutations {
+                return Err("llm_process_stop requires mcp.allow_mutations = true".into());
+            }
+            tool_llm_process_stop(app_handle, payload)
+        }
         other => Err(format!("unknown MCP tool: {other}")),
     }
 }
@@ -1308,6 +1322,313 @@ async fn tool_simulate_drag(app_handle: &AppHandle, payload: &Value) -> Result<V
     Ok(result)
 }
 
+/// `llm_ensemble` — send the same prompt to two models in parallel via MCP.
+///
+/// Non-streaming (MCP is non-interactive). Dispatches `provider.complete()`
+/// for both models via `tokio::join!`, then optionally runs a critique step
+/// (model B reviews model A's output with a review system prompt).
+///
+/// Publishes `llm.ensemble.start` and `llm.ensemble.complete` bus events.
+/// Returns JSON with both model results + optional critique + total_cost_usd.
+async fn tool_llm_ensemble(bus: &RiftBus, payload: &Value) -> Result<Value, String> {
+    use rift_bus::translators::llm::{CompletionRequest, LlmProvider, Message, Role};
+
+    let prompt = payload
+        .get("prompt")
+        .and_then(|v| v.as_str())
+        .ok_or("llm_ensemble: missing required argument: prompt")?;
+
+    let model_a_override = payload.get("model_a").and_then(|v| v.as_str());
+    let model_b_override = payload.get("model_b").and_then(|v| v.as_str());
+    let run_critique = payload
+        .get("critique")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+
+    let config = rift_bus::config::load_config().map_err(|e| format!("{e}"))?;
+    let router = rift_router::RouterService::new(config.ensemble.clone());
+
+    let parsed = rift_router::parse_model_tag(prompt);
+    let clean_prompt = &parsed.clean_prompt;
+    let task_type = rift_router::classifier::classify(clean_prompt);
+
+    // Resolve the two model IDs — explicit args take priority, otherwise
+    // pick two diverse models via the same logic the Tauri command uses.
+    let (id_a, id_b) = match (model_a_override, model_b_override) {
+        (Some(a), Some(b)) => (a.to_owned(), b.to_owned()),
+        _ => {
+            // Inline of pick_two_models (private to llm_commands) —
+            // prefer different providers for maximum perspective diversity.
+            let models = router.models();
+            if models.len() < 2 {
+                return Err("llm_ensemble requires at least 2 configured models".into());
+            }
+            let tag = rift_router::profiles::task_type_tag(&task_type);
+            let mut ranked: Vec<&rift_bus::config::ModelConfig> = models.iter().collect();
+            ranked.sort_by(|a, b| {
+                let a_match = a.capabilities.strength_tags.iter().any(|t| t == tag);
+                let b_match = b.capabilities.strength_tags.iter().any(|t| t == tag);
+                b_match.cmp(&a_match).then_with(|| {
+                    b.capabilities
+                        .cost_per_1m_input
+                        .partial_cmp(&a.capabilities.cost_per_1m_input)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                })
+            });
+            let first = ranked[0].id.clone();
+            let second = ranked[1..]
+                .iter()
+                .find(|m| m.provider != ranked[0].provider)
+                .unwrap_or(&ranked[1])
+                .id
+                .clone();
+            (first, second)
+        }
+    };
+
+    let model_a = router
+        .find_model(&id_a)
+        .map_err(|e| format!("{e}"))?
+        .clone();
+    let model_b = router
+        .find_model(&id_b)
+        .map_err(|e| format!("{e}"))?
+        .clone();
+
+    // Publish ensemble start
+    if let Ok(env) = Envelope::new(Category::Llm, "llm.ensemble.start").with_payload(&json!({
+        "model_a": id_a,
+        "model_b": id_b,
+        "task_type": format!("{task_type:?}"),
+        "source": "mcp",
+    })) {
+        bus.publish(env);
+    }
+
+    // Build completion requests — identical prompt, no streaming
+    let make_request = |p: &str| CompletionRequest {
+        messages: vec![Message {
+            role: Role::User,
+            content: p.to_owned(),
+        }],
+        max_tokens: None,
+        temperature: None,
+        stop_sequences: vec![],
+        system_prompt: None,
+        provider_options: None,
+    };
+
+    let provider_a: Box<dyn LlmProvider> = crate::llm_commands::create_provider(&model_a)?;
+    let provider_b: Box<dyn LlmProvider> = crate::llm_commands::create_provider(&model_b)?;
+
+    let req_a = make_request(clean_prompt);
+    let req_b = make_request(clean_prompt);
+
+    // Dispatch in parallel
+    let (res_a, res_b) = tokio::join!(provider_a.complete(req_a), provider_b.complete(req_b),);
+
+    // Compute cost helper
+    let cost_for = |model: &rift_bus::config::ModelConfig, tokens_in: u64, tokens_out: u64| {
+        (tokens_in as f64 / 1_000_000.0) * model.capabilities.cost_per_1m_input
+            + (tokens_out as f64 / 1_000_000.0) * model.capabilities.cost_per_1m_output
+    };
+
+    let result_a = match res_a {
+        Ok(r) => {
+            let cost = cost_for(&model_a, r.tokens_in, r.tokens_out);
+            json!({
+                "model_id": model_a.id,
+                "model_short_id": model_a.short_id,
+                "content": r.content,
+                "tokens_in": r.tokens_in,
+                "tokens_out": r.tokens_out,
+                "latency_ms": r.latency_ms,
+                "cost_usd": cost,
+                "error": null,
+            })
+        }
+        Err(e) => json!({
+            "model_id": model_a.id,
+            "model_short_id": model_a.short_id,
+            "content": null,
+            "tokens_in": 0,
+            "tokens_out": 0,
+            "latency_ms": 0,
+            "cost_usd": 0.0,
+            "error": e.to_string(),
+        }),
+    };
+
+    let result_b = match res_b {
+        Ok(r) => {
+            let cost = cost_for(&model_b, r.tokens_in, r.tokens_out);
+            json!({
+                "model_id": model_b.id,
+                "model_short_id": model_b.short_id,
+                "content": r.content,
+                "tokens_in": r.tokens_in,
+                "tokens_out": r.tokens_out,
+                "latency_ms": r.latency_ms,
+                "cost_usd": cost,
+                "error": null,
+            })
+        }
+        Err(e) => json!({
+            "model_id": model_b.id,
+            "model_short_id": model_b.short_id,
+            "content": null,
+            "tokens_in": 0,
+            "tokens_out": 0,
+            "latency_ms": 0,
+            "cost_usd": 0.0,
+            "error": e.to_string(),
+        }),
+    };
+
+    let cost_a = result_a["cost_usd"].as_f64().unwrap_or(0.0);
+    let cost_b = result_b["cost_usd"].as_f64().unwrap_or(0.0);
+    let total_cost = cost_a + cost_b;
+
+    // Optional critique — model B reviews model A's output
+    let content_a = result_a["content"].as_str().unwrap_or("").to_owned();
+    let critique_text = if run_critique
+        && result_a["error"].is_null()
+        && result_b["error"].is_null()
+        && !content_a.is_empty()
+    {
+        let critique_prompt = format!(
+            "The user asked: \"{clean_prompt}\"\n\n\
+             Another AI model responded:\n\n---\n{content_a}\n---\n\n\
+             Critique this response. Identify strengths, weaknesses, factual errors, \
+             and missed nuances. Be specific and constructive."
+        );
+        let critic: Box<dyn LlmProvider> = crate::llm_commands::create_provider(&model_b)?;
+        let critique_req = CompletionRequest {
+            messages: vec![Message {
+                role: Role::User,
+                content: critique_prompt,
+            }],
+            max_tokens: None,
+            temperature: None,
+            stop_sequences: vec![],
+            system_prompt: Some(
+                "You are a critical reviewer. Analyze the given AI response for accuracy, \
+                 completeness, and quality. Be concise but thorough."
+                    .to_owned(),
+            ),
+            provider_options: None,
+        };
+        match critic.complete(critique_req).await {
+            Ok(r) => Some(r.content),
+            Err(e) => Some(format!("Critique failed: {e}")),
+        }
+    } else {
+        None
+    };
+
+    // Publish ensemble complete
+    if let Ok(env) = Envelope::new(Category::Llm, "llm.ensemble.complete").with_payload(&json!({
+        "model_a": id_a,
+        "model_b": id_b,
+        "total_cost_usd": total_cost,
+        "has_critique": critique_text.is_some(),
+        "source": "mcp",
+    })) {
+        bus.publish(env);
+    }
+
+    Ok(json!({
+        "results": [result_a, result_b],
+        "task_type": format!("{task_type:?}"),
+        "critique": critique_text,
+        "total_cost_usd": total_cost,
+    }))
+}
+
+/// `llm_process_start` — spawn a local llama-server for a configured model.
+///
+/// Requires `mcp.allow_mutations = true`. The model must be configured with
+/// `HostingMode::Local { process_config }`. Uses the app-managed shared
+/// `Arc<ProcessManager>` so started processes are visible to subsequent
+/// `llm_process_stop` calls within the same Rift session.
+///
+/// Bus events (`llm.process.start`) are published by [`ProcessManager::start`]
+/// internally — no double-publish here.
+fn tool_llm_process_start(app_handle: &AppHandle, payload: &Value) -> Result<Value, String> {
+    use rift_bus::config::HostingMode;
+    use rift_bus::translators::llm_process::ProcessManager;
+    use std::sync::Arc;
+
+    let model_id = payload
+        .get("model_id")
+        .and_then(|v| v.as_str())
+        .ok_or("llm_process_start: missing required argument: model_id")?;
+
+    let config = rift_bus::config::load_config().map_err(|e| format!("{e}"))?;
+    let model = config
+        .ensemble
+        .models
+        .iter()
+        .find(|m| m.id == model_id)
+        .ok_or_else(|| format!("llm_process_start: model not found: {model_id}"))?;
+
+    let process_config = match &model.hosting {
+        HostingMode::Local { process_config } => process_config.clone(),
+        HostingMode::Cloud => {
+            return Err(format!(
+                "llm_process_start: model '{model_id}' is a cloud model — only local models can be started"
+            ))
+        }
+        HostingMode::Remote { .. } => {
+            return Err(format!(
+                "llm_process_start: model '{model_id}' is a remote model — only local models can be started"
+            ))
+        }
+    };
+
+    let manager: tauri::State<'_, Arc<ProcessManager>> = app_handle
+        .try_state()
+        .ok_or("llm_process_start: ProcessManager not available (internal error)")?;
+
+    let pid = manager
+        .start(model_id, &process_config)
+        .map_err(|e| format!("llm_process_start: {e}"))?;
+
+    Ok(json!({
+        "model_id": model_id,
+        "pid": pid,
+        "port": process_config.port,
+    }))
+}
+
+/// `llm_process_stop` — stop a running local llama-server process.
+///
+/// Requires `mcp.allow_mutations = true`. Uses the app-managed shared
+/// `Arc<ProcessManager>` — must be the same instance that called `start`.
+/// [`ProcessManager::stop`] publishes `llm.process.stop` internally.
+fn tool_llm_process_stop(app_handle: &AppHandle, payload: &Value) -> Result<Value, String> {
+    use rift_bus::translators::llm_process::ProcessManager;
+    use std::sync::Arc;
+
+    let model_id = payload
+        .get("model_id")
+        .and_then(|v| v.as_str())
+        .ok_or("llm_process_stop: missing required argument: model_id")?;
+
+    let manager: tauri::State<'_, Arc<ProcessManager>> = app_handle
+        .try_state()
+        .ok_or("llm_process_stop: ProcessManager not available (internal error)")?;
+
+    manager
+        .stop(model_id)
+        .map_err(|e| format!("llm_process_stop: {e}"))?;
+
+    Ok(json!({
+        "model_id": model_id,
+        "stopped": true,
+    }))
+}
+
 fn publish_response(bus: &RiftBus, tool: &str, request_id: Value, result: Result<Value, String>) {
     let kind = format!("mcp.response.{tool}");
     let corr_id = request_id.as_str().map(|s| format!("mcp-{s}"));
@@ -1491,12 +1812,12 @@ async fn tool_llm_health(payload: &Value) -> Result<Value, String> {
     Ok(json!({ "results": results }))
 }
 
-/// `llm_prompt` — send a prompt to a model and return the response.
-async fn tool_llm_prompt(payload: &Value) -> Result<Value, String> {
+/// `llm_prompt` — send a prompt through the router and return the response.
+///
+/// Phase 2: Uses RouterService for model selection. Supports @model tags,
+/// auto-routing profiles, and escalation on retryable failures.
+async fn tool_llm_prompt(bus: &RiftBus, payload: &Value) -> Result<Value, String> {
     use rift_bus::translators::llm::{CompletionRequest, LlmProvider, Message, Role};
-    use rift_bus::translators::llm_anthropic::AnthropicProvider;
-    use rift_bus::translators::llm_gemini::GeminiProvider;
-    use rift_bus::translators::llm_server::LlamaServerProvider;
 
     let prompt = payload
         .get("prompt")
@@ -1504,44 +1825,28 @@ async fn tool_llm_prompt(payload: &Value) -> Result<Value, String> {
         .ok_or("missing required argument: prompt")?;
 
     let config = rift_bus::config::load_config().map_err(|e| format!("{e}"))?;
+    let mut router = rift_router::RouterService::new(config.ensemble.clone());
 
-    let model_id = payload
-        .get("model_id")
-        .and_then(|v| v.as_str())
-        .unwrap_or(&config.ensemble.default_model);
+    let model_id_override = payload.get("model_id").and_then(|v| v.as_str());
 
-    let model = config
-        .ensemble
-        .models
-        .iter()
-        .find(|m| m.id == model_id)
-        .ok_or_else(|| format!("model not found: {model_id}"))?;
+    let decision = router
+        .route(prompt, model_id_override)
+        .map_err(|e| format!("{e}"))?;
 
-    let api_key = model.api_key_ref.clone().unwrap_or_default();
+    // Publish routing decision
+    let mut route_env = Envelope::new(Category::Llm, "llm.route");
+    route_env.payload = json!({
+        "model_id": decision.model_id,
+        "task_type": decision.task_type,
+        "profile": decision.profile,
+        "reason": decision.reason,
+        "was_overridden": decision.was_overridden,
+        "source": "mcp",
+    });
+    bus.publish(route_env);
 
-    let provider: Box<dyn LlmProvider> = match (&model.hosting, &model.provider) {
-        (rift_bus::config::HostingMode::Cloud, rift_bus::config::ProviderType::Anthropic) => {
-            Box::new(AnthropicProvider::new(
-                &model.endpoint,
-                &api_key,
-                &model.model_identifier,
-            ))
-        }
-        (rift_bus::config::HostingMode::Cloud, rift_bus::config::ProviderType::Google) => Box::new(
-            GeminiProvider::new(&model.endpoint, &api_key, &model.model_identifier),
-        ),
-        (rift_bus::config::HostingMode::Cloud, _) => {
-            return Err(format!("unsupported cloud provider: {:?}", model.provider));
-        }
-        (rift_bus::config::HostingMode::Local { process_config }, _) => {
-            let ep = format!("http://127.0.0.1:{}", process_config.port);
-            Box::new(LlamaServerProvider::new(ep, &model.model_identifier))
-        }
-        (rift_bus::config::HostingMode::Remote { .. }, _) => Box::new(LlamaServerProvider::new(
-            &model.endpoint,
-            &model.model_identifier,
-        )),
-    };
+    let parsed = rift_router::parse_model_tag(prompt);
+    let clean_prompt = &parsed.clean_prompt;
 
     let system_prompt = payload
         .get("system_prompt")
@@ -1553,29 +1858,93 @@ async fn tool_llm_prompt(payload: &Value) -> Result<Value, String> {
         .and_then(|v| v.as_u64())
         .map(|v| v as u32);
 
-    let request = CompletionRequest {
-        messages: vec![Message {
-            role: Role::User,
-            content: prompt.to_string(),
-        }],
-        max_tokens,
-        temperature: None,
-        stop_sequences: vec![],
-        system_prompt,
-        provider_options: None,
-    };
+    let mut current_model_id = decision.model_id.clone();
+    let mut fallback_chain = decision.fallback_chain.clone();
+    let mut escalated = false;
 
-    let resp = provider
-        .complete(request)
-        .await
-        .map_err(|e| format!("{e}"))?;
+    loop {
+        let model = router
+            .find_model(&current_model_id)
+            .map_err(|e| format!("{e}"))?
+            .clone();
 
-    Ok(json!({
-        "content": resp.content,
-        "tokens_in": resp.tokens_in,
-        "tokens_out": resp.tokens_out,
-        "model_used": resp.model_used,
-        "latency_ms": resp.latency_ms,
-        "stop_reason": format!("{:?}", resp.stop_reason),
-    }))
+        let provider: Box<dyn LlmProvider> = crate::llm_commands::create_provider(&model)?;
+
+        let request = CompletionRequest {
+            messages: vec![Message {
+                role: Role::User,
+                content: clean_prompt.clone(),
+            }],
+            max_tokens,
+            temperature: None,
+            stop_sequences: vec![],
+            system_prompt: system_prompt.clone(),
+            provider_options: None,
+        };
+
+        match provider.complete(request).await {
+            Ok(resp) => {
+                let cost_in =
+                    (resp.tokens_in as f64 / 1_000_000.0) * model.capabilities.cost_per_1m_input;
+                let cost_out =
+                    (resp.tokens_out as f64 / 1_000_000.0) * model.capabilities.cost_per_1m_output;
+                let cost_usd = cost_in + cost_out;
+
+                let mut resp_env = Envelope::new(Category::Llm, "llm.response");
+                resp_env.payload = json!({
+                    "model_id": model.id,
+                    "tokens_in": resp.tokens_in,
+                    "tokens_out": resp.tokens_out,
+                    "latency_ms": resp.latency_ms,
+                    "cost_usd": cost_usd,
+                    "escalated": escalated,
+                    "source": "mcp",
+                });
+                bus.publish(resp_env);
+
+                return Ok(json!({
+                    "content": resp.content,
+                    "tokens_in": resp.tokens_in,
+                    "tokens_out": resp.tokens_out,
+                    "model_used": resp.model_used,
+                    "latency_ms": resp.latency_ms,
+                    "stop_reason": format!("{:?}", resp.stop_reason),
+                    "task_type": format!("{:?}", decision.task_type),
+                    "routing_reason": decision.reason,
+                    "cost_usd": cost_usd,
+                    "escalated": escalated,
+                }));
+            }
+            Err(err) => {
+                let retryable = err.is_retryable();
+
+                let mut err_env = Envelope::new(Category::Llm, "llm.error");
+                err_env.payload = json!({
+                    "model_id": current_model_id,
+                    "error": err.to_string(),
+                    "retryable": retryable,
+                    "source": "mcp",
+                });
+                bus.publish(err_env);
+
+                if !retryable || fallback_chain.is_empty() {
+                    return Err(format!("{err}"));
+                }
+
+                router.mark_unavailable(&current_model_id);
+                if let Some(next) =
+                    router.escalate(&current_model_id, &fallback_chain, clean_prompt)
+                {
+                    current_model_id = next.model_id;
+                    fallback_chain = next.fallback_chain;
+                    escalated = true;
+                } else {
+                    return Err(format!(
+                        "all models failed — last error from {}: {err}",
+                        current_model_id
+                    ));
+                }
+            }
+        }
+    }
 }

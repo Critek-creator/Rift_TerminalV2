@@ -3,6 +3,7 @@
   import { shouldShow, type SeverityLevel } from './notifFilter';
   import { NOTIF_TAB_MIME } from './dragMime';
   import { llmModels } from './llmModels.svelte';
+  import { llmRouting, handleRouteEvent, handleResponseEvent } from './llmRouting.svelte';
 
   interface Props {
     severityThreshold?: SeverityLevel;
@@ -26,11 +27,6 @@
 
   const routeCount = $derived(entries.filter((e) => e.kind === 'llm.route').length);
   const requestCount = $derived(entries.filter((e) => e.kind === 'llm.request').length);
-  const totalTokensOut = $derived(
-    entries
-      .filter((e) => e.kind === 'llm.response')
-      .reduce((sum, e) => sum + ((e.payload as any)?.tokens_out ?? 0), 0),
-  );
 
   function handleEnvelope(env: Envelope) {
     if (!shouldShow(env.kind, severityThreshold)) return;
@@ -38,6 +34,10 @@
     if (entries.length > RECENT_LOG_LIMIT * 2) {
       entries = entries.slice(-RECENT_LOG_LIMIT);
     }
+    // Feed routing store
+    const p = env.payload as Record<string, unknown>;
+    if (env.kind === 'llm.route') handleRouteEvent(p);
+    if (env.kind === 'llm.response') handleResponseEvent(p);
   }
 
   let unsubscribeFn: (() => Promise<void>) | undefined;
@@ -70,6 +70,7 @@
       'llm.process.start': 'START',
       'llm.process.stop': 'STOP',
       'llm.process.crash': 'CRASH',
+      'llm.error': 'ERR',
     };
     return map[kind] ?? kind.replace('llm.', '').toUpperCase();
   }
@@ -97,11 +98,17 @@
     const p = env.payload as any;
     switch (env.kind) {
       case 'llm.route':
-        return `→ ${p?.selected_model ?? '?'} (${p?.reason ?? 'manual'})`;
+        return `→ ${p?.model_id ?? '?'} (${p?.reason ?? 'manual'})${p?.was_overridden ? ' [override]' : ''}`;
       case 'llm.request':
         return `${p?.estimated_tokens ?? '?'} tokens est.`;
-      case 'llm.response':
-        return `${p?.tokens_in ?? 0} in / ${p?.tokens_out ?? 0} out — ${p?.latency_ms ?? 0}ms`;
+      case 'llm.response': {
+        const cost = p?.cost_usd as number | undefined;
+        const costStr = cost ? ` — ${llmRouting.formatCost(cost)}` : '';
+        const escStr = p?.escalated ? ' [escalated]' : '';
+        return `${p?.tokens_in ?? 0} in / ${p?.tokens_out ?? 0} out — ${p?.latency_ms ?? 0}ms${costStr}${escStr}`;
+      }
+      case 'llm.error':
+        return `${p?.error ?? 'unknown error'}${p?.retryable ? ' [retryable]' : ''}`;
       case 'llm.health':
         return `${p?.status ?? 'unknown'}${p?.latency_ms ? ` (${p.latency_ms}ms)` : ''}`;
       case 'llm.process.start':
@@ -134,7 +141,10 @@
       {/if}
     </span>
     <span class="header-stats">
-      {routeCount} routes / {requestCount} reqs / {totalTokensOut} tokens out
+      {routeCount} routes / {requestCount} reqs / {llmRouting.formatTokens(llmRouting.totalTokensOut)} out / {llmRouting.formatCost(llmRouting.sessionCostUsd)}
+      {#if llmRouting.escalationCount > 0}
+        <span class="escalation-badge">{llmRouting.escalationCount} esc</span>
+      {/if}
     </span>
   </div>
 
@@ -332,5 +342,11 @@
     font-size: 9px;
     color: var(--amber-faint, #A87830);
     text-transform: uppercase;
+  }
+
+  .escalation-badge {
+    color: var(--term-red, #FF4848);
+    font-weight: 700;
+    margin-left: 4px;
   }
 </style>

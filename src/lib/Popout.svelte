@@ -14,6 +14,7 @@
   import NotifManager from './NotifManager.svelte';
   import SettingsPanel from './SettingsPanel.svelte';
   import LlmChat from './LlmChat.svelte';
+  import EnsembleChat from './EnsembleChat.svelte';
 
   interface Props {
     entry: PopoutEntry;
@@ -107,6 +108,8 @@
             ? 'Settings'
             : entry.content.kind === 'llm-chat'
               ? 'Router Prompt'
+              : entry.content.kind === 'llm-ensemble'
+                ? 'Ensemble Compare'
             : entry.content.title,
   );
 </script>
@@ -146,7 +149,7 @@
       class:card-body-viewer={entry.content.kind === 'viewer'}
       class:card-body-picker={entry.content.kind === 'project-picker'}
       class:card-body-manager={entry.content.kind === 'notif-manager'}
-      class:card-body-settings={entry.content.kind === 'settings' || entry.content.kind === 'llm-chat'}
+      class:card-body-settings={entry.content.kind === 'settings' || entry.content.kind === 'llm-chat' || entry.content.kind === 'llm-ensemble'}
     >
       {#if entry.content.kind === 'text'}
         <p class="text-body">{entry.content.body}</p>
@@ -183,7 +186,9 @@
              via config_get and saves via config_save per-section. -->
         <SettingsPanel popoutId={entry.id} />
       {:else if entry.content.kind === 'llm-chat'}
-        <LlmChat popoutId={entry.id} />
+        <LlmChat popoutId={entry.id} modelOverride={entry.content.modelId} />
+      {:else if entry.content.kind === 'llm-ensemble'}
+        <EnsembleChat popoutId={entry.id} initialModelA={entry.content.modelA} initialModelB={entry.content.modelB} />
       {/if}
     </div>
   </div>

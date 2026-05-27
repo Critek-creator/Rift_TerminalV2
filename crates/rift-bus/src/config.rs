@@ -566,9 +566,10 @@ pub struct StatusLineConfig {
     pub show_ctx: bool,
     pub show_session_use: bool,
     pub show_week: bool,
+    pub show_cost: bool,
     /// Optional per-segment color overrides (CSS color strings).
     /// Keys: "dir", "git", "repo", "session", "skill", "thinking",
-    /// "effort", "model", "ctx", "session_use", "week".
+    /// "effort", "model", "ctx", "session_use", "week", "cost".
     pub color_overrides: std::collections::HashMap<String, String>,
 }
 
@@ -586,6 +587,7 @@ impl Default for StatusLineConfig {
             show_ctx: true,
             show_session_use: true,
             show_week: true,
+            show_cost: true,
             color_overrides: std::collections::HashMap::new(),
         }
     }

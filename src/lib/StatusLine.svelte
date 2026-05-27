@@ -24,6 +24,7 @@
   import type { StatusLineConfig } from './riftConfig';
   import ProfilePicker from './ProfilePicker.svelte';
   import ModelIndicator from './ModelIndicator.svelte';
+  import { llmRouting } from './llmRouting.svelte';
 
   interface Props {
     dir?: string;
@@ -67,7 +68,10 @@
     repo: visibility?.show_repo ?? true,
     sessionUse: visibility?.show_session_use ?? true,
     week: visibility?.show_week ?? true,
+    cost: visibility?.show_cost ?? true,
   });
+
+  let costLabel = $derived(llmRouting.formatCost(llmRouting.sessionCostUsd));
 
   function override(key: string): string | undefined {
     return visibility?.color_overrides?.[key];
@@ -133,6 +137,11 @@
     {#if show.effort}
       <div class="seg effort" style:background={override('effort')}>
         <span class="label">EFFORT</span><span class="value">{effort}</span>
+      </div>
+    {/if}
+    {#if show.cost && llmRouting.sessionCostUsd > 0}
+      <div class="seg cost" style:background={override('cost')}>
+        <span class="label">COST</span><span class="value">{costLabel}</span>
       </div>
     {/if}
     <div class="seg spacer"></div>
@@ -208,6 +217,9 @@
 
   /* PURPLE — session clock */
   .session { background: var(--status-time); }
+
+  /* AMBER-DIM — cost ticker */
+  .cost { background: var(--amber-dim, rgba(168, 120, 48, 0.5)); }
 
   .profile-seg {
     flex-shrink: 0;
