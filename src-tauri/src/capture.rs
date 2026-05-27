@@ -2,19 +2,33 @@
 //!
 //! Returns a PNG-encoded byte vector of the target window's contents.
 //! Works even when the window is partially occluded (PW_RENDERFULLCONTENT).
+//!
+//! Safety: all GDI calls are wrapped in `catch_unwind` so an invalid HWND
+//! (window destroyed mid-capture) returns `Err` instead of crashing the
+//! process through undefined behavior at the WebView2 COM boundary.
 
 #[cfg(windows)]
 pub fn capture_window_png(hwnd: isize) -> Result<Vec<u8>, String> {
+    std::panic::catch_unwind(|| capture_inner(hwnd))
+        .unwrap_or_else(|_| Err("capture panicked (HWND likely invalid)".into()))
+}
+
+#[cfg(windows)]
+fn capture_inner(hwnd: isize) -> Result<Vec<u8>, String> {
     use windows_sys::Win32::Foundation::RECT;
     use windows_sys::Win32::Graphics::Gdi::{
         BitBlt, CreateCompatibleBitmap, CreateCompatibleDC, DeleteDC, DeleteObject, GetDC,
         GetDIBits, ReleaseDC, SelectObject, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS,
         SRCCOPY,
     };
-    use windows_sys::Win32::UI::WindowsAndMessaging::GetClientRect;
+    use windows_sys::Win32::UI::WindowsAndMessaging::{GetClientRect, IsWindow};
 
     unsafe {
         let hwnd = hwnd as windows_sys::Win32::Foundation::HWND;
+
+        if IsWindow(hwnd) == 0 {
+            return Err("HWND is no longer valid".into());
+        }
 
         let mut rect = RECT {
             left: 0,

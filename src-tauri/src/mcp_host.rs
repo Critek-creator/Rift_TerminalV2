@@ -25,9 +25,14 @@ use rift_bus::{
 };
 use serde_json::{json, Value};
 use tauri::{AppHandle, Listener, Manager};
-use tokio::sync::oneshot;
+use tokio::sync::{oneshot, Mutex as TokioMutex};
 
 use crate::{git_status, todo_scan, CachedConfig, PtyRegistry};
+
+/// Serializes inspection tools (screenshot, js_eval, dom_snapshot) so they
+/// never race each other or overlap with user interaction on the webview.
+static INSPECTION_LOCK: once_cell::sync::Lazy<TokioMutex<()>> =
+    once_cell::sync::Lazy::new(|| TokioMutex::new(()));
 
 /// Spawn the MCP host subscriber on the rift-bus runtime.
 ///
@@ -325,12 +330,14 @@ async fn dispatch_tool(
             if !cfg.allow_inspection {
                 return Err("dom_snapshot requires mcp.allow_inspection = true".into());
             }
+            let _guard = INSPECTION_LOCK.lock().await;
             tool_dom_snapshot(app_handle, payload).await
         }
         "screenshot" => {
             if !cfg.allow_inspection {
                 return Err("screenshot requires mcp.allow_inspection = true".into());
             }
+            let _guard = INSPECTION_LOCK.lock().await;
             tool_screenshot(app_handle, payload).await
         }
         "js_eval" => {
@@ -340,6 +347,7 @@ async fn dispatch_tool(
             if !cfg.allow_js_eval {
                 return Err("js_eval requires mcp.allow_js_eval = true".into());
             }
+            let _guard = INSPECTION_LOCK.lock().await;
             tool_js_eval(app_handle, payload).await
         }
         // Phase D — Tier 3 mutating + read tools (D-014 §3)
@@ -769,8 +777,15 @@ async fn tool_screenshot(app_handle: &AppHandle, payload: &Value) -> Result<Valu
         .hwnd()
         .map_err(|e| format!("failed to get HWND: {e}"))?;
 
-    let png_bytes = crate::capture::capture_window_png(hwnd.0 as isize)
-        .map_err(|e| format!("capture failed: {e}"))?;
+    // Run GDI capture on a blocking thread so it never contends with the
+    // async runtime, and catch_unwind inside capture_window_png absorbs
+    // any HWND-went-stale panic.
+    let hwnd_val = hwnd.0 as isize;
+    let png_bytes =
+        tokio::task::spawn_blocking(move || crate::capture::capture_window_png(hwnd_val))
+            .await
+            .map_err(|e| format!("capture task panicked: {e}"))?
+            .map_err(|e| format!("capture failed: {e}"))?;
 
     use base64::Engine;
     let b64 = base64::engine::general_purpose::STANDARD.encode(&png_bytes);

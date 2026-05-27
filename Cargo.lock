@@ -3187,6 +3187,7 @@ dependencies = [
  "dunce",
  "globset",
  "index-core",
+ "once_cell",
  "parking_lot",
  "png",
  "rift-aegis",
