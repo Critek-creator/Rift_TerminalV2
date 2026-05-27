@@ -11,6 +11,16 @@
 
   const total = $derived(data.reduce((a, b) => a + b, 0));
 
+  const trend = $derived.by(() => {
+    if (data.length < 4) return 'stable';
+    const half = Math.floor(data.length / 2);
+    const first = data.slice(0, half).reduce((a, b) => a + b, 0);
+    const second = data.slice(half).reduce((a, b) => a + b, 0);
+    if (second > first * 1.2) return 'rising';
+    if (second < first * 0.8) return 'falling';
+    return 'stable';
+  });
+
   const chart = $derived.by(() => {
     const max = Math.max(1, ...data);
     const usable = HEIGHT - PADDING_Y * 2;
@@ -70,6 +80,7 @@
       {/if}
     {/if}
   </svg>
+  <span class="sr-only">{total > 0 ? `${total} events per minute, trend ${trend}` : 'No events, idle'}</span>
 </div>
 
 <style>
@@ -83,10 +94,21 @@
   }
   .sparkline {
     display: block;
-    width: 80px;
+    width: 88px;
     height: 14px;
     background: var(--bg-amber-tint);
     border: 1px solid var(--border-amber-tint);
     border-radius: var(--radius-sm);
+  }
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
   }
 </style>

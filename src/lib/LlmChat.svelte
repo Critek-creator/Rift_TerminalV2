@@ -282,16 +282,16 @@
     flex-direction: column;
     height: 100%;
     min-height: 300px;
-    font-family: 'JetBrains Mono', monospace;
+    font-family: var(--font-family);
   }
 
   .chat-header {
     display: flex;
     align-items: center;
-    gap: 8px;
-    padding: 8px 12px;
-    border-bottom: 1px solid rgba(168, 120, 48, 0.2);
-    font-size: 11px;
+    gap: var(--space-8);
+    padding: var(--space-8) var(--space-12);
+    border-bottom: 1px solid var(--border-subtle);
+    font-size: var(--text-sm);
   }
 
   .model-selector-wrap {
@@ -302,20 +302,20 @@
     background: transparent;
     border: 1px solid;
     border-radius: var(--radius-sm);
-    padding: 2px 6px;
-    font-family: 'JetBrains Mono', monospace;
+    padding: 2px var(--space-sm);
+    font-family: var(--font-family);
     font-weight: 700;
-    font-size: 11px;
+    font-size: var(--text-sm);
     cursor: pointer;
     display: inline-flex;
     align-items: center;
-    gap: 4px;
+    gap: var(--space-xs);
     transition: background var(--duration-med), box-shadow var(--duration-med);
   }
 
   .model-badge:hover {
-    background: rgba(255, 200, 64, 0.08);
-    box-shadow: 0 0 4px rgba(255, 168, 38, 0.15);
+    background: var(--bg-amber-hover);
+    box-shadow: var(--glow-amber-faint);
   }
 
   .badge-caret {
@@ -331,76 +331,76 @@
 
   .model-picker {
     position: absolute;
-    top: calc(100% + 4px);
+    top: calc(100% + var(--space-xs));
     left: 0;
     min-width: 220px;
     max-height: 240px;
     overflow-y: auto;
-    background: var(--bg-elevated, #0a0a08);
-    border: 1px solid rgba(168, 120, 48, 0.35);
-    border-radius: var(--radius-md, 4px);
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.6), 0 0 1px rgba(255, 168, 38, 0.15);
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-amber-tint);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-flyout), 0 0 1px rgba(255, 168, 38, 0.15);
     z-index: 101;
-    padding: 4px 0;
-    font-family: 'JetBrains Mono', monospace;
+    padding: var(--space-xs) 0;
+    font-family: var(--font-family);
   }
 
   .model-picker::-webkit-scrollbar { width: 4px; }
   .model-picker::-webkit-scrollbar-track { background: transparent; }
   .model-picker::-webkit-scrollbar-thumb {
-    background: rgba(168, 120, 48, 0.3);
-    border-radius: 2px;
+    background: var(--amber-faint);
+    border-radius: var(--radius-sm);
   }
 
   .picker-item {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--space-8);
     width: 100%;
-    padding: 6px 10px;
+    padding: var(--space-sm) var(--space-md);
     background: transparent;
     border: none;
-    color: var(--term-white, #E8E4D8);
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 11px;
+    color: var(--term-white);
+    font-family: var(--font-family);
+    font-size: var(--text-sm);
     cursor: pointer;
     text-align: left;
     transition: background var(--duration-base);
   }
 
   .picker-item:hover {
-    background: rgba(255, 200, 64, 0.08);
+    background: var(--bg-amber-hover);
   }
 
   .picker-item.active {
-    background: rgba(255, 200, 64, 0.12);
+    background: var(--bg-amber-selected);
   }
 
   .status-dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
+    width: var(--space-sm);
+    height: var(--space-sm);
+    border-radius: var(--radius-full);
     flex-shrink: 0;
   }
 
   .picker-short {
     font-weight: 700;
-    font-size: 10px;
+    font-size: var(--text-xs);
     min-width: 36px;
   }
 
   .picker-name {
-    color: var(--amber-faint, #A87830);
-    font-size: 10px;
+    color: var(--amber-faint);
+    font-size: var(--text-xs);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 
   .picker-empty {
-    padding: 8px 10px;
-    font-size: 10px;
-    color: var(--amber-faint, #A87830);
+    padding: var(--space-8) var(--space-md);
+    font-size: var(--text-xs);
+    color: var(--amber-faint);
     opacity: 0.6;
   }
 
@@ -409,21 +409,21 @@
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.08em;
-    color: var(--amber-bright, #FFC840);
-    background: rgba(255, 200, 64, 0.1);
-    border: 1px solid rgba(255, 200, 64, 0.2);
+    color: var(--amber-bright);
+    background: var(--bg-amber-selected);
+    border: 1px solid var(--border-amber-tint);
     border-radius: var(--radius-sm);
-    padding: 1px 4px;
+    padding: 1px var(--space-xs);
   }
 
   .model-name {
-    color: var(--term-white, #E8E4D8);
+    color: var(--term-white);
     flex: 1;
   }
 
   .sending-indicator {
-    color: var(--amber-bright, #FFC840);
-    font-size: 10px;
+    color: var(--amber-bright);
+    font-size: var(--text-xs);
     animation: pulse 1.5s ease-in-out infinite;
   }
 
@@ -435,10 +435,10 @@
   .messages {
     flex: 1;
     overflow-y: auto;
-    padding: 8px 12px;
+    padding: var(--space-8) var(--space-12);
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: var(--space-8);
   }
 
   .empty-state {
@@ -447,103 +447,103 @@
     align-items: center;
     justify-content: center;
     flex: 1;
-    gap: 8px;
+    gap: var(--space-8);
     opacity: 0.5;
   }
 
   .empty-title {
-    font-size: 14px;
-    color: var(--amber-bright, #FFC840);
+    font-size: var(--text-lg);
+    color: var(--amber-bright);
     font-weight: 700;
   }
 
   .empty-hint {
-    font-size: 10px;
-    color: var(--amber-faint, #A87830);
+    font-size: var(--text-xs);
+    color: var(--amber-faint);
   }
 
   .message {
-    padding: 8px;
-    border-radius: var(--radius-md, 4px);
-    font-size: 12px;
+    padding: var(--space-8);
+    border-radius: var(--radius-md);
+    font-size: var(--text-base);
     line-height: 1.5;
     white-space: pre-wrap;
     word-break: break-word;
   }
 
   .message.user {
-    background: rgba(255, 200, 64, 0.08);
-    border-left: 2px solid var(--amber-bright, #FFC840);
+    background: var(--bg-amber-hover);
+    border-left: 2px solid var(--amber-bright);
   }
 
   .message.assistant {
     background: rgba(108, 182, 255, 0.06);
-    border-left: 2px solid var(--term-blue, #6CB6FF);
+    border-left: 2px solid var(--term-blue);
   }
 
   .msg-role {
-    font-size: 9px;
+    font-size: var(--text-2xs);
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.05em;
-    margin-bottom: 4px;
-    color: var(--amber-faint, #A87830);
+    margin-bottom: var(--space-xs);
+    color: var(--amber-faint);
   }
 
   .msg-content {
-    color: var(--term-white, #E8E4D8);
+    color: var(--term-white);
   }
 
   .msg-meta {
-    font-size: 9px;
-    color: var(--amber-faint, #A87830);
-    margin-top: 4px;
+    font-size: var(--text-2xs);
+    color: var(--amber-faint);
+    margin-top: var(--space-xs);
     opacity: 0.7;
   }
 
   .msg-routing {
     font-size: 8px;
-    color: var(--amber-faint, #A87830);
+    color: var(--amber-faint);
     opacity: 0.5;
     margin-top: 2px;
   }
 
   .escalated-badge {
-    color: var(--term-red, #FF4848);
+    color: var(--term-red);
     font-weight: 700;
-    margin-left: 4px;
+    margin-left: var(--space-xs);
   }
 
   .error-bar {
-    padding: 4px 12px;
-    font-size: 10px;
-    color: var(--term-red, #FF4848);
+    padding: var(--space-xs) var(--space-12);
+    font-size: var(--text-xs);
+    color: var(--term-red);
     background: rgba(255, 72, 72, 0.08);
     border-top: 1px solid rgba(255, 72, 72, 0.2);
   }
 
   .input-area {
     display: flex;
-    gap: 8px;
-    padding: 8px 12px;
-    border-top: 1px solid rgba(168, 120, 48, 0.2);
+    gap: var(--space-8);
+    padding: var(--space-8) var(--space-12);
+    border-top: 1px solid var(--border-subtle);
   }
 
   .input-area textarea {
     flex: 1;
     background: rgba(0, 0, 0, 0.4);
-    border: 1px solid rgba(168, 120, 48, 0.25);
-    border-radius: var(--radius-md, 4px);
-    color: var(--term-white, #E8E4D8);
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 12px;
-    padding: 6px 8px;
+    border: 1px solid var(--border-amber-tint);
+    border-radius: var(--radius-md);
+    color: var(--term-white);
+    font-family: var(--font-family);
+    font-size: var(--text-base);
+    padding: var(--space-sm) var(--space-8);
     resize: none;
     line-height: 1.4;
   }
 
   .input-area textarea:focus {
-    border-color: var(--amber-faint, #A87830);
+    border-color: var(--amber-faint);
   }
   .input-area textarea:focus-visible {
     outline: 1px solid var(--amber-warm);

@@ -408,8 +408,12 @@
     font-style: italic;
   }
   .search-input:focus {
-    outline: 2px solid transparent;
+    outline: none;
     border-color: var(--amber-dim);
+  }
+  .search-input:focus-visible {
+    outline: 1px solid var(--amber-warm);
+    outline-offset: -1px;
   }
 
   .panel-body {
@@ -428,7 +432,7 @@
 
   /* Bookmark rows */
   .bm-row {
-    padding: var(--space-xs)0;
+    padding: var(--space-xs) 0;
     border-bottom: 1px solid rgba(42, 36, 24, 0.5);
   }
   .bm-row:last-child {

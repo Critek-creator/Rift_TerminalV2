@@ -261,6 +261,19 @@
     }
   }
 
+  const srSummary = $derived.by(() => {
+    let total = 0;
+    let errors = 0;
+    for (const b of buckets) {
+      total += b.count;
+      errors += b.errorCount;
+    }
+    if (total === 0) return 'No events in the last 60 minutes';
+    const parts = [`${total} event${total !== 1 ? 's' : ''} in the last 60 minutes`];
+    if (errors > 0) parts.push(`${errors} error${errors !== 1 ? 's' : ''}`);
+    return parts.join(', ');
+  });
+
   let selectedBucket = $state(-1);
 
   function handleKeydown(e: KeyboardEvent): void {
@@ -322,6 +335,7 @@
       {tooltipText}
     </div>
   {/if}
+  <span class="sr-only">{srSummary}</span>
 </div>
 
 <style>
@@ -345,6 +359,18 @@
     display: block;
     width: 100%;
     height: var(--space-lg);
+  }
+
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
   }
 
   .heatstrip-tooltip {

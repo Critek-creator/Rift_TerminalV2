@@ -1665,7 +1665,7 @@
           <select
             value={llmModels.activeProfile}
             onchange={(e) => llmModels.setActiveProfile((e.target as HTMLSelectElement).value as any)}
-            style="background: rgba(0,0,0,0.4); border: 1px solid rgba(168,120,48,0.25); border-radius: var(--radius-md, 4px); color: var(--term-white); font-family: 'JetBrains Mono', monospace; font-size: 11px; padding: 3px 6px;"
+            class="select"
           >
             <option value="manual">Manual</option>
             <option value="cost_optimized">Cost Optimized</option>

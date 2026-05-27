@@ -781,7 +781,7 @@
     width: 1px;
     background: var(--border-subtle);
     align-self: stretch;
-    margin: var(--space-sm)0;
+    margin: var(--space-sm) 0;
   }
   .stat-value {
     font-size: 18px;

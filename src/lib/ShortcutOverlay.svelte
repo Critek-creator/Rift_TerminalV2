@@ -29,7 +29,7 @@
     <header class="overlay-header">
       <span class="header-icon">⌨</span>
       <span class="header-title">KEYBOARD SHORTCUTS</span>
-      <button type="button" class="close-btn" onclick={onclose}>ESC</button>
+      <button type="button" class="close-btn" onclick={onclose} aria-label="Close keyboard shortcuts">ESC</button>
     </header>
     <div class="overlay-body">
       {#each categoryOrder as cat}
@@ -115,7 +115,7 @@
 
   .overlay-body {
     overflow-y: auto;
-    padding: var(--space-8)0 12px;
+    padding: var(--space-8) 0 var(--space-12);
   }
   .overlay-body::-webkit-scrollbar { width: 5px; }
   .overlay-body::-webkit-scrollbar-thumb { background: var(--amber-faint, #A87830); }
@@ -133,7 +133,7 @@
     letter-spacing: 0.12em;
     color: var(--amber-faint, #A87830);
     text-transform: uppercase;
-    padding: var(--space-sm)0 4px;
+    padding: var(--space-sm) 0 var(--space-xs);
     border-bottom: 1px solid rgba(168, 120, 48, 0.15);
     margin-bottom: var(--space-xs);
   }

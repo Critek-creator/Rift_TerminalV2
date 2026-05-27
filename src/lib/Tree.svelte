@@ -989,7 +989,7 @@
     flex-direction: column;
     min-height: 0;
     overflow-y: auto;
-    padding: var(--space-xs)0;
+    padding: var(--space-xs) 0;
   }
   .tree-container::-webkit-scrollbar { width: 5px; }
   .tree-container::-webkit-scrollbar-thumb { background: var(--amber-faint); }

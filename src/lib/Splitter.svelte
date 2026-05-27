@@ -109,10 +109,37 @@
     if (splitterEl?.hasPointerCapture(e.pointerId)) {
       splitterEl.releasePointerCapture(e.pointerId);
     }
+    persist();
+  }
+
+  function persist(): void {
     try {
       localStorage.setItem(storageKey, String(size));
     } catch {
       // Quota / private browsing — non-fatal.
+    }
+  }
+
+  function onKeydown(e: KeyboardEvent): void {
+    const step = unit === 'percent' ? 2 : 20;
+    const posKeys = direction === 'vertical' ? ['ArrowRight', 'ArrowUp'] : ['ArrowDown', 'ArrowRight'];
+    const negKeys = direction === 'vertical' ? ['ArrowLeft', 'ArrowDown'] : ['ArrowUp', 'ArrowLeft'];
+    if (posKeys.includes(e.key)) {
+      e.preventDefault();
+      size = clamp(size + step);
+      persist();
+    } else if (negKeys.includes(e.key)) {
+      e.preventDefault();
+      size = clamp(size - step);
+      persist();
+    } else if (e.key === 'Home') {
+      e.preventDefault();
+      size = min;
+      persist();
+    } else if (e.key === 'End') {
+      e.preventDefault();
+      size = max;
+      persist();
     }
   }
 </script>
@@ -122,10 +149,15 @@
   class="splitter splitter-{direction}"
   class:dragging
   onpointerdown={onPointerDown}
+  onkeydown={onKeydown}
   ondblclick={onDblClick}
   role="separator"
   aria-orientation={direction === 'vertical' ? 'vertical' : 'horizontal'}
-  tabindex="-1"
+  aria-valuenow={Math.round(size)}
+  aria-valuemin={min}
+  aria-valuemax={max}
+  aria-label="Resize"
+  tabindex="0"
 ></div>
 
 <style>
@@ -141,6 +173,11 @@
   .splitter:hover,
   .splitter.dragging {
     background: var(--amber-primary, #FFA826);
+  }
+  .splitter:focus-visible {
+    background: var(--amber-primary, #FFA826);
+    outline: 1px solid var(--amber-warm);
+    outline-offset: -1px;
   }
   .splitter-horizontal {
     height: 4px;

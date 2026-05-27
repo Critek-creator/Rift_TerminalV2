@@ -482,7 +482,7 @@
     color: var(--amber-dim);
     font-size: var(--type-caption-size);
     font-style: italic;
-    padding: var(--space-sm)0;
+    padding: var(--space-sm) 0;
   }
   .empty.error { color: var(--term-red); font-style: normal; font-size: var(--type-body-size); }
 

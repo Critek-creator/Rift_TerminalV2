@@ -1202,7 +1202,7 @@
     padding: var(--space-2xl);
   }
   .empty-glyph {
-    font-size: 48px;
+    font-size: var(--text-display);
     color: var(--amber-bright);
     text-shadow: var(--glow-amber-strong);
     margin-bottom: var(--space-lg);

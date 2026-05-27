@@ -116,7 +116,11 @@
     font-size: var(--text-base);
     width: 200px;
     padding: 3px var(--space-sm);
-    outline: 2px solid transparent;
+    outline: none;
+  }
+  input:focus-visible {
+    outline: 1px solid var(--amber-warm);
+    outline-offset: -1px;
   }
   input::placeholder {
     color: var(--amber-faint, #A87830);

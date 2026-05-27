@@ -585,6 +585,22 @@
       <span class="empty-state-hint">MCP tool call spans will appear as horizontal bars on a shared time axis</span>
     </div>
   {/if}
+
+  {#if spans.length > 0}
+    <table class="sr-only">
+      <caption>MCP tool call spans</caption>
+      <thead><tr><th>Tool</th><th>Duration</th><th>Status</th></tr></thead>
+      <tbody>
+        {#each spans as span (span.id)}
+          <tr>
+            <td>{span.tool}</td>
+            <td>{fmtDuration(span.status === 'pending' ? Date.now() - span.requestTime : span.durationMs)}</td>
+            <td>{statusLabel(span.status)}</td>
+          </tr>
+        {/each}
+      </tbody>
+    </table>
+  {/if}
 </div>
 
 <style>
@@ -749,6 +765,18 @@
     max-height: 120px;
     overflow-y: auto;
     line-height: 1.5;
+  }
+
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
   }
 
   .empty-state {

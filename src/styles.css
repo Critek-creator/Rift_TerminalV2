@@ -94,7 +94,9 @@
   --text-md:   13px;
   --text-lg:   14px;
   --text-xl:   16px;
-  --text-2xl:  20px;
+  --text-2xl:     20px;
+  --text-3xl:     28px;
+  --text-display: 48px;
 
   /* Semantic type roles — use these instead of raw scale in components.
      Each role encodes size + weight + spacing as a single intent. */

@@ -24,6 +24,7 @@
   let query = $state(initialQuery);
   let selectedIdx = $state(0);
   let inputEl: HTMLInputElement = $state(undefined!);
+  let panelEl: HTMLDivElement = $state(undefined!);
 
   const entries = $derived.by((): PaletteEntry[] => {
     const items: PaletteEntry[] = [];
@@ -99,7 +100,25 @@
     if (inputEl) inputEl.focus();
   });
 
+  function trapFocus(e: KeyboardEvent) {
+    if (e.key !== 'Tab' || !panelEl) return;
+    const focusable = panelEl.querySelectorAll<HTMLElement>(
+      'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+    );
+    if (focusable.length === 0) return;
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (e.shiftKey && document.activeElement === first) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && document.activeElement === last) {
+      e.preventDefault();
+      first.focus();
+    }
+  }
+
   function onKeydown(e: KeyboardEvent) {
+    trapFocus(e);
     if (e.key === 'Escape') {
       e.preventDefault();
       onclose();
@@ -134,7 +153,7 @@
 </script>
 
 <div class="palette-backdrop" role="presentation" onclick={onclose} onkeydown={onKeydown} transition:fade={{ duration: 150 }}>
-  <div class="palette-panel" role="dialog" aria-label="Command palette" aria-modal="true" tabindex="-1" onclick={(e) => e.stopPropagation()} onkeydown={onKeydown}>
+  <div class="palette-panel" role="dialog" aria-label="Command palette" aria-modal="true" tabindex="-1" onclick={(e) => e.stopPropagation()} onkeydown={onKeydown} bind:this={panelEl}>
     <input
       bind:this={inputEl}
       bind:value={query}
@@ -221,7 +240,7 @@
 
   .results {
     overflow-y: auto;
-    padding: var(--space-xs)0;
+    padding: var(--space-xs) 0;
   }
 
   .category-header {

@@ -384,7 +384,7 @@
     flex-direction: column;
     min-height: 0;
     overflow-y: auto;
-    padding: var(--space-xs)0;
+    padding: var(--space-xs) 0;
   }
 
   .tree-body::-webkit-scrollbar {

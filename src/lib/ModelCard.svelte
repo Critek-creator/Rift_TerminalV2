@@ -53,6 +53,7 @@
       class="expand-btn"
       onclick={() => (expanded = !expanded)}
       aria-expanded={expanded}
+      aria-label="Expand model details"
     >{expanded ? '▾' : '▸'}</button>
   </div>
 

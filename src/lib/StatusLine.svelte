@@ -172,7 +172,7 @@
     align-items: center;
     gap: var(--space-sm);
     padding: 0 var(--space-md);
-    border-right: 1px solid var(--border-subtle);
+    border-right: 1px solid rgba(255, 168, 38, 0.12);
     white-space: nowrap;
     min-width: 0;
     flex-shrink: 1;
