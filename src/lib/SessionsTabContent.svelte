@@ -358,7 +358,7 @@
               <span class="cat" style="color: {catColor(e.category)};">{e.category}</span>
               <span class="kind">{e.kind}</span>
               {#if isExpanded}
-                <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+                <!-- svelte-ignore a11y_no_noninteractive_element_interactions — stopPropagation prevents parent row toggle during text selection -->
                 <pre
                   class="payload-expanded"
                   onmousedown={(ev) => ev.stopPropagation()}

@@ -170,6 +170,7 @@
   // receives 10+ envelopes/sec. Without batching, each triggers
   // nm.notifs = nm.notifs.map(...) → full reactive graph propagation.
   // Batching reduces this to ≤1 mutation per frame (~60Hz).
+  const UNREAD_CAP = 999;
   const _pendingBadges = new Map<string, { lastActivityTs: number; unreadDelta: number }>();
   let _badgeFlushId = 0;
 
@@ -184,7 +185,9 @@
         ...n,
         detected: true,
         lastActivityTs: p.lastActivityTs,
-        unreadCount: n.enabled ? (inView ? 0 : n.unreadCount + p.unreadDelta) : n.unreadCount,
+        unreadCount: n.enabled
+          ? (inView ? 0 : Math.min(n.unreadCount + p.unreadDelta, UNREAD_CAP))
+          : n.unreadCount,
       };
     });
     _pendingBadges.clear();
@@ -225,13 +228,22 @@
           const target = nm.notifs.find((n) => n.id === id);
           if (!target) return;
           const inView = nm.promoted === id;
-          const delta = (target.enabled && !inView) ? 1 : 0;
-          const existing = _pendingBadges.get(id);
-          if (existing) {
-            existing.lastActivityTs = now;
-            existing.unreadDelta += delta;
+          // Once a tab hits UNREAD_CAP, further increments are clamped away
+          // anyway — skip accumulation to avoid unnecessary flush cycles.
+          if (target.detected && !inView && target.unreadCount >= UNREAD_CAP) {
+            // Still update lastActivityTs for the live-border pulse.
+            const existing = _pendingBadges.get(id);
+            if (existing) { existing.lastActivityTs = now; }
+            else { _pendingBadges.set(id, { lastActivityTs: now, unreadDelta: 0 }); }
           } else {
-            _pendingBadges.set(id, { lastActivityTs: now, unreadDelta: delta });
+            const delta = (target.enabled && !inView) ? 1 : 0;
+            const existing = _pendingBadges.get(id);
+            if (existing) {
+              existing.lastActivityTs = now;
+              existing.unreadDelta += delta;
+            } else {
+              _pendingBadges.set(id, { lastActivityTs: now, unreadDelta: delta });
+            }
           }
           if (!_badgeFlushId) {
             _badgeFlushId = requestAnimationFrame(_flushBadges);
@@ -1017,8 +1029,8 @@
   {/if}
 
   {#if sm.pendingCloseId !== null}
-    <!-- svelte-ignore a11y_click_events_have_key_events -->
     <div class="close-confirm-backdrop" role="presentation" onclick={sm.cancelClose}>
+      <!-- svelte-ignore a11y_click_events_have_key_events -- alertdialog; keyboard handled by buttons inside -->
       <div
         class="close-confirm-dialog"
         onclick={(e) => e.stopPropagation()}

@@ -518,7 +518,7 @@
     display: inline-flex;
     padding: 0 var(--space-xs);
     border: 1px solid;
-    border-radius: 2px;
+    border-radius: var(--radius-sm);
     font-size: var(--text-2xs);
     font-weight: 600;
     letter-spacing: 0.06em;

@@ -308,8 +308,7 @@
             <span class="badge-caret">{pickerOpenA ? '▴' : '▾'}</span>
           </button>
           {#if pickerOpenA}
-            <!-- svelte-ignore a11y_no_static_element_interactions a11y_click_events_have_key_events -->
-            <div class="picker-backdrop" onclick={onPickerBackdropA}>
+            <div class="picker-backdrop" role="presentation" onclick={onPickerBackdropA}>
               <div class="model-picker">
                 {#each llmModels.models as m (m.id)}
                   <button
@@ -374,8 +373,7 @@
             <span class="badge-caret">{pickerOpenB ? '▴' : '▾'}</span>
           </button>
           {#if pickerOpenB}
-            <!-- svelte-ignore a11y_no_static_element_interactions a11y_click_events_have_key_events -->
-            <div class="picker-backdrop" onclick={onPickerBackdropB}>
+            <div class="picker-backdrop" role="presentation" onclick={onPickerBackdropB}>
               <div class="model-picker">
                 {#each llmModels.models as m (m.id)}
                   <button
@@ -507,7 +505,7 @@
     color: var(--term-purple, #C58FFF);
     background: rgba(197, 143, 255, 0.1);
     border: 1px solid rgba(197, 143, 255, 0.25);
-    border-radius: 2px;
+    border-radius: var(--radius-sm);
     padding: 1px 6px;
   }
 
@@ -515,7 +513,7 @@
     font-size: 10px;
     font-weight: 700;
     border: 1px solid;
-    border-radius: 3px;
+    border-radius: var(--radius-sm);
     padding: 1px 5px;
   }
 
@@ -531,7 +529,7 @@
     color: var(--term-green, #4FE855);
     background: rgba(79, 232, 85, 0.08);
     border: 1px solid rgba(79, 232, 85, 0.2);
-    border-radius: 2px;
+    border-radius: var(--radius-sm);
     padding: 1px 5px;
   }
 
@@ -637,7 +635,7 @@
   .pane-content::-webkit-scrollbar-track { background: transparent; }
   .pane-content::-webkit-scrollbar-thumb {
     background: rgba(168, 120, 48, 0.3);
-    border-radius: 2px;
+    border-radius: var(--radius-sm);
   }
 
   .pane-empty {
@@ -677,7 +675,7 @@
   .model-badge {
     background: transparent;
     border: 1px solid;
-    border-radius: 3px;
+    border-radius: var(--radius-sm);
     padding: 2px 6px;
     font-family: 'JetBrains Mono', monospace;
     font-weight: 700;
@@ -686,7 +684,7 @@
     display: inline-flex;
     align-items: center;
     gap: 4px;
-    transition: background 0.15s, box-shadow 0.15s;
+    transition: background var(--duration-med), box-shadow var(--duration-med);
   }
 
   .model-badge:hover {
@@ -725,7 +723,7 @@
   .model-picker::-webkit-scrollbar-track { background: transparent; }
   .model-picker::-webkit-scrollbar-thumb {
     background: rgba(168, 120, 48, 0.3);
-    border-radius: 2px;
+    border-radius: var(--radius-sm);
   }
 
   .picker-item {
@@ -741,7 +739,7 @@
     font-size: 10px;
     cursor: pointer;
     text-align: left;
-    transition: background 0.12s;
+    transition: background var(--duration-base);
   }
 
   .picker-item:hover {
@@ -798,7 +796,7 @@
     cursor: pointer;
     font-family: 'JetBrains Mono', monospace;
     color: var(--term-purple, #C58FFF);
-    transition: background 0.12s;
+    transition: background var(--duration-base);
   }
 
   .critique-header:hover {
@@ -810,7 +808,7 @@
     font-weight: 700;
     letter-spacing: 0.1em;
     border: 1px solid rgba(197, 143, 255, 0.35);
-    border-radius: 2px;
+    border-radius: var(--radius-sm);
     padding: 1px 6px;
   }
 
@@ -838,7 +836,7 @@
   .critique-content::-webkit-scrollbar-track { background: transparent; }
   .critique-content::-webkit-scrollbar-thumb {
     background: rgba(197, 143, 255, 0.3);
-    border-radius: 2px;
+    border-radius: var(--radius-sm);
   }
 
   /* ── Error bar ──────────────────────────────────────────────── */
@@ -877,7 +875,10 @@
 
   .input-area textarea:focus {
     border-color: var(--amber-faint, #A87830);
-    outline: none;
+  }
+  .input-area textarea:focus-visible {
+    outline: 1px solid var(--amber-warm);
+    outline-offset: -2px;
   }
 
   .input-area textarea:disabled {

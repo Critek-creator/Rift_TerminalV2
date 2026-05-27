@@ -125,12 +125,12 @@
             </span>
           {/if}
           {#if !detachedIds.has(tab.id)}
-            <!-- svelte-ignore a11y_click_events_have_key_events -->
             <span
               role="button"
-              tabindex="-1"
+              tabindex="0"
               class="popout-btn"
               onclick={(e) => { e.stopPropagation(); onDetach(tab.id); }}
+              onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); onDetach(tab.id); } }}
               title="pop out to own window"
             >⧉</span>
           {/if}
@@ -164,7 +164,7 @@
     font-weight: 500;
     cursor: pointer;
     position: relative;
-    transition: color 0.15s, background 0.15s, border-color 0.15s;
+    transition: color var(--duration-med), background var(--duration-med), border-color var(--duration-med);
     user-select: none;
     white-space: nowrap;
   }
@@ -266,7 +266,7 @@
     font-family: inherit;
     font-size: var(--text-sm);
     cursor: pointer;
-    transition: color 0.12s, background 0.12s;
+    transition: color var(--duration-base), background var(--duration-base);
     text-align: left;
     position: relative;
   }
@@ -369,7 +369,7 @@
     font-size: var(--text-2xs);
     font-family: inherit;
     cursor: pointer;
-    border-radius: 2px;
+    border-radius: var(--radius-sm);
     flex-shrink: 0;
   }
   .dropdown-tab:hover .popout-btn { display: inline-flex; }

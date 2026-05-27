@@ -106,7 +106,7 @@
     letter-spacing: 0.1em;
     padding: 2px var(--space-8);
     cursor: pointer;
-    transition: color 0.12s, border-color 0.12s;
+    transition: color var(--duration-base), border-color var(--duration-base);
   }
   .close-btn:hover {
     color: var(--amber-bright, #FFC840);
@@ -151,7 +151,7 @@
     text-align: right;
     background: var(--bg-elevated, #1e1a14);
     border: 1px solid var(--border-subtle, rgba(255, 168, 38, 0.15));
-    border-radius: 3px;
+    border-radius: var(--radius-sm);
     color: var(--amber-primary, #FFA826);
     font-family: inherit;
     font-size: var(--text-sm);

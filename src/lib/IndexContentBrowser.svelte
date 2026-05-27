@@ -326,7 +326,7 @@
     font-family: inherit;
     font-size: var(--text-2xs);
     cursor: pointer;
-    transition: all 0.12s;
+    transition: all var(--duration-base);
   }
   .filter-chip:hover, .floor-chip:hover {
     border-color: var(--amber-dim);
@@ -406,7 +406,7 @@
     font-size: var(--text-sm);
     cursor: pointer;
     text-align: left;
-    transition: all 0.1s;
+    transition: all var(--duration-fast);
   }
   .node-row:hover {
     background: var(--bg-hover);

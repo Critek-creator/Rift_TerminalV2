@@ -131,7 +131,7 @@
     font-size: var(--text-sm);
     padding: 2px 5px;
     cursor: pointer;
-    border-radius: 3px;
+    border-radius: var(--radius-sm);
     line-height: 1;
   }
   button:hover {

@@ -629,7 +629,7 @@
     font-size: var(--text-sm);
     padding: 1px var(--space-sm);
     cursor: pointer;
-    border-radius: 3px;
+    border-radius: var(--radius-sm);
     line-height: 1;
     transition: color var(--duration-base) ease-out, border-color var(--duration-base) ease-out, background var(--duration-base) ease-out;
   }

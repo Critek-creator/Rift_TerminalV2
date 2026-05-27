@@ -136,7 +136,7 @@
   .manager-row {
     background: transparent;
     border: 1px solid var(--border-subtle);
-    transition: background 0.12s, border-color 0.12s;
+    transition: background var(--duration-base), border-color var(--duration-base);
   }
   .manager-row:hover {
     border-color: var(--amber-faint);
@@ -208,7 +208,7 @@
     font-size: var(--text-sm);
     letter-spacing: 0.1em;
     cursor: pointer;
-    transition: color 0.12s, border-color 0.12s, background 0.12s;
+    transition: color var(--duration-base), border-color var(--duration-base), background var(--duration-base);
   }
   .manager-btn-secondary {
     background: transparent;

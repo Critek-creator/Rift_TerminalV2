@@ -279,7 +279,10 @@
   }
   .display-name:focus {
     border-bottom-color: var(--amber-faint, #A87830);
-    outline: none;
+  }
+  .display-name:focus-visible {
+    outline: 1px solid var(--amber-warm);
+    outline-offset: -2px;
   }
 
   .provider-badge {
@@ -288,7 +291,7 @@
     letter-spacing: 0.05em;
     color: var(--amber-faint, #A87830);
     border: 1px solid rgba(168, 120, 48, 0.3);
-    border-radius: 3px;
+    border-radius: var(--radius-sm);
     padding: 1px 6px;
     white-space: nowrap;
   }
@@ -337,7 +340,11 @@
   .field input:focus,
   .field select:focus {
     border-color: var(--amber-faint, #A87830);
-    outline: none;
+  }
+  .field input:focus-visible,
+  .field select:focus-visible {
+    outline: 1px solid var(--amber-warm);
+    outline-offset: -2px;
   }
 
   .field-row {

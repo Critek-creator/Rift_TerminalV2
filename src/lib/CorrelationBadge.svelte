@@ -67,7 +67,7 @@
     font-size: var(--text-2xs);
     font-weight: 600;
     padding: 0 var(--space-xs);
-    border-radius: 3px;
+    border-radius: var(--radius-sm);
     cursor: pointer;
     line-height: 14px;
     margin-left: var(--space-xs);

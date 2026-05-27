@@ -429,6 +429,36 @@
     }
   }
 
+  /** Keyboard navigation — cycle through visible spans with arrow keys. */
+  function onKeydown(e: KeyboardEvent): void {
+    if (e.key === 'Escape') {
+      selectedSpan = null;
+      return;
+    }
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+    e.preventDefault();
+
+    const now = paused ? (hovered?.requestTime ?? Date.now()) : Date.now();
+    const visible = getVisibleSpans(now).sort((a, b) => a.requestTime - b.requestTime);
+    if (visible.length === 0) return;
+
+    if (!selectedSpan) {
+      selectedSpan = e.key === 'ArrowRight' ? visible[0] : visible[visible.length - 1];
+      return;
+    }
+
+    const idx = visible.findIndex(s => s.id === selectedSpan!.id);
+    if (idx === -1) {
+      selectedSpan = visible[0];
+      return;
+    }
+
+    const next = e.key === 'ArrowRight'
+      ? (idx + 1) % visible.length
+      : (idx - 1 + visible.length) % visible.length;
+    selectedSpan = visible[next];
+  }
+
   function formatPayloadDetail(payload: unknown): string {
     if (payload === null || payload === undefined) return '(none)';
     if (typeof payload === 'string') return payload;
@@ -480,7 +510,15 @@
   });
 </script>
 
-<div class="waterfall-wrap" bind:this={wrapEl}>
+<!-- svelte-ignore a11y_no_noninteractive_tabindex a11y_no_noninteractive_element_interactions -- keyboard-navigable canvas widget -->
+<div
+  class="waterfall-wrap"
+  bind:this={wrapEl}
+  tabindex="0"
+  role="img"
+  aria-label="MCP tool call waterfall timeline — arrow keys to navigate spans"
+  onkeydown={onKeydown}
+>
   <canvas
     class="waterfall-canvas"
     bind:this={canvasEl}
@@ -557,6 +595,10 @@
     min-width: 0;
     overflow: hidden;
     background: var(--bg-base);
+  }
+  .waterfall-wrap:focus-visible {
+    outline: 1px solid var(--amber-warm);
+    outline-offset: -2px;
   }
 
   .waterfall-canvas {

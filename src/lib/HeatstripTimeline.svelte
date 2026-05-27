@@ -260,13 +260,51 @@
       onseek(idx);
     }
   }
+
+  let selectedBucket = $state(-1);
+
+  function handleKeydown(e: KeyboardEvent): void {
+    if (e.key === 'Escape') {
+      selectedBucket = -1;
+      tooltipVisible = false;
+      return;
+    }
+    const count = buckets.length || 60;
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+      e.preventDefault();
+      if (selectedBucket < 0) {
+        selectedBucket = e.key === 'ArrowRight' ? 0 : count - 1;
+      } else {
+        selectedBucket = e.key === 'ArrowRight'
+          ? (selectedBucket + 1) % count
+          : (selectedBucket - 1 + count) % count;
+      }
+      const bucket = buckets[selectedBucket];
+      if (bucket) {
+        const time = formatMinuteLabel(selectedBucket);
+        tooltipText = bucket.count === 0
+          ? `${time} -- idle`
+          : `${time} -- ${bucket.count} event${bucket.count !== 1 ? 's' : ''}`;
+        tooltipX = (selectedBucket + 0.5) * (canvasWidth / count);
+        tooltipVisible = true;
+      }
+      return;
+    }
+    if (e.key === 'Enter' && selectedBucket >= 0 && onseek) {
+      e.preventDefault();
+      onseek(selectedBucket);
+    }
+  }
 </script>
 
+<!-- svelte-ignore a11y_no_noninteractive_tabindex a11y_no_noninteractive_element_interactions -- keyboard-navigable canvas widget -->
 <div
   class="heatstrip-wrap"
   bind:this={wrapEl}
+  tabindex="0"
   role="img"
-  aria-label="Event density heatstrip for the last 60 minutes"
+  aria-label="Event density heatstrip — arrow keys to navigate buckets"
+  onkeydown={handleKeydown}
 >
   <canvas
     class="heatstrip-canvas"
@@ -297,6 +335,10 @@
     border: 1px solid var(--border-subtle, #2a2418);
     background: var(--bg-base, #080806);
     cursor: pointer;
+  }
+  .heatstrip-wrap:focus-visible {
+    outline: 1px solid var(--amber-warm);
+    outline-offset: -2px;
   }
 
   .heatstrip-canvas {

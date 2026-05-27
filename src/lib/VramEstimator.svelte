@@ -69,14 +69,14 @@
     height: 6px;
     background: rgba(0, 0, 0, 0.4);
     border: 1px solid rgba(168, 120, 48, 0.2);
-    border-radius: 3px;
+    border-radius: var(--radius-sm);
     overflow: hidden;
   }
 
   .bar-fill {
     height: 100%;
-    border-radius: 2px;
-    transition: width 0.2s ease;
+    border-radius: var(--radius-sm);
+    transition: width var(--duration-med) var(--ease-out);
   }
 
   .value {

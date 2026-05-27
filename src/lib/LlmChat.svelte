@@ -194,8 +194,7 @@
         <span class="badge-caret">{pickerOpen ? '▴' : '▾'}</span>
       </button>
       {#if pickerOpen}
-        <!-- svelte-ignore a11y_no_static_element_interactions a11y_click_events_have_key_events -->
-        <div class="picker-backdrop" onclick={onPickerBackdrop}>
+        <div class="picker-backdrop" role="presentation" onclick={onPickerBackdrop}>
           <div class="model-picker">
             {#each llmModels.models as m (m.id)}
               <button
@@ -301,7 +300,7 @@
   .model-badge {
     background: transparent;
     border: 1px solid;
-    border-radius: 3px;
+    border-radius: var(--radius-sm);
     padding: 2px 6px;
     font-family: 'JetBrains Mono', monospace;
     font-weight: 700;
@@ -310,7 +309,7 @@
     display: inline-flex;
     align-items: center;
     gap: 4px;
-    transition: background 0.15s, box-shadow 0.15s;
+    transition: background var(--duration-med), box-shadow var(--duration-med);
   }
 
   .model-badge:hover {
@@ -365,7 +364,7 @@
     font-size: 11px;
     cursor: pointer;
     text-align: left;
-    transition: background 0.12s;
+    transition: background var(--duration-base);
   }
 
   .picker-item:hover {
@@ -412,7 +411,7 @@
     color: var(--amber-bright, #FFC840);
     background: rgba(255, 200, 64, 0.1);
     border: 1px solid rgba(255, 200, 64, 0.2);
-    border-radius: 2px;
+    border-radius: var(--radius-sm);
     padding: 1px 4px;
   }
 
@@ -544,7 +543,10 @@
 
   .input-area textarea:focus {
     border-color: var(--amber-faint, #A87830);
-    outline: none;
+  }
+  .input-area textarea:focus-visible {
+    outline: 1px solid var(--amber-warm);
+    outline-offset: -2px;
   }
 
   .input-area textarea:disabled {

@@ -172,8 +172,8 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    transition: background 0.15s ease, color 0.15s ease, text-shadow 0.15s ease,
-                box-shadow 0.15s ease;
+    transition: background var(--duration-med) var(--ease-out), color var(--duration-med) var(--ease-out), text-shadow var(--duration-med) var(--ease-out),
+                box-shadow var(--duration-med) var(--ease-out);
   }
   .btn:focus-visible {
     outline: 1px solid var(--amber-warm);
@@ -247,7 +247,7 @@
   .btn.winctrl {
     width: 28px;
     height: 28px;
-    border-radius: 2px;
+    border-radius: var(--radius-sm);
     font-size: var(--text-base);
     line-height: 1;
     /* No border, no background — invisible at rest */

@@ -557,7 +557,7 @@
     display: inline-block;
     width: 12px;
     height: 2px;
-    border-radius: 1px;
+    border-radius: var(--radius-xs);
   }
   .legend-baseline::before {
     background: var(--amber-faint, #A87830);

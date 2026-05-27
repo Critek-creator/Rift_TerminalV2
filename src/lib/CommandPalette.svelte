@@ -133,8 +133,7 @@
 </script>
 
 <div class="palette-backdrop" role="presentation" onclick={onclose} onkeydown={onKeydown} transition:fade={{ duration: 150 }}>
-  <!-- svelte-ignore a11y_click_events_have_key_events -->
-  <div class="palette-panel" role="dialog" aria-label="Command palette" aria-modal="true" tabindex="-1" onclick={(e) => e.stopPropagation()}>
+  <div class="palette-panel" role="dialog" aria-label="Command palette" aria-modal="true" tabindex="-1" onclick={(e) => e.stopPropagation()} onkeydown={onKeydown}>
     <input
       bind:this={inputEl}
       bind:value={query}
@@ -155,7 +154,6 @@
         {#if showHeader}
           <div class="category-header" role="presentation">{categoryLabel(entry.category)}</div>
         {/if}
-        <!-- svelte-ignore a11y_click_events_have_key_events -->
         <div
           id="palette-option-{i}"
           class="entry"
@@ -165,6 +163,7 @@
           tabindex="-1"
           aria-selected={i === selectedIdx}
           onclick={() => { if (entry.action) entry.action(); }}
+          onkeydown={(e) => { if ((e.key === 'Enter' || e.key === ' ') && entry.action) { e.preventDefault(); entry.action(); } }}
           onmouseenter={() => { selectedIdx = i; }}
         >
           <span class="entry-icon">{entry.icon}</span>
@@ -273,7 +272,7 @@
     text-transform: uppercase;
     color: var(--amber-faint, #A87830);
     border: 1px solid var(--amber-faint, #A87830);
-    border-radius: 3px;
+    border-radius: var(--radius-sm);
     padding: 1px 5px;
   }
 

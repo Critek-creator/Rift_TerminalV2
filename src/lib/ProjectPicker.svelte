@@ -162,7 +162,6 @@
   }
 </script>
 
-<!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
   class="picker"
   role="dialog"
@@ -187,12 +186,13 @@
     {:else}
       <ul class="picker-list" role="listbox" aria-label="recent projects">
         {#each recentProjects as entry (entry.path)}
-          <!-- svelte-ignore a11y_click_events_have_key_events -->
           <li
             class="picker-item"
             role="option"
             aria-selected="false"
+            tabindex="0"
             onclick={() => onRecentClick(entry)}
+            onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onRecentClick(entry); } }}
           >
             <span class="picker-item-icon">▦</span>
             <span class="picker-item-name">{entry.name}</span>

@@ -57,7 +57,27 @@
     if (step > 0) step--;
   }
 
+  let panelEl = $state<HTMLElement | null>(null);
+
+  function trapFocus(e: KeyboardEvent) {
+    if (e.key !== 'Tab' || !panelEl) return;
+    const focusable = panelEl.querySelectorAll<HTMLElement>(
+      'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+    );
+    if (focusable.length === 0) return;
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (e.shiftKey && document.activeElement === first) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && document.activeElement === last) {
+      e.preventDefault();
+      first.focus();
+    }
+  }
+
   function onKeydown(e: KeyboardEvent) {
+    trapFocus(e);
     if (e.key === 'Escape') ondismiss();
     else if (e.key === 'ArrowRight' || e.key === 'Enter') next();
     else if (e.key === 'ArrowLeft') prev();
@@ -78,6 +98,7 @@
     tabindex="-1"
     onclick={(e) => e.stopPropagation()}
     onkeydown={onKeydown}
+    bind:this={panelEl}
   >
     <header class="welcome-header">
       <span class="header-icon">◈</span>
@@ -249,7 +270,7 @@
     letter-spacing: 0.1em;
     padding: 2px var(--space-md);
     cursor: pointer;
-    transition: color 0.12s, border-color 0.12s;
+    transition: color var(--duration-base), border-color var(--duration-base);
   }
   .skip-btn:hover {
     color: var(--amber-bright, #FFC840);
@@ -312,7 +333,7 @@
     letter-spacing: 0.08em;
     padding: 1px var(--space-sm);
     border: 1px solid var(--amber-faint, #A87830);
-    border-radius: 2px;
+    border-radius: var(--radius-sm);
     color: var(--amber-warm, #E8B840);
     margin: 0 2px;
   }
@@ -401,7 +422,7 @@
     text-align: right;
     background: var(--bg-elevated, #1e1a14);
     border: 1px solid var(--border-subtle, rgba(255, 168, 38, 0.15));
-    border-radius: 3px;
+    border-radius: var(--radius-sm);
     color: var(--amber-primary, #FFA826);
     font-family: inherit;
     font-size: var(--text-sm);
@@ -430,7 +451,7 @@
     border: none;
     cursor: pointer;
     padding: 0;
-    transition: background 0.15s, box-shadow 0.15s;
+    transition: background var(--duration-med), box-shadow var(--duration-med);
   }
   .dot.active {
     background: var(--amber-bright, #FFC840);
@@ -451,7 +472,7 @@
     letter-spacing: 0.1em;
     padding: 5px var(--space-lg);
     cursor: pointer;
-    transition: color 0.12s, border-color 0.12s, background 0.12s;
+    transition: color var(--duration-base), border-color var(--duration-base), background var(--duration-base);
   }
   .nav-btn:hover {
     color: var(--amber-bright, #FFC840);

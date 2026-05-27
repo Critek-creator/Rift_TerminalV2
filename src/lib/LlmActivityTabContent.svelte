@@ -222,7 +222,7 @@
   .drag-back-btn {
     background: none;
     border: 1px solid rgba(168, 120, 48, 0.3);
-    border-radius: 3px;
+    border-radius: var(--radius-sm);
     color: var(--amber-faint);
     cursor: pointer;
     font-size: 10px;
@@ -281,7 +281,7 @@
     text-transform: uppercase;
     letter-spacing: 0.05em;
     border: 1px solid;
-    border-radius: 3px;
+    border-radius: var(--radius-sm);
     padding: 0 4px;
     flex-shrink: 0;
   }

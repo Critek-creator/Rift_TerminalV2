@@ -236,7 +236,7 @@
       >
         <span class="icon">{deadSessions.has(tab.id) ? '■' : '▶'}</span>
         {#if editingTabId === tab.id}
-          <!-- svelte-ignore a11y_autofocus -->
+          <!-- svelte-ignore a11y_autofocus — inline rename input, not page-load autofocus -->
           <input
             bind:this={editInputEl}
             bind:value={editValue}
@@ -343,8 +343,8 @@
     font-weight: 500;
     cursor: pointer;
     position: relative;
-    transition: color 0.15s, background 0.15s, box-shadow 0.15s,
-                border-color 0.15s;
+    transition: color var(--duration-med), background var(--duration-med), box-shadow var(--duration-med),
+                border-color var(--duration-med);
     user-select: none;
   }
   .tab:hover {
@@ -408,7 +408,7 @@
     background: var(--bg-base);
     color: var(--amber-bright);
     border: 1px solid var(--amber-primary);
-    border-radius: 2px;
+    border-radius: var(--radius-sm);
     font-family: inherit;
     font-size: var(--text-base);
     font-weight: 500;
@@ -421,7 +421,7 @@
   .tab-rename-input::selection {
     background: rgba(255, 168, 38, 0.3);
   }
-  .icon { font-size: var(--text-sm); opacity: 0.85; transition: opacity 0.12s; }
+  .icon { font-size: var(--text-sm); opacity: 0.85; transition: opacity var(--duration-base); }
   .tab.active .icon { opacity: 1; color: var(--amber-bright); }
 
   /* Close button — 18×18 click target, smooth red transition */
@@ -434,8 +434,8 @@
     line-height: 18px;
     text-align: center;
     cursor: pointer;
-    border-radius: 2px;
-    transition: color 0.18s, background 0.18s;
+    border-radius: var(--radius-sm);
+    transition: color var(--duration-med) var(--ease-out), background var(--duration-med) var(--ease-out);
     flex-shrink: 0;
   }
   .close:hover {
@@ -454,8 +454,8 @@
     cursor: pointer;
     font-size: 15px;
     font-family: inherit;
-    transition: color 0.12s, background 0.12s, text-shadow 0.12s,
-                border-color 0.12s;
+    transition: color var(--duration-base), background var(--duration-base), text-shadow var(--duration-base),
+                border-color var(--duration-base);
   }
   .add:hover {
     color: var(--amber-bright);
@@ -482,7 +482,7 @@
     cursor: pointer;
     font-size: var(--text-lg);
     font-family: inherit;
-    transition: color 0.12s, background 0.12s, border-color 0.12s;
+    transition: color var(--duration-base), background var(--duration-base), border-color var(--duration-base);
   }
   .manage:hover {
     color: var(--amber-bright);

@@ -187,6 +187,7 @@
   }
   .value {
     color: rgba(0, 0, 0, 0.92);
+    font-variant-numeric: tabular-nums;
     font-weight: 700;
     overflow: hidden;
     text-overflow: ellipsis;

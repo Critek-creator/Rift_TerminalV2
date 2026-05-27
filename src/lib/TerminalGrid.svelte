@@ -141,11 +141,11 @@
 
 {#if node.type === 'terminal'}
   <!-- Leaf: single terminal pane -->
-  <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
   <div
     class="pane-leaf"
     class:focused={focusedId === node.id}
     role="group"
+    tabindex="0"
     aria-label="Terminal pane"
     onclick={() => handleFocusClick(node.id)}
     onkeydown={(ev) => {
@@ -197,14 +197,14 @@
     </div>
 
     <!-- Inline splitter bar -->
-    <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div
       bind:this={splitterEl}
       class="pane-splitter pane-splitter-{node.type === 'vsplit' ? 'vertical' : 'horizontal'}"
       class:dragging
       role="separator"
       aria-orientation={node.type === 'vsplit' ? 'vertical' : 'horizontal'}
-      tabindex="-1"
+      aria-valuenow={Math.round(ratio * 100)}
+      tabindex="0"
       onpointerdown={onSplitterPointerDown}
       ondblclick={onSplitterDblClick}
     ></div>
@@ -238,7 +238,7 @@
     overflow: hidden;
     /* Transparent border always present so layout doesn't shift on focus */
     border: 1px solid transparent;
-    transition: border-color 0.1s;
+    transition: border-color var(--duration-fast);
     box-sizing: border-box;
   }
 
@@ -276,7 +276,7 @@
   .pane-splitter {
     flex-shrink: 0;
     background: var(--border-subtle, #2a2520);
-    transition: background 0.12s;
+    transition: background var(--duration-base);
     user-select: none;
     -webkit-user-select: none;
     position: relative;
@@ -319,7 +319,7 @@
     display: flex;
     gap: 2px;
     opacity: 0;
-    transition: opacity 0.15s;
+    transition: opacity var(--duration-med);
     pointer-events: none;
   }
   .pane-leaf:hover > .pane-toolbar,
@@ -341,9 +341,9 @@
     background: rgba(30, 26, 20, 0.85);
     color: var(--amber-dim, #A87830);
     border: 1px solid var(--border-subtle, #2a2520);
-    border-radius: 3px;
+    border-radius: var(--radius-sm);
     cursor: pointer;
-    transition: background 0.1s, color 0.1s, border-color 0.1s;
+    transition: background var(--duration-fast), color var(--duration-fast), border-color var(--duration-fast);
     padding: 0;
     font-family: inherit;
   }

@@ -89,11 +89,28 @@
   let cardEl = $state<HTMLElement | null>(null);
   $effect(() => {
     if (isTop && cardEl) {
-      // Defer one microtask so the card is fully painted before focus moves.
       const frame = requestAnimationFrame(() => cardEl?.focus());
       return () => cancelAnimationFrame(frame);
     }
   });
+
+  // Focus trap — Tab/Shift+Tab cycle within the dialog card (WCAG 2.1 §2.1.2).
+  function trapFocus(e: KeyboardEvent) {
+    if (e.key !== 'Tab' || !cardEl) return;
+    const focusable = cardEl.querySelectorAll<HTMLElement>(
+      'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+    );
+    if (focusable.length === 0) return;
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (e.shiftKey && document.activeElement === first) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && document.activeElement === last) {
+      e.preventDefault();
+      first.focus();
+    }
+  }
   const cardWidth = $derived(entry.width ?? 'min(640px, 80vw)');
 
   /** Display title for the card header. */
@@ -125,7 +142,7 @@
     class:is-viewer={entry.content.kind === 'viewer'}
     style={entry.content.kind === 'viewer' ? '' : `width: ${cardWidth};`}
     onclick={onCardClick}
-    onkeydown={onCardKey}
+    onkeydown={(e) => { trapFocus(e); onCardKey(e); }}
     role="dialog"
     tabindex="-1"
     aria-modal="true"
@@ -277,9 +294,9 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    border-radius: 2px;
+    border-radius: var(--radius-sm);
     font-family: inherit;
-    transition: color 0.18s, background 0.18s;
+    transition: color var(--duration-med) var(--ease-out), background var(--duration-med) var(--ease-out);
     flex-shrink: 0;
   }
   .card-close:hover {
@@ -334,7 +351,7 @@
   .card-body::-webkit-scrollbar-track { background: var(--bg-base); }
   .card-body::-webkit-scrollbar-thumb {
     background: var(--border-active);
-    border-radius: 2px;
+    border-radius: var(--radius-sm);
   }
   .card-body::-webkit-scrollbar-thumb:hover { background: var(--amber-faint); }
 
@@ -361,7 +378,7 @@
     letter-spacing: 0.08em;
     font-weight: 600;
     cursor: pointer;
-    transition: border-color 0.15s, color 0.15s, box-shadow 0.15s;
+    transition: border-color var(--duration-med) var(--ease-out), color var(--duration-med) var(--ease-out), box-shadow var(--duration-med) var(--ease-out);
   }
   .btn-cancel {
     background: transparent;

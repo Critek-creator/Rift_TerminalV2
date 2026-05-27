@@ -87,6 +87,6 @@
     height: 14px;
     background: var(--bg-amber-tint);
     border: 1px solid var(--border-amber-tint);
-    border-radius: 3px;
+    border-radius: var(--radius-sm);
   }
 </style>

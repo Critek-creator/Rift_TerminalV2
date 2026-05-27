@@ -291,7 +291,7 @@
             <span class="ts">{formatTs(e.ts)}</span>
             <span class="kind" style="color: {kindColor(e.kind)}">{e.kind}</span>
             {#if isExpanded}
-              <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+              <!-- svelte-ignore a11y_no_noninteractive_element_interactions — stopPropagation prevents parent row toggle during text selection -->
               <pre
                 class="payload-expanded"
                 onmousedown={(ev) => ev.stopPropagation()}
@@ -490,7 +490,7 @@
     min-width: 0;
   }
   .log-header {
-    padding: var(--space-8) var(--space-lg);
+    padding: var(--space-sm) var(--space-lg);
     color: var(--amber-faint);
     font-size: var(--type-label-size);
     font-weight: var(--type-label-weight);
@@ -506,14 +506,14 @@
     overflow-y: auto;
     overflow-x: hidden;
     min-width: 0;
-    padding: var(--space-md) var(--space-lg);
+    padding: var(--space-12) var(--space-lg);
     color: var(--amber-warm);
     font-size: var(--text-sm);
     line-height: 1.55;
     box-shadow: var(--depth-inset);
   }
   .log-body::-webkit-scrollbar { width: 5px; }
-  .log-body::-webkit-scrollbar-thumb { background: var(--amber-faint); border-radius: 3px; }
+  .log-body::-webkit-scrollbar-thumb { background: var(--amber-faint); border-radius: var(--radius-sm); }
   .log-body::-webkit-scrollbar-thumb:hover { background: var(--amber-dim); }
   .log-body .row {
     display: grid;
@@ -590,7 +590,7 @@
     line-height: 1.45;
     white-space: pre-wrap;
     word-break: break-word;
-    border-radius: 2px;
+    border-radius: var(--radius-sm);
     /* Phase 8.7q.3 — explicit min-width: 0 + overflow-x: auto. word-break
        does NOT defeat all unbreakable tokens (long URLs, paths, base64),
        so the <pre> can still demand wider than its grid track. min-width
@@ -604,7 +604,7 @@
     cursor: text;
   }
   .log-body .payload-expanded::-webkit-scrollbar { width: 5px; }
-  .log-body .payload-expanded::-webkit-scrollbar-thumb { background: var(--amber-faint); border-radius: 3px; }
+  .log-body .payload-expanded::-webkit-scrollbar-thumb { background: var(--amber-faint); border-radius: var(--radius-sm); }
 
   .state-panel {
     flex-shrink: 0;
@@ -614,7 +614,7 @@
     box-shadow: var(--depth-lift), var(--depth-edge-light);
   }
   .state-header {
-    padding: var(--space-8) var(--space-lg);
+    padding: var(--space-sm) var(--space-lg);
     color: var(--amber-faint);
     font-size: var(--type-label-size);
     font-weight: var(--type-label-weight);
@@ -625,14 +625,14 @@
     box-shadow: var(--sep-depth);
   }
   .state-body {
-    padding: var(--space-md) var(--space-lg) var(--space-14);
+    padding: var(--space-12) var(--space-lg) var(--space-14);
     display: flex; flex-direction: column; gap: 5px;
   }
   .state-body .k-row {
     display: flex; align-items: center; justify-content: space-between;
     font-size: var(--text-xs); letter-spacing: 0.04em;
     padding: 2px var(--space-xs);
-    border-radius: 2px;
+    border-radius: var(--radius-sm);
     transition: background var(--duration-base);
   }
   .state-body .k-row:hover { background: rgba(212, 137, 10, 0.06); }
@@ -648,7 +648,7 @@
     display: flex; justify-content: space-between;
     font-size: var(--text-xs);
     padding: 1px var(--space-xs);
-    border-radius: 2px;
+    border-radius: var(--radius-sm);
     transition: background var(--duration-base);
   }
   .histo-row:hover { background: rgba(212, 137, 10, 0.06); }

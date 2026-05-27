@@ -132,7 +132,7 @@
   .splitter {
     background: var(--border-subtle);
     flex-shrink: 0;
-    transition: background 0.12s;
+    transition: background var(--duration-base);
     user-select: none;
     -webkit-user-select: none;
     position: relative;
@@ -159,7 +159,7 @@
     top: 50%;
     left: 50%;
     transform: translate(-50%, -50%);
-    border-radius: 1px;
+    border-radius: var(--radius-xs);
   }
   .splitter-vertical:hover::after {
     width: 2px;

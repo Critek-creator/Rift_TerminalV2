@@ -444,7 +444,7 @@
               {/if}
             {/if}
             {#if isExpanded}
-              <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+              <!-- svelte-ignore a11y_no_noninteractive_element_interactions — stopPropagation prevents parent row toggle during text selection -->
               <pre
                 class="payload-expanded"
                 onmousedown={(ev) => ev.stopPropagation()}
@@ -869,7 +869,7 @@
     display: inline-flex;
     padding: 0 3px;
     border: 1px solid;
-    border-radius: 2px;
+    border-radius: var(--radius-sm);
     font-size: var(--text-2xs);
     font-weight: 600;
     letter-spacing: 0.04em;

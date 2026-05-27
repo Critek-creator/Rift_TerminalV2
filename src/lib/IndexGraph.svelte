@@ -717,7 +717,7 @@
     font-weight: 700;
     letter-spacing: 0.1em;
     cursor: pointer;
-    transition: all 0.12s;
+    transition: all var(--duration-base);
   }
   .mode-btn:first-child { border-top-right-radius: 0; border-bottom-right-radius: 0; border-right: none; }
   .mode-btn:last-child  { border-top-left-radius: 0; border-bottom-left-radius: 0; }
@@ -754,7 +754,7 @@
     font-size: var(--text-sm);
     padding: 0 var(--space-md);
     outline: 2px solid transparent;
-    transition: border-color 0.15s, box-shadow 0.15s;
+    transition: border-color var(--duration-med), box-shadow var(--duration-med);
   }
   .browser-search::placeholder { color: var(--amber-faint); font-style: italic; }
   .browser-search:focus {
@@ -822,7 +822,7 @@
     font-weight: 600;
     letter-spacing: 0.06em;
     cursor: pointer;
-    transition: all 0.12s;
+    transition: all var(--duration-base);
   }
   .kind-chip:hover {
     border-color: var(--amber-dim);
@@ -892,7 +892,7 @@
     background: var(--bg-elevated);
     font-family: inherit;
     cursor: pointer;
-    transition: all 0.15s;
+    transition: all var(--duration-med);
     overflow: hidden;
   }
   .recent-card:hover {
@@ -971,7 +971,7 @@
     font-weight: var(--type-label-weight);
     letter-spacing: var(--type-label-spacing);
     cursor: pointer;
-    transition: color 0.12s, background 0.12s;
+    transition: color var(--duration-base), background var(--duration-base);
     text-align: left;
     position: relative;
     overflow: hidden;
@@ -1001,7 +1001,7 @@
 
   .category-chevron {
     font-size: var(--text-xs);
-    transition: transform 0.15s ease;
+    transition: transform var(--duration-med) var(--ease-out);
     display: inline-block;
     width: 12px;
     text-align: center;
@@ -1023,7 +1023,7 @@
     font-family: inherit;
     cursor: pointer;
     text-align: left;
-    transition: background 0.1s, color 0.1s;
+    transition: background var(--duration-fast), color var(--duration-fast);
     position: relative;
   }
   .vault-row:hover { background: var(--bg-hover); }
@@ -1032,7 +1032,7 @@
     width: 2px;
     flex-shrink: 0;
     opacity: 0.4;
-    transition: opacity 0.15s;
+    transition: opacity var(--duration-med);
   }
   .vault-inner {
     flex: 1;
@@ -1108,7 +1108,7 @@
     min-width: 48px;
     flex-shrink: 0;
     font-size: var(--text-sm);
-    transition: color 0.12s;
+    transition: color var(--duration-base);
   }
   .vault-name {
     flex: 1;
@@ -1132,7 +1132,7 @@
     padding: 1px var(--space-sm);
     border: 1px solid var(--border-subtle);
     letter-spacing: 0.04em;
-    transition: border-color 0.12s;
+    transition: border-color var(--duration-base);
   }
   .vault-row:hover .vault-conn-badge { border-color: var(--amber-dim); }
 
@@ -1213,7 +1213,7 @@
     font-weight: 600;
     letter-spacing: 0.04em;
     cursor: pointer;
-    transition: background 0.12s, box-shadow 0.12s;
+    transition: background var(--duration-base), box-shadow var(--duration-base);
   }
   .conn-chip:hover {
     background: rgba(255, 168, 38, 0.1);

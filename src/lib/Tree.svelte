@@ -831,8 +831,7 @@
         {@const nodeColor = item.node.isDir ? null : fileColor(item.node.name)}
         {@const isCrossRef = vaultHighlightedPaths.has(item.node.path)}
         {@const heat = item.heatValue}
-        <!-- svelte-ignore a11y_click_events_have_key_events -->
-        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <!-- svelte-ignore a11y_no_static_element_interactions — SVG <g> does not support role/tabindex natively in WebView2; keyboard nav handled by parent <svg> -->
         <!--
           Phase 8.7g.4 — replaced HTML5 `draggable="true"` (silently broken
           on SVG <g> in WebView2 — the same gotcha that bit IndexGraph in
@@ -849,6 +848,7 @@
           aria-label={item.node.name}
           onmousedown={(e) => onTreeNodeMouseDown(e, item.node)}
           onclick={() => handleNodeClick(item.node)}
+          onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleNodeClick(item.node); } }}
           ondblclick={() => handleNodeDblClick(item.node)}
           style="cursor: pointer;"
         >
@@ -1008,7 +1008,7 @@
 
   /* Node shapes */
   :global(.node-bg) {
-    transition: filter 0.15s ease;
+    transition: filter var(--duration-med) var(--ease-out);
   }
   :global(.node-state-ambient) {
     fill: var(--bg-elevated);
@@ -1111,7 +1111,7 @@
   :global(.enrichment-tooltip) {
     background: var(--bg-base);
     border: 1px solid var(--amber-faint);
-    border-radius: 3px;
+    border-radius: var(--radius-sm);
     padding: var(--space-xs) 7px;
     font-family: var(--font-family);
     font-size: var(--text-2xs);

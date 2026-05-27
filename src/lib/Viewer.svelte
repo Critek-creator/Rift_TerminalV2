@@ -420,12 +420,12 @@
   }
 </script>
 
-<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-<!-- svelte-ignore a11y_no_static_element_interactions -->
+<!-- svelte-ignore a11y_no_noninteractive_element_interactions — region has keyboard shortcuts (Ctrl+S, Ctrl+E) for editing -->
 <div
   class="viewer"
   role="region"
   aria-label="file viewer"
+  tabindex="0"
   onkeydown={onKeyDown}
 >
   <!-- Status bar: path + dirty indicator + saved flash + mode badge -->
@@ -577,7 +577,7 @@
     cursor: pointer;
     padding: 3px var(--space-md);
     border-radius: var(--radius-md, 4px);
-    transition: color 0.12s ease-out, background 0.12s ease-out, border-color 0.12s ease-out, box-shadow 0.12s ease-out, opacity 0.12s ease-out;
+    transition: color var(--duration-base) var(--ease-out), background var(--duration-base) var(--ease-out), border-color var(--duration-base) var(--ease-out), box-shadow var(--duration-base) var(--ease-out), opacity var(--duration-base) var(--ease-out);
   }
 
   .viewer-btn-edit {
