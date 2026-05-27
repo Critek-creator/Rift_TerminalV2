@@ -634,7 +634,7 @@
     font-size: var(--text-xs);
     padding: 3px var(--space-8);
     letter-spacing: 0.04em;
-    outline: none;
+    outline: 2px solid transparent;
     transition: border-color var(--duration-base) ease-out;
   }
   .search-input::placeholder {

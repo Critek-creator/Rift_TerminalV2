@@ -268,21 +268,23 @@
         {#each recentEvents as e, i (e.ts + ':' + e.kind + ':' + i)}
           {@const rowKey = e.ts + ':' + e.kind + ':' + i}
           {@const isExpanded = expandedRows.has(rowKey)}
-          <!-- svelte-ignore a11y_click_events_have_key_events -->
-          <!-- svelte-ignore a11y_no_static_element_interactions -->
           <div
             class="row"
             class:expanded={isExpanded}
+            role="button"
+            tabindex="0"
             onclick={(ev) => {
-              // Phase 8.7q.4 — only toggle when the click lands on the row
-              // chrome (caret / ts / kind / collapsed payload), NOT on the
-              // expanded <pre>. Without this guard, clicking inside the
-              // expanded payload to start a text selection collapses the
-              // row instantly — making copy-paste impossible.
               const target = ev.target as HTMLElement;
               if (target.closest('.payload-expanded')) return;
               toggleRow(rowKey);
             }}
+            onkeydown={(ev) => {
+              if (ev.key === 'Enter' || ev.key === ' ') {
+                ev.preventDefault();
+                toggleRow(rowKey);
+              }
+            }}
+            aria-expanded={isExpanded}
             title="click to {isExpanded ? 'collapse' : 'expand'}"
           >
             <span class="caret" style="color: {severityColor(e.kind)}">{isExpanded ? '▼' : '▶'}</span>

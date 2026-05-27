@@ -407,7 +407,7 @@
     font-style: italic;
   }
   .search-input:focus {
-    outline: none;
+    outline: 2px solid transparent;
     border-color: var(--amber-dim);
   }
 

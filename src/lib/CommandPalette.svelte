@@ -181,7 +181,7 @@
     font-family: 'JetBrains Mono', monospace;
     font-size: var(--text-lg);
     padding: var(--space-12) var(--space-lg);
-    outline: none;
+    outline: 2px solid transparent;
   }
   input::placeholder {
     color: var(--amber-faint, #A87830);

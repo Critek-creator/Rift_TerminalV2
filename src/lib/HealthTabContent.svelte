@@ -88,16 +88,16 @@
   }
 
   function stalenessColor(days: number): string {
-    if (days > 14) return '#CC3333';
-    if (days > 7) return '#D4890A';
-    return '#33CC33';
+    if (days > 14) return 'var(--term-red)';
+    if (days > 7) return 'var(--amber-primary)';
+    return 'var(--term-green)';
   }
 
   function badgeColor(badge: 'green' | 'amber' | 'red'): string {
     switch (badge) {
-      case 'green': return '#33CC33';
-      case 'amber': return '#D4890A';
-      case 'red': return '#CC3333';
+      case 'green': return 'var(--term-green)';
+      case 'amber': return 'var(--amber-primary)';
+      case 'red': return 'var(--term-red)';
     }
   }
 

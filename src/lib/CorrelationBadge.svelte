@@ -35,6 +35,8 @@
   <button type="button"
     class="corr-badge"
     onclick={() => (expanded = !expanded)}
+    aria-expanded={expanded}
+    aria-label="{count - 1} correlated event{count - 1 === 1 ? '' : 's'}"
     title="show {count - 1} related event{count - 1 === 1 ? '' : 's'}"
   >
     +{count - 1}

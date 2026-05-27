@@ -141,12 +141,19 @@
 
 {#if node.type === 'terminal'}
   <!-- Leaf: single terminal pane -->
-  <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <!-- svelte-ignore a11y_click_events_have_key_events -->
+  <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
   <div
     class="pane-leaf"
     class:focused={focusedId === node.id}
+    role="group"
+    aria-label="Terminal pane"
     onclick={() => handleFocusClick(node.id)}
+    onkeydown={(ev) => {
+      if (ev.key === 'Enter' || ev.key === ' ') {
+        ev.preventDefault();
+        handleFocusClick(node.id);
+      }
+    }}
   >
     <div class="pane-toolbar">
       <button type="button"

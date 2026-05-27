@@ -42,7 +42,7 @@
   });
 </script>
 
-<div class="sparkline-wrap" title={total > 0 ? `${total} events/min` : 'idle'}>
+<div class="sparkline-wrap" role="img" aria-label={total > 0 ? `Sparkline: ${total} events per minute` : 'Sparkline: idle'} title={total > 0 ? `${total} events/min` : 'idle'}>
   <svg
     class="sparkline"
     viewBox="0 0 {WIDTH} {HEIGHT}"

@@ -278,13 +278,19 @@
         {:else}
           {#each sessions as s (s.id)}
             {@const isBaseline = s.id === baselineId}
-            <!-- svelte-ignore a11y_click_events_have_key_events -->
-            <!-- svelte-ignore a11y_no_static_element_interactions -->
             <div
               class="session-row"
               class:session-row--baseline={isBaseline}
               class:session-row--disabled={isBaseline && viewMode === 'select-compare'}
+              role="button"
+              tabindex="0"
               onclick={() => selectSession(s.id)}
+              onkeydown={(ev) => {
+                if (ev.key === 'Enter' || ev.key === ' ') {
+                  ev.preventDefault();
+                  selectSession(s.id);
+                }
+              }}
             >
               {#if isBaseline}
                 <span class="session-badge">BASE</span>
@@ -328,16 +334,23 @@
         {:else}
           {#each events as e, i (i)}
             {@const isExpanded = expandedRows.has(i)}
-            <!-- svelte-ignore a11y_click_events_have_key_events -->
-            <!-- svelte-ignore a11y_no_static_element_interactions -->
             <div
               class="row"
               class:expanded={isExpanded}
+              role="button"
+              tabindex="0"
               onclick={(ev) => {
                 const target = ev.target as HTMLElement;
                 if (target.closest('.payload-expanded')) return;
                 toggleRow(i);
               }}
+              onkeydown={(ev) => {
+                if (ev.key === 'Enter' || ev.key === ' ') {
+                  ev.preventDefault();
+                  toggleRow(i);
+                }
+              }}
+              aria-expanded={isExpanded}
               title="click to {isExpanded ? 'collapse' : 'expand'}"
             >
               <span class="caret">{isExpanded ? '&#x25BC;' : '&#x25B6;'}</span>

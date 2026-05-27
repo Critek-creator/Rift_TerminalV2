@@ -115,7 +115,7 @@
     font-size: var(--text-base);
     width: 200px;
     padding: 3px var(--space-sm);
-    outline: none;
+    outline: 2px solid transparent;
   }
   input::placeholder {
     color: var(--amber-faint, #A87830);

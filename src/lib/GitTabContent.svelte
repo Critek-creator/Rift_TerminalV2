@@ -619,7 +619,7 @@
     min-height: 32px;
   }
   .commit-input:focus {
-    outline: none;
+    outline: 2px solid transparent;
     border-color: var(--amber-bright);
     box-shadow: var(--glow-amber-faint);
   }

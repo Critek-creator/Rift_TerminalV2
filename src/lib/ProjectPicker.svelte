@@ -421,7 +421,7 @@
     font-family: var(--font-family);
     font-size: var(--text-sm);
     padding: 0 var(--space-md);
-    outline: none;
+    outline: 2px solid transparent;
     box-sizing: border-box;
     caret-color: var(--amber-bright);
     transition: border-color var(--duration-base) var(--ease-out),

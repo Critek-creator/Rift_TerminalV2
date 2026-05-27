@@ -66,12 +66,13 @@
   }
 </script>
 
-<!-- svelte-ignore a11y_no_static_element_interactions -->
-<div class="popover-backdrop" onclick={onClose} onkeydown={handleKeydown}>
-  <!-- svelte-ignore a11y_click_events_have_key_events -->
-  <!-- svelte-ignore a11y_no_static_element_interactions -->
+<div class="popover-backdrop" role="presentation" onclick={onClose} onkeydown={handleKeydown}>
   <div
     class="popover"
+    role="dialog"
+    aria-label="Annotate event"
+    aria-modal="true"
+    tabindex="-1"
     style="top: {Math.max(8, anchorY - 40)}px"
     onclick={(e) => e.stopPropagation()}
     onkeydown={handleKeydown}
@@ -198,7 +199,7 @@
     font-style: italic;
   }
   .note-input:focus {
-    outline: none;
+    outline: 2px solid transparent;
     border-color: var(--amber-dim);
   }
 

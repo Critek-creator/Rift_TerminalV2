@@ -305,7 +305,7 @@
     font-family: inherit;
     font-size: var(--text-sm);
     padding: 0 var(--space-8);
-    outline: none;
+    outline: 2px solid transparent;
   }
   .cb-search::placeholder { color: var(--amber-faint); font-style: italic; }
   .cb-search:focus { border-color: var(--term-cyan); }

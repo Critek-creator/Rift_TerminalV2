@@ -753,7 +753,7 @@
     font-family: inherit;
     font-size: var(--text-sm);
     padding: 0 var(--space-md);
-    outline: none;
+    outline: 2px solid transparent;
     transition: border-color 0.15s, box-shadow 0.15s;
   }
   .browser-search::placeholder { color: var(--amber-faint); font-style: italic; }

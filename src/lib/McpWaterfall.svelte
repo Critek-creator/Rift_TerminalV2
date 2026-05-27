@@ -254,7 +254,7 @@
 
         // Duration label inside bar if wide enough
         if (barW > 40 && span.durationMs !== null) {
-          ctx.fillStyle = '#000';
+          ctx.fillStyle = colors.bg;
           ctx.font = '9px JetBrains Mono, monospace';
           ctx.textAlign = 'left';
           ctx.textBaseline = 'middle';
@@ -270,7 +270,7 @@
 
       // Highlight hovered span
       if (hovered && hovered.id === span.id) {
-        ctx.strokeStyle = '#fff';
+        ctx.strokeStyle = colors.text;
         ctx.lineWidth = 1.5;
         ctx.strokeRect(barX, y + 2, barW, ROW_H - 4);
       }

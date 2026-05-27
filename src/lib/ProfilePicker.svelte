@@ -394,7 +394,7 @@
     font-size: var(--text-xs);
     font-family: var(--font-family, 'JetBrains Mono', monospace);
     padding: 3px var(--space-sm);
-    outline: none;
+    outline: 2px solid transparent;
   }
 
   .save-input::placeholder {
