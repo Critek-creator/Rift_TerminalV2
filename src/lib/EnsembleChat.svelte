@@ -15,7 +15,9 @@
   // Model selection state
   // ---------------------------------------------------------------------------
 
+  // svelte-ignore state_referenced_locally
   let modelAId = $state<string | undefined>(initialModelA);
+  // svelte-ignore state_referenced_locally
   let modelBId = $state<string | undefined>(initialModelB);
   let pickerOpenA = $state(false);
   let pickerOpenB = $state(false);

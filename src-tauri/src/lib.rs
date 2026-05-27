@@ -1654,19 +1654,20 @@ impl BusSubscriptionRegistryHandle {
 // Startup cleanup
 // ---------------------------------------------------------------------------
 
-/// Kill orphaned WebView2 crashpad-handler processes from previous Rift sessions.
+/// Kill orphaned WebView2 processes from previous Rift sessions.
 ///
-/// WebView2 spawns a crashpad-handler per browser-main process. When Rift exits
-/// (or is killed during dev), the handler often outlives its parent and stays
-/// resident. Over days of development this accumulates dozens of zombie processes.
+/// WebView2 spawns multiple child processes (browser, renderer, GPU,
+/// crashpad-handler) per Tauri window. When Rift exits uncleanly (killed
+/// during dev, or the old hidden-window bug prevented ExitRequested from
+/// firing), these children outlive their parent and accumulate as zombies.
 /// Since this runs *before* Tauri creates any windows, every existing
-/// `com.abyssal.rift` crashpad-handler is guaranteed stale.
+/// `com.abyssal.rift` WebView2 process is guaranteed stale.
 #[cfg(windows)]
 fn cleanup_orphaned_webview2() {
     use std::os::windows::process::CommandExt;
     const CREATE_NO_WINDOW: u32 = 0x08000000;
 
-    let script = r#"Get-CimInstance Win32_Process -Filter "Name='msedgewebview2.exe'" | Where-Object { $_.CommandLine -match 'com\.abyssal\.rift' -and $_.CommandLine -match 'crashpad-handler' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }"#;
+    let script = r#"Get-CimInstance Win32_Process -Filter "Name='msedgewebview2.exe'" | Where-Object { $_.CommandLine -match 'com\.abyssal\.rift' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }"#;
 
     let _ = std::process::Command::new("powershell")
         .args(["-NoProfile", "-NonInteractive", "-Command", script])
@@ -2177,49 +2178,50 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("rift: tauri runtime failed to start")
         .run(|app_handle, event| {
-            // Stop long-lived translator tasks the moment Tauri begins
-            // tearing the app down. Without this the `spawn_status_translator`
-            // 5-second loop continues spawning `git.exe` children after the
-            // last window closes, which (a) on Windows paints visible
-            // terminal flashes until the process fully exits and (b) can
-            // hold the process alive long enough that the user must kill
-            // it via Task Manager. `notify_waiters` wakes every task
-            // currently `.notified().await`-ing on the same `Notify` and
-            // they break out of their loops on the next poll.
-            //
-            // `ExitRequested` fires once, before the runtime begins
-            // dropping resources — exactly the right moment to signal.
-            // We do NOT call `api.prevent_exit()`; default exit is desired.
-            if let RunEvent::ExitRequested { .. } = event {
-                if let Some(notify) = app_handle.try_state::<ShutdownNotify>() {
-                    notify.signal();
-                }
-                // Kill all live PTY sessions so child shell processes don't
-                // survive as zombies after the window closes. The frontend's
-                // onDestroy calls pty_kill per-session, but during app
-                // teardown Svelte cleanup may not complete before the
-                // runtime drops resources.
-                if let Some(registry) = app_handle.try_state::<PtyRegistry>() {
-                    let killed = registry.kill_all();
-                    if killed > 0 {
-                        tracing::info!("rift: killed {killed} PTY session(s) on exit");
+            match &event {
+                // When the main window is destroyed, tear down every
+                // secondary window so Tauri can reach ExitRequested.
+                // Hidden windows (pre-built notif slot 0, cockpit with
+                // prevent_close+hide) keep the process alive because
+                // Tauri won't fire ExitRequested while any window
+                // handle exists in its registry.
+                RunEvent::WindowEvent {
+                    label,
+                    event: tauri::WindowEvent::Destroyed,
+                    ..
+                } if label == "main" => {
+                    notif_window::destroy_all(app_handle);
+                    if let Some(w) = app_handle.get_webview_window("cockpit-detached") {
+                        let _ = w.destroy();
                     }
                 }
-                // Clear the MCP discovery file so a stopped Rift can't
-                // masquerade as live to a freshly-spawned `rift-mcp` client
-                // started by Claude Code (see crates/rift-bus/src/config.rs).
-                if let Err(e) = rift_bus::clear_mcp_socket() {
-                    tracing::warn!("rift: failed to clear mcp_socket on exit: {e}");
+                RunEvent::ExitRequested { .. } => {
+                    if let Some(notify) = app_handle.try_state::<ShutdownNotify>() {
+                        notify.signal();
+                    }
+                    if let Some(registry) = app_handle.try_state::<PtyRegistry>() {
+                        let killed = registry.kill_all();
+                        if killed > 0 {
+                            tracing::info!("rift: killed {killed} PTY session(s) on exit");
+                        }
+                    }
+                    if let Err(e) = rift_bus::clear_mcp_socket() {
+                        tracing::warn!("rift: failed to clear mcp_socket on exit: {e}");
+                    }
+                    // Safety net: destroy secondary windows again (no-op
+                    // if the Destroyed handler already cleared them).
+                    notif_window::destroy_all(app_handle);
+                    if let Some(w) = app_handle.get_webview_window("cockpit-detached") {
+                        let _ = w.destroy();
+                    }
+                    // Watchdog: if stuck tokio tasks or WebView2 prevent
+                    // a clean exit, force-kill after a grace period.
+                    std::thread::spawn(|| {
+                        std::thread::sleep(std::time::Duration::from_secs(3));
+                        std::process::exit(0);
+                    });
                 }
-                // Destroy any live notification pop-out windows so they
-                // don't hold the process alive after main closes.
-                notif_window::destroy_all(app_handle);
-                // The cockpit window uses prevent_close() + hide() for fast
-                // re-detach, which means it survives the main window closing
-                // and keeps the process alive. Destroy it explicitly here.
-                if let Some(w) = app_handle.get_webview_window("cockpit-detached") {
-                    let _ = w.destroy();
-                }
+                _ => {}
             }
         });
 }

@@ -20,6 +20,7 @@
 
   let { onclose, onActivateNotif, initialQuery = '' }: Props = $props();
 
+  // svelte-ignore state_referenced_locally
   let query = $state(initialQuery);
   let selectedIdx = $state(0);
   let inputEl: HTMLInputElement = $state(undefined!);

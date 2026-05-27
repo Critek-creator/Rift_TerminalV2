@@ -33,6 +33,7 @@
 
   /** Local model override — set by the inline picker. Falls back to the
    *  initial override from the popout content, then to the global. */
+  // svelte-ignore state_referenced_locally
   let localModelId = $state<string | undefined>(initialOverride);
   let pickerOpen = $state(false);
 

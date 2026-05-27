@@ -140,7 +140,7 @@
 </script>
 
 {#if node.type === 'terminal'}
-  <!-- Leaf: single terminal pane -->
+  <!-- svelte-ignore a11y_no_noninteractive_tabindex a11y_no_noninteractive_element_interactions -->
   <div
     class="pane-leaf"
     class:focused={focusedId === node.id}
@@ -149,7 +149,7 @@
     aria-label="Terminal pane"
     onclick={() => handleFocusClick(node.id)}
     onkeydown={(ev) => {
-      if (ev.key === 'Enter' || ev.key === ' ') {
+      if ((ev.key === 'Enter' || ev.key === ' ') && ev.target === ev.currentTarget) {
         ev.preventDefault();
         handleFocusClick(node.id);
       }
@@ -196,7 +196,7 @@
       />
     </div>
 
-    <!-- Inline splitter bar -->
+    <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
     <div
       bind:this={splitterEl}
       class="pane-splitter pane-splitter-{node.type === 'vsplit' ? 'vertical' : 'horizontal'}"
