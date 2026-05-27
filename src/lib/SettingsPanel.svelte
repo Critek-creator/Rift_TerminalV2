@@ -103,12 +103,11 @@
   // Editable copies — diffed against `config` to enable Save buttons.
   let fsIgnoreText = $state('');
   let fsMaxDepth = $state(0);
-  let indexSyncMode = $state<'live' | 'manual'>('live');
-  let indexLabelVisibility = $state<'always' | 'hover_only' | 'on_zoom2x'>('always');
-  let indexDensity = $state<'compact' | 'standard' | 'spacious'>('standard');
+  // Index settings — old graph controls (sync_mode, label_visibility, density)
+  // removed in D-019 (IndexGraph → vault browser list). Config fields kept
+  // for serde backwards compatibility but no UI controls remain.
 
   let savingFs = $state(false);
-  let savingIndex = $state(false);
   let savingMcp = $state(false);
   let savingTerminal = $state(false);
   let savingTree = $state(false);
@@ -328,6 +327,10 @@
   /** Phase 8.7q.1 — broadcast a `rift:config-changed` window event so live
    *  surfaces (IndexGraph density + label-visibility, etc.) re-read their
    *  config without needing a remount. Called after every successful save. */
+  function previewPalette(paletteId: string | null): void {
+    window.dispatchEvent(new CustomEvent('rift:palette-preview', { detail: paletteId }));
+  }
+
   function broadcastConfigChanged(): void {
     window.dispatchEvent(new CustomEvent('rift:config-changed'));
   }
@@ -411,15 +414,6 @@
         !== config.fs.ignore_globs.join('\n')
         || fsMaxDepth !== config.fs.max_depth)
   );
-  const indexDirty = $derived(
-    config !== null
-    && (
-      indexSyncMode !== config.index.sync_mode
-      || indexLabelVisibility !== (config.index.label_visibility === 'unknown' ? 'always' : config.index.label_visibility)
-      || indexDensity !== (config.index.density === 'unknown' ? 'standard' : config.index.density)
-    )
-  );
-
   function buildTerminalShellPref(): ShellPref {
     if (termShellKind === 'custom') {
       return { kind: 'custom', path: termCustomPath.trim() };
@@ -465,19 +459,6 @@
   function snapshotIntoEditState(c: RiftConfig) {
     fsIgnoreText = c.fs.ignore_globs.join('\n');
     fsMaxDepth = c.fs.max_depth;
-    indexSyncMode = c.index.sync_mode === 'manual' ? 'manual' : 'live';
-    indexLabelVisibility =
-      c.index.label_visibility === 'hover_only'
-        ? 'hover_only'
-        : c.index.label_visibility === 'on_zoom2x'
-          ? 'on_zoom2x'
-          : 'always';
-    indexDensity =
-      c.index.density === 'compact'
-        ? 'compact'
-        : c.index.density === 'spacious'
-          ? 'spacious'
-          : 'standard';
     // Terminal snapshot — defaults for old configs are filled by serde-side
     // #[serde(default)], so c.terminal is always present at runtime.
     termShellKind = c.terminal.shell.kind;
@@ -597,7 +578,7 @@
       saveBanner = {
         section: 'terminal',
         ok: true,
-        msg: 'terminal saved · palette applies to new sessions',
+        msg: 'terminal saved',
       };
     } catch (err) {
       termShellKind = prevShellKind;
@@ -653,37 +634,6 @@
       saveBanner = { section: 'statusline', ok: false, msg: String(err) };
     } finally {
       savingStatusline = false;
-    }
-  }
-
-  async function saveIndexConfig() {
-    if (!config) return;
-    savingIndex = true;
-    saveBanner = null;
-    const prevSyncMode = indexSyncMode;
-    const prevLabelVis = indexLabelVisibility;
-    const prevDensity = indexDensity;
-    try {
-      const next: RiftConfig = {
-        ...config,
-        index: {
-          ...config.index,
-          sync_mode: indexSyncMode,
-          label_visibility: indexLabelVisibility,
-          density: indexDensity,
-        },
-      };
-      await invoke('config_save', { cfg: next });
-      config = next;
-      broadcastConfigChanged();
-      saveBanner = { section: 'index', ok: true, msg: 'index settings saved' };
-    } catch (err) {
-      indexSyncMode = prevSyncMode;
-      indexLabelVisibility = prevLabelVis;
-      indexDensity = prevDensity;
-      saveBanner = { section: 'index', ok: false, msg: String(err) };
-    } finally {
-      savingIndex = false;
     }
   }
 
@@ -1117,7 +1067,10 @@
         <div class="section-label" style="margin-top: 12px;">Color Palette</div>
         <div class="radio-col">
           {#each PALETTES as palette (palette.id)}
-            <label class="radio palette-radio">
+            <label class="radio palette-radio"
+              onmouseenter={() => previewPalette(palette.id)}
+              onmouseleave={() => previewPalette(null)}
+            >
               <input type="radio" name="color-palette" value={palette.id}
                 checked={termColorPalette === palette.id}
                 onchange={() => (termColorPalette = palette.id)}
@@ -1301,84 +1254,12 @@
       <section class="section">
         <div class="section-label">Index</div>
         <div class="hint">
-          how the vault graph stays in sync with disk. live = filesystem watcher pushes updates as they happen; manual = only on rescan.
+          The index tab streams vault activity events from the Abyssal Index.
+          Graph-view settings (density, labels, sync mode) were removed when
+          the node graph was replaced by the vault browser list.
         </div>
-        <div class="radio-row">
-          <label class="radio">
-            <input
-              type="radio"
-              name="sync-mode"
-              value="live"
-              checked={indexSyncMode === 'live'}
-              onchange={() => (indexSyncMode = 'live')}
-            />
-            <span>live</span>
-          </label>
-          <label class="radio">
-            <input
-              type="radio"
-              name="sync-mode"
-              value="manual"
-              checked={indexSyncMode === 'manual'}
-              onchange={() => (indexSyncMode = 'manual')}
-            />
-            <span>manual</span>
-          </label>
-        </div>
-
-        <div class="hint" style="margin-top: 12px;">
-          graph cluster density — scales the radial spread between vault clusters.
-        </div>
-        <div class="radio-row">
-          {#each ['compact', 'standard', 'spacious'] as d (d)}
-            <label class="radio">
-              <input
-                type="radio"
-                name="index-density"
-                value={d}
-                checked={indexDensity === d}
-                onchange={() => (indexDensity = d as 'compact' | 'standard' | 'spacious')}
-              />
-              <span>{d}</span>
-            </label>
-          {/each}
-        </div>
-
-        <div class="hint" style="margin-top: 8px;">
-          label visibility — when to show the id + tagline under each node.
-        </div>
-        <div class="radio-row">
-          {#each [
-            { v: 'always', label: 'always' },
-            { v: 'hover_only', label: 'hover only' },
-            { v: 'on_zoom2x', label: 'on 2× zoom' },
-          ] as opt (opt.v)}
-            <label class="radio">
-              <input
-                type="radio"
-                name="index-label-vis"
-                value={opt.v}
-                checked={indexLabelVisibility === opt.v}
-                onchange={() => (indexLabelVisibility = opt.v as 'always' | 'hover_only' | 'on_zoom2x')}
-              />
-              <span>{opt.label}</span>
-            </label>
-          {/each}
-        </div>
-        <div class="row">
-          <button
-            type="button"
-            class="btn primary"
-            disabled={!indexDirty || savingIndex}
-            onclick={saveIndexConfig}
-          >
-            {savingIndex ? 'saving…' : 'save index'}
-          </button>
-          {#if saveBanner && saveBanner.section === 'index'}
-            <span class="banner-inline" class:fail={!saveBanner.ok} role="status">
-              {saveBanner.msg}
-            </span>
-          {/if}
+        <div class="hint" style="margin-top: 8px; color: var(--amber-dim);">
+          No configurable settings for the vault event stream yet.
         </div>
       </section>
     {:else}

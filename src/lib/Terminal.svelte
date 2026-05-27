@@ -28,8 +28,9 @@
   import TerminalSearch from './TerminalSearch.svelte';
   import PathTooltip from './PathTooltip.svelte';
   import { subscribe as busSubscribe, type Envelope } from './bus';
-  import { getTerminalSettings } from './terminalConfigCache';
+  import { getTerminalSettings, invalidateTerminalSettingsCache } from './terminalConfigCache';
   import { getPalette } from './terminalPalettes';
+  import { LaneTintManager } from './laneTint';
 
   type PtyExited = { id: number; code: number };
 
@@ -56,6 +57,8 @@
   let resizeRaf: number | undefined;
   let unlistenExited: UnlistenFn | undefined;
   let unlistenChunk: UnlistenFn | undefined;
+  let configChangedCleanup: (() => void) | undefined;
+  let tintManager: LaneTintManager | undefined;
 
   // Path intelligence tooltip state
   type FilePreview = { exists: boolean; size_bytes: number; modified_iso: string; language_hint: string; preview_lines: string[]; is_binary: boolean };
@@ -178,13 +181,18 @@
     runtimeFontSize = settings.fontSize;
     lanesEnabled = settings.lanesEnabled;
 
+    const initPalette = getPalette(settings.colorPalette);
+    // Sync CSS --bg-base to palette background so container gaps match.
+    if (initPalette.theme.background) {
+      document.documentElement.style.setProperty('--bg-base', initPalette.theme.background);
+    }
     term = new XTerm({
       fontFamily: '"JetBrains Mono", monospace',
       fontSize: settings.fontSize,
       lineHeight: settings.lineHeight,
       scrollback: settings.scrollback,
       cursorBlink: true,
-      theme: getPalette(settings.colorPalette).theme,
+      theme: initPalette.theme,
     });
     fit = new FitAddon();
     term.loadAddon(fit);
@@ -221,6 +229,9 @@
 
     term.open(host);
     opened = true;
+    if (lanesEnabled) {
+      tintManager = new LaneTintManager(term);
+    }
 
     // Exposed for MCP pty_read tool — do not remove without updating mcp_host.rs tool_pty_read
     window.__RIFT_TERM__ = term;
@@ -580,6 +591,61 @@
     // Phase 8.7 — vault-drop event listener (manual gesture from IndexGraph).
     host.addEventListener(RIFT_VAULT_DROP_EVENT, onTermVaultDrop);
 
+    // Live settings application — re-read all terminal settings when config
+    // changes and apply them to the running xterm instance immediately.
+    const onConfigChanged = async () => {
+      invalidateTerminalSettingsCache();
+      const fresh = await getTerminalSettings();
+      if (!term) return;
+      const palette = getPalette(fresh.colorPalette);
+      term.options.theme = palette.theme;
+      if (fresh.fontSize !== runtimeFontSize) {
+        runtimeFontSize = fresh.fontSize;
+        configFontSize = fresh.fontSize;
+        term.options.fontSize = fresh.fontSize;
+      }
+      term.options.lineHeight = fresh.lineHeight;
+      term.options.scrollback = fresh.scrollback;
+      lanesEnabled = fresh.lanesEnabled;
+      // Sync CSS --bg-base so container/shell backgrounds match the palette.
+      if (palette.theme.background) {
+        document.documentElement.style.setProperty('--bg-base', palette.theme.background);
+      }
+      try { fit?.fit(); } catch { /* best-effort */ }
+      term.refresh(0, term.rows - 1);
+    };
+    window.addEventListener('rift:config-changed', onConfigChanged);
+
+    // Live palette hover preview from SettingsPanel.
+    let savedPaletteId: string | null = null;
+    const onPalettePreview = (e: Event) => {
+      const id = (e as CustomEvent<string | null>).detail;
+      if (!term) return;
+      if (id) {
+        if (!savedPaletteId) savedPaletteId = settings.colorPalette;
+        const preview = getPalette(id);
+        term.options.theme = preview.theme;
+        if (preview.theme.background) {
+          document.documentElement.style.setProperty('--bg-base', preview.theme.background);
+        }
+        term.refresh(0, term.rows - 1);
+      } else if (savedPaletteId) {
+        const restored = getPalette(savedPaletteId);
+        term.options.theme = restored.theme;
+        if (restored.theme.background) {
+          document.documentElement.style.setProperty('--bg-base', restored.theme.background);
+        }
+        term.refresh(0, term.rows - 1);
+        savedPaletteId = null;
+      }
+    };
+    window.addEventListener('rift:palette-preview', onPalettePreview);
+
+    configChangedCleanup = () => {
+      window.removeEventListener('rift:config-changed', onConfigChanged);
+      window.removeEventListener('rift:palette-preview', onPalettePreview);
+    };
+
     // Run pty_exited listener and lane bus subscription in parallel —
     // they're independent async IPC calls (~5-10ms each, saves one round trip).
     const [exitUnsub, laneResult] = await Promise.all([
@@ -601,6 +667,7 @@
         if (!p?.lane) return;
         if (p.session_id !== undefined && p.session_id !== sessionId) return;
         currentLane = p.lane;
+        tintManager?.onLaneChanged(p.lane);
       }).then((u) => {
         if (!laneMounted) { void u().catch(() => {}); return undefined; }
         return u;
@@ -620,6 +687,8 @@
     }
     unlistenExited?.();
     unlistenChunk?.();
+    configChangedCleanup?.();
+    tintManager?.dispose();
     unsubscribeLane?.().catch(() => {});
     if (hoverTimer !== null) { clearTimeout(hoverTimer); hoverTimer = null; }
     if (recoveryTimer) clearInterval(recoveryTimer);
