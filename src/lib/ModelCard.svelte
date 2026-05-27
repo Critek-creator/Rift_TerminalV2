@@ -59,8 +59,9 @@
   {#if expanded}
   <div class="card-body">
     <div class="field">
-      <label>Endpoint</label>
+      <label for="mc-endpoint-{model.id}">Endpoint</label>
       <input
+        id="mc-endpoint-{model.id}"
         type="text"
         value={model.endpoint}
         placeholder={isLocal ? 'http://127.0.0.1:8081' : 'https://api.example.com'}
@@ -69,8 +70,9 @@
     </div>
 
     <div class="field">
-      <label>Model ID</label>
+      <label for="mc-modelid-{model.id}">Model ID</label>
       <input
+        id="mc-modelid-{model.id}"
         type="text"
         value={model.model_identifier}
         placeholder="e.g. gemma-4-27b-it-Q4_K_M.gguf"
@@ -79,8 +81,9 @@
     </div>
 
     <div class="field">
-      <label>Short ID (2-4 chars)</label>
+      <label for="mc-shortid-{model.id}">Short ID (2-4 chars)</label>
       <input
+        id="mc-shortid-{model.id}"
         type="text"
         value={model.short_id}
         maxlength={4}
@@ -91,8 +94,9 @@
 
     {#if !isLocal}
     <div class="field">
-      <label>API Key (stored in OS keyring)</label>
+      <label for="mc-apikey-{model.id}">API Key (stored in OS keyring)</label>
       <input
+        id="mc-apikey-{model.id}"
         type="password"
         value={model.api_key_ref ?? ''}
         placeholder="sk-..."
@@ -106,8 +110,9 @@
       <legend>llama-server</legend>
 
       <div class="field">
-        <label>GGUF Model Path</label>
+        <label for="mc-gguf-{model.id}">GGUF Model Path</label>
         <input
+          id="mc-gguf-{model.id}"
           type="text"
           value={(model.hosting as any).model_path ?? ''}
           placeholder="C:\Models\model.gguf"
@@ -120,8 +125,9 @@
 
       <div class="field-row">
         <div class="field">
-          <label>Context Size</label>
+          <label for="mc-ctx-{model.id}">Context Size</label>
           <input
+            id="mc-ctx-{model.id}"
             type="number"
             value={(model.hosting as any).ctx_size ?? 32768}
             min={2048}
@@ -135,8 +141,9 @@
         </div>
 
         <div class="field">
-          <label>GPU Layers</label>
+          <label for="mc-gpu-{model.id}">GPU Layers</label>
           <input
+            id="mc-gpu-{model.id}"
             type="number"
             value={(model.hosting as any).n_gpu_layers ?? 99}
             min={0}
@@ -149,8 +156,9 @@
         </div>
 
         <div class="field">
-          <label>Port</label>
+          <label for="mc-port-{model.id}">Port</label>
           <input
+            id="mc-port-{model.id}"
             type="number"
             value={(model.hosting as any).port ?? 8081}
             min={1024}
@@ -165,8 +173,9 @@
 
       <div class="field-row">
         <div class="field">
-          <label>KV Cache Key</label>
+          <label for="mc-kvk-{model.id}">KV Cache Key</label>
           <select
+            id="mc-kvk-{model.id}"
             value={(model.hosting as any).cache_type_k ?? 'q8_0'}
             onchange={(e) => {
               const h = { ...model.hosting, cache_type_k: (e.target as HTMLSelectElement).value as KvCacheType };
@@ -180,8 +189,9 @@
         </div>
 
         <div class="field">
-          <label>KV Cache Value</label>
+          <label for="mc-kvv-{model.id}">KV Cache Value</label>
           <select
+            id="mc-kvv-{model.id}"
             value={(model.hosting as any).cache_type_v ?? 'q8_0'}
             onchange={(e) => {
               const h = { ...model.hosting, cache_type_v: (e.target as HTMLSelectElement).value as KvCacheType };

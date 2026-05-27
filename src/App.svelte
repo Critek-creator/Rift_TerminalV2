@@ -909,6 +909,7 @@
               <CommandIntelligencePanel
                 project={sm.sessions.find(s => s.id === (sm.active.kind === 'session' ? sm.active.id : 0))?.projectPath?.split(/[\\/]/).pop() ?? null}
                 cwd={sm.sessions.find(s => s.id === (sm.active.kind === 'session' ? sm.active.id : 0))?.projectPath ?? null}
+                onDragBack={nm.demoteTab}
               />
             {:else}
               <NotificationPane

@@ -9,7 +9,8 @@
   //   health.portfolio — payload: HealthPayload (full project snapshot)
 
   import { onMount, onDestroy } from 'svelte';
-  import { subscribe, type Envelope } from './bus';
+  import { invoke } from '@tauri-apps/api/core';
+  import { subscribe, publish, type Envelope } from './bus';
   import { NOTIF_TAB_MIME } from './dragMime';
   import { shouldShow, type SeverityLevel } from './notifFilter';
 
@@ -39,6 +40,57 @@
   interface HealthPayload {
     projects: ProjectHealth[];
     collected_at: string;
+  }
+
+  // Local git status for the current project — polled independently of
+  // the portfolio health.portfolio events so users always see uncommitted
+  // file counts even before the health collector publishes.
+  interface LocalGitStatus {
+    not_a_repo: boolean;
+    branch: string;
+    staged: { path: string; status: string }[];
+    modified: { path: string; status: string }[];
+    untracked: { path: string; status: string }[];
+  }
+
+  let localGit = $state<LocalGitStatus | null>(null);
+  let gitPollTimer: ReturnType<typeof setInterval> | undefined;
+  let commitRequested = $state(false);
+  let copyFeedback = $state(false);
+
+  const uncommittedCount = $derived(
+    localGit
+      ? localGit.staged.length + localGit.modified.length + localGit.untracked.length
+      : 0,
+  );
+
+  async function pollLocalGit() {
+    try {
+      const result = await invoke<LocalGitStatus>('git_status_command');
+      if (mounted) localGit = result;
+    } catch {
+      // Non-fatal — git status may fail if not in a repo
+    }
+  }
+
+  async function requestCommit() {
+    commitRequested = true;
+    await publish('system', 'health.action.commit_requested', {
+      uncommitted: uncommittedCount,
+      branch: localGit?.branch ?? 'unknown',
+    });
+    setTimeout(() => { commitRequested = false; }, 2000);
+  }
+
+  async function copyCommitCmd() {
+    const cmd = 'git add -A && git commit -m "WIP: uncommitted changes"';
+    try {
+      await navigator.clipboard.writeText(cmd);
+      copyFeedback = true;
+      setTimeout(() => { copyFeedback = false; }, 1500);
+    } catch {
+      // Fallback: no clipboard API in this context
+    }
   }
 
   const LOG_LIMIT = 200;
@@ -154,11 +206,15 @@
       error = (err as Error).message || 'Connection failed';
     }
     tickTimer = setInterval(() => { lastTickTs = Date.now(); }, 1000);
+
+    void pollLocalGit();
+    gitPollTimer = setInterval(pollLocalGit, 10_000);
   });
 
   onDestroy(() => {
     mounted = false;
     if (tickTimer) clearInterval(tickTimer);
+    if (gitPollTimer) clearInterval(gitPollTimer);
     unsubscribe?.().catch(() => {});
   });
 
@@ -340,6 +396,52 @@
   </div>
 
   <footer class="state-panel">
+    {#if localGit && !localGit.not_a_repo}
+      <div class="state-header">GIT ACTIONS</div>
+      <div class="git-actions-body">
+        <div class="git-summary">
+          <span class="git-branch-label">⎇ {localGit.branch}</span>
+          <span class="git-file-count" class:has-changes={uncommittedCount > 0}>
+            {uncommittedCount} uncommitted file{uncommittedCount === 1 ? '' : 's'}
+          </span>
+        </div>
+        {#if uncommittedCount > 0}
+          <div class="git-file-breakdown">
+            {#if localGit.staged.length > 0}
+              <span class="git-staged">{localGit.staged.length} staged</span>
+            {/if}
+            {#if localGit.modified.length > 0}
+              <span class="git-modified">{localGit.modified.length} modified</span>
+            {/if}
+            {#if localGit.untracked.length > 0}
+              <span class="git-untracked">{localGit.untracked.length} untracked</span>
+            {/if}
+          </div>
+          <div class="git-btn-row">
+            <button type="button"
+              class="git-action-btn primary"
+              class:requested={commitRequested}
+              onclick={requestCommit}
+              disabled={commitRequested}
+              title="Publish a bus event requesting Claude to commit these files"
+            >
+              {commitRequested ? '✓ requested' : '⊕ request commit'}
+            </button>
+            <button type="button"
+              class="git-action-btn"
+              class:copied={copyFeedback}
+              onclick={copyCommitCmd}
+              title="Copy a git commit command to clipboard"
+            >
+              {copyFeedback ? '✓ copied' : '⎘ copy cmd'}
+            </button>
+          </div>
+        {:else}
+          <div class="git-clean">✓ working tree clean</div>
+        {/if}
+      </div>
+    {/if}
+
     <div class="state-header">PORTFOLIO STATUS</div>
     <div class="state-body">
       <div class="k-row">
@@ -441,9 +543,9 @@
   }
   .status .spacer { flex: 1; }
 
-  .count-red { color: #CC3333; }
-  .count-amber { color: #D4890A; }
-  .count-green { color: #33CC33; }
+  .count-red { color: var(--term-red); }
+  .count-amber { color: var(--amber-primary); }
+  .count-green { color: var(--term-green); }
 
   .ctrl-btn {
     background: none; border: 1px solid var(--border-subtle);
@@ -631,8 +733,8 @@
     align-items: baseline;
   }
 
-  .v-critical { color: #CC3333; font-weight: 700; }
-  .v-warning { color: #D4890A; }
+  .v-critical { color: var(--term-red); font-weight: 700; }
+  .v-warning { color: var(--amber-primary); }
   .v-info { color: var(--term-cyan); }
   .v-clear { color: var(--term-green); font-weight: 400; }
 
@@ -648,7 +750,107 @@
   .git-synced { color: var(--term-green); font-weight: 400; }
   .git-na { color: var(--amber-faint); font-style: italic; font-weight: 400; }
 
-  .state-panel { box-shadow: 0 -2px 6px rgba(0, 0, 0, 0.45); }
+  .state-panel { box-shadow: 0 -2px 6px rgba(0, 0, 0, 0.45); flex-shrink: 0; }
+
+  .git-actions-body {
+    padding: var(--space-12) var(--space-lg);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-8);
+    border-bottom: 1px solid var(--border-subtle);
+  }
+  .git-summary {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    font-size: var(--text-sm);
+  }
+  .git-branch-label {
+    color: var(--term-cyan);
+    font-weight: 600;
+    font-size: var(--text-xs);
+    letter-spacing: 0.04em;
+  }
+  .git-file-count {
+    color: var(--term-green);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+  .git-file-count.has-changes {
+    color: var(--amber-bright);
+  }
+  .git-file-breakdown {
+    display: flex;
+    gap: var(--space-md);
+    font-size: var(--text-xs);
+    letter-spacing: 0.04em;
+  }
+  .git-staged { color: var(--term-green); }
+  .git-modified { color: var(--amber-primary); }
+  .git-untracked { color: var(--amber-dim); }
+
+  .git-btn-row {
+    display: flex;
+    gap: var(--space-8);
+    margin-top: var(--space-xs);
+  }
+  .git-action-btn {
+    flex: 1;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-subtle);
+    color: var(--amber-warm);
+    font-family: var(--font-family);
+    font-size: var(--text-xs);
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    padding: var(--space-xs) var(--space-md);
+    cursor: pointer;
+    border-radius: var(--radius-md, 4px);
+    transition: color var(--duration-base), border-color var(--duration-base),
+                background var(--duration-base), box-shadow var(--duration-base);
+  }
+  .git-action-btn:hover {
+    color: var(--amber-bright);
+    border-color: var(--amber-primary);
+    background: var(--bg-hover);
+    box-shadow: 0 0 6px rgba(212, 137, 10, 0.2);
+  }
+  .git-action-btn:active {
+    background: rgba(255, 168, 38, 0.1);
+  }
+  .git-action-btn:focus-visible {
+    outline: 1px solid var(--amber-primary);
+    outline-offset: 1px;
+  }
+  .git-action-btn.primary {
+    border-color: var(--term-green);
+    color: var(--term-green);
+    background: rgba(79, 232, 85, 0.06);
+  }
+  .git-action-btn.primary:hover {
+    box-shadow: 0 0 8px rgba(79, 232, 85, 0.25);
+    background: rgba(79, 232, 85, 0.1);
+    border-color: var(--term-green);
+    color: var(--term-green);
+  }
+  .git-action-btn.requested,
+  .git-action-btn.copied {
+    color: var(--term-green);
+    border-color: var(--term-green);
+    cursor: default;
+  }
+  .git-action-btn:disabled {
+    opacity: 0.7;
+    cursor: default;
+  }
+
+  .git-clean {
+    color: var(--term-green);
+    font-size: var(--text-xs);
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    opacity: 0.8;
+  }
   .state-header {
     padding: var(--space-8) var(--space-lg);
     color: var(--amber-faint);
@@ -668,7 +870,7 @@
   }
   .k { color: var(--amber-dim); }
   .v { color: var(--amber-warm); font-weight: 600; font-variant-numeric: tabular-nums; }
-  .v-critical { color: #CC3333; font-weight: 700; }
-  .v-warning { color: #D4890A; }
-  .v-healthy { color: #33CC33; }
+  .v-critical { color: var(--term-red); font-weight: 700; }
+  .v-warning { color: var(--amber-primary); }
+  .v-healthy { color: var(--term-green); }
 </style>

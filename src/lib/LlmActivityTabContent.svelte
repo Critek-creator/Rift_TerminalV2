@@ -131,6 +131,7 @@
   <!-- §10.8 Section 1 — Status header -->
   <div
     class="status-header"
+    role={onDragBack ? 'button' : undefined}
     draggable={!!onDragBack}
     ondragstart={onDragStart}
   >

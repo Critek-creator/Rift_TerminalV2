@@ -101,9 +101,9 @@ use rift_bus::translators::llm_process::ProcessManager;
 use rift_bus::{
     build_tree, load_config, prepare_lane_prelude, publish_command, publish_error, read_text,
     save_config, spawn_fs_watcher, spawn_session_logger, spawn_status_translator,
-    spawn_vault_walker, write_text, Category, CommandBuffer, Envelope, FsWatcher, IpcServer, Lane,
-    LaneClassifier, RiftBus, RiftConfig, SentinelEvent, ShellPref, SubscribeFilter, TreeNode,
-    FS_TREE_DEFAULT_MAX_DEPTH,
+    spawn_vault_walker, write_text, BusError, Category, CommandBuffer, Envelope, FsWatcher,
+    IpcServer, Lane, LaneClassifier, RiftBus, RiftConfig, SentinelEvent, ShellPref,
+    SubscribeFilter, TreeNode, FS_TREE_DEFAULT_MAX_DEPTH,
 };
 use rift_core::process::is_claude_descendant;
 use rift_core::pty::{PtyControl, PtyDims, PtyOptions, PtySession};
@@ -934,6 +934,14 @@ async fn bus_subscribe(
                     match next {
                         Ok(env) => {
                             if on_envelope.send(env).is_err() { break; }
+                        }
+                        Err(BusError::Lagged(n)) => {
+                            tracing::warn!(
+                                sub_id = id,
+                                lagged = n,
+                                "bus subscriber lagged — skipping {n} events, continuing"
+                            );
+                            continue;
                         }
                         Err(_) => break,
                     }

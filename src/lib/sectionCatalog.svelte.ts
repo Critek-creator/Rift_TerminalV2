@@ -178,7 +178,7 @@ const BUILTIN_TABS: TabDescriptor[] = [
   },
   {
     id: 'llm-activity', title: 'models', icon: '◆',
-    category: 'llm', detectedByDefault: false,
+    category: 'llm', detectedByDefault: true,
     sections: [...STANDARD_SECTIONS],
     source: 'builtin', group: 'activity',
   },
