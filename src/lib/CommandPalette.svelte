@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { fade } from 'svelte/transition';
   import { sectionCatalog } from './sectionCatalog.svelte';
   import { popouts } from './popouts.svelte';
 
@@ -107,7 +108,7 @@
 
 </script>
 
-<div class="palette-backdrop" role="presentation" onclick={onclose} onkeydown={onKeydown}>
+<div class="palette-backdrop" role="presentation" onclick={onclose} onkeydown={onKeydown} transition:fade={{ duration: 150 }}>
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <div class="palette-panel" role="dialog" aria-label="Command palette" aria-modal="true" tabindex="-1" onclick={(e) => e.stopPropagation()}>
     <input
@@ -115,18 +116,24 @@
       bind:value={query}
       onkeydown={onKeydown}
       placeholder="Search tabs, actions, shortcuts…"
-      aria-label="search commands and shortcuts"
+      role="combobox"
+      aria-label="Search commands and shortcuts"
+      aria-expanded={filtered.length > 0}
+      aria-controls="palette-listbox"
+      aria-activedescendant={filtered.length > 0 ? `palette-option-${selectedIdx}` : undefined}
+      aria-autocomplete="list"
       spellcheck="false"
       autocomplete="off"
     />
-    <div class="results">
+    <div class="results" id="palette-listbox" role="listbox" aria-label="Commands">
       {#each filtered as entry, i}
         {@const showHeader = i === 0 || filtered[i - 1]?.category !== entry.category}
         {#if showHeader}
-          <div class="category-header">{categoryLabel(entry.category)}</div>
+          <div class="category-header" role="presentation">{categoryLabel(entry.category)}</div>
         {/if}
         <!-- svelte-ignore a11y_click_events_have_key_events -->
         <div
+          id="palette-option-{i}"
           class="entry"
           class:selected={i === selectedIdx}
           class:actionable={entry.category !== 'shortcut'}
@@ -144,7 +151,7 @@
         </div>
       {/each}
       {#if filtered.length === 0}
-        <div class="empty">No matches</div>
+        <div class="empty" role="status">No matches</div>
       {/if}
     </div>
   </div>

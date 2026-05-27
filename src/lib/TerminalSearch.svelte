@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { fly } from 'svelte/transition';
   import type { SearchAddon } from '@xterm/addon-search';
 
   interface Props {
@@ -59,7 +60,7 @@
   });
 </script>
 
-<div class="search-bar" role="search">
+<div class="search-bar" role="search" transition:fly={{ y: -20, duration: 150 }}>
   <input
     bind:this={inputEl}
     bind:value={query}

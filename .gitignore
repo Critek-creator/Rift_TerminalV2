@@ -30,6 +30,9 @@ src-tauri/gen/
 # Cargo local config (paths override for sibling-repo deps)
 .cargo/
 
+# Root-level screenshots (MCP verification artifacts)
+/*.png
+
 # Claude Code project-local state
 .claude/
 # Playwright MCP browser scratch dir (created by claude-in-chrome / playwright MCPs)

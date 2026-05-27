@@ -325,6 +325,10 @@
         </div>
       </div>
     {/if}
+  {:else if !error}
+    <div class="loading-card" aria-busy="true">
+      <div class="loading-title">Preparing comparison…</div>
+    </div>
   {/if}
 </section>
 
