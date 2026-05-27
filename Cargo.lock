@@ -3450,6 +3450,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "rift-router"
+version = "1.1.0"
+dependencies = [
+ "rift-bus",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "ring"
 version = "0.17.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"

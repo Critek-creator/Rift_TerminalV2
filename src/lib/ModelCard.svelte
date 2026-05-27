@@ -1,6 +1,7 @@
 <script lang="ts">
-  import type { ModelConfig, ProviderType, KvCacheType } from './riftConfig';
+  import type { ModelConfig, ProviderType, KvCacheType, LlamaServerConfig } from './riftConfig';
   import { llmModels, type ProcessStatus } from './llmModels.svelte';
+  import VramEstimator from './VramEstimator.svelte';
 
   interface Props {
     model: ModelConfig;
@@ -221,6 +222,8 @@
           Auto-start on Rift launch
         </label>
       </div>
+
+      <VramEstimator config={model.hosting as unknown as LlamaServerConfig} />
     </fieldset>
     {/if}
 

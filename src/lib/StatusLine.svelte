@@ -23,6 +23,7 @@
 
   import type { StatusLineConfig } from './riftConfig';
   import ProfilePicker from './ProfilePicker.svelte';
+  import ModelIndicator from './ModelIndicator.svelte';
 
   interface Props {
     dir?: string;
@@ -83,6 +84,7 @@
     {#if show.model}
       <div class="seg model" style:background={override('model')}>
         <span class="label">MODEL</span><span class="value">{model}</span>
+        <ModelIndicator />
       </div>
     {/if}
     {#if show.thinking}

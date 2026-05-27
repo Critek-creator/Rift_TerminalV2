@@ -46,6 +46,15 @@
   --status-cyan-dim:     #4ABCBC;   /* THINKING */
   --status-time:         #C58FFF;   /* SESSION TIME (purple — clock) */
 
+  /* Model identity colors — Ensemble Router (distinct from lane colors).
+     Used on indicators, cards, badges only — never on full-line lanes. */
+  --model-claude:  #E8A040;   /* warm gold — not amber-primary */
+  --model-gemini:  #7B9CDB;   /* muted steel blue — not term-blue */
+  --model-local:   #7BC47B;   /* sage green — not term-green */
+  --model-server:  #6ABFBF;   /* teal — not term-cyan */
+  --model-custom:  #B89CD9;   /* lavender — not term-purple */
+  --model-offline: rgba(168, 120, 48, 0.3);
+
   /* Brightened glows to match the lifted amber palette. */
   --glow-amber:        0 0 8px rgba(255, 168, 38, 0.55);
   --glow-amber-strong: 0 0 14px rgba(255, 200, 64, 0.85);
