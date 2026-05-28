@@ -104,20 +104,27 @@ pub struct ProfileSummary {
 }
 
 #[tauri::command]
-pub fn profile_list(store: tauri::State<'_, ProfileStore>) -> Result<Vec<ProfileSummary>, String> {
-    store.ensure_loaded()?;
-    let profiles = store.inner.lock();
-    Ok(profiles
-        .iter()
-        .map(|p| ProfileSummary {
-            name: p.name.clone(),
-            project_filter: p.project_filter.clone(),
-        })
-        .collect())
+pub async fn profile_list(
+    store: tauri::State<'_, ProfileStore>,
+) -> Result<Vec<ProfileSummary>, String> {
+    let store = store.inner().clone();
+    tokio::task::spawn_blocking(move || {
+        store.ensure_loaded()?;
+        let profiles = store.inner.lock();
+        Ok(profiles
+            .iter()
+            .map(|p| ProfileSummary {
+                name: p.name.clone(),
+                project_filter: p.project_filter.clone(),
+            })
+            .collect())
+    })
+    .await
+    .map_err(|e| format!("profile_list: join error: {e}"))?
 }
 
 #[tauri::command]
-pub fn profile_save(
+pub async fn profile_save(
     name: String,
     state: WorkspaceProfileState,
     project_filter: Option<String>,
@@ -132,52 +139,69 @@ pub fn profile_save(
             "profile_save: name exceeds {MAX_NAME_LEN} characters"
         ));
     }
-    store.ensure_loaded()?;
-    let mut profiles = store.inner.lock();
-    const MAX_PROFILES: usize = 100;
-    // Only enforce the cap when creating a new profile, not when updating.
-    if !profiles.iter().any(|p| p.name == name) && profiles.len() >= MAX_PROFILES {
-        return Err(format!(
-            "profile_save: maximum of {MAX_PROFILES} profiles reached"
-        ));
-    }
-    if let Some(existing) = profiles.iter_mut().find(|p| p.name == name) {
-        existing.state = state;
-        existing.project_filter = project_filter;
-    } else {
-        profiles.push(WorkspaceProfile {
-            name,
-            project_filter,
-            state,
-        });
-    }
-    drop(profiles);
-    store.save()
+    let store = store.inner().clone();
+    tokio::task::spawn_blocking(move || {
+        store.ensure_loaded()?;
+        let mut profiles = store.inner.lock();
+        const MAX_PROFILES: usize = 100;
+        if !profiles.iter().any(|p| p.name == name) && profiles.len() >= MAX_PROFILES {
+            return Err(format!(
+                "profile_save: maximum of {MAX_PROFILES} profiles reached"
+            ));
+        }
+        if let Some(existing) = profiles.iter_mut().find(|p| p.name == name) {
+            existing.state = state;
+            existing.project_filter = project_filter;
+        } else {
+            profiles.push(WorkspaceProfile {
+                name,
+                project_filter,
+                state,
+            });
+        }
+        drop(profiles);
+        store.save()
+    })
+    .await
+    .map_err(|e| format!("profile_save: join error: {e}"))?
 }
 
 #[tauri::command]
-pub fn profile_load(
+pub async fn profile_load(
     name: String,
     store: tauri::State<'_, ProfileStore>,
 ) -> Result<WorkspaceProfileState, String> {
-    store.ensure_loaded()?;
-    let profiles = store.inner.lock();
-    profiles
-        .iter()
-        .find(|p| p.name == name)
-        .map(|p| p.state.clone())
-        .ok_or_else(|| format!("profile_load: no profile named '{name}'"))
+    let store = store.inner().clone();
+    tokio::task::spawn_blocking(move || {
+        store.ensure_loaded()?;
+        let profiles = store.inner.lock();
+        profiles
+            .iter()
+            .find(|p| p.name == name)
+            .map(|p| p.state.clone())
+            .ok_or_else(|| format!("profile_load: no profile named '{name}'"))
+    })
+    .await
+    .map_err(|e| format!("profile_load: join error: {e}"))?
 }
 
 #[tauri::command]
-pub fn profile_delete(name: String, store: tauri::State<'_, ProfileStore>) -> Result<(), String> {
-    store.ensure_loaded()?;
-    let mut profiles = store.inner.lock();
-    let before = profiles.len();
-    profiles.retain(|p| p.name != name);
-    if profiles.len() == before {
-        return Err(format!("profile_delete: no profile named '{name}'"));
-    }
-    drop(profiles);
-    store.save()
+pub async fn profile_delete(
+    name: String,
+    store: tauri::State<'_, ProfileStore>,
+) -> Result<(), String> {
+    let store = store.inner().clone();
+    tokio::task::spawn_blocking(move || {
+        store.ensure_loaded()?;
+        let mut profiles = store.inner.lock();
+        let before = profiles.len();
+        profiles.retain(|p| p.name != name);
+        if profiles.len() == before {
+            return Err(format!("profile_delete: no profile named '{name}'"));
+        }
+        drop(profiles);
+        store.save()
+    })
+    .await
+    .map_err(|e| format!("profile_delete: join error: {e}"))?
 }

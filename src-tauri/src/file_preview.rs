@@ -15,48 +15,54 @@ pub struct FilePreviewResult {
 }
 
 #[tauri::command]
-pub fn file_preview(
+pub async fn file_preview(
     path: String,
     project_root: tauri::State<'_, ProjectRoot>,
 ) -> Result<FilePreviewResult, String> {
-    let resolved = resolve_path(&path, &project_root.get());
+    let root = project_root.get();
+    tokio::task::spawn_blocking(move || {
+        let resolved = resolve_path(&path, &root);
 
-    if !resolved.exists() {
-        return Ok(FilePreviewResult::default());
-    }
+        if !resolved.exists() {
+            return Ok(FilePreviewResult::default());
+        }
 
-    let meta = std::fs::metadata(&resolved).map_err(|e| format!("file_preview: metadata: {e}"))?;
+        let meta =
+            std::fs::metadata(&resolved).map_err(|e| format!("file_preview: metadata: {e}"))?;
 
-    if meta.is_dir() {
-        return Ok(FilePreviewResult {
+        if meta.is_dir() {
+            return Ok(FilePreviewResult {
+                exists: true,
+                size_bytes: 0,
+                modified_iso: format_modified(&meta),
+                language_hint: "directory".to_string(),
+                preview_lines: Vec::new(),
+                is_binary: false,
+            });
+        }
+
+        let size_bytes = meta.len();
+        let modified_iso = format_modified(&meta);
+        let language_hint = language_from_ext(&resolved);
+
+        let is_binary = check_binary(&resolved);
+        let preview_lines = if is_binary {
+            Vec::new()
+        } else {
+            read_preview_lines(&resolved, 10)
+        };
+
+        Ok(FilePreviewResult {
             exists: true,
-            size_bytes: 0,
-            modified_iso: format_modified(&meta),
-            language_hint: "directory".to_string(),
-            preview_lines: Vec::new(),
-            is_binary: false,
-        });
-    }
-
-    let size_bytes = meta.len();
-    let modified_iso = format_modified(&meta);
-    let language_hint = language_from_ext(&resolved);
-
-    let is_binary = check_binary(&resolved);
-    let preview_lines = if is_binary {
-        Vec::new()
-    } else {
-        read_preview_lines(&resolved, 10)
-    };
-
-    Ok(FilePreviewResult {
-        exists: true,
-        size_bytes,
-        modified_iso,
-        language_hint,
-        preview_lines,
-        is_binary,
+            size_bytes,
+            modified_iso,
+            language_hint,
+            preview_lines,
+            is_binary,
+        })
     })
+    .await
+    .map_err(|e| format!("file_preview: join error: {e}"))?
 }
 
 fn resolve_path(path: &str, project_root: &Path) -> PathBuf {

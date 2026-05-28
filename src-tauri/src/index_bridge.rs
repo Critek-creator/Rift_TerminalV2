@@ -74,121 +74,147 @@ pub struct IndexStats {
 }
 
 #[tauri::command]
-pub fn index_list_nodes(
+pub async fn index_list_nodes(
     domain: Option<String>,
     floor: Option<String>,
     tags: Option<String>,
 ) -> Result<Vec<IndexNode>, String> {
-    let index = open_index()?;
+    tokio::task::spawn_blocking(move || {
+        let index = open_index()?;
 
-    let records = if let Some(tag_str) = tags {
-        let tag_list: Vec<String> = tag_str.split(',').map(|t| t.trim().to_string()).collect();
-        index
-            .by_tags(&tag_list, TagOperator::Or, None)
-            .map_err(|e| e.to_string())?
-    } else {
-        index
-            .db()
-            .query_nodes(domain.as_deref(), floor.as_deref(), None, None)
-            .map_err(|e| e.to_string())?
-    };
+        let records = if let Some(tag_str) = tags {
+            let tag_list: Vec<String> = tag_str.split(',').map(|t| t.trim().to_string()).collect();
+            index
+                .by_tags(&tag_list, TagOperator::Or, None)
+                .map_err(|e| e.to_string())?
+        } else {
+            index
+                .db()
+                .query_nodes(domain.as_deref(), floor.as_deref(), None, None)
+                .map_err(|e| e.to_string())?
+        };
 
-    Ok(records
-        .into_iter()
-        .map(|r| IndexNode {
-            id: r.id.to_string(),
-            title: r.title,
-            domain: r.domain.dir_name().to_string(),
-            floor: r.floor.to_string(),
-            tags: r.tags,
-            summary: r.summary,
-            status: format!("{:?}", r.status).to_lowercase(),
-            modified: r.modified.to_rfc3339(),
-        })
-        .collect())
-}
-
-#[tauri::command]
-pub fn index_search_nodes(query: String, limit: Option<usize>) -> Result<Vec<IndexNode>, String> {
-    let index = open_index()?;
-    let results = index
-        .search(&query, limit.unwrap_or(50))
-        .map_err(|e| e.to_string())?;
-
-    Ok(results
-        .into_iter()
-        .map(|r| IndexNode {
-            id: r.record.id.to_string(),
-            title: r.record.title,
-            domain: r.record.domain.dir_name().to_string(),
-            floor: r.record.floor.to_string(),
-            tags: r.record.tags,
-            summary: r.record.summary,
-            status: format!("{:?}", r.record.status).to_lowercase(),
-            modified: r.record.modified.to_rfc3339(),
-        })
-        .collect())
-}
-
-#[tauri::command]
-pub fn index_get_node(id: String) -> Result<IndexNodeFull, String> {
-    let index = open_index()?;
-    let uuid = uuid::Uuid::parse_str(&id).map_err(|e| format!("Invalid UUID: {e}"))?;
-    let node = index.read(uuid).map_err(|e| e.to_string())?;
-
-    let links: Vec<String> = index_core::wikilink::extract_wikilinks(&node.body)
-        .into_iter()
-        .map(|l| l.target)
-        .collect();
-
-    Ok(IndexNodeFull {
-        id: node.metadata.id.to_string(),
-        title: node.metadata.title,
-        domain: node.metadata.domain.dir_name().to_string(),
-        floor: node.metadata.floor.to_string(),
-        tags: node.metadata.tags,
-        summary: node.metadata.summary,
-        status: format!("{:?}", node.metadata.status).to_lowercase(),
-        body: node.body,
-        created: node.metadata.created.to_rfc3339(),
-        modified: node.metadata.modified.to_rfc3339(),
-        links,
+        Ok(records
+            .into_iter()
+            .map(|r| IndexNode {
+                id: r.id.to_string(),
+                title: r.title,
+                domain: r.domain.dir_name().to_string(),
+                floor: r.floor.to_string(),
+                tags: r.tags,
+                summary: r.summary,
+                status: format!("{:?}", r.status).to_lowercase(),
+                modified: r.modified.to_rfc3339(),
+            })
+            .collect())
     })
+    .await
+    .map_err(|e| format!("index_list_nodes: join error: {e}"))?
 }
 
 #[tauri::command]
-pub fn index_get_connections(id: String, depth: Option<u32>) -> Result<Vec<IndexNode>, String> {
-    let index = open_index()?;
-    let uuid = uuid::Uuid::parse_str(&id).map_err(|e| format!("Invalid UUID: {e}"))?;
-    let records = index
-        .connections(uuid, depth.unwrap_or(1))
-        .map_err(|e| e.to_string())?;
+pub async fn index_search_nodes(
+    query: String,
+    limit: Option<usize>,
+) -> Result<Vec<IndexNode>, String> {
+    tokio::task::spawn_blocking(move || {
+        let index = open_index()?;
+        let results = index
+            .search(&query, limit.unwrap_or(50))
+            .map_err(|e| e.to_string())?;
 
-    Ok(records
-        .into_iter()
-        .map(|r| IndexNode {
-            id: r.id.to_string(),
-            title: r.title,
-            domain: r.domain.dir_name().to_string(),
-            floor: r.floor.to_string(),
-            tags: r.tags,
-            summary: r.summary,
-            status: format!("{:?}", r.status).to_lowercase(),
-            modified: r.modified.to_rfc3339(),
-        })
-        .collect())
-}
-
-#[tauri::command]
-pub fn index_get_stats() -> Result<IndexStats, String> {
-    let index = open_index()?;
-    let stats = index.stats().map_err(|e| e.to_string())?;
-
-    Ok(IndexStats {
-        total_nodes: stats.total_nodes,
-        total_links: stats.total_links,
-        unique_tags: stats.unique_tags,
-        by_domain: stats.by_domain.into_iter().collect(),
-        by_floor: stats.by_floor.into_iter().collect(),
+        Ok(results
+            .into_iter()
+            .map(|r| IndexNode {
+                id: r.record.id.to_string(),
+                title: r.record.title,
+                domain: r.record.domain.dir_name().to_string(),
+                floor: r.record.floor.to_string(),
+                tags: r.record.tags,
+                summary: r.record.summary,
+                status: format!("{:?}", r.record.status).to_lowercase(),
+                modified: r.record.modified.to_rfc3339(),
+            })
+            .collect())
     })
+    .await
+    .map_err(|e| format!("index_search_nodes: join error: {e}"))?
+}
+
+#[tauri::command]
+pub async fn index_get_node(id: String) -> Result<IndexNodeFull, String> {
+    tokio::task::spawn_blocking(move || {
+        let index = open_index()?;
+        let uuid = uuid::Uuid::parse_str(&id).map_err(|e| format!("Invalid UUID: {e}"))?;
+        let node = index.read(uuid).map_err(|e| e.to_string())?;
+
+        let links: Vec<String> = index_core::wikilink::extract_wikilinks(&node.body)
+            .into_iter()
+            .map(|l| l.target)
+            .collect();
+
+        Ok(IndexNodeFull {
+            id: node.metadata.id.to_string(),
+            title: node.metadata.title,
+            domain: node.metadata.domain.dir_name().to_string(),
+            floor: node.metadata.floor.to_string(),
+            tags: node.metadata.tags,
+            summary: node.metadata.summary,
+            status: format!("{:?}", node.metadata.status).to_lowercase(),
+            body: node.body,
+            created: node.metadata.created.to_rfc3339(),
+            modified: node.metadata.modified.to_rfc3339(),
+            links,
+        })
+    })
+    .await
+    .map_err(|e| format!("index_get_node: join error: {e}"))?
+}
+
+#[tauri::command]
+pub async fn index_get_connections(
+    id: String,
+    depth: Option<u32>,
+) -> Result<Vec<IndexNode>, String> {
+    tokio::task::spawn_blocking(move || {
+        let index = open_index()?;
+        let uuid = uuid::Uuid::parse_str(&id).map_err(|e| format!("Invalid UUID: {e}"))?;
+        let records = index
+            .connections(uuid, depth.unwrap_or(1))
+            .map_err(|e| e.to_string())?;
+
+        Ok(records
+            .into_iter()
+            .map(|r| IndexNode {
+                id: r.id.to_string(),
+                title: r.title,
+                domain: r.domain.dir_name().to_string(),
+                floor: r.floor.to_string(),
+                tags: r.tags,
+                summary: r.summary,
+                status: format!("{:?}", r.status).to_lowercase(),
+                modified: r.modified.to_rfc3339(),
+            })
+            .collect())
+    })
+    .await
+    .map_err(|e| format!("index_get_connections: join error: {e}"))?
+}
+
+#[tauri::command]
+pub async fn index_get_stats() -> Result<IndexStats, String> {
+    tokio::task::spawn_blocking(move || {
+        let index = open_index()?;
+        let stats = index.stats().map_err(|e| e.to_string())?;
+
+        Ok(IndexStats {
+            total_nodes: stats.total_nodes,
+            total_links: stats.total_links,
+            unique_tags: stats.unique_tags,
+            by_domain: stats.by_domain.into_iter().collect(),
+            by_floor: stats.by_floor.into_iter().collect(),
+        })
+    })
+    .await
+    .map_err(|e| format!("index_get_stats: join error: {e}"))?
 }

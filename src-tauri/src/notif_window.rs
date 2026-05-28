@@ -124,7 +124,7 @@ pub struct DetachArgs {
 }
 
 #[tauri::command]
-pub fn notif_detach(
+pub async fn notif_detach(
     app: AppHandle,
     state: State<'_, NotifWindowState>,
     args: DetachArgs,

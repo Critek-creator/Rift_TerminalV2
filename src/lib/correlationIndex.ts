@@ -1,6 +1,7 @@
 import type { Envelope } from './bus';
 
 const MAX_CHAINS = 1000;
+const MAX_CHAIN_SIZE = 50;
 
 export class CorrelationIndex {
   private chains = new Map<string, Envelope[]>();
@@ -20,6 +21,7 @@ export class CorrelationIndex {
       }
     }
     chain.push(env);
+    if (chain.length > MAX_CHAIN_SIZE) chain.shift();
   }
 
   getChain(correlationId: string): Envelope[] {

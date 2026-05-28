@@ -7,7 +7,7 @@ mod llm_commands;
 #[cfg(not(feature = "index"))]
 mod index_bridge {
     #[tauri::command]
-    pub fn index_list_nodes(
+    pub async fn index_list_nodes(
         _domain: Option<String>,
         _floor: Option<String>,
         _tags: Option<String>,
@@ -15,19 +15,19 @@ mod index_bridge {
         Err("Index integration not available (built without 'index' feature)".into())
     }
     #[tauri::command]
-    pub fn index_search_nodes(_query: String, _limit: Option<usize>) -> Result<(), String> {
+    pub async fn index_search_nodes(_query: String, _limit: Option<usize>) -> Result<(), String> {
         Err("Index integration not available (built without 'index' feature)".into())
     }
     #[tauri::command]
-    pub fn index_get_node(_id: String) -> Result<(), String> {
+    pub async fn index_get_node(_id: String) -> Result<(), String> {
         Err("Index integration not available (built without 'index' feature)".into())
     }
     #[tauri::command]
-    pub fn index_get_connections(_id: String, _depth: Option<u32>) -> Result<(), String> {
+    pub async fn index_get_connections(_id: String, _depth: Option<u32>) -> Result<(), String> {
         Err("Index integration not available (built without 'index' feature)".into())
     }
     #[tauri::command]
-    pub fn index_get_stats() -> Result<(), String> {
+    pub async fn index_get_stats() -> Result<(), String> {
         Err("Index integration not available (built without 'index' feature)".into())
     }
 }
@@ -792,7 +792,7 @@ async fn pty_start(
 }
 
 #[tauri::command]
-fn pty_write(
+async fn pty_write(
     state: State<'_, PtyRegistry>,
     bus: State<'_, RiftBus>,
     cmd_bufs: State<'_, CommandBufferRegistry>,
@@ -804,14 +804,20 @@ fn pty_write(
         publish_error(bus.inner(), "tauri.command.pty_write", &msg, None);
         msg
     })?;
-    control.write(&bytes).map_err(|e| {
-        let msg = e.to_string();
-        publish_error(bus.inner(), "tauri.command.pty_write", &msg, None);
-        msg
-    })?;
+    let bus_clone = bus.inner().clone();
+    let bytes_for_buf = bytes.clone();
+    tokio::task::spawn_blocking(move || {
+        control.write(&bytes).map_err(|e| {
+            let msg = e.to_string();
+            publish_error(&bus_clone, "tauri.command.pty_write", &msg, None);
+            msg
+        })
+    })
+    .await
+    .map_err(|e| format!("pty_write: task join error: {e}"))??;
     // Write succeeded — feed bytes into the command buffer and publish each
     // completed command line. Failed writes (above) do NOT emit here (§3c).
-    for (cmd, raw_len) in cmd_bufs.feed(id, &bytes) {
+    for (cmd, raw_len) in cmd_bufs.feed(id, &bytes_for_buf) {
         publish_command(bus.inner(), id, cmd, raw_len);
     }
     Ok(())
@@ -982,21 +988,32 @@ fn terminal_mounted(ready: State<'_, TerminalReady>) {
 /// the case where boot-walk events have been evicted from the replay ring
 /// buffer (e.g., after a page reload with heavy bus traffic between walks).
 #[tauri::command]
-fn vault_rescan(bus: State<'_, RiftBus>, project_root: State<'_, ProjectRoot>) {
+async fn vault_rescan(
+    bus: State<'_, RiftBus>,
+    project_root: State<'_, ProjectRoot>,
+) -> Result<(), String> {
     use rift_bus::translators::vault_walker::{publish_walk_complete, rescan_vaults};
 
-    let vault_root = match directories::BaseDirs::new() {
-        Some(b) => b.home_dir().join(".claude/abyssal-index"),
-        None => {
-            publish_walk_complete(bus.inner());
+    let bus_clone = bus.inner().clone();
+    let root = project_root.get();
+
+    tokio::task::spawn_blocking(move || {
+        let vault_root = match directories::BaseDirs::new() {
+            Some(b) => b.home_dir().join(".claude/abyssal-index"),
+            None => {
+                publish_walk_complete(&bus_clone);
+                return;
+            }
+        };
+        if !vault_root.exists() {
+            publish_walk_complete(&bus_clone);
             return;
         }
-    };
-    if !vault_root.exists() {
-        publish_walk_complete(bus.inner());
-        return;
-    }
-    rescan_vaults(bus.inner(), &vault_root, Some(&project_root.get()));
+        rescan_vaults(&bus_clone, &vault_root, Some(&root));
+    })
+    .await
+    .map_err(|e| format!("vault_rescan: task join error: {e}"))?;
+    Ok(())
 }
 
 /// Phase 8.7q.4 — page-load cleanup hook.
@@ -1118,17 +1135,22 @@ fn bus_publish(
 /// `fs_read_write-still-reads-current_dir-after-project_swap`. After
 /// `project_swap`, this command resolves paths against the swapped root.
 #[tauri::command]
-fn fs_read_text(
+async fn fs_read_text(
     bus: State<'_, RiftBus>,
     project_root: State<'_, ProjectRoot>,
     path: String,
 ) -> Result<String, String> {
     let root = project_root.get();
-    read_text(&root, &path).map_err(|e| {
-        let msg = e.to_string();
-        publish_error(bus.inner(), "tauri.command.fs_read_text", &msg, None);
-        msg
+    let bus_clone = bus.inner().clone();
+    tokio::task::spawn_blocking(move || {
+        read_text(&root, &path).map_err(|e| {
+            let msg = e.to_string();
+            publish_error(&bus_clone, "tauri.command.fs_read_text", &msg, None);
+            msg
+        })
     })
+    .await
+    .map_err(|e| format!("fs_read_text: task join error: {e}"))?
 }
 
 /// Write text content to an existing project-relative file.
@@ -1136,18 +1158,23 @@ fn fs_read_text(
 /// Mirrors `fs_read_text`'s `ProjectRoot` discipline so post-swap writes
 /// land in the swapped project, not the launch cwd.
 #[tauri::command]
-fn fs_write_text(
+async fn fs_write_text(
     bus: State<'_, RiftBus>,
     project_root: State<'_, ProjectRoot>,
     path: String,
     content: String,
 ) -> Result<(), String> {
     let root = project_root.get();
-    write_text(&root, &path, &content).map_err(|e| {
-        let msg = e.to_string();
-        publish_error(bus.inner(), "tauri.command.fs_write_text", &msg, None);
-        msg
+    let bus_clone = bus.inner().clone();
+    tokio::task::spawn_blocking(move || {
+        write_text(&root, &path, &content).map_err(|e| {
+            let msg = e.to_string();
+            publish_error(&bus_clone, "tauri.command.fs_write_text", &msg, None);
+            msg
+        })
     })
+    .await
+    .map_err(|e| format!("fs_write_text: task join error: {e}"))?
 }
 
 // ---------------------------------------------------------------------------
@@ -1164,7 +1191,9 @@ fn fs_write_text(
 /// a `tracing::warn!` if the file is missing or the OS command exits nonzero.
 #[tauri::command]
 async fn aegis_open_lessons() -> Result<(), String> {
-    open_in_os_editor(".claude/anti-claude-lessons.md")
+    tokio::task::spawn_blocking(|| open_in_os_editor(".claude/anti-claude-lessons.md"))
+        .await
+        .map_err(|e| format!("aegis_open_lessons: task join error: {e}"))?
 }
 
 /// Open `~/.claude/settings.json` in the OS default editor.
@@ -1172,7 +1201,9 @@ async fn aegis_open_lessons() -> Result<(), String> {
 /// Same mechanics as `aegis_open_lessons` — see its doc for invariants.
 #[tauri::command]
 async fn aegis_open_settings() -> Result<(), String> {
-    open_in_os_editor(".claude/settings.json")
+    tokio::task::spawn_blocking(|| open_in_os_editor(".claude/settings.json"))
+        .await
+        .map_err(|e| format!("aegis_open_settings: task join error: {e}"))?
 }
 
 /// Open `~/.claude/abyssal-index/` in the OS file manager.
@@ -1183,7 +1214,9 @@ async fn aegis_open_settings() -> Result<(), String> {
 /// opening the platform file manager.
 #[tauri::command]
 async fn index_open_vault_root() -> Result<(), String> {
-    open_in_os_editor(".claude/abyssal-index")
+    tokio::task::spawn_blocking(|| open_in_os_editor(".claude/abyssal-index"))
+        .await
+        .map_err(|e| format!("index_open_vault_root: task join error: {e}"))?
 }
 
 /// Open a URL in the user's default browser.
@@ -1193,31 +1226,35 @@ async fn open_url(url: String) -> Result<(), String> {
     if !url.starts_with("http://") && !url.starts_with("https://") {
         return Err("open_url: only http:// and https:// URLs are allowed".into());
     }
-    #[cfg(target_os = "windows")]
-    {
-        use std::os::windows::process::CommandExt;
-        const CREATE_NO_WINDOW: u32 = 0x08000000;
-        std::process::Command::new("cmd")
-            .args(["/C", "start", "", &url])
-            .creation_flags(CREATE_NO_WINDOW)
-            .status()
-            .map_err(|e| e.to_string())?;
-    }
-    #[cfg(target_os = "macos")]
-    {
-        std::process::Command::new("open")
-            .arg(&url)
-            .status()
-            .map_err(|e| e.to_string())?;
-    }
-    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
-    {
-        std::process::Command::new("xdg-open")
-            .arg(&url)
-            .status()
-            .map_err(|e| e.to_string())?;
-    }
-    Ok(())
+    tokio::task::spawn_blocking(move || {
+        #[cfg(target_os = "windows")]
+        {
+            use std::os::windows::process::CommandExt;
+            const CREATE_NO_WINDOW: u32 = 0x08000000;
+            std::process::Command::new("cmd")
+                .args(["/C", "start", "", &url])
+                .creation_flags(CREATE_NO_WINDOW)
+                .status()
+                .map_err(|e| e.to_string())?;
+        }
+        #[cfg(target_os = "macos")]
+        {
+            std::process::Command::new("open")
+                .arg(&url)
+                .status()
+                .map_err(|e| e.to_string())?;
+        }
+        #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+        {
+            std::process::Command::new("xdg-open")
+                .arg(&url)
+                .status()
+                .map_err(|e| e.to_string())?;
+        }
+        Ok(())
+    })
+    .await
+    .map_err(|e| format!("open_url: task join error: {e}"))?
 }
 
 /// Phase 8.7i — TODO/FIXME/XXX/HACK scan over the active project root.
@@ -1286,18 +1323,24 @@ fn mcp_status(cached_config: State<'_, CachedConfig>) -> Result<McpStatus, Strin
 /// Return the current MCP token (creating one on first call if MCP is
 /// enabled). Errors if the token cannot be persisted.
 #[tauri::command]
-fn mcp_token_get() -> Result<String, String> {
-    rift_bus::ensure_mcp_token().map_err(|e| e.to_string())
+async fn mcp_token_get() -> Result<String, String> {
+    tokio::task::spawn_blocking(|| rift_bus::ensure_mcp_token().map_err(|e| e.to_string()))
+        .await
+        .map_err(|e| format!("mcp_token_get: task join error: {e}"))?
 }
 
 /// Generate a fresh MCP token, replacing any existing one. Returns the new
 /// token. Existing `rift-mcp` clients must be reconfigured with the new
 /// value — there is no rotation grace period in v1.0.
 #[tauri::command]
-fn mcp_token_regenerate() -> Result<String, String> {
-    let token = rift_bus::generate_mcp_token().map_err(|e| e.to_string())?;
-    rift_bus::save_mcp_token(&token).map_err(|e| e.to_string())?;
-    Ok(token)
+async fn mcp_token_regenerate() -> Result<String, String> {
+    tokio::task::spawn_blocking(|| {
+        let token = rift_bus::generate_mcp_token().map_err(|e| e.to_string())?;
+        rift_bus::save_mcp_token(&token).map_err(|e| e.to_string())?;
+        Ok(token)
+    })
+    .await
+    .map_err(|e| format!("mcp_token_regenerate: task join error: {e}"))?
 }
 
 /// Phase 8.7i — git status snapshot for the Git notif tab.
@@ -1494,17 +1537,23 @@ fn config_get(cached_config: State<'_, CachedConfig>) -> Result<RiftConfig, Stri
 
 /// Persist `cfg` to the platform config directory (atomic write).
 #[tauri::command]
-fn config_save(
+async fn config_save(
     bus: State<'_, RiftBus>,
     cached: State<'_, CachedConfig>,
     tree_cache: State<'_, ProjectTreeCache>,
     cfg: RiftConfig,
 ) -> Result<(), String> {
-    save_config(&cfg).map_err(|e| {
-        let msg = e.to_string();
-        publish_error(bus.inner(), "tauri.command.config_save", &msg, None);
-        msg
-    })?;
+    let bus_clone = bus.inner().clone();
+    let cfg_for_disk = cfg.clone();
+    tokio::task::spawn_blocking(move || {
+        save_config(&cfg_for_disk).map_err(|e| {
+            let msg = e.to_string();
+            publish_error(&bus_clone, "tauri.command.config_save", &msg, None);
+            msg
+        })
+    })
+    .await
+    .map_err(|e| format!("config_save: task join error: {e}"))??;
     tree_cache.clear();
     cached.set(cfg);
     Ok(())
@@ -1528,31 +1577,33 @@ fn project_root_get(project_root: State<'_, ProjectRoot>) -> String {
 ///  8. Publish `Category::System / kind="project.changed"` envelope so
 ///     Tree.svelte re-fetches the tree and clears treeActivity.
 #[tauri::command]
-fn project_swap(
+async fn project_swap(
     bus: State<'_, RiftBus>,
     watcher_reg: State<'_, WatcherRegistry>,
     project_root: State<'_, ProjectRoot>,
     cached_config: State<'_, CachedConfig>,
     path: String,
 ) -> Result<(), String> {
-    // Step 1: Canonicalize via dunce (avoids Windows \\?\ UNC prefix issues).
-    let canon = dunce::canonicalize(&path)
-        .map_err(|e| format!("project_swap: canonicalize failed: {e}"))?;
-
-    // Step 2: Verify the path is a directory.
-    if !canon.metadata().map(|m| m.is_dir()).unwrap_or(false) {
-        return Err(format!(
-            "project_swap: '{}' is not a directory",
-            canon.display()
-        ));
-    }
+    // Steps 1-2: Canonicalize + verify in spawn_blocking (FS I/O).
+    let canon = tokio::task::spawn_blocking(move || {
+        let canon = dunce::canonicalize(&path)
+            .map_err(|e| format!("project_swap: canonicalize failed: {e}"))?;
+        if !canon.metadata().map(|m| m.is_dir()).unwrap_or(false) {
+            return Err(format!(
+                "project_swap: '{}' is not a directory",
+                canon.display()
+            ));
+        }
+        Ok(canon)
+    })
+    .await
+    .map_err(|e| format!("project_swap: task join error: {e}"))??;
 
     // Read config from cache (audit fix T2 — avoids stale disk read).
     let mut cfg = cached_config.get();
     let ignore_globs = cfg.fs.ignore_globs.clone();
 
     // Step 3: Drop the old watcher cleanly BEFORE spawning the new one.
-    // (pr003 `command-buffer-leak-on-natural-pty-exit` applied to watchers.)
     watcher_reg.clear();
 
     // Step 4: Spawn the new watcher.
@@ -1562,9 +1613,6 @@ fn project_swap(
             watcher_reg.replace(new_watcher);
         }
         Err(e) => {
-            // Step 5: Watcher spawn failed — publish error, return Err without
-            // saving config (rollback semantics: old watcher is already gone but
-            // at least config doesn't record a broken project).
             let msg = format!("project_swap: watcher spawn failed: {e}");
             publish_error(bus.inner(), "tauri.command.project_swap", &msg, None);
             return Err(msg);
@@ -1585,7 +1633,6 @@ fn project_swap(
         .map(|d| d.as_millis() as u64)
         .unwrap_or(0);
 
-    // Update existing entry or insert a new one.
     if let Some(existing) = cfg.projects.iter_mut().find(|e| e.path == canon) {
         existing.last_used_ms = now_ms;
         existing.name = name;
@@ -1597,13 +1644,10 @@ fn project_swap(
         });
     }
 
-    // Sort by last_used_ms descending, cap to 10 (LRU eviction).
     cfg.projects
         .sort_by_key(|e| std::cmp::Reverse(e.last_used_ms));
     cfg.projects.truncate(10);
 
-    // Update the in-memory config cache immediately so config_get callers
-    // (e.g. ProjectPicker) see the new project list without waiting for disk.
     cached_config.set(cfg.clone());
 
     // Step 8: Publish project.changed so Tree.svelte re-fetches + clears activity.

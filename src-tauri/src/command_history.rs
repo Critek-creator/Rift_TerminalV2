@@ -119,116 +119,132 @@ fn history_path() -> Result<PathBuf, String> {
 }
 
 #[tauri::command]
-pub fn command_history_record(
+pub async fn command_history_record(
     record: CommandRecord,
     store: tauri::State<'_, CommandHistoryStore>,
 ) -> Result<(), String> {
-    store.ensure_loaded()?;
-    store.append_and_save(record)
+    let store = store.inner().clone();
+    tokio::task::spawn_blocking(move || {
+        store.ensure_loaded()?;
+        store.append_and_save(record)
+    })
+    .await
+    .map_err(|e| format!("command_history_record: join error: {e}"))?
 }
 
 #[tauri::command]
-pub fn command_stats(
+pub async fn command_stats(
     project: Option<String>,
     cwd: Option<String>,
     store: tauri::State<'_, CommandHistoryStore>,
 ) -> Result<CommandStats, String> {
-    store.ensure_loaded()?;
-    let records = store.records.lock();
+    let store = store.inner().clone();
+    tokio::task::spawn_blocking(move || {
+        store.ensure_loaded()?;
+        let records = store.records.lock();
 
-    let filtered: Vec<&CommandRecord> = records
-        .iter()
-        .filter(|r| {
-            if let Some(ref p) = project {
-                if r.project.as_deref() != Some(p.as_str()) {
-                    return false;
+        let filtered: Vec<&CommandRecord> = records
+            .iter()
+            .filter(|r| {
+                if let Some(ref p) = project {
+                    if r.project.as_deref() != Some(p.as_str()) {
+                        return false;
+                    }
                 }
-            }
-            if let Some(ref c) = cwd {
-                if r.cwd != *c {
-                    return false;
+                if let Some(ref c) = cwd {
+                    if r.cwd != *c {
+                        return false;
+                    }
                 }
+                true
+            })
+            .collect();
+
+        let total_count = filtered.len();
+
+        let mut freq: HashMap<&str, (usize, usize)> = HashMap::new();
+        for rec in &filtered {
+            let entry = freq.entry(rec.command.as_str()).or_insert((0, 0));
+            entry.0 += 1;
+            if rec.exit_code.map(|c| c != 0).unwrap_or(false) {
+                entry.1 += 1;
             }
-            true
-        })
-        .collect();
-
-    let total_count = filtered.len();
-
-    // Frequency + failure counting.
-    let mut freq: HashMap<&str, (usize, usize)> = HashMap::new();
-    for rec in &filtered {
-        let entry = freq.entry(rec.command.as_str()).or_insert((0, 0));
-        entry.0 += 1;
-        if rec.exit_code.map(|c| c != 0).unwrap_or(false) {
-            entry.1 += 1;
         }
-    }
 
-    let mut top_commands: Vec<CommandFrequency> = freq
-        .iter()
-        .map(|(cmd, (count, failures))| CommandFrequency {
-            command: cmd.to_string(),
-            count: *count,
-            failure_rate: if *count > 0 {
-                *failures as f64 / *count as f64
-            } else {
-                0.0
-            },
+        let mut top_commands: Vec<CommandFrequency> = freq
+            .iter()
+            .map(|(cmd, (count, failures))| CommandFrequency {
+                command: cmd.to_string(),
+                count: *count,
+                failure_rate: if *count > 0 {
+                    *failures as f64 / *count as f64
+                } else {
+                    0.0
+                },
+            })
+            .collect();
+        top_commands.sort_by_key(|a| std::cmp::Reverse(a.count));
+        top_commands.truncate(10);
+
+        let mut failure_hotspots: Vec<CommandFrequency> = freq
+            .iter()
+            .filter(|(_, (count, failures))| {
+                *count >= 3 && (*failures as f64 / *count as f64) > 0.2
+            })
+            .map(|(cmd, (count, failures))| CommandFrequency {
+                command: cmd.to_string(),
+                count: *count,
+                failure_rate: *failures as f64 / *count as f64,
+            })
+            .collect();
+        failure_hotspots.sort_by(|a, b| {
+            b.failure_rate
+                .partial_cmp(&a.failure_rate)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        failure_hotspots.truncate(10);
+
+        Ok(CommandStats {
+            total_count,
+            top_commands,
+            failure_hotspots,
         })
-        .collect();
-    top_commands.sort_by_key(|a| std::cmp::Reverse(a.count));
-    top_commands.truncate(10);
-
-    let mut failure_hotspots: Vec<CommandFrequency> = freq
-        .iter()
-        .filter(|(_, (count, failures))| *count >= 3 && (*failures as f64 / *count as f64) > 0.2)
-        .map(|(cmd, (count, failures))| CommandFrequency {
-            command: cmd.to_string(),
-            count: *count,
-            failure_rate: *failures as f64 / *count as f64,
-        })
-        .collect();
-    failure_hotspots.sort_by(|a, b| {
-        b.failure_rate
-            .partial_cmp(&a.failure_rate)
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
-    failure_hotspots.truncate(10);
-
-    Ok(CommandStats {
-        total_count,
-        top_commands,
-        failure_hotspots,
     })
+    .await
+    .map_err(|e| format!("command_stats: join error: {e}"))?
 }
 
 #[tauri::command]
-pub fn command_suggestions(
+pub async fn command_suggestions(
     prefix: String,
     cwd: String,
     store: tauri::State<'_, CommandHistoryStore>,
 ) -> Result<Vec<String>, String> {
-    store.ensure_loaded()?;
-    let records = store.records.lock();
+    let store = store.inner().clone();
+    tokio::task::spawn_blocking(move || {
+        store.ensure_loaded()?;
+        let records = store.records.lock();
 
-    let prefix_lower = prefix.to_lowercase();
-    let mut freq: HashMap<&str, usize> = HashMap::new();
+        let prefix_lower = prefix.to_lowercase();
+        let mut freq: HashMap<&str, usize> = HashMap::new();
 
-    for rec in records.iter().rev() {
-        if rec.cwd == cwd && rec.command.to_lowercase().starts_with(&prefix_lower) {
-            *freq.entry(rec.command.as_str()).or_insert(0) += 1;
+        for rec in records.iter().rev() {
+            if rec.cwd == cwd && rec.command.to_lowercase().starts_with(&prefix_lower) {
+                *freq.entry(rec.command.as_str()).or_insert(0) += 1;
+            }
         }
-    }
 
-    let mut suggestions: Vec<(&str, usize)> = freq.into_iter().collect();
-    suggestions.sort_by_key(|a| std::cmp::Reverse(a.1));
-    suggestions.truncate(SUGGESTIONS_LIMIT);
+        let mut suggestions: Vec<(&str, usize)> = freq.into_iter().collect();
+        suggestions.sort_by_key(|a| std::cmp::Reverse(a.1));
+        suggestions.truncate(SUGGESTIONS_LIMIT);
 
-    Ok(suggestions
-        .into_iter()
-        .map(|(cmd, _)| cmd.to_string())
-        .collect())
+        Ok(suggestions
+            .into_iter()
+            .map(|(cmd, _)| cmd.to_string())
+            .collect())
+    })
+    .await
+    .map_err(|e| format!("command_suggestions: join error: {e}"))?
 }
 
 #[cfg(test)]

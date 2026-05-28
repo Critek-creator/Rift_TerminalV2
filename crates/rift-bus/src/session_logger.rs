@@ -274,8 +274,35 @@ pub async fn spawn_session_logger(bus: RiftBus, cfg: SessionConfig, shutdown: Ar
                     }
                     Err(BusError::Lagged(n)) => {
                         tracing::warn!("session_logger: lagged by {n} events — re-subscribing");
-                        let (_snap, new_sub) = bus.subscribe(SubscribeFilter::All);
+                        let (snap, new_sub) = bus.subscribe(SubscribeFilter::All);
                         sub = new_sub;
+                        // Drain the replay snapshot so events between
+                        // the lag point and re-subscribe are not lost.
+                        if !capped {
+                            for env in &snap {
+                                let env = redact_envelope(env);
+                                let line = match serde_json::to_string(&env) {
+                                    Ok(l) => l,
+                                    Err(_) => continue,
+                                };
+                                let line_bytes = line.len() as u64 + 1;
+                                if written_bytes + line_bytes > max_bytes {
+                                    capped = true;
+                                    tracing::warn!(
+                                        "session_logger: file size cap ({} MiB) reached during lag recovery",
+                                        cfg.max_file_size_mb
+                                    );
+                                    break;
+                                }
+                                if writer.write_all(line.as_bytes()).await.is_err()
+                                    || writer.write_all(b"\n").await.is_err()
+                                {
+                                    break;
+                                }
+                                written_bytes += line_bytes;
+                            }
+                            let _ = writer.flush().await;
+                        }
                     }
                     Err(BusError::Closed) => break,
                 }

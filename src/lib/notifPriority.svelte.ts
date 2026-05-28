@@ -16,6 +16,13 @@ type InteractionStore = Record<string, KindInteractions>;
 const STORAGE_KEY = 'rift-notif-priority-interactions';
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
 const WEIGHTS = { click: 3, expand: 2, dismiss: 0, ignore: -1 } as const;
+const MAX_PER_KIND = 200;
+
+let saveTimer: ReturnType<typeof setTimeout> | null = null;
+function debouncedSave(store: InteractionStore): void {
+  if (saveTimer !== null) clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => { saveToStorage(store); saveTimer = null; }, 5000);
+}
 
 function loadFromStorage(): InteractionStore {
   try {
@@ -96,9 +103,14 @@ export const notifPriority = {
         break;
     }
 
+    if (current.clicks.length > MAX_PER_KIND) current.clicks = current.clicks.slice(-MAX_PER_KIND);
+    if (current.expands.length > MAX_PER_KIND) current.expands = current.expands.slice(-MAX_PER_KIND);
+    if (current.dismisses.length > MAX_PER_KIND) current.dismisses = current.dismisses.slice(-MAX_PER_KIND);
+    if (current.ignores.length > MAX_PER_KIND) current.ignores = current.ignores.slice(-MAX_PER_KIND);
+
     interactions = { ...interactions, [kind]: current };
     _version++;
-    saveToStorage(interactions);
+    debouncedSave(interactions);
   },
 
   getScore(kind: string): number {

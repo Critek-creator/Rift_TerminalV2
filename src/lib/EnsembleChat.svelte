@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onDestroy } from 'svelte';
   import { invoke, Channel } from '@tauri-apps/api/core';
   import { llmModels } from './llmModels.svelte';
   import { popouts } from './popouts.svelte';
@@ -109,6 +110,8 @@
     if (timerA) { clearInterval(timerA); timerA = null; }
     if (timerB) { clearInterval(timerB); timerB = null; }
   }
+
+  onDestroy(() => { clearTimers(); });
 
   // ---------------------------------------------------------------------------
   // Send

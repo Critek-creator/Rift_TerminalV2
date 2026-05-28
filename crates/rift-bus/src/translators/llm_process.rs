@@ -316,22 +316,25 @@ impl ProcessManager {
 
     /// Stop a running local llama-server process.
     pub fn stop(&self, model_id: &str) -> Result<(), super::llm::LlmError> {
-        let mut procs = self.processes.lock();
+        // Extract the process from the map and release the lock immediately
+        // so concurrent start/list/running_models calls aren't blocked
+        // during the up-to-5s shutdown polling loop.
+        let (child, pid, port) = {
+            let mut procs = self.processes.lock();
+            let proc =
+                procs
+                    .remove(model_id)
+                    .ok_or_else(|| super::llm::LlmError::ProcessNotRunning {
+                        model_id: model_id.to_string(),
+                    })?;
+            let pid = proc.child.id();
+            let port = proc.port;
+            (proc.child, pid, port)
+        };
+        // Lock is released here — polling loop runs without contention.
 
-        let proc =
-            procs
-                .remove(model_id)
-                .ok_or_else(|| super::llm::LlmError::ProcessNotRunning {
-                    model_id: model_id.to_string(),
-                })?;
-
-        let pid = proc.child.id();
-        let port = proc.port;
-
-        // Attempt graceful shutdown
         graceful_stop(pid);
 
-        // Wait up to 5 seconds for exit
         let deadline = std::time::Instant::now() + Duration::from_secs(5);
         let mut exited = false;
         while std::time::Instant::now() < deadline {
@@ -342,22 +345,19 @@ impl ProcessManager {
             std::thread::sleep(Duration::from_millis(200));
         }
 
-        // Force kill if still alive
         if !exited {
             tracing::warn!(
                 model_id,
                 pid,
                 "llm_process: graceful stop timed out, force killing"
             );
-            drop(proc.child);
-            // Child::drop calls TerminateProcess on Windows
+            drop(child);
         }
 
         tracing::info!(model_id, pid, "llm_process: stopped");
 
         publish_process_event(&self.bus, "llm.process.stop", model_id, pid, port, None);
 
-        // Remove from PID file
         let mut pf = load_pid_file();
         pf.processes.retain(|e| e.pid != pid);
         save_pid_file(&pf);

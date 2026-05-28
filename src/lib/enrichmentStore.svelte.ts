@@ -37,11 +37,10 @@ export class EnrichmentStore {
     tags: string[];
   }): void {
     const { fs_path, vault_id, vault_kind, tags } = payload;
-    const next = new Map(this.map);
-    const existing = next.get(fs_path) ?? [];
+    const existing = this.map.get(fs_path) ?? [];
     const filtered = existing.filter((e) => e.vault_id !== vault_id);
-    next.set(fs_path, [...filtered, { vault_id, vault_kind, tags }]);
-    this.map = next;
+    this.map.set(fs_path, [...filtered, { vault_id, vault_kind, tags }]);
+    this.map = this.map;
   }
 
   /**

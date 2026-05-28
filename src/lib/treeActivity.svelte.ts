@@ -16,6 +16,9 @@
 /** Decay duration in milliseconds for `recent` entries. */
 const DECAY_MS = 8_000;
 
+/** Maximum tracked paths in heatLog before LRU eviction. */
+const MAX_HEAT_PATHS = 2000;
+
 /** Visual state of a tree node. */
 export type ActivityState = 'ambient' | 'recent' | 'active' | 'background';
 
@@ -82,10 +85,9 @@ function decayTick(nowMs: number): void {
   lastFrameTs = nowMs;
 
   let mutated = false;
-  const next = new Map(entries);
   let stillDecaying = false;
 
-  for (const [path, entry] of next) {
+  for (const [path, entry] of entries) {
     if (entry.state !== 'recent') continue;
 
     const newIntensity = Math.max(0, entry.glowIntensity - deltaMs / DECAY_MS);
@@ -93,15 +95,15 @@ function decayTick(nowMs: number): void {
 
     mutated = true;
     if (newIntensity <= 0) {
-      next.set(path, { ...entry, state: 'ambient', glowIntensity: 0 });
+      entries.set(path, { ...entry, state: 'ambient', glowIntensity: 0 });
     } else {
-      next.set(path, { ...entry, glowIntensity: newIntensity });
+      entries.set(path, { ...entry, glowIntensity: newIntensity });
       stillDecaying = true;
     }
   }
 
   if (mutated) {
-    entries = next;
+    entries = entries;
   }
 
   if (!stillDecaying) {
@@ -139,29 +141,36 @@ function flushMarks(): void {
   markRafId = null;
   if (pendingMarks.length === 0) return;
 
-  const next = new Map(entries);
-  const nextHeat = new Map(heatLog);
   const now = Date.now();
 
   for (const path of pendingMarks) {
-    const existing = next.get(path);
+    const existing = entries.get(path);
     if (existing?.state === 'active') continue;
 
-    next.set(path, {
+    entries.set(path, {
       state: 'recent',
       glowIntensity: 1.0,
       lastTouchMs: now,
     });
 
-    const stamps = nextHeat.get(path) ?? [];
+    const stamps = heatLog.get(path) ?? [];
     stamps.push(now);
     if (stamps.length > 500) stamps.shift();
-    nextHeat.set(path, stamps);
+    heatLog.set(path, stamps);
+  }
+
+  if (heatLog.size > MAX_HEAT_PATHS) {
+    const sorted = [...entries.entries()].sort((a, b) => a[1].lastTouchMs - b[1].lastTouchMs);
+    const excess = heatLog.size - MAX_HEAT_PATHS;
+    for (let i = 0; i < excess && i < sorted.length; i++) {
+      heatLog.delete(sorted[i][0]);
+      if (sorted[i][1].state === 'ambient') entries.delete(sorted[i][0]);
+    }
   }
 
   pendingMarks = [];
-  entries = next;
-  heatLog = nextHeat;
+  entries = entries;
+  heatLog = heatLog;
   startDecayLoop();
 }
 
@@ -277,11 +286,12 @@ function dismiss(path: string): void {
   const existing = entries.get(path);
   if (!existing) return;
   if (existing.state === 'background' || existing.state === 'ambient') return;
-  entries = new Map(entries).set(path, {
+  entries.set(path, {
     state: 'background',
     glowIntensity: 0,
     lastTouchMs: Date.now(),
   });
+  entries = entries;
 }
 
 export const treeActivity = {

@@ -38,6 +38,7 @@ export class McpStatsStore {
     const latency = ts - req.startTs;
     if (latency >= 0 && latency < 300_000) {
       s.latencies.push(latency);
+      if (s.latencies.length > 200) s.latencies.shift();
     }
   }
 

@@ -174,6 +174,18 @@ function markPaneExited(paneId: number) {
   exitedPaneIds.add(paneId);
 }
 
+function cleanupSessionResources(id: number) {
+  const session = sessions.find((s) => s.id === id);
+  if (session) {
+    const leafIds = collectLeafIds(session.layout);
+    for (const lid of leafIds) {
+      exitedPaneIds.delete(lid);
+      paneSessionPaths.delete(lid);
+    }
+    exitedPaneIds = exitedPaneIds;
+  }
+}
+
 function closeSession(id: number) {
   const session = sessions.find((s) => s.id === id);
   if (session) {
@@ -185,6 +197,7 @@ function closeSession(id: number) {
     }
   }
   pendingCloseId = null;
+  cleanupSessionResources(id);
   sessions = sessions.filter((s) => s.id !== id);
   if (active.kind === 'session' && active.id === id) {
     const last = sessions.at(-1);
@@ -196,6 +209,7 @@ function confirmClose() {
   if (pendingCloseId !== null) {
     const id = pendingCloseId;
     pendingCloseId = null;
+    cleanupSessionResources(id);
     sessions = sessions.filter((s) => s.id !== id);
     if (active.kind === 'session' && active.id === id) {
       const last = sessions.at(-1);

@@ -9,7 +9,7 @@ const TINT_COLORS: Record<string, string> = {
   WARN:   'rgba(255, 200, 64, 0.05)',
 };
 
-const MAX_DECORATIONS = 3000;
+const MAX_DECORATIONS = 500;
 
 export class LaneTintManager {
   private term: XTerm;
