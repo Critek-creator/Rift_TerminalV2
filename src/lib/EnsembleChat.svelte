@@ -158,8 +158,8 @@
 
     // Start latency timers
     startTime = Date.now();
-    timerA = setInterval(() => { if (!doneA) elapsedA = Date.now() - startTime; }, 50);
-    timerB = setInterval(() => { if (!doneB) elapsedB = Date.now() - startTime; }, 50);
+    timerA = setInterval(() => { if (!doneA) elapsedA = Date.now() - startTime; }, 250);
+    timerB = setInterval(() => { if (!doneB) elapsedB = Date.now() - startTime; }, 250);
 
     try {
       type StreamChunk = { text: string; is_final: boolean; tokens_so_far: number };

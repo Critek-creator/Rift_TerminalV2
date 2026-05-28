@@ -97,6 +97,7 @@ type DrainHandle = tauri::async_runtime::JoinHandle<()>;
 #[cfg(feature = "aegis-private")]
 use rift_aegis::probe as aegis_probe;
 
+use base64::Engine as _;
 use rift_bus::translators::llm_process::ProcessManager;
 use rift_bus::{
     build_tree, load_config, prepare_lane_prelude, publish_command, publish_error, read_text,
@@ -726,7 +727,8 @@ async fn pty_start(
                         }
                         None => chunk,
                     };
-                    if drain_app.emit_to("main", "pty-chunk", serde_json::json!({ "id": id, "bytes": out })).is_err() { break; }
+                    let b64 = base64::engine::general_purpose::STANDARD.encode(&out);
+                    if drain_app.emit_to("main", "pty-chunk", json!({ "id": id, "b64": b64 })).is_err() { break; }
                 }
                 // L2 hook events: inject HookStart/HookEnd lane transitions.
                 hook_result = async {

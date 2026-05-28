@@ -111,9 +111,9 @@ impl RiftBus {
     /// broadcasts to live receivers. Tolerates zero subscribers — that
     /// case is normal during early startup.
     pub fn publish(&self, env: Envelope) {
-        // Replay first so late subscribers see this in their snapshot
-        // even if the broadcast send below ends up Err (no subscribers).
-        {
+        // Ephemeral high-frequency events skip the replay buffer to avoid
+        // lock contention + deep-clone overhead during PTY bursts.
+        if env.kind != "lane.changed" {
             let mut replay = self.inner.replay.lock();
             if replay.len() >= self.inner.replay_capacity {
                 replay.pop_front();

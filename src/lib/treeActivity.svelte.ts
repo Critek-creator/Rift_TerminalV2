@@ -127,27 +127,50 @@ $effect.root(() => {
 // Public API
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Batched mark — accumulate FS events and flush once per animation frame
+// instead of copying the Map on every individual event.
+// ---------------------------------------------------------------------------
+
+let pendingMarks: string[] = [];
+let markRafId: number | null = null;
+
+function flushMarks(): void {
+  markRafId = null;
+  if (pendingMarks.length === 0) return;
+
+  const next = new Map(entries);
+  const nextHeat = new Map(heatLog);
+  const now = Date.now();
+
+  for (const path of pendingMarks) {
+    const existing = next.get(path);
+    if (existing?.state === 'active') continue;
+
+    next.set(path, {
+      state: 'recent',
+      glowIntensity: 1.0,
+      lastTouchMs: now,
+    });
+
+    const stamps = nextHeat.get(path) ?? [];
+    stamps.push(now);
+    if (stamps.length > 500) stamps.shift();
+    nextHeat.set(path, stamps);
+  }
+
+  pendingMarks = [];
+  entries = next;
+  heatLog = nextHeat;
+  startDecayLoop();
+}
+
 /** Mark a path as recently touched by a filesystem event. */
 function mark(path: string, _kind: 'create' | 'write' | 'delete' | 'rename'): void {
-  const existing = entries.get(path);
-  // Pinned (`active`) nodes are not downgraded to `recent` by live events.
-  if (existing?.state === 'active') return;
-
-  entries = new Map(entries).set(path, {
-    state: 'recent',
-    glowIntensity: 1.0,
-    lastTouchMs: Date.now(),
-  });
-
-  // D-020 heatmap — record the touch timestamp.
-  const now = Date.now();
-  const stamps = heatLog.get(path) ?? [];
-  stamps.push(now);
-  // Memory guard: cap at 500 timestamps per path.
-  if (stamps.length > 500) stamps.shift();
-  heatLog = new Map(heatLog).set(path, stamps);
-
-  startDecayLoop();
+  pendingMarks.push(path);
+  if (markRafId === null) {
+    markRafId = requestAnimationFrame(flushMarks);
+  }
 }
 
 /** Return the activity entry for `path`, or the ambient default if unseen. */

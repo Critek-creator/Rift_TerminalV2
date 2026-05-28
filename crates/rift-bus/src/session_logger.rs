@@ -5,6 +5,7 @@
 //! external system). Spawned at setup() as a tokio task mirroring the
 //! vault-walker pattern.
 
+use std::borrow::Cow;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -132,7 +133,7 @@ fn ymd_to_days(y: i32, m: u32, d: u32) -> i64 {
 /// Currently handles `mcp.handshake` which may carry a raw auth token
 /// in its payload. Returns a new envelope with `token` replaced by
 /// `"[REDACTED]"`.
-fn redact_envelope(env: &Envelope) -> Envelope {
+fn redact_envelope(env: &Envelope) -> Cow<'_, Envelope> {
     if env.kind == "mcp.handshake" {
         let mut redacted = env.clone();
         if let serde_json::Value::Object(ref mut map) = redacted.payload {
@@ -143,9 +144,9 @@ fn redact_envelope(env: &Envelope) -> Envelope {
                 );
             }
         }
-        return redacted;
+        return Cow::Owned(redacted);
     }
-    env.clone()
+    Cow::Borrowed(env)
 }
 
 /// Run the session logger. Subscribes to the bus and writes every envelope

@@ -441,12 +441,14 @@
     //
     // Buffer: events arrive before sessionId is known (PTY starts sending
     // immediately). Buffer them and flush after pty_start returns.
-    type PtyChunkPayload = { id: number; bytes: number[] };
+    type PtyChunkPayload = { id: number; b64: string };
     const chunkBuffer: { id: number; data: Uint8Array }[] = [];
     let chunkListenerReady = false;
 
     unlistenChunk = await listen<PtyChunkPayload>('pty-chunk', (event) => {
-      const data = new Uint8Array(event.payload.bytes);
+      const raw = atob(event.payload.b64);
+      const data = new Uint8Array(raw.length);
+      for (let i = 0; i < raw.length; i++) data[i] = raw.charCodeAt(i);
       if (sessionId !== null && event.payload.id === sessionId) {
         term?.write(data);
       } else if (!chunkListenerReady) {

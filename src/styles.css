@@ -250,6 +250,7 @@ body::before {
     rgba(0, 0, 0, 0.06) 3px
   );
   z-index: 8000;
+  will-change: transform;
 }
 body::after {
   content: '';
@@ -262,6 +263,7 @@ body::after {
     rgba(0, 0, 0, 0.45) 100%
   );
   z-index: 7000;
+  will-change: transform;
 }
 
 /* =========================================================

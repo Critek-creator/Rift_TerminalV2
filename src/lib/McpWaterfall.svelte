@@ -299,7 +299,12 @@
       ctx.setLineDash([]);
     }
 
-    animFrame = requestAnimationFrame(draw);
+    const hasPending = visible.some(s => s.responseTime === null);
+    if (hasPending && !paused) {
+      animFrame = requestAnimationFrame(draw);
+    } else {
+      animFrame = 0;
+    }
   }
 
   /** Draw arrows between correlated spans. */
@@ -414,6 +419,9 @@
   function onMouseLeave(): void {
     hovered = null;
     paused = false;
+    if (animFrame === 0 && canvasEl) {
+      animFrame = requestAnimationFrame(draw);
+    }
   }
 
   function onClick(e: MouseEvent): void {
@@ -502,6 +510,14 @@
     }
     resolveColors();
     animFrame = requestAnimationFrame(draw);
+  });
+
+  // Restart draw loop when new spans arrive and loop is idle.
+  $effect(() => {
+    void spans.length;
+    if (animFrame === 0 && canvasEl) {
+      animFrame = requestAnimationFrame(draw);
+    }
   });
 
   onDestroy(() => {

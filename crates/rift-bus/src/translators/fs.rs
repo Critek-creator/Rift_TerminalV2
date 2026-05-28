@@ -69,9 +69,11 @@
 //! `kind` values under `Category::Fs` are additive and do NOT bump
 //! `CURRENT_VERSION` (per `envelope-version-additive-categories-no-bump`).
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::thread;
+use std::time::{Duration, Instant};
 
 use globset::{Glob, GlobSet, GlobSetBuilder};
 use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
@@ -674,16 +676,44 @@ pub fn spawn_fs_watcher(
     let dispatcher = thread::Builder::new()
         .name("rift-fs-dispatcher".into())
         .spawn(move || {
-            // Loop until the sender half is dropped (FsWatcher dropped → watcher
-            // dropped → tx closed → rx.recv() returns Err).
-            while let Ok(result) = rx.recv() {
-                match result {
-                    Err(e) => {
-                        tracing::warn!("rift-fs-dispatcher: notify error: {e}");
-                    }
+            const DEBOUNCE: Duration = Duration::from_millis(50);
+            let mut pending: HashMap<String, FsEvent> = HashMap::new();
+
+            while let Ok(first) = rx.recv() {
+                match first {
+                    Err(e) => tracing::warn!("rift-fs-dispatcher: notify error: {e}"),
                     Ok(event) => {
-                        dispatch_event(&bus, &root, &globs, event);
+                        collect_into(&root, &globs, event, &mut pending);
                     }
+                }
+
+                let deadline = Instant::now() + DEBOUNCE;
+                loop {
+                    let remaining = deadline
+                        .checked_duration_since(Instant::now())
+                        .unwrap_or(Duration::ZERO);
+                    if remaining.is_zero() {
+                        break;
+                    }
+                    match rx.recv_timeout(remaining) {
+                        Ok(Ok(event)) => {
+                            collect_into(&root, &globs, event, &mut pending);
+                        }
+                        Ok(Err(e)) => {
+                            tracing::warn!("rift-fs-dispatcher: notify error: {e}");
+                        }
+                        Err(mpsc::RecvTimeoutError::Timeout) => break,
+                        Err(mpsc::RecvTimeoutError::Disconnected) => {
+                            for (_, fs_event) in pending.drain() {
+                                publish_fs_event(&bus, fs_event);
+                            }
+                            return;
+                        }
+                    }
+                }
+
+                for (_, fs_event) in pending.drain() {
+                    publish_fs_event(&bus, fs_event);
                 }
             }
         })
@@ -695,9 +725,15 @@ pub fn spawn_fs_watcher(
     })
 }
 
-/// Translate a single `notify::Event` into zero or more [`FsEvent`]s and
-/// publish them. Called exclusively from the dispatcher thread.
-fn dispatch_event(bus: &RiftBus, root: &Path, globs: &GlobSet, event: notify::Event) {
+/// Classify a `notify::Event` into [`FsEvent`]s and insert into `pending`,
+/// coalescing duplicate paths (last-write-wins). Called from the debounced
+/// dispatcher loop.
+fn collect_into(
+    root: &Path,
+    globs: &GlobSet,
+    event: notify::Event,
+    pending: &mut HashMap<String, FsEvent>,
+) {
     use notify::event::{ModifyKind, RenameMode};
 
     match event.kind {
@@ -705,52 +741,28 @@ fn dispatch_event(bus: &RiftBus, root: &Path, globs: &GlobSet, event: notify::Ev
             for path in &event.paths {
                 if let Some(rel) = relative_path(root, path) {
                     if should_publish(&rel, globs) {
-                        publish_fs_event(bus, FsEvent::Create { path: rel });
+                        pending.insert(rel.clone(), FsEvent::Create { path: rel });
                     }
-                } else {
-                    tracing::warn!(
-                        "rift-fs-dispatcher: path outside root skipped: {}",
-                        path.display()
-                    );
                 }
             }
         }
-        // notify provides both paths in order [from, to] for a complete rename.
         EventKind::Modify(ModifyKind::Name(RenameMode::Both)) if event.paths.len() >= 2 => {
             let from_path = &event.paths[0];
             let to_path = &event.paths[1];
-            match (relative_path(root, from_path), relative_path(root, to_path)) {
-                (Some(from), Some(to)) => {
-                    // Apply glob check on both sides — if either is ignored,
-                    // skip the rename envelope.
-                    if should_publish(&from, globs) && should_publish(&to, globs) {
-                        publish_fs_event(bus, FsEvent::Rename { from, to });
-                    }
-                }
-                _ => {
-                    tracing::warn!(
-                        "rift-fs-dispatcher: rename path(s) outside root skipped: {:?}",
-                        event.paths
-                    );
+            if let (Some(from), Some(to)) =
+                (relative_path(root, from_path), relative_path(root, to_path))
+            {
+                if should_publish(&from, globs) && should_publish(&to, globs) {
+                    pending.insert(to.clone(), FsEvent::Rename { from, to });
                 }
             }
         }
         EventKind::Modify(ModifyKind::Name(_)) => {
-            // Partial rename (only one side known) — fall back to delete + create
-            // per notify 6.x debouncer convention.
             for path in &event.paths {
                 if let Some(rel) = relative_path(root, path) {
                     if should_publish(&rel, globs) {
-                        // Without both sides we cannot know if this is the
-                        // source or destination; emit delete for the known path
-                        // so the frontend can decay it from the graph.
-                        publish_fs_event(bus, FsEvent::Delete { path: rel });
+                        pending.insert(rel.clone(), FsEvent::Delete { path: rel });
                     }
-                } else {
-                    tracing::warn!(
-                        "rift-fs-dispatcher: partial rename path outside root skipped: {}",
-                        path.display()
-                    );
                 }
             }
         }
@@ -758,13 +770,8 @@ fn dispatch_event(bus: &RiftBus, root: &Path, globs: &GlobSet, event: notify::Ev
             for path in &event.paths {
                 if let Some(rel) = relative_path(root, path) {
                     if should_publish(&rel, globs) {
-                        publish_fs_event(bus, FsEvent::Write { path: rel });
+                        pending.insert(rel.clone(), FsEvent::Write { path: rel });
                     }
-                } else {
-                    tracing::warn!(
-                        "rift-fs-dispatcher: modify path outside root skipped: {}",
-                        path.display()
-                    );
                 }
             }
         }
@@ -772,17 +779,11 @@ fn dispatch_event(bus: &RiftBus, root: &Path, globs: &GlobSet, event: notify::Ev
             for path in &event.paths {
                 if let Some(rel) = relative_path(root, path) {
                     if should_publish(&rel, globs) {
-                        publish_fs_event(bus, FsEvent::Delete { path: rel });
+                        pending.insert(rel.clone(), FsEvent::Delete { path: rel });
                     }
-                } else {
-                    tracing::warn!(
-                        "rift-fs-dispatcher: remove path outside root skipped: {}",
-                        path.display()
-                    );
                 }
             }
         }
-        // Access, Other, Any — not published in Phase 6.1.
         _ => {}
     }
 }
