@@ -5,18 +5,40 @@
 
   interface Props {
     model: ModelConfig;
+    isDefault?: boolean;
     onremove: () => void;
+    onsetdefault?: () => void;
   }
 
-  let { model, onremove }: Props = $props();
+  let { model, isDefault = false, onremove, onsetdefault }: Props = $props();
 
-  let expanded = $state(false);
+  let showAdvanced = $state(false);
 
-  const PROVIDER_LABELS: Record<ProviderType, string> = {
-    anthropic: 'Anthropic',
-    google: 'Google Gemini',
-    llama_server: 'llama-server',
-    open_ai_compat: 'OpenAI-Compatible',
+  const PROVIDER_META: Record<ProviderType, { label: string; desc: string; color: string }> = {
+    anthropic:      { label: 'Anthropic',        desc: 'Claude models via Anthropic API',        color: 'var(--term-blue)' },
+    google:         { label: 'Google Gemini',     desc: 'Gemini models via Google AI API',        color: 'var(--term-cyan)' },
+    llama_server:   { label: 'Local (llama.cpp)', desc: 'Self-hosted GGUF model via llama-server', color: 'var(--term-green)' },
+    open_ai_compat: { label: 'OpenAI-Compatible', desc: 'Any OpenAI-compatible endpoint',          color: 'var(--term-purple)' },
+  };
+
+  const KNOWN_MODELS: Record<ProviderType, string[]> = {
+    anthropic: [
+      'claude-opus-4-6', 'claude-sonnet-4-6', 'claude-haiku-4-5-20251001',
+      'claude-opus-4-5-20250414', 'claude-sonnet-4-5-20250414',
+    ],
+    google: [
+      'gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-2.0-flash',
+      'gemini-2.0-flash-lite', 'gemini-1.5-pro', 'gemini-1.5-flash',
+    ],
+    llama_server: [
+      'gemma-4-27b-it-Q4_K_M.gguf', 'gemma-4-12b-it-Q6_K.gguf',
+      'llama-3.3-70b-instruct-Q4_K_M.gguf', 'Qwen3-32B-Q4_K_M.gguf',
+      'Qwen3-14B-Q6_K.gguf', 'mistral-small-3.2-24b-instruct-2503-Q4_K_M.gguf',
+    ],
+    open_ai_compat: [
+      'gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-3.5-turbo',
+      'o3-mini', 'o4-mini',
+    ],
   };
 
   const KV_CACHE_OPTIONS: KvCacheType[] = [
@@ -29,199 +51,356 @@
 
   let statusColor = $derived(llmModels.modelStatusColor(model.id));
 
+  let statusLabel = $derived(
+    status === 'running' ? 'Running' :
+    status === 'starting' ? 'Starting…' :
+    status === 'error' ? 'Error' :
+    status === 'offline' ? 'Offline' : 'Stopped'
+  );
+
   let isLocal = $derived(model.hosting.mode === 'local');
+
+  let providerMeta = $derived(PROVIDER_META[model.provider] ?? { label: model.provider, desc: '', color: 'var(--amber-faint)' });
+
+  let latencyMs = $derived(llmModels.healthLatency[model.id]);
+
+  const DEFAULT_CAPS: ModelConfig['capabilities'] = {
+    max_context_tokens: 32768,
+    supports_streaming: true,
+    supports_tool_use: false,
+    cost_per_1m_input: 0,
+    cost_per_1m_output: 0,
+    strength_tags: [],
+  };
+
+  let caps = $derived(model.capabilities ?? DEFAULT_CAPS);
 
   function update<K extends keyof ModelConfig>(key: K, value: ModelConfig[K]) {
     llmModels.updateModel(model.id, { [key]: value });
   }
+
+  function updateCapability<K extends keyof ModelConfig['capabilities']>(
+    key: K,
+    value: ModelConfig['capabilities'][K],
+  ) {
+    const updated = { ...caps, [key]: value };
+    update('capabilities', updated);
+  }
+
+  let confirmRemove = $state(false);
 </script>
 
-<div class="model-card" style="--card-accent: {statusColor}">
+<div class="model-card" class:is-default={isDefault} style="--card-accent: {providerMeta.color}">
+  <!-- ─── Header ──────────────────────────────────────────── -->
   <div class="card-header">
-    <span class="status-dot" style="background: {statusColor}" title={status}></span>
-    <span class="short-id">{model.short_id || '???'}</span>
-    <input
-      class="display-name"
-      type="text"
-      value={model.display_name}
-      placeholder="Model name"
-      onchange={(e) => update('display_name', (e.target as HTMLInputElement).value)}
-    />
-    <span class="provider-badge">{PROVIDER_LABELS[model.provider]}</span>
-    <button
-      type="button"
-      class="expand-btn"
-      onclick={() => (expanded = !expanded)}
-      aria-expanded={expanded}
-      aria-label="Expand model details"
-    >{expanded ? '▾' : '▸'}</button>
+    <div class="header-left">
+      <span class="status-indicator" style="background: {statusColor}" title={statusLabel}></span>
+      <div class="header-info">
+        <div class="header-top-row">
+          <input
+            class="display-name"
+            type="text"
+            value={model.display_name}
+            placeholder="Model name"
+            onchange={(e) => update('display_name', (e.target as HTMLInputElement).value)}
+          />
+          {#if isDefault}
+            <span class="default-badge">DEFAULT</span>
+          {/if}
+        </div>
+        <div class="header-meta">
+          <span class="provider-tag" style="border-color: {providerMeta.color}; color: {providerMeta.color}">
+            {providerMeta.label}
+          </span>
+          <span class="model-id-display" title={model.model_identifier || 'No model ID set'}>
+            {model.model_identifier || '(no model selected)'}
+          </span>
+          {#if status !== 'stopped'}
+            <span class="status-text" style="color: {statusColor}">
+              {statusLabel}
+              {#if latencyMs !== undefined}
+                · {latencyMs}ms
+              {/if}
+            </span>
+          {/if}
+        </div>
+      </div>
+    </div>
+    <div class="header-actions">
+      {#if !isDefault && onsetdefault}
+        <button
+          type="button"
+          class="card-action-btn"
+          onclick={onsetdefault}
+          title="Set as default model"
+        >★ Default</button>
+      {/if}
+    </div>
   </div>
 
-  {#if expanded}
+  <!-- ─── Core settings (always visible) ─────────────────── -->
   <div class="card-body">
-    <div class="field">
-      <label for="mc-endpoint-{model.id}">Endpoint</label>
-      <input
-        id="mc-endpoint-{model.id}"
-        type="text"
-        value={model.endpoint}
-        placeholder={isLocal ? 'http://127.0.0.1:8081' : 'https://api.example.com'}
-        onchange={(e) => update('endpoint', (e.target as HTMLInputElement).value)}
-      />
-    </div>
+    <div class="core-fields">
+      <div class="field-group">
+        <label class="field-lbl" for="mc-modelid-{model.id}">
+          Model ID
+          <span class="field-hint">The model identifier sent to the API</span>
+        </label>
+        <div class="model-id-input-wrap">
+          <input
+            id="mc-modelid-{model.id}"
+            class="field-input"
+            type="text"
+            list="models-{model.id}"
+            value={model.model_identifier}
+            placeholder={isLocal ? 'e.g. gemma-4-27b-it-Q4_K_M.gguf' : 'e.g. claude-sonnet-4-6'}
+            onchange={(e) => update('model_identifier', (e.target as HTMLInputElement).value)}
+          />
+          <datalist id="models-{model.id}">
+            {#each (KNOWN_MODELS[model.provider] ?? []) as m}
+              <option value={m}>{m}</option>
+            {/each}
+          </datalist>
+        </div>
+      </div>
 
-    <div class="field">
-      <label for="mc-modelid-{model.id}">Model ID</label>
-      <input
-        id="mc-modelid-{model.id}"
-        type="text"
-        value={model.model_identifier}
-        placeholder="e.g. gemma-4-27b-it-Q4_K_M.gguf"
-        onchange={(e) => update('model_identifier', (e.target as HTMLInputElement).value)}
-      />
-    </div>
-
-    <div class="field">
-      <label for="mc-shortid-{model.id}">Short ID (2-4 chars)</label>
-      <input
-        id="mc-shortid-{model.id}"
-        type="text"
-        value={model.short_id}
-        maxlength={4}
-        placeholder="LOC"
-        onchange={(e) => update('short_id', (e.target as HTMLInputElement).value.toUpperCase())}
-      />
-    </div>
-
-    {#if !isLocal}
-    <div class="field">
-      <label for="mc-apikey-{model.id}">API Key (stored in OS keyring)</label>
-      <input
-        id="mc-apikey-{model.id}"
-        type="password"
-        value={model.api_key_ref ?? ''}
-        placeholder="sk-..."
-        onchange={(e) => update('api_key_ref', (e.target as HTMLInputElement).value || null)}
-      />
-    </div>
-    {/if}
-
-    {#if isLocal}
-    <fieldset class="llama-config">
-      <legend>llama-server</legend>
-
-      <div class="field">
-        <label for="mc-gguf-{model.id}">GGUF Model Path</label>
+      <div class="field-group">
+        <label class="field-lbl" for="mc-endpoint-{model.id}">
+          Endpoint
+          <span class="field-hint">API base URL for requests</span>
+        </label>
         <input
-          id="mc-gguf-{model.id}"
+          id="mc-endpoint-{model.id}"
+          class="field-input"
           type="text"
-          value={(model.hosting as any).model_path ?? ''}
-          placeholder="C:\Models\model.gguf"
-          onchange={(e) => {
-            const h = { ...model.hosting, model_path: (e.target as HTMLInputElement).value };
-            update('hosting', h);
-          }}
+          value={model.endpoint}
+          placeholder={isLocal ? 'http://127.0.0.1:8081' : 'https://api.example.com'}
+          onchange={(e) => update('endpoint', (e.target as HTMLInputElement).value)}
         />
       </div>
 
-      <div class="field-row">
-        <div class="field">
-          <label for="mc-ctx-{model.id}">Context Size</label>
+      <div class="field-row-2">
+        <div class="field-group">
+          <label class="field-lbl" for="mc-shortid-{model.id}">
+            Short ID
+            <span class="field-hint">2-4 char tag for the status line</span>
+          </label>
           <input
-            id="mc-ctx-{model.id}"
-            type="number"
-            value={(model.hosting as any).ctx_size ?? 32768}
-            min={2048}
-            max={131072}
-            step={1024}
-            onchange={(e) => {
-              const h = { ...model.hosting, ctx_size: parseInt((e.target as HTMLInputElement).value) };
-              update('hosting', h);
-            }}
+            id="mc-shortid-{model.id}"
+            class="field-input field-narrow"
+            type="text"
+            value={model.short_id}
+            maxlength={4}
+            placeholder="LOC"
+            onchange={(e) => update('short_id', (e.target as HTMLInputElement).value.toUpperCase())}
           />
         </div>
 
-        <div class="field">
-          <label for="mc-gpu-{model.id}">GPU Layers</label>
-          <input
-            id="mc-gpu-{model.id}"
-            type="number"
-            value={(model.hosting as any).n_gpu_layers ?? 99}
-            min={0}
-            max={999}
-            onchange={(e) => {
-              const h = { ...model.hosting, n_gpu_layers: parseInt((e.target as HTMLInputElement).value) };
-              update('hosting', h);
-            }}
-          />
-        </div>
+        {#if !isLocal}
+          <div class="field-group">
+            <label class="field-lbl" for="mc-apikey-{model.id}">
+              API Key
+              <span class="field-hint">Stored in OS keyring, not config file</span>
+            </label>
+            <input
+              id="mc-apikey-{model.id}"
+              class="field-input"
+              type="password"
+              value={model.api_key_ref ?? ''}
+              placeholder="sk-..."
+              onchange={(e) => update('api_key_ref', (e.target as HTMLInputElement).value || null)}
+            />
+          </div>
+        {/if}
+      </div>
+    </div>
 
-        <div class="field">
-          <label for="mc-port-{model.id}">Port</label>
+    <!-- ─── Capabilities (inline, editable) ────────────────── -->
+    <div class="caps-row">
+      <div class="cap-item">
+        <label class="field-lbl" for="mc-ctx-cap-{model.id}">Context</label>
+        <div class="cap-value">
           <input
-            id="mc-port-{model.id}"
+            id="mc-ctx-cap-{model.id}"
+            class="field-input field-narrow"
             type="number"
-            value={(model.hosting as any).port ?? 8081}
+            value={caps.max_context_tokens}
             min={1024}
-            max={65535}
-            onchange={(e) => {
-              const h = { ...model.hosting, port: parseInt((e.target as HTMLInputElement).value) };
-              update('hosting', h);
-            }}
+            step={1024}
+            onchange={(e) => updateCapability('max_context_tokens', parseInt((e.target as HTMLInputElement).value))}
           />
+          <span class="cap-unit">tokens</span>
         </div>
       </div>
+      <div class="cap-item">
+        <label class="field-lbl cap-toggle-lbl">
+          <input
+            type="checkbox"
+            checked={caps.supports_streaming}
+            onchange={(e) => updateCapability('supports_streaming', (e.target as HTMLInputElement).checked)}
+          />
+          Streaming
+        </label>
+      </div>
+      <div class="cap-item">
+        <label class="field-lbl cap-toggle-lbl">
+          <input
+            type="checkbox"
+            checked={caps.supports_tool_use}
+            onchange={(e) => updateCapability('supports_tool_use', (e.target as HTMLInputElement).checked)}
+          />
+          Tool Use
+        </label>
+      </div>
+      {#if caps.cost_per_1m_input > 0 || caps.cost_per_1m_output > 0}
+        <div class="cap-item">
+          <span class="cap-cost">
+            ${caps.cost_per_1m_input}/{caps.cost_per_1m_output} per 1M
+          </span>
+        </div>
+      {/if}
+    </div>
 
-      <div class="field-row">
-        <div class="field">
-          <label for="mc-kvk-{model.id}">KV Cache Key</label>
-          <select
-            id="mc-kvk-{model.id}"
-            value={(model.hosting as any).cache_type_k ?? 'q8_0'}
+    <!-- ─── Local server config ─────────────────────────────── -->
+    {#if isLocal}
+      <fieldset class="llama-config">
+        <legend>llama-server Configuration</legend>
+
+        <div class="field-group">
+          <label class="field-lbl" for="mc-gguf-{model.id}">
+            GGUF Model Path
+            <span class="field-hint">Full path to the .gguf model file on disk</span>
+          </label>
+          <input
+            id="mc-gguf-{model.id}"
+            class="field-input"
+            type="text"
+            value={(model.hosting as any).model_path ?? ''}
+            placeholder="C:\Models\model.gguf"
             onchange={(e) => {
-              const h = { ...model.hosting, cache_type_k: (e.target as HTMLSelectElement).value as KvCacheType };
+              const h = { ...model.hosting, model_path: (e.target as HTMLInputElement).value };
               update('hosting', h);
             }}
-          >
-            {#each KV_CACHE_OPTIONS as opt}
-              <option value={opt}>{opt}</option>
-            {/each}
-          </select>
+          />
         </div>
 
-        <div class="field">
-          <label for="mc-kvv-{model.id}">KV Cache Value</label>
-          <select
-            id="mc-kvv-{model.id}"
-            value={(model.hosting as any).cache_type_v ?? 'q8_0'}
-            onchange={(e) => {
-              const h = { ...model.hosting, cache_type_v: (e.target as HTMLSelectElement).value as KvCacheType };
-              update('hosting', h);
-            }}
-          >
-            {#each KV_CACHE_OPTIONS as opt}
-              <option value={opt}>{opt}</option>
-            {/each}
-          </select>
-        </div>
-
-        <div class="field">
-          <label>
+        <div class="field-row-3">
+          <div class="field-group">
+            <label class="field-lbl" for="mc-ctx-{model.id}">
+              Context Size
+              <span class="field-hint">Max tokens in context window</span>
+            </label>
             <input
-              type="checkbox"
-              checked={(model.hosting as any).flash_attention ?? true}
+              id="mc-ctx-{model.id}"
+              class="field-input"
+              type="number"
+              value={(model.hosting as any).ctx_size ?? 32768}
+              min={2048}
+              max={131072}
+              step={1024}
               onchange={(e) => {
-                const h = { ...model.hosting, flash_attention: (e.target as HTMLInputElement).checked };
+                const h = { ...model.hosting, ctx_size: parseInt((e.target as HTMLInputElement).value) };
                 update('hosting', h);
               }}
             />
-            Flash Attention
-          </label>
-        </div>
-      </div>
+          </div>
 
-      <div class="field">
-        <label>
+          <div class="field-group">
+            <label class="field-lbl" for="mc-gpu-{model.id}">
+              GPU Layers
+              <span class="field-hint">Layers offloaded to GPU (99 = all)</span>
+            </label>
+            <input
+              id="mc-gpu-{model.id}"
+              class="field-input"
+              type="number"
+              value={(model.hosting as any).n_gpu_layers ?? 99}
+              min={0}
+              max={999}
+              onchange={(e) => {
+                const h = { ...model.hosting, n_gpu_layers: parseInt((e.target as HTMLInputElement).value) };
+                update('hosting', h);
+              }}
+            />
+          </div>
+
+          <div class="field-group">
+            <label class="field-lbl" for="mc-port-{model.id}">
+              Port
+              <span class="field-hint">HTTP port for the server</span>
+            </label>
+            <input
+              id="mc-port-{model.id}"
+              class="field-input"
+              type="number"
+              value={(model.hosting as any).port ?? 8081}
+              min={1024}
+              max={65535}
+              onchange={(e) => {
+                const h = { ...model.hosting, port: parseInt((e.target as HTMLInputElement).value) };
+                update('hosting', h);
+              }}
+            />
+          </div>
+        </div>
+
+        <div class="field-row-3">
+          <div class="field-group">
+            <label class="field-lbl" for="mc-kvk-{model.id}">
+              KV Cache Key
+              <span class="field-hint">Quantization type for key cache</span>
+            </label>
+            <select
+              id="mc-kvk-{model.id}"
+              class="field-select"
+              value={(model.hosting as any).cache_type_k ?? 'q8_0'}
+              onchange={(e) => {
+                const h = { ...model.hosting, cache_type_k: (e.target as HTMLSelectElement).value as KvCacheType };
+                update('hosting', h);
+              }}
+            >
+              {#each KV_CACHE_OPTIONS as opt}
+                <option value={opt}>{opt}</option>
+              {/each}
+            </select>
+          </div>
+
+          <div class="field-group">
+            <label class="field-lbl" for="mc-kvv-{model.id}">
+              KV Cache Value
+              <span class="field-hint">Quantization type for value cache</span>
+            </label>
+            <select
+              id="mc-kvv-{model.id}"
+              class="field-select"
+              value={(model.hosting as any).cache_type_v ?? 'q8_0'}
+              onchange={(e) => {
+                const h = { ...model.hosting, cache_type_v: (e.target as HTMLSelectElement).value as KvCacheType };
+                update('hosting', h);
+              }}
+            >
+              {#each KV_CACHE_OPTIONS as opt}
+                <option value={opt}>{opt}</option>
+              {/each}
+            </select>
+          </div>
+
+          <div class="field-group">
+            <label class="field-lbl cap-toggle-lbl">
+              <input
+                type="checkbox"
+                checked={(model.hosting as any).flash_attention ?? true}
+                onchange={(e) => {
+                  const h = { ...model.hosting, flash_attention: (e.target as HTMLInputElement).checked };
+                  update('hosting', h);
+                }}
+              />
+              Flash Attention
+            </label>
+          </div>
+        </div>
+
+        <label class="field-lbl cap-toggle-lbl" style="margin-top: var(--space-md)">
           <input
             type="checkbox"
             checked={(model.hosting as any).auto_start ?? false}
@@ -230,164 +409,510 @@
               update('hosting', h);
             }}
           />
-          Auto-start on Rift launch
+          Auto-start when Rift launches
         </label>
-      </div>
 
-      <VramEstimator config={model.hosting as unknown as LlamaServerConfig} />
-    </fieldset>
+        <VramEstimator config={model.hosting as unknown as LlamaServerConfig} />
+      </fieldset>
     {/if}
 
-    <div class="card-actions">
-      <button type="button" class="rift-btn danger" onclick={onremove}>Remove</button>
+    <!-- ─── Advanced toggle (strength tags, cost) ──────────── -->
+    <button
+      type="button"
+      class="advanced-toggle"
+      onclick={() => (showAdvanced = !showAdvanced)}
+      aria-expanded={showAdvanced}
+    >
+      {showAdvanced ? '▾' : '▸'} Advanced
+    </button>
+
+    {#if showAdvanced}
+      <div class="advanced-section">
+        <div class="field-row-2">
+          <div class="field-group">
+            <label class="field-lbl" for="mc-cost-in-{model.id}">
+              Cost / 1M input tokens
+              <span class="field-hint">For cost-optimized routing</span>
+            </label>
+            <input
+              id="mc-cost-in-{model.id}"
+              class="field-input field-narrow"
+              type="number"
+              value={caps.cost_per_1m_input}
+              min={0}
+              step={0.1}
+              onchange={(e) => updateCapability('cost_per_1m_input', parseFloat((e.target as HTMLInputElement).value))}
+            />
+          </div>
+          <div class="field-group">
+            <label class="field-lbl" for="mc-cost-out-{model.id}">
+              Cost / 1M output tokens
+              <span class="field-hint">For cost-optimized routing</span>
+            </label>
+            <input
+              id="mc-cost-out-{model.id}"
+              class="field-input field-narrow"
+              type="number"
+              value={caps.cost_per_1m_output}
+              min={0}
+              step={0.1}
+              onchange={(e) => updateCapability('cost_per_1m_output', parseFloat((e.target as HTMLInputElement).value))}
+            />
+          </div>
+        </div>
+
+        <div class="field-group">
+          <label class="field-lbl" for="mc-tags-{model.id}">
+            Strength Tags
+            <span class="field-hint">Comma-separated tags like "code, reasoning, creative"</span>
+          </label>
+          <input
+            id="mc-tags-{model.id}"
+            class="field-input"
+            type="text"
+            value={(caps.strength_tags ?? []).join(', ')}
+            placeholder="code, reasoning, creative"
+            onchange={(e) => {
+              const tags = (e.target as HTMLInputElement).value
+                .split(',')
+                .map(t => t.trim())
+                .filter(Boolean);
+              updateCapability('strength_tags', tags);
+            }}
+          />
+        </div>
+      </div>
+    {/if}
+
+    <!-- ─── Card footer ─────────────────────────────────────── -->
+    <div class="card-footer">
+      {#if !confirmRemove}
+        <button type="button" class="remove-btn" onclick={() => (confirmRemove = true)}>
+          Remove Model
+        </button>
+      {:else}
+        <span class="confirm-prompt">Remove this model?</span>
+        <button type="button" class="remove-btn confirm" onclick={() => { confirmRemove = false; onremove(); }}>
+          Yes, remove
+        </button>
+        <button type="button" class="cancel-btn" onclick={() => (confirmRemove = false)}>
+          Cancel
+        </button>
+      {/if}
     </div>
   </div>
-  {/if}
 </div>
 
 <style>
   .model-card {
-    background: rgba(0, 0, 0, 0.3);
-    border: 1px solid var(--amber-faint, #A87830);
+    background: var(--bg-surface);
+    border: 1px solid var(--border-subtle);
     border-left: 3px solid var(--card-accent, var(--amber-faint));
-    border-radius: var(--radius-md, 4px);
-    margin-bottom: 8px;
+    border-radius: var(--radius-md);
+    margin-bottom: var(--space-md);
     overflow: hidden;
   }
+  .model-card.is-default {
+    border-color: var(--amber-bright);
+    border-left-color: var(--amber-bright);
+    box-shadow: 0 0 8px rgba(255, 200, 64, 0.08);
+  }
 
+  /* ─── Header ──────────────────────────────── */
   .card-header {
     display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 8px 12px;
-    cursor: pointer;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--space-md);
+    padding: var(--space-md) var(--space-lg);
+    background: rgba(0, 0, 0, 0.15);
   }
-
-  .status-dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
+  .header-left {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-md);
+    flex: 1;
+    min-width: 0;
+  }
+  .status-indicator {
+    width: 10px;
+    height: 10px;
+    border-radius: var(--radius-full);
     flex-shrink: 0;
+    margin-top: 5px;
   }
-
-  .short-id {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 11px;
-    font-weight: 700;
-    color: var(--amber-bright, #FFC840);
-    min-width: 32px;
+  .header-info {
+    flex: 1;
+    min-width: 0;
   }
-
+  .header-top-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+  }
   .display-name {
     flex: 1;
     background: transparent;
     border: none;
     border-bottom: 1px solid transparent;
-    color: var(--term-white, #E8E4D8);
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 12px;
+    color: var(--term-white);
+    font-family: var(--font-family);
+    font-size: var(--text-sm);
+    font-weight: 700;
     padding: 2px 4px;
+    min-width: 0;
+  }
+  .display-name:hover {
+    border-bottom-color: var(--border-subtle);
   }
   .display-name:focus {
-    border-bottom-color: var(--amber-faint, #A87830);
+    border-bottom-color: var(--amber-faint);
   }
   .display-name:focus-visible {
     outline: 1px solid var(--amber-warm);
     outline-offset: -2px;
   }
-
-  .provider-badge {
-    font-size: 9px;
-    text-transform: uppercase;
+  .default-badge {
+    font-size: var(--text-2xs, 9px);
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    color: var(--bg-base);
+    background: var(--amber-bright);
+    padding: 1px 6px;
+    border-radius: var(--radius-sm);
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .header-meta {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    margin-top: 4px;
+    flex-wrap: wrap;
+  }
+  .provider-tag {
+    font-size: var(--text-2xs, 9px);
+    font-weight: 600;
     letter-spacing: 0.05em;
-    color: var(--amber-faint, #A87830);
-    border: 1px solid rgba(168, 120, 48, 0.3);
+    text-transform: uppercase;
+    border: 1px solid;
     border-radius: var(--radius-sm);
     padding: 1px 6px;
     white-space: nowrap;
   }
-
-  .expand-btn {
-    background: none;
-    border: none;
-    color: var(--amber-faint, #A87830);
-    cursor: pointer;
-    font-size: 12px;
-    padding: 2px 6px;
+  .model-id-display {
+    font-size: var(--text-2xs, 9px);
+    color: var(--amber-dim);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 260px;
   }
-
-  .card-body {
-    padding: 0 12px 12px;
-    border-top: 1px solid rgba(168, 120, 48, 0.15);
+  .status-text {
+    font-size: var(--text-2xs, 9px);
+    font-weight: 600;
+    letter-spacing: 0.03em;
   }
-
-  .field {
-    margin-top: 8px;
+  .header-actions {
+    flex-shrink: 0;
   }
-
-  .field label {
-    display: block;
-    font-size: 10px;
-    color: var(--amber-faint, #A87830);
-    margin-bottom: 2px;
+  .card-action-btn {
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    color: var(--amber-dim);
+    font-family: var(--font-family);
+    font-size: var(--text-2xs, 9px);
+    font-weight: 600;
+    letter-spacing: 0.06em;
     text-transform: uppercase;
-    letter-spacing: 0.05em;
+    padding: 4px 10px;
+    cursor: pointer;
+    transition: color var(--duration-base) var(--ease-out),
+                border-color var(--duration-base) var(--ease-out),
+                background var(--duration-base) var(--ease-out);
+    white-space: nowrap;
+  }
+  .card-action-btn:hover {
+    color: var(--amber-bright);
+    border-color: var(--amber-dim);
+    background: var(--bg-hover);
+  }
+  .card-action-btn:focus-visible {
+    outline: 1px solid var(--amber-warm);
+    outline-offset: 1px;
   }
 
-  .field input[type="text"],
-  .field input[type="password"],
-  .field input[type="number"],
-  .field select {
+  /* ─── Body ────────────────────────────────── */
+  .card-body {
+    padding: var(--space-md) var(--space-lg) var(--space-lg);
+  }
+  .core-fields {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+  }
+
+  /* ─── Field system ────────────────────────── */
+  .field-group {
+    margin-bottom: var(--space-sm);
+  }
+  .field-lbl {
+    display: block;
+    font-size: var(--text-2xs, 9px);
+    color: var(--amber-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-weight: 700;
+    margin-bottom: 4px;
+  }
+  .field-hint {
+    display: inline;
+    font-weight: 400;
+    text-transform: none;
+    letter-spacing: normal;
+    color: var(--amber-faint);
+    font-style: italic;
+    margin-left: 6px;
+  }
+  .field-input {
     width: 100%;
-    background: rgba(0, 0, 0, 0.4);
-    border: 1px solid rgba(168, 120, 48, 0.25);
-    border-radius: var(--radius-md, 4px);
-    color: var(--term-white, #E8E4D8);
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 11px;
-    padding: 4px 8px;
+    background: rgba(0, 0, 0, 0.35);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    color: var(--term-white);
+    font-family: var(--font-family);
+    font-size: var(--text-xs);
+    padding: 6px 10px;
     box-sizing: border-box;
+    transition: border-color var(--duration-base) var(--ease-out);
   }
-  .field input:focus,
-  .field select:focus {
-    border-color: var(--amber-faint, #A87830);
+  .field-input:hover {
+    border-color: var(--amber-faint);
   }
-  .field input:focus-visible,
-  .field select:focus-visible {
+  .field-input:focus {
+    border-color: var(--amber-primary);
+    outline: none;
+    box-shadow: 0 0 0 1px var(--amber-dim);
+  }
+  .field-input:focus-visible {
     outline: 1px solid var(--amber-warm);
     outline-offset: -2px;
   }
+  .field-input::placeholder {
+    color: var(--amber-faint);
+    font-style: italic;
+  }
+  .field-narrow {
+    width: 100px;
+  }
+  .field-select {
+    appearance: none;
+    -webkit-appearance: none;
+    width: 100%;
+    background: rgba(0, 0, 0, 0.35);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    color: var(--term-white);
+    font-family: var(--font-family);
+    font-size: var(--text-xs);
+    padding: 6px 28px 6px 10px;
+    cursor: pointer;
+    transition: border-color var(--duration-base) var(--ease-out);
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23A87830' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 10px center;
+  }
+  .field-select:hover {
+    border-color: var(--amber-faint);
+  }
+  .field-select:focus {
+    border-color: var(--amber-primary);
+    outline: none;
+    box-shadow: 0 0 0 1px var(--amber-dim);
+  }
+  .field-select:focus-visible {
+    outline: 1px solid var(--amber-warm);
+    outline-offset: -2px;
+  }
+  .field-select option {
+    background: var(--bg-elevated);
+    color: var(--amber-warm);
+  }
 
-  .field-row {
+  .model-id-input-wrap {
+    position: relative;
+  }
+
+  .field-row-2 {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: var(--space-md);
+  }
+  .field-row-3 {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: var(--space-md);
+  }
+
+  /* ─── Capabilities row ────────────────────── */
+  .caps-row {
     display: flex;
-    gap: 8px;
+    align-items: center;
+    gap: var(--space-lg);
+    flex-wrap: wrap;
+    padding: var(--space-sm) 0;
+    margin-top: var(--space-xs);
+    border-top: 1px solid rgba(168, 120, 48, 0.1);
+    border-bottom: 1px solid rgba(168, 120, 48, 0.1);
   }
-  .field-row .field {
-    flex: 1;
+  .cap-item {
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs);
   }
-
-  .llama-config {
-    border: 1px solid rgba(168, 120, 48, 0.2);
-    border-radius: var(--radius-md, 4px);
-    padding: 8px;
-    margin-top: 8px;
+  .cap-item .field-input {
+    width: 80px;
+    padding: 3px 6px;
+    font-size: var(--text-2xs, 9px);
+    height: auto;
   }
-  .llama-config legend {
-    font-size: 10px;
-    color: var(--amber-faint, #A87830);
+  .cap-unit {
+    font-size: var(--text-2xs, 9px);
+    color: var(--amber-faint);
     text-transform: uppercase;
     letter-spacing: 0.05em;
-    padding: 0 4px;
   }
-
-  .field input[type="checkbox"] {
-    accent-color: var(--amber-primary, #FFA826);
-    margin-right: 4px;
-  }
-
-  .card-actions {
-    margin-top: 12px;
+  .cap-value {
     display: flex;
-    justify-content: flex-end;
+    align-items: center;
+    gap: 4px;
+  }
+  .cap-toggle-lbl {
+    display: inline-flex !important;
+    align-items: center;
+    gap: var(--space-sm);
+    cursor: pointer;
+    color: var(--amber-warm);
+    text-transform: uppercase;
+    font-weight: 600;
+  }
+  .cap-toggle-lbl input[type="checkbox"] {
+    accent-color: var(--amber-primary);
+    margin: 0;
+  }
+  .cap-cost {
+    font-size: var(--text-2xs, 9px);
+    color: var(--amber-faint);
+    letter-spacing: 0.03em;
+  }
+
+  /* ─── llama-server fieldset ───────────────── */
+  .llama-config {
+    border: 1px solid rgba(168, 120, 48, 0.2);
+    border-radius: var(--radius-md);
+    padding: var(--space-md);
+    margin-top: var(--space-md);
+  }
+  .llama-config legend {
+    font-size: var(--text-2xs, 9px);
+    color: var(--amber-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-weight: 700;
+    padding: 0 6px;
+  }
+
+  /* ─── Advanced toggle ─────────────────────── */
+  .advanced-toggle {
+    background: none;
+    border: none;
+    color: var(--amber-faint);
+    font-family: var(--font-family);
+    font-size: var(--text-2xs, 9px);
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    cursor: pointer;
+    padding: var(--space-sm) 0;
+    margin-top: var(--space-sm);
+    transition: color var(--duration-base) var(--ease-out);
+  }
+  .advanced-toggle:hover {
+    color: var(--amber-warm);
+  }
+  .advanced-toggle:focus-visible {
+    outline: 1px solid var(--amber-warm);
+    outline-offset: 2px;
+  }
+  .advanced-section {
+    padding-top: var(--space-sm);
+  }
+
+  /* ─── Footer ──────────────────────────────── */
+  .card-footer {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    margin-top: var(--space-md);
+    padding-top: var(--space-sm);
+    border-top: 1px solid rgba(168, 120, 48, 0.08);
+  }
+  .remove-btn {
+    background: none;
+    border: 1px solid rgba(255, 72, 72, 0.25);
+    border-radius: var(--radius-md);
+    color: var(--term-red);
+    font-family: var(--font-family);
+    font-size: var(--text-2xs, 9px);
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 4px 10px;
+    cursor: pointer;
+    transition: background var(--duration-base) var(--ease-out),
+                border-color var(--duration-base) var(--ease-out);
+  }
+  .remove-btn:hover {
+    background: rgba(255, 72, 72, 0.08);
+    border-color: rgba(255, 72, 72, 0.5);
+  }
+  .remove-btn.confirm {
+    background: rgba(255, 72, 72, 0.15);
+    border-color: var(--term-red);
+  }
+  .remove-btn:focus-visible {
+    outline: 1px solid var(--term-red);
+    outline-offset: 1px;
+  }
+  .cancel-btn {
+    background: none;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    color: var(--amber-dim);
+    font-family: var(--font-family);
+    font-size: var(--text-2xs, 9px);
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 4px 10px;
+    cursor: pointer;
+    transition: color var(--duration-base) var(--ease-out),
+                border-color var(--duration-base) var(--ease-out);
+  }
+  .cancel-btn:hover {
+    color: var(--amber-warm);
+    border-color: var(--amber-faint);
+  }
+  .cancel-btn:focus-visible {
+    outline: 1px solid var(--amber-warm);
+    outline-offset: 1px;
+  }
+  .confirm-prompt {
+    font-size: var(--text-2xs, 9px);
+    color: var(--term-red);
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
   }
 </style>

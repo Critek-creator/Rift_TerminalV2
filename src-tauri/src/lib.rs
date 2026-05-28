@@ -2092,7 +2092,38 @@ pub fn run() {
                 let pm_bus = app.state::<RiftBus>().inner().clone();
                 let llama_path = ProcessManager::detect_llama_server()
                     .unwrap_or_else(|| std::path::PathBuf::from("llama-server"));
-                app.manage(std::sync::Arc::new(ProcessManager::new(llama_path, pm_bus)));
+                let pm = std::sync::Arc::new(ProcessManager::new(llama_path, pm_bus));
+
+                if cfg.ensemble.enabled {
+                    let pm_auto = pm.clone();
+                    let auto_models: Vec<_> = cfg
+                        .ensemble
+                        .models
+                        .iter()
+                        .filter_map(|m| match &m.hosting {
+                            rift_bus::config::HostingMode::Local { process_config }
+                                if process_config.auto_start
+                                    && !process_config.model_path.as_os_str().is_empty() =>
+                            {
+                                Some((m.id.clone(), process_config.clone()))
+                            }
+                            _ => None,
+                        })
+                        .collect();
+                    if !auto_models.is_empty() {
+                        tauri::async_runtime::spawn(async move {
+                            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                            for (id, pc) in &auto_models {
+                                match pm_auto.start(id, pc) {
+                                    Ok(pid) => tracing::info!("auto-start: {id} → pid {pid} on :{}", pc.port),
+                                    Err(e) => tracing::warn!("auto-start: {id} failed: {e}"),
+                                }
+                            }
+                        });
+                    }
+                }
+
+                app.manage(pm);
             }
 
             // D-014 Phase A — MCP host subscriber (off by default).

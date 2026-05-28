@@ -1646,53 +1646,92 @@
     {#if activeTab === 'models'}
     <section class="section">
       <div class="section-label">Ensemble Router</div>
-      <div class="kv">
-        <div class="k">enabled</div>
-        <div class="v">
-          <label>
-            <input
-              type="checkbox"
-              checked={llmModels.enabled}
-              onchange={(e) => llmModels.setEnabled((e.target as HTMLInputElement).checked)}
-            />
-          </label>
-        </div>
+      <div class="hint">
+        Route prompts to multiple LLM providers — local models, Anthropic, Google Gemini,
+        or any OpenAI-compatible endpoint. Enable the router to configure models and choose
+        a routing strategy.
       </div>
+      <label class="kv-toggle">
+        <input
+          type="checkbox"
+          checked={llmModels.enabled}
+          onchange={(e) => llmModels.setEnabled((e.target as HTMLInputElement).checked)}
+        />
+        Enable Ensemble Router
+      </label>
+
       {#if llmModels.enabled}
-      <div class="kv" style="margin-top: 8px;">
-        <div class="k">routing</div>
-        <div class="v">
-          <select
-            value={llmModels.activeProfile}
-            onchange={(e) => llmModels.setActiveProfile((e.target as HTMLSelectElement).value as any)}
-            class="select"
-          >
-            <option value="manual">Manual</option>
-            <option value="cost_optimized">Cost Optimized</option>
-            <option value="quality_first">Quality First</option>
-            <option value="balanced">Balanced</option>
-          </select>
-        </div>
+      <div class="field" style="margin-top: var(--space-md);">
+        <span class="field-label">Routing Strategy</span>
+        <select
+          value={llmModels.activeProfile}
+          onchange={(e) => llmModels.setActiveProfile((e.target as HTMLSelectElement).value as any)}
+          class="select"
+        >
+          <option value="manual">Manual — you pick the model per request</option>
+          <option value="cost_optimized">Cost Optimized — cheapest model that fits the task</option>
+          <option value="quality_first">Quality First — best model available, cost secondary</option>
+          <option value="balanced">Balanced — weighs quality and cost equally</option>
+        </select>
       </div>
       {/if}
     </section>
+
     {#if llmModels.enabled}
     <section class="section">
       <div class="section-label">Configured Models</div>
       {#if llmModels.models.length === 0}
-        <div class="hint" style="padding: 12px 0;">No models configured. Add one below.</div>
+        <div class="hint" style="padding: var(--space-sm) 0;">
+          No models configured yet. Add a provider below to get started.
+        </div>
       {/if}
       {#each llmModels.models as model (model.id)}
-        <ModelCard {model} onremove={() => llmModels.removeModel(model.id)} />
+        <ModelCard
+          {model}
+          isDefault={llmModels.defaultModel === model.id}
+          onremove={() => llmModels.removeModel(model.id)}
+          onsetdefault={() => llmModels.setDefaultModel(model.id)}
+        />
       {/each}
-      <div style="display: flex; gap: 6px; margin-top: 8px;">
-        <button type="button" class="rift-btn" onclick={() => llmModels.addModel('llama_server')}>+ Local</button>
-        <button type="button" class="rift-btn" onclick={() => llmModels.addModel('anthropic')}>+ Anthropic</button>
-        <button type="button" class="rift-btn" onclick={() => llmModels.addModel('google')}>+ Gemini</button>
-        <button type="button" class="rift-btn" onclick={() => llmModels.addModel('open_ai_compat')}>+ OpenAI-compat</button>
+
+      <div class="add-model-section">
+        <span class="field-label" style="margin-bottom: var(--space-sm); display: block;">Add Model</span>
+        <div class="provider-cards">
+          <button type="button" class="provider-card" onclick={() => llmModels.addModel('llama_server')}>
+            <span class="provider-card-name" style="color: var(--term-green)">Local</span>
+            <span class="provider-card-desc">Run a GGUF model locally via llama-server</span>
+          </button>
+          <button type="button" class="provider-card" onclick={() => llmModels.addModel('anthropic')}>
+            <span class="provider-card-name" style="color: var(--term-blue)">Anthropic</span>
+            <span class="provider-card-desc">Claude models via the Anthropic API</span>
+          </button>
+          <button type="button" class="provider-card" onclick={() => llmModels.addModel('google')}>
+            <span class="provider-card-name" style="color: var(--term-cyan)">Gemini</span>
+            <span class="provider-card-desc">Google Gemini models via AI API</span>
+          </button>
+          <button type="button" class="provider-card" onclick={() => llmModels.addModel('open_ai_compat')}>
+            <span class="provider-card-name" style="color: var(--term-purple)">OpenAI-compat</span>
+            <span class="provider-card-desc">Any OpenAI-compatible API endpoint</span>
+          </button>
+        </div>
       </div>
-      <div style="margin-top: 12px; display: flex; justify-content: flex-end;">
-        <button type="button" class="rift-btn primary" onclick={async () => { await llmModels.save(); broadcastConfigChanged(); }}>Save Models</button>
+
+      <div class="models-save-row">
+        <button type="button" class="btn primary" onclick={async () => {
+          saveBanner = null;
+          try {
+            await llmModels.save();
+            broadcastConfigChanged();
+            saveBanner = { section: 'models', ok: true, msg: 'models saved' };
+          } catch (err) {
+            saveBanner = { section: 'models', ok: false, msg: String(err) };
+          }
+        }}>Save Models</button>
+        {#if saveBanner && saveBanner.section === 'models'}
+          <span class="banner-inline" class:fail={!saveBanner.ok} role="status">
+            {saveBanner.msg}
+          </span>
+        {/if}
       </div>
     </section>
     {/if}
@@ -2433,5 +2472,61 @@
   .custom-color-hex::placeholder {
     color: var(--amber-faint);
     font-style: italic;
+  }
+
+  /* ─── Models — provider cards ────────────────────────────────────────── */
+  .add-model-section {
+    margin-top: var(--space-lg);
+    padding-top: var(--space-md);
+    border-top: 1px solid var(--border-subtle);
+  }
+  .provider-cards {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--space-sm);
+  }
+  .provider-card {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    background: var(--bg-base);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    padding: var(--space-md) var(--space-md);
+    cursor: pointer;
+    text-align: left;
+    transition: border-color var(--duration-base) var(--ease-out),
+                background var(--duration-base) var(--ease-out),
+                box-shadow var(--duration-base) var(--ease-out);
+  }
+  .provider-card:hover {
+    border-color: var(--amber-dim);
+    background: var(--bg-hover);
+    box-shadow: 0 0 6px rgba(255, 168, 38, 0.06);
+  }
+  .provider-card:focus-visible {
+    outline: 1px solid var(--amber-warm);
+    outline-offset: 1px;
+  }
+  .provider-card-name {
+    font-family: var(--font-family);
+    font-size: var(--text-sm);
+    font-weight: 700;
+    letter-spacing: 0.04em;
+  }
+  .provider-card-desc {
+    font-family: var(--font-family);
+    font-size: var(--text-2xs);
+    color: var(--amber-faint);
+    line-height: 1.4;
+  }
+
+  /* ─── Models — save row ──────────────────────────────────────────────── */
+  .models-save-row {
+    margin-top: var(--space-lg);
+    display: flex;
+    align-items: center;
+    gap: var(--space-md);
+    justify-content: flex-end;
   }
 </style>
