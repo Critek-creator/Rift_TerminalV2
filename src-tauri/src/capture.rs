@@ -17,11 +17,13 @@ pub fn capture_window_png(hwnd: isize) -> Result<Vec<u8>, String> {
 fn capture_inner(hwnd: isize) -> Result<Vec<u8>, String> {
     use windows_sys::Win32::Foundation::RECT;
     use windows_sys::Win32::Graphics::Gdi::{
-        BitBlt, CreateCompatibleBitmap, CreateCompatibleDC, DeleteDC, DeleteObject, GetDC,
-        GetDIBits, ReleaseDC, SelectObject, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS,
-        SRCCOPY,
+        CreateCompatibleBitmap, CreateCompatibleDC, DeleteDC, DeleteObject, GetDC, GetDIBits,
+        ReleaseDC, SelectObject, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS,
     };
+    use windows_sys::Win32::Storage::Xps::PrintWindow;
     use windows_sys::Win32::UI::WindowsAndMessaging::{GetClientRect, IsWindow};
+
+    const PW_RENDERFULLCONTENT: u32 = 0x00000002;
 
     unsafe {
         let hwnd = hwnd as windows_sys::Win32::Foundation::HWND;
@@ -66,15 +68,17 @@ fn capture_inner(hwnd: isize) -> Result<Vec<u8>, String> {
 
         let old_bm = SelectObject(hdc_mem, hbm);
 
-        // BitBlt copies the client area. PW_RENDERFULLCONTENT (PrintWindow)
-        // would also work but BitBlt is sufficient for visible windows.
-        let ok = BitBlt(hdc_mem, 0, 0, width, height, hdc_window, 0, 0, SRCCOPY);
+        // PrintWindow with PW_RENDERFULLCONTENT asks the window to paint
+        // itself into our DC, which correctly captures DirectComposition
+        // content (WebView2 uses GPU compositing — BitBlt reads a stale
+        // GDI surface and misses overlay/popup layers).
+        let ok = PrintWindow(hwnd, hdc_mem, PW_RENDERFULLCONTENT);
         if ok == 0 {
             SelectObject(hdc_mem, old_bm);
             DeleteObject(hbm);
             DeleteDC(hdc_mem);
             ReleaseDC(hwnd, hdc_window);
-            return Err("BitBlt failed".into());
+            return Err("PrintWindow failed".into());
         }
 
         // Read bitmap bits as BGRA

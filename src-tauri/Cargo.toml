@@ -53,9 +53,10 @@ png = "0.17"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { workspace = true, features = [
-    "Win32_Graphics_Gdi",
-    "Win32_UI_WindowsAndMessaging",
     "Win32_Foundation",
+    "Win32_Graphics_Gdi",
+    "Win32_Storage_Xps",
+    "Win32_UI_WindowsAndMessaging",
 ] }
 
 [dev-dependencies]
