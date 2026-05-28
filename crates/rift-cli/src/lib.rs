@@ -112,7 +112,6 @@ pub async fn run() -> Result<()> {
 /// Run a pre-parsed CLI invocation. Useful for tests that construct a
 /// `Cli` programmatically.
 pub async fn execute(cli: Cli) -> Result<()> {
-    let socket = resolve_socket(cli.socket.as_deref())?;
     match cli.cmd {
         Cmd::Hook {
             kind,
@@ -122,11 +121,24 @@ pub async fn execute(cli: Cli) -> Result<()> {
         } => {
             let payload = read_payload(payload.as_deref(), no_stdin)?;
             let cat = parse_category(&category);
-            publish_event(&socket, cat, &kind, payload).await
+            // Hooks are best-effort telemetry. When Rift isn't running, the
+            // socket can't be resolved (discovery file is removed on exit /
+            // pruned when stale) or the connect fails — and Claude Code fires
+            // ~16 hook event types on every tool call and prompt. Propagating
+            // the error here floods the terminal with connection failures the
+            // moment Rift is closed. Swallow it and exit cleanly; set
+            // RIFT_HOOK_DEBUG=1 to surface the underlying error for diagnostics.
+            if let Err(err) = publish_resolved(cli.socket.as_deref(), cat, &kind, payload).await {
+                if std::env::var_os("RIFT_HOOK_DEBUG").is_some() {
+                    eprintln!("rift hook: suppressed (Rift not reachable): {err:#}");
+                }
+            }
+            Ok(())
         }
         Cmd::Status => {
-            // Connecting establishes the round-trip; on success we know
-            // the IPC server is up and reachable.
+            // Status is the diagnostic smoke test — it is *supposed* to report
+            // connection failures loudly, so it resolves and connects directly.
+            let socket = resolve_socket(cli.socket.as_deref())?;
             let _client = IpcClient::connect(&socket)
                 .await
                 .with_context(|| format!("connect to {socket}"))?;
@@ -134,6 +146,19 @@ pub async fn execute(cli: Cli) -> Result<()> {
             Ok(())
         }
     }
+}
+
+/// Resolve the socket then publish a single event. Factored out so the `Hook`
+/// arm can treat the whole resolve→connect→send chain as one best-effort
+/// operation that fails silently when Rift isn't running.
+async fn publish_resolved(
+    socket_arg: Option<&str>,
+    category: Category,
+    kind: &str,
+    payload: serde_json::Value,
+) -> Result<()> {
+    let socket = resolve_socket(socket_arg)?;
+    publish_event(&socket, category, kind, payload).await
 }
 
 fn parse_category(s: &str) -> Category {
@@ -284,5 +309,43 @@ mod tests {
     fn parse_status() {
         let cli = Cli::try_parse_from(["rift", "status"]).unwrap();
         assert!(matches!(cli.cmd, Cmd::Status));
+    }
+
+    /// A `hook` invocation that cannot reach Rift must exit cleanly (Ok),
+    /// not propagate a connection error. This is the anti-spam contract:
+    /// Claude Code fires ~16 hook events per tool call, and erroring on each
+    /// when Rift is closed floods the terminal. `--no-stdin` keeps the test
+    /// from blocking on stdin; the bogus socket name guarantees connect fails
+    /// fast (missing named pipe → immediate error, no retry).
+    #[tokio::test]
+    async fn hook_silent_when_rift_unreachable() {
+        let cli = Cli::try_parse_from([
+            "rift",
+            "--socket",
+            "rift-cli-test-nonexistent-socket",
+            "hook",
+            "PreToolUse",
+            "--no-stdin",
+        ])
+        .unwrap();
+        // Must be Ok despite no Rift listening on that socket.
+        execute(cli).await.expect("hook must be a silent no-op");
+    }
+
+    /// `status`, by contrast, MUST surface the connection failure — it is the
+    /// diagnostic smoke test. Bogus socket → connect fails → Err.
+    #[tokio::test]
+    async fn status_errors_when_rift_unreachable() {
+        let cli = Cli::try_parse_from([
+            "rift",
+            "--socket",
+            "rift-cli-test-nonexistent-socket",
+            "status",
+        ])
+        .unwrap();
+        assert!(
+            execute(cli).await.is_err(),
+            "status must report connection failure"
+        );
     }
 }
