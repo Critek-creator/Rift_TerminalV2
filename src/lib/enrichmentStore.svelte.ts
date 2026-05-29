@@ -39,8 +39,14 @@ export class EnrichmentStore {
     const { fs_path, vault_id, vault_kind, tags } = payload;
     const existing = this.map.get(fs_path) ?? [];
     const filtered = existing.filter((e) => e.vault_id !== vault_id);
-    this.map.set(fs_path, [...filtered, { vault_id, vault_kind, tags }]);
-    this.map = this.map;
+    // Assign-replace with a NEW Map identity. A plain `$state(new Map())` is
+    // not deeply reactive (Map mutations via .set() aren't tracked, and
+    // `this.map = this.map` reassigns the same reference so Svelte sees no
+    // change) — only a fresh identity re-runs $derived consumers (Tree.svelte
+    // enrichment tags). removeByVaultId() uses the same pattern.
+    const next = new Map(this.map);
+    next.set(fs_path, [...filtered, { vault_id, vault_kind, tags }]);
+    this.map = next;
   }
 
   /**

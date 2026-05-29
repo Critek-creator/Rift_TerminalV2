@@ -131,7 +131,15 @@ describe('notifPriority.reset', () => {
 describe('notifPriority localStorage persistence', () => {
   it('persists interactions to localStorage', async () => {
     const np = await loadModule();
-    np.recordInteraction('test.kind', 'click');
+    // recordInteraction debounces the write by 5s (debouncedSave) — advance
+    // fake timers to flush it before asserting, rather than waiting in realtime.
+    vi.useFakeTimers();
+    try {
+      np.recordInteraction('test.kind', 'click');
+      vi.advanceTimersByTime(5000);
+    } finally {
+      vi.useRealTimers();
+    }
     const stored = localStorage.getItem('rift-notif-priority-interactions');
     expect(stored).not.toBeNull();
     const parsed = JSON.parse(stored!);
