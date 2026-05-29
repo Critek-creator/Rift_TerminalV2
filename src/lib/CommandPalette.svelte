@@ -55,7 +55,7 @@
         const s = llmModels.processStatus[id];
         return s === 'running' ? '●' : s === 'starting' ? '◐' : s === 'error' ? '✕' : '○';
       };
-      for (const m of llmModels.models) {
+      for (const m of llmModels.availableModels) {
         const isActive = llmModels.activeModelId === m.id;
         items.push({
           id: `model:${m.id}`,

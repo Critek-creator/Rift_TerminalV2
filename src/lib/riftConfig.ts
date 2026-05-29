@@ -119,7 +119,18 @@ export interface LlamaServerConfig {
   ctx_size: number;
   cache_type_k: KvCacheType;
   cache_type_v: KvCacheType;
+  /** Layers offloaded to GPU. 99 = all; a negative value = auto (lets
+   *  llama-server's device-memory fitter choose the split). */
   n_gpu_layers: number;
+  /** `--cpu-moe`: keep all MoE expert tensors on CPU (big VRAM saving for
+   *  MoE models, modest speed cost). */
+  cpu_moe: boolean;
+  /** `--n-cpu-moe N`: offload experts for the first N layers to CPU.
+   *  Ignored when cpu_moe is true. null = omit. */
+  n_cpu_moe: number | null;
+  /** `--cache-ram N`: host-RAM prompt-reuse cache in MiB (default 8192).
+   *  0 = disable. null = omit (use default). Not model weights. */
+  cache_ram: number | null;
   threads: number | null;
   parallel: number;
   port: number;
@@ -153,6 +164,9 @@ export interface ModelConfig {
   color: string;
   short_id: string;
   capabilities: ModelCapabilities;
+  /** Whether the model is available for use. Disabled models are skipped by
+   *  the router and hidden from model pickers. */
+  enabled: boolean;
 }
 
 export interface EnsembleConfig {

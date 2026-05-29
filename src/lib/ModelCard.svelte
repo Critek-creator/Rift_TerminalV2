@@ -27,8 +27,8 @@
       'claude-opus-4-5-20250414', 'claude-sonnet-4-5-20250414',
     ],
     google: [
-      'gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-2.0-flash',
-      'gemini-2.0-flash-lite', 'gemini-1.5-pro', 'gemini-1.5-flash',
+      'gemini-3.5-flash', 'gemini-3.1-flash-lite', 'gemini-2.5-pro',
+      'gemini-2.5-flash', 'gemini-2.5-flash-lite',
     ],
     llama_server: [
       'gemma-4-27b-it-Q4_K_M.gguf', 'gemma-4-12b-it-Q6_K.gguf',
@@ -88,12 +88,65 @@
   }
 
   let confirmRemove = $state(false);
+  let busy = $state(false);
+
+  // Collapsed state — persisted per model so the list stays at-a-glance.
+  // model.id read inside closures (not at script top level) to avoid Svelte's
+  // state_referenced_locally warning; the id is stable per card anyway.
+  const collapseKey = () => `rift:mc-collapsed:${model.id}`;
+  function readCollapsed(): boolean {
+    try {
+      return localStorage.getItem(collapseKey()) === '1';
+    } catch {
+      return false;
+    }
+  }
+  let collapsed = $state(readCollapsed());
+  function toggleCollapsed() {
+    collapsed = !collapsed;
+    try {
+      localStorage.setItem(collapseKey(), collapsed ? '1' : '0');
+    } catch {
+      /* localStorage unavailable — non-fatal */
+    }
+  }
+
+  // Start = hot-swap activate: stops other running local servers (frees VRAM
+  // on a single GPU), starts this one, and makes it the active route.
+  async function handleStart() {
+    busy = true;
+    try {
+      await llmModels.activateModel(model.id);
+    } catch (e) {
+      console.error('[ModelCard] start failed', e);
+    } finally {
+      busy = false;
+    }
+  }
+
+  async function handleStop() {
+    busy = true;
+    try {
+      await llmModels.stopModel(model.id);
+    } catch (e) {
+      console.error('[ModelCard] stop failed', e);
+    } finally {
+      busy = false;
+    }
+  }
 </script>
 
-<div class="model-card" class:is-default={isDefault} style="--card-accent: {providerMeta.color}">
+<div class="model-card" class:is-default={isDefault} class:collapsed class:disabled={model.enabled === false} style="--card-accent: {providerMeta.color}">
   <!-- ─── Header ──────────────────────────────────────────── -->
   <div class="card-header">
     <div class="header-left">
+      <button
+        type="button"
+        class="collapse-btn"
+        onclick={toggleCollapsed}
+        aria-expanded={!collapsed}
+        title={collapsed ? 'Expand model settings' : 'Collapse model settings'}
+      >{collapsed ? '▸' : '▾'}</button>
       <span class="status-indicator" style="background: {statusColor}" title={statusLabel}></span>
       <div class="header-info">
         <div class="header-top-row">
@@ -127,6 +180,34 @@
       </div>
     </div>
     <div class="header-actions">
+      <button
+        type="button"
+        class="card-action-btn"
+        class:off={model.enabled === false}
+        onclick={() => update('enabled', model.enabled === false)}
+        title={model.enabled === false
+          ? 'Model is disabled — enable to make it available'
+          : 'Disable this model (hide from routing and pickers)'}
+      >{model.enabled === false ? '⊘ Disabled' : '⏻ Enabled'}</button>
+      {#if isLocal}
+        {#if status === 'running'}
+          <button
+            type="button"
+            class="card-action-btn"
+            onclick={handleStop}
+            disabled={busy}
+            title="Stop this local server"
+          >■ Stop</button>
+        {:else}
+          <button
+            type="button"
+            class="card-action-btn"
+            onclick={handleStart}
+            disabled={busy || status === 'starting'}
+            title="Start this model (stops other running local models to free VRAM)"
+          >{status === 'starting' ? '… Starting' : '▶ Start'}</button>
+        {/if}
+      {/if}
       {#if !isDefault && onsetdefault}
         <button
           type="button"
@@ -308,14 +389,14 @@
           <div class="field-group">
             <label class="field-lbl" for="mc-gpu-{model.id}">
               GPU Layers
-              <span class="field-hint">Layers offloaded to GPU (99 = all)</span>
+              <span class="field-hint">99 = all · -1 = auto-fit to free VRAM</span>
             </label>
             <input
               id="mc-gpu-{model.id}"
               class="field-input"
               type="number"
               value={(model.hosting as any).n_gpu_layers ?? 99}
-              min={0}
+              min={-1}
               max={999}
               onchange={(e) => {
                 const h = { ...model.hosting, n_gpu_layers: parseInt((e.target as HTMLInputElement).value) };
@@ -400,6 +481,71 @@
           </div>
         </div>
 
+        <!-- ─── MoE expert offload (VRAM savings for MoE models) ─── -->
+        <div class="field-row-2" style="margin-top: var(--space-md)">
+          <div class="field-group">
+            <label class="field-lbl cap-toggle-lbl">
+              <input
+                type="checkbox"
+                checked={(model.hosting as any).cpu_moe ?? false}
+                onchange={(e) => {
+                  const h = { ...model.hosting, cpu_moe: (e.target as HTMLInputElement).checked };
+                  update('hosting', h);
+                }}
+              />
+              Offload MoE experts to CPU
+            </label>
+            <span class="field-hint">Forces ALL experts to RAM regardless of free VRAM — use only when the model won't fit. To fill VRAM, leave this off and tune CPU MoE Layers.</span>
+          </div>
+
+          {#if !((model.hosting as any).cpu_moe ?? false)}
+            <div class="field-group">
+              <label class="field-lbl" for="mc-ncpumoe-{model.id}">
+                CPU MoE Layers
+                <span class="field-hint">Offload experts for first N layers (blank = none)</span>
+              </label>
+              <input
+                id="mc-ncpumoe-{model.id}"
+                class="field-input field-narrow"
+                type="number"
+                value={(model.hosting as any).n_cpu_moe ?? ''}
+                min={0}
+                max={999}
+                placeholder="—"
+                onchange={(e) => {
+                  const raw = (e.target as HTMLInputElement).value;
+                  const n = raw === '' ? null : parseInt(raw);
+                  const h = { ...model.hosting, n_cpu_moe: Number.isNaN(n as number) ? null : n };
+                  update('hosting', h);
+                }}
+              />
+            </div>
+          {/if}
+        </div>
+
+        <div class="field-group" style="margin-top: var(--space-md)">
+          <label class="field-lbl" for="mc-cacheram-{model.id}">
+            Prompt Cache RAM (MiB)
+            <span class="field-hint">Host-RAM cache for prompt reuse (default 8192 = 8 GB). 0 disables it. Not model weights — lower it to reclaim system RAM.</span>
+          </label>
+          <input
+            id="mc-cacheram-{model.id}"
+            class="field-input field-narrow"
+            type="number"
+            value={(model.hosting as any).cache_ram ?? ''}
+            min={0}
+            max={65536}
+            step={512}
+            placeholder="8192"
+            onchange={(e) => {
+              const raw = (e.target as HTMLInputElement).value;
+              const n = raw === '' ? null : parseInt(raw);
+              const h = { ...model.hosting, cache_ram: Number.isNaN(n as number) ? null : n };
+              update('hosting', h);
+            }}
+          />
+        </div>
+
         <label class="field-lbl cap-toggle-lbl" style="margin-top: var(--space-md)">
           <input
             type="checkbox"
@@ -412,7 +558,10 @@
           Auto-start when Rift launches
         </label>
 
-        <VramEstimator config={model.hosting as unknown as LlamaServerConfig} />
+        <VramEstimator
+          config={model.hosting as unknown as LlamaServerConfig}
+          modelName={model.model_identifier}
+        />
       </fieldset>
     {/if}
 
@@ -516,6 +665,39 @@
     border-color: var(--amber-bright);
     border-left-color: var(--amber-bright);
     box-shadow: 0 0 8px rgba(255, 200, 64, 0.08);
+  }
+  /* Collapsed: header only, body hidden for an at-a-glance list. */
+  .model-card.collapsed .card-body {
+    display: none;
+  }
+  /* Disabled: dimmed + muted accent; still editable, just not routable. */
+  .model-card.disabled {
+    opacity: 0.55;
+    border-left-color: var(--border-subtle);
+  }
+  .model-card.disabled .status-indicator {
+    filter: grayscale(1);
+  }
+  .card-action-btn.off {
+    color: var(--term-red);
+    border-color: rgba(255, 72, 72, 0.4);
+  }
+
+  .collapse-btn {
+    flex-shrink: 0;
+    background: transparent;
+    border: none;
+    color: var(--amber-faint);
+    cursor: pointer;
+    font-size: 11px;
+    line-height: 1;
+    padding: 2px 4px;
+    margin-top: 2px;
+    border-radius: var(--radius-sm);
+  }
+  .collapse-btn:hover {
+    color: var(--amber-bright);
+    background: rgba(255, 200, 64, 0.08);
   }
 
   /* ─── Header ──────────────────────────────── */

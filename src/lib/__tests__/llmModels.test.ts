@@ -9,12 +9,13 @@ function makeModel(overrides: Partial<ModelConfig> = {}): ModelConfig {
     display_name: overrides.display_name ?? 'Test Model',
     provider: overrides.provider ?? 'llama_server',
     model_identifier: overrides.model_identifier ?? 'test/model.gguf',
-    hosting: overrides.hosting ?? { mode: 'local' as const, model_path: '', flash_attention: true, ctx_size: 32768, cache_type_k: 'q8_0', cache_type_v: 'q8_0', n_gpu_layers: 99, threads: null, parallel: 1, port: 8081, cuda_visible_devices: null, auto_start: false, extra_flags: [] },
+    hosting: overrides.hosting ?? { mode: 'local' as const, model_path: '', flash_attention: true, ctx_size: 32768, cache_type_k: 'q8_0', cache_type_v: 'q8_0', n_gpu_layers: 99, cpu_moe: false, n_cpu_moe: null, cache_ram: null, threads: null, parallel: 1, port: 8081, cuda_visible_devices: null, auto_start: false, extra_flags: [] },
     endpoint: overrides.endpoint ?? '',
     api_key_ref: overrides.api_key_ref ?? null,
     color: overrides.color ?? '--model-custom',
     short_id: overrides.short_id ?? 'TST',
     capabilities: overrides.capabilities ?? { max_context_tokens: 32768, supports_streaming: true, supports_tool_use: false, cost_per_1m_input: 0, cost_per_1m_output: 0, strength_tags: [] },
+    enabled: overrides.enabled ?? true,
   };
 }
 

@@ -874,6 +874,16 @@ pub struct ModelConfig {
     pub short_id: String,
     /// Model capabilities — used for routing decisions.
     pub capabilities: ModelCapabilities,
+    /// Whether the model is available for use. Disabled models are skipped by
+    /// the router and hidden from model pickers. Defaults to `true` (and for
+    /// configs written before this field existed).
+    #[serde(default = "default_enabled")]
+    pub enabled: bool,
+}
+
+/// Default for [`ModelConfig::enabled`] — models are enabled unless toggled off.
+fn default_enabled() -> bool {
+    true
 }
 
 /// Provider type — determines which LLM translator handles requests.
@@ -920,7 +930,24 @@ pub struct LlamaServerConfig {
     /// `--cache-type-v` — KV cache value quantization type.
     pub cache_type_v: KvCacheType,
     /// `--n-gpu-layers` — transformer layers offloaded to GPU. 99 = all.
+    /// A negative value omits the flag entirely so llama-server's own
+    /// device-memory fitter chooses the offload split (recommended on
+    /// VRAM-constrained cards — a hardcoded 99 aborts the fitter).
     pub n_gpu_layers: i32,
+    /// `--cpu-moe` — keep ALL Mixture-of-Experts tensors on the CPU, leaving
+    /// only attention/shared weights on the GPU. Large VRAM saving for MoE
+    /// models (e.g. Gemma 4 A4B) at a modest speed cost.
+    pub cpu_moe: bool,
+    /// `--n-cpu-moe N` — offload MoE expert tensors for the first N layers to
+    /// the CPU. Finer-grained than `cpu_moe`; tune N to fit VRAM exactly.
+    /// Ignored when `cpu_moe` is true (which offloads all experts). `None`
+    /// omits the flag.
+    pub n_cpu_moe: Option<u32>,
+    /// `--cache-ram N` — host-RAM prompt-reuse cache size in MiB (llama-server
+    /// default 8192). `Some(0)` disables it, `Some(n)` caps it, `None` omits
+    /// the flag (uses the 8 GiB default). This is a speed cache in system RAM,
+    /// NOT model weights — disabling it frees RAM at the cost of prompt reuse.
+    pub cache_ram: Option<u32>,
     /// `--threads` — CPU thread count. `None` = auto-detect.
     pub threads: Option<u32>,
     /// `--parallel` — concurrent request slots.
@@ -944,6 +971,9 @@ impl Default for LlamaServerConfig {
             cache_type_k: KvCacheType::Q8_0,
             cache_type_v: KvCacheType::Q8_0,
             n_gpu_layers: 99,
+            cpu_moe: false,
+            n_cpu_moe: None,
+            cache_ram: None,
             threads: None,
             parallel: 1,
             port: 8081,
@@ -1626,6 +1656,7 @@ max_depth = 4
             default_model: "local-gemma".to_string(),
             models: vec![ModelConfig {
                 id: "local-gemma".to_string(),
+                enabled: true,
                 display_name: "Gemma 4 27B".to_string(),
                 provider: ProviderType::LlamaServer,
                 model_identifier: "gemma-4-27b-it-Q4_K_M.gguf".to_string(),
@@ -1637,6 +1668,9 @@ max_depth = 4
                         cache_type_k: KvCacheType::Q8_0,
                         cache_type_v: KvCacheType::Q8_0,
                         n_gpu_layers: 99,
+                        cpu_moe: false,
+                        n_cpu_moe: None,
+                        cache_ram: None,
                         threads: None,
                         parallel: 1,
                         port: 8081,

@@ -315,7 +315,7 @@
           {#if pickerOpenA}
             <div class="picker-backdrop" role="presentation" onclick={onPickerBackdropA}>
               <div class="model-picker">
-                {#each llmModels.models as m (m.id)}
+                {#each llmModels.availableModels as m (m.id)}
                   <button
                     type="button"
                     class="picker-item"
@@ -327,7 +327,7 @@
                     <span class="picker-name">{m.display_name}</span>
                   </button>
                 {/each}
-                {#if llmModels.models.length === 0}
+                {#if llmModels.availableModels.length === 0}
                   <div class="picker-empty">No models configured</div>
                 {/if}
               </div>
@@ -380,7 +380,7 @@
           {#if pickerOpenB}
             <div class="picker-backdrop" role="presentation" onclick={onPickerBackdropB}>
               <div class="model-picker">
-                {#each llmModels.models as m (m.id)}
+                {#each llmModels.availableModels as m (m.id)}
                   <button
                     type="button"
                     class="picker-item"
@@ -392,7 +392,7 @@
                     <span class="picker-name">{m.display_name}</span>
                   </button>
                 {/each}
-                {#if llmModels.models.length === 0}
+                {#if llmModels.availableModels.length === 0}
                   <div class="picker-empty">No models configured</div>
                 {/if}
               </div>

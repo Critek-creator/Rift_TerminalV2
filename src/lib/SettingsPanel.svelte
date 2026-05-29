@@ -114,7 +114,7 @@
   let savingTerminal = $state(false);
   let savingTree = $state(false);
   let saveBanner = $state<{
-    section: 'fs' | 'index' | 'mcp' | 'terminal' | 'notif' | 'tree' | 'statusline' | 'alerts';
+    section: 'fs' | 'index' | 'mcp' | 'terminal' | 'notif' | 'tree' | 'statusline' | 'alerts' | 'models';
     ok: boolean;
     msg: string;
   } | null>(null);

@@ -183,6 +183,7 @@ mod tests {
         vec![
             ModelConfig {
                 id: "local-1".into(),
+                enabled: true,
                 display_name: "Local Llama".into(),
                 provider: ProviderType::LlamaServer,
                 model_identifier: "test.gguf".into(),
@@ -197,6 +198,7 @@ mod tests {
             },
             ModelConfig {
                 id: "cloud-1".into(),
+                enabled: true,
                 display_name: "Claude Sonnet".into(),
                 provider: ProviderType::Anthropic,
                 model_identifier: "claude-sonnet".into(),

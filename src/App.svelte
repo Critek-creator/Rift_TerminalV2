@@ -40,6 +40,7 @@
   import { notifPriority } from './lib/notifPriority.svelte';
   import { sessionManager as sm } from './lib/sessionManager.svelte';
   import { notifManager as nm } from './lib/notifState.svelte';
+  import { llmModels, loadFromConfig as loadLlmFromConfig } from './lib/llmModels.svelte';
 
   // ----- session state (extracted to sessionManager.svelte.ts) -----
   // ----- notification state (extracted to notifManager.svelte.ts) -----
@@ -80,6 +81,19 @@
       alertRules = cfg?.alerts?.rules ?? [];
     } catch (err) {
       console.warn('Failed to load alert rules:', err);
+    }
+  }
+
+  // Populate the Ensemble Router model store at boot. Without this the store
+  // stays empty until the user opens model settings (which is the only other
+  // caller of loadFromConfig), so the router prompt / model indicator show no
+  // models and auto-started local servers appear unconfigured.
+  async function loadLlmConfig() {
+    try {
+      const cfg = await invoke<RiftConfigType>('config_get');
+      loadLlmFromConfig(cfg?.ensemble);
+    } catch (err) {
+      console.warn('Failed to load LLM ensemble config:', err);
     }
   }
 
@@ -409,6 +423,44 @@
     };
   });
 
+  // Live local-LLM process status — keep the model-card status dots in sync
+  // with auto-start, MCP-initiated starts, our own start/stop, and crashes.
+  $effect(() => {
+    let cancelled = false;
+    let unsub: (() => Promise<void>) | undefined;
+
+    void (async () => {
+      // Seed from whatever is already running (e.g. boot auto-start).
+      void llmModels.syncRunning();
+      try {
+        const u = await subscribe({ category: 'llm' }, (env) => {
+          if (
+            env.kind === 'llm.process.start' ||
+            env.kind === 'llm.process.stop' ||
+            env.kind === 'llm.process.crash'
+          ) {
+            const p = env.payload as { model_id?: string };
+            if (p.model_id) llmModels.applyProcessEvent(env.kind, p.model_id);
+          }
+        });
+        if (cancelled) {
+          void u().catch(() => {});
+        } else {
+          unsub = u;
+        }
+      } catch (err) {
+        console.warn('[App] llm process subscribe failed:', err);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      void (async () => {
+        await unsub?.();
+      })();
+    };
+  });
+
   // Phase 7.4 — live SKILL segment.
   // D-016 (closed) — live EFFORT segment. Both subscriptions ride the same
   // Category::Aegis stream; one $effect, one wire-tap dispatch, two state
@@ -583,11 +635,16 @@
     // Load alert rules from config on mount.
     void loadAlertRules();
 
-    // Re-read filters + appearance + alerts when Settings saves (rift:config-changed broadcast).
+    // Load Ensemble Router models from config on mount.
+    void loadLlmConfig();
+
+    // Re-read filters + appearance + alerts + LLM models when Settings saves
+    // (rift:config-changed broadcast).
     const onConfigChanged = () => {
       void nm.loadNotifFilters();
       void loadAppearanceConfig();
       void loadAlertRules();
+      void loadLlmConfig();
       invalidateTerminalSettingsCache();
     };
     window.addEventListener('rift:config-changed', onConfigChanged);

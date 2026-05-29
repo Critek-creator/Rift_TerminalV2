@@ -63,6 +63,40 @@ async function saveEnsemble(): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
+// Local process lifecycle
+// ---------------------------------------------------------------------------
+
+// Start/stop a local llama-server via the Tauri commands. Status is set
+// optimistically here; the authoritative source is the llm.process.* bus
+// events applied by applyProcessEvent (wired in App.svelte).
+async function startProcess(id: string): Promise<void> {
+  // Persist current settings FIRST: the backend's llm_model_start reads the
+  // model config from disk, so unsaved UI edits (GPU layers, ctx size, etc.)
+  // would otherwise be ignored and the server would launch with stale flags.
+  try {
+    await saveEnsemble();
+  } catch (err) {
+    console.warn('[llmModels] save before start failed, launching with persisted config:', err);
+  }
+  processStatus = { ...processStatus, [id]: 'starting' };
+  try {
+    await invoke('llm_model_start', { modelId: id });
+    processStatus = { ...processStatus, [id]: 'running' };
+  } catch (err) {
+    processStatus = { ...processStatus, [id]: 'error' };
+    throw err;
+  }
+}
+
+async function stopProcess(id: string): Promise<void> {
+  try {
+    await invoke('llm_model_stop', { modelId: id });
+  } finally {
+    processStatus = { ...processStatus, [id]: 'stopped' };
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Model CRUD
 // ---------------------------------------------------------------------------
 
@@ -86,6 +120,9 @@ function defaultLocalConfig(): LlamaServerConfig & { mode: 'local' } {
     cache_type_k: 'q8_0',
     cache_type_v: 'q8_0',
     n_gpu_layers: 99,
+    cpu_moe: false,
+    n_cpu_moe: null,
+    cache_ram: null,
     threads: null,
     parallel: 1,
     port: nextPort(),
@@ -112,6 +149,9 @@ function defaultCapabilities(): ModelConfig['capabilities'] {
 
 export const llmModels = {
   get models() { return models; },
+  /** Enabled models only — pickers/routing surfaces should use this so
+   *  disabled models don't appear as selectable. */
+  get availableModels() { return models.filter((m) => m.enabled !== false); },
   get enabled() { return enabled; },
   get activeProfile() { return activeProfile; },
   get defaultModel() { return defaultModel; },
@@ -163,6 +203,7 @@ export const llmModels = {
       color: '--model-custom',
       short_id: '',
       capabilities: defaultCapabilities(),
+      enabled: true,
     };
     models = [...models, model];
     return model;
@@ -182,6 +223,60 @@ export const llmModels = {
 
   async save(): Promise<void> {
     await saveEnsemble();
+  },
+
+  /** Start a local llama-server. Reads persisted config, so save first. */
+  startModel(id: string): Promise<void> {
+    return startProcess(id);
+  },
+
+  /** Stop a running local llama-server. */
+  stopModel(id: string): Promise<void> {
+    return stopProcess(id);
+  },
+
+  /** Activate a model. For local models, free VRAM by stopping other running
+   *  local servers first, then start this one (a single GPU rarely holds two).
+   *  Cloud models simply become the active route. */
+  async activateModel(id: string): Promise<void> {
+    const model = models.find((m) => m.id === id);
+    if (!model) return;
+    if (model.hosting.mode === 'local') {
+      // Stop every other running local server first (free VRAM). Use backend
+      // truth so a server the store didn't track can't get stacked on top.
+      let running: string[] = [];
+      try {
+        running = await invoke<string[]>('llm_models_running');
+      } catch {
+        running = models.filter((m) => processStatus[m.id] === 'running').map((m) => m.id);
+      }
+      for (const rid of running) {
+        if (rid !== id) await stopProcess(rid).catch(() => { /* best effort */ });
+      }
+      await startProcess(id);
+    }
+    activeModelId = id;
+  },
+
+  /** Seed status dots on mount from the set of currently-running processes. */
+  async syncRunning(): Promise<void> {
+    try {
+      const running = await invoke<string[]>('llm_models_running');
+      const next = { ...processStatus };
+      for (const rid of running) next[rid] = 'running';
+      processStatus = next;
+    } catch {
+      /* non-fatal — leave statuses as-is */
+    }
+  },
+
+  /** Apply an llm.process.* bus event to the status map (live updates from
+   *  auto-start, MCP-initiated starts, crashes, and our own start/stop). */
+  applyProcessEvent(kind: string, modelId: string): void {
+    if (!modelId) return;
+    if (kind === 'llm.process.start') processStatus = { ...processStatus, [modelId]: 'running' };
+    else if (kind === 'llm.process.stop') processStatus = { ...processStatus, [modelId]: 'stopped' };
+    else if (kind === 'llm.process.crash') processStatus = { ...processStatus, [modelId]: 'error' };
   },
 
   updateProcessStatus(modelId: string, status: ProcessStatus, latencyMs?: number) {

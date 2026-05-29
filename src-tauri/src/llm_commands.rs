@@ -10,6 +10,7 @@ use rift_bus::config::{load_config, HostingMode, ProviderType};
 use rift_bus::translators::llm::{CompletionRequest, LlmProvider, Message, Role};
 use rift_bus::translators::llm_anthropic::AnthropicProvider;
 use rift_bus::translators::llm_gemini::GeminiProvider;
+use rift_bus::translators::llm_process::ProcessManager;
 use rift_bus::translators::llm_server::LlamaServerProvider;
 use rift_bus::{Category, Envelope, RiftBus};
 use rift_router::{RouterService, RoutingDecision};
@@ -667,4 +668,60 @@ async fn run_critique(
         .await
         .map_err(|e| format!("{e}"))?;
     Ok(resp.content)
+}
+
+// ---------------------------------------------------------------------------
+// Local process lifecycle (UI counterparts to the MCP llm_process_* tools)
+// ---------------------------------------------------------------------------
+
+/// Start a local llama-server for `model_id`. UI counterpart to the MCP
+/// `llm_process_start` tool — lets the Settings model cards start a server
+/// without a Rift restart. Reads the persisted config, so the frontend must
+/// save model edits before calling this. Returns the spawned PID.
+///
+/// Runs the spawn on a blocking thread so the async runtime is never stalled
+/// (consistent with the sync→async command migration).
+#[tauri::command]
+pub async fn llm_model_start(
+    pm: State<'_, std::sync::Arc<ProcessManager>>,
+    model_id: String,
+) -> Result<u32, String> {
+    let config = load_config().map_err(|e| e.to_string())?;
+    let model = config
+        .ensemble
+        .models
+        .iter()
+        .find(|m| m.id == model_id)
+        .ok_or_else(|| format!("model not found: {model_id}"))?;
+    let process_config = match &model.hosting {
+        HostingMode::Local { process_config } => process_config.clone(),
+        _ => return Err(format!("model '{model_id}' is not a local model")),
+    };
+
+    let pm = pm.inner().clone();
+    tokio::task::spawn_blocking(move || pm.start(&model_id, &process_config))
+        .await
+        .map_err(|e| format!("start join error: {e}"))?
+        .map_err(|e| e.to_string())
+}
+
+/// Stop a running local llama-server. UI counterpart to MCP `llm_process_stop`.
+/// `stop` polls up to 5s for a graceful exit, so it runs on a blocking thread.
+#[tauri::command]
+pub async fn llm_model_stop(
+    pm: State<'_, std::sync::Arc<ProcessManager>>,
+    model_id: String,
+) -> Result<(), String> {
+    let pm = pm.inner().clone();
+    tokio::task::spawn_blocking(move || pm.stop(&model_id))
+        .await
+        .map_err(|e| format!("stop join error: {e}"))?
+        .map_err(|e| e.to_string())
+}
+
+/// List the model ids of all currently-running managed processes. The UI calls
+/// this on mount to seed status dots (bus events keep them live afterwards).
+#[tauri::command]
+pub fn llm_models_running(pm: State<'_, std::sync::Arc<ProcessManager>>) -> Vec<String> {
+    pm.running_models()
 }

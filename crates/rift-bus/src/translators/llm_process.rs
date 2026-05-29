@@ -111,6 +111,117 @@ fn graceful_stop(pid: u32) -> bool {
 }
 
 // ---------------------------------------------------------------------------
+// Windows Job Object — OS-guaranteed child cleanup on Rift exit
+// ---------------------------------------------------------------------------
+//
+// `std::process::Child` does NOT kill its process on drop, and the exit
+// watchdog uses `process::exit(0)` which skips Rust destructors entirely.
+// A Job Object configured with KILL_ON_JOB_CLOSE makes Windows terminate
+// every assigned process the instant the job handle closes — which the OS
+// does automatically when Rift's process dies, for ANY reason (clean exit,
+// crash, force-kill, or the watchdog's process::exit). This is the only way
+// to guarantee no orphaned llama-server, independent of ExitRequested firing.
+#[cfg(windows)]
+mod job {
+    use std::os::raw::c_void;
+    use std::os::windows::io::RawHandle;
+
+    type Handle = *mut c_void;
+
+    #[repr(C)]
+    struct BasicLimitInformation {
+        per_process_user_time_limit: i64,
+        per_job_user_time_limit: i64,
+        limit_flags: u32,
+        minimum_working_set_size: usize,
+        maximum_working_set_size: usize,
+        active_process_limit: u32,
+        affinity: usize,
+        priority_class: u32,
+        scheduling_class: u32,
+    }
+
+    #[repr(C)]
+    struct IoCounters {
+        read_operation_count: u64,
+        write_operation_count: u64,
+        other_operation_count: u64,
+        read_transfer_count: u64,
+        write_transfer_count: u64,
+        other_transfer_count: u64,
+    }
+
+    #[repr(C)]
+    struct ExtendedLimitInformation {
+        basic_limit_information: BasicLimitInformation,
+        io_info: IoCounters,
+        process_memory_limit: usize,
+        job_memory_limit: usize,
+        peak_process_memory_used: usize,
+        peak_job_memory_used: usize,
+    }
+
+    const JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE: u32 = 0x0000_2000;
+    const JOB_OBJECT_EXTENDED_LIMIT_INFORMATION_CLASS: u32 = 9;
+
+    extern "system" {
+        fn CreateJobObjectW(attrs: *mut c_void, name: *const u16) -> Handle;
+        fn SetInformationJobObject(job: Handle, class: u32, info: *const c_void, len: u32) -> i32;
+        fn AssignProcessToJobObject(job: Handle, process: Handle) -> i32;
+        fn CloseHandle(h: Handle) -> i32;
+    }
+
+    /// Owns a kill-on-close Job Object handle.
+    pub struct KillOnCloseJob {
+        handle: Handle,
+    }
+
+    // The handle is owned solely by this struct; the Win32 calls used on it
+    // (AssignProcessToJobObject / CloseHandle) are thread-safe.
+    unsafe impl Send for KillOnCloseJob {}
+    unsafe impl Sync for KillOnCloseJob {}
+
+    impl KillOnCloseJob {
+        /// Create a Job Object that kills all assigned processes when closed.
+        pub fn new() -> Option<Self> {
+            let handle = unsafe { CreateJobObjectW(std::ptr::null_mut(), std::ptr::null()) };
+            if handle.is_null() {
+                return None;
+            }
+            let mut info: ExtendedLimitInformation = unsafe { std::mem::zeroed() };
+            info.basic_limit_information.limit_flags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+            let ok = unsafe {
+                SetInformationJobObject(
+                    handle,
+                    JOB_OBJECT_EXTENDED_LIMIT_INFORMATION_CLASS,
+                    &info as *const _ as *const c_void,
+                    std::mem::size_of::<ExtendedLimitInformation>() as u32,
+                )
+            };
+            if ok == 0 {
+                unsafe { CloseHandle(handle) };
+                return None;
+            }
+            Some(Self { handle })
+        }
+
+        /// Assign a spawned child (by raw process handle) to the job. Best-effort.
+        pub fn assign(&self, process: RawHandle) -> bool {
+            unsafe { AssignProcessToJobObject(self.handle, process as Handle) != 0 }
+        }
+    }
+
+    impl Drop for KillOnCloseJob {
+        fn drop(&mut self) {
+            // Closing the last handle fires KILL_ON_JOB_CLOSE. (The OS also
+            // does this automatically when the process exits, so cleanup
+            // happens even if this Drop never runs.)
+            unsafe { CloseHandle(self.handle) };
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // CLI flag builder
 // ---------------------------------------------------------------------------
 
@@ -124,8 +235,6 @@ fn build_cli_args(config: &LlamaServerConfig) -> Vec<String> {
         config.port.to_string(),
         "--ctx-size".to_string(),
         config.ctx_size.to_string(),
-        "--n-gpu-layers".to_string(),
-        config.n_gpu_layers.to_string(),
         "--cache-type-k".to_string(),
         config.cache_type_k.as_flag().to_string(),
         "--cache-type-v".to_string(),
@@ -134,8 +243,35 @@ fn build_cli_args(config: &LlamaServerConfig) -> Vec<String> {
         config.parallel.to_string(),
     ];
 
+    // A negative n_gpu_layers means "auto": omit the flag so llama-server's
+    // device-memory fitter chooses the offload split. A hardcoded value
+    // disables that fitter (it aborts with "n_gpu_layers already set by user").
+    if config.n_gpu_layers >= 0 {
+        args.push("--n-gpu-layers".to_string());
+        args.push(config.n_gpu_layers.to_string());
+    }
+
+    // MoE expert offload — `--cpu-moe` (all experts to CPU) takes precedence
+    // over the finer-grained `--n-cpu-moe N` (first N layers' experts).
+    if config.cpu_moe {
+        args.push("--cpu-moe".to_string());
+    } else if let Some(n) = config.n_cpu_moe {
+        args.push("--n-cpu-moe".to_string());
+        args.push(n.to_string());
+    }
+
+    // `--cache-ram N` — host-RAM prompt-reuse cache (MiB). 0 disables it.
+    // Omitted entirely when None so llama-server uses its 8 GiB default.
+    if let Some(mib) = config.cache_ram {
+        args.push("--cache-ram".to_string());
+        args.push(mib.to_string());
+    }
+
     if config.flash_attention {
+        // Modern llama-server requires an explicit value: `--flash-attn on|off|auto`.
+        // Passing the bare flag fails with "expected value for argument".
         args.push("--flash-attn".to_string());
+        args.push("on".to_string());
     }
 
     if let Some(threads) = config.threads {
@@ -173,6 +309,11 @@ pub struct ProcessManager {
     llama_server_path: PathBuf,
     processes: Arc<Mutex<HashMap<String, ManagedProcess>>>,
     bus: RiftBus,
+    /// Kill-on-close Job Object that all spawned servers are assigned to, so
+    /// Windows reaps them when Rift's process exits for any reason. `None` if
+    /// job creation failed (falls back to kill_all / orphan cleanup).
+    #[cfg(windows)]
+    job: Option<job::KillOnCloseJob>,
 }
 
 impl ProcessManager {
@@ -181,6 +322,8 @@ impl ProcessManager {
             llama_server_path: llama_server_path.into(),
             processes: Arc::new(Mutex::new(HashMap::new())),
             bus,
+            #[cfg(windows)]
+            job: job::KillOnCloseJob::new(),
         }
     }
 
@@ -281,6 +424,22 @@ impl ProcessManager {
 
         let pid = child.id();
 
+        // Assign to the kill-on-close Job Object so Windows reaps this server
+        // when Rift exits (clean, crash, or watchdog process::exit).
+        #[cfg(windows)]
+        {
+            use std::os::windows::io::AsRawHandle;
+            if let Some(job) = &self.job {
+                if !job.assign(child.as_raw_handle()) {
+                    tracing::warn!(
+                        model_id,
+                        pid,
+                        "llm_process: could not assign to job object — exit cleanup falls back to kill_all"
+                    );
+                }
+            }
+        }
+
         tracing::info!(model_id, pid, port = config.port, "llm_process: started");
 
         publish_process_event(
@@ -318,8 +477,8 @@ impl ProcessManager {
     pub fn stop(&self, model_id: &str) -> Result<(), super::llm::LlmError> {
         // Extract the process from the map and release the lock immediately
         // so concurrent start/list/running_models calls aren't blocked
-        // during the up-to-5s shutdown polling loop.
-        let (child, pid, port) = {
+        // during the shutdown polling loop.
+        let (mut child, pid, port) = {
             let mut procs = self.processes.lock();
             let proc =
                 procs
@@ -333,26 +492,30 @@ impl ProcessManager {
         };
         // Lock is released here — polling loop runs without contention.
 
+        // Best-effort graceful signal. NOTE: our children are spawned with
+        // CREATE_NO_WINDOW (no console), so CTRL_BREAK can't reach them — this
+        // is effectively a no-op on Windows and we proceed straight to a hard
+        // kill below. Kept for the Unix SIGTERM path.
         graceful_stop(pid);
 
-        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        let deadline = std::time::Instant::now() + Duration::from_secs(2);
         let mut exited = false;
         while std::time::Instant::now() < deadline {
             if !is_process_alive(pid) {
                 exited = true;
                 break;
             }
-            std::thread::sleep(Duration::from_millis(200));
+            std::thread::sleep(Duration::from_millis(100));
         }
 
         if !exited {
-            tracing::warn!(
-                model_id,
-                pid,
-                "llm_process: graceful stop timed out, force killing"
-            );
-            drop(child);
+            // Hard kill. `drop(child)` does NOT terminate on Windows — only
+            // `Child::kill` (TerminateProcess) does — and the Job Object only
+            // fires at Rift exit, not on a mid-session stop. So kill explicitly.
+            let _ = child.kill();
         }
+        // Reap so the OS process-handle is released (no zombie / handle leak).
+        let _ = child.wait();
 
         tracing::info!(model_id, pid, "llm_process: stopped");
 
@@ -363,6 +526,52 @@ impl ProcessManager {
         save_pid_file(&pf);
 
         Ok(())
+    }
+
+    /// Force-stop every managed process immediately. Exit-path counterpart to
+    /// the graceful [`stop`](Self::stop): no 5-second poll, because the app is
+    /// shutting down and the exit watchdog will force-exit the process within
+    /// seconds. Dropping a `std::process::Child` does NOT kill the OS process,
+    /// so without this call llama-server lingers as an orphan after Rift exits.
+    /// Returns the number of processes killed.
+    pub fn kill_all(&self) -> usize {
+        let entries: Vec<(String, u32)> = {
+            let mut procs = self.processes.lock();
+            procs.drain().map(|(id, p)| (id, p.child.id())).collect()
+        };
+        let count = entries.len();
+
+        for (model_id, pid) in &entries {
+            // Courtesy graceful signal first, then force — we do not wait.
+            graceful_stop(*pid);
+            #[cfg(windows)]
+            {
+                let mut cmd = Command::new("taskkill");
+                cmd.args(["/F", "/T", "/PID", &pid.to_string()]);
+                cmd.creation_flags(CREATE_NO_WINDOW);
+                let _ = cmd.output();
+            }
+            #[cfg(not(windows))]
+            unsafe {
+                libc::kill(*pid as i32, libc::SIGKILL);
+            }
+            tracing::info!(
+                model_id = model_id.as_str(),
+                pid,
+                "llm_process: killed on exit"
+            );
+        }
+
+        // These PIDs are all dead now — drop them from the orphan-recovery file.
+        if count > 0 {
+            let mut pf = load_pid_file();
+            pf.processes
+                .retain(|e| !entries.iter().any(|(_, pid)| *pid == e.pid));
+            save_pid_file(&pf);
+            tracing::info!(count, "llm_process: killed all managed processes on exit");
+        }
+
+        count
     }
 
     /// Check if a model's process is running and responsive.
@@ -506,6 +715,9 @@ mod tests {
             cache_type_k: crate::config::KvCacheType::Q8_0,
             cache_type_v: crate::config::KvCacheType::Q4_0,
             n_gpu_layers: 99,
+            cpu_moe: false,
+            n_cpu_moe: None,
+            cache_ram: None,
             threads: Some(8),
             parallel: 2,
             port: 8081,
@@ -519,6 +731,10 @@ mod tests {
         assert!(args.contains(&"--model".to_string()));
         assert!(args.contains(&"/models/test.gguf".to_string()));
         assert!(args.contains(&"--flash-attn".to_string()));
+        // `--flash-attn` must be followed by an explicit value (on/off/auto);
+        // the bare flag is rejected by modern llama-server.
+        let fa = args.iter().position(|a| a == "--flash-attn").unwrap();
+        assert_eq!(args[fa + 1], "on");
         assert!(args.contains(&"--ctx-size".to_string()));
         assert!(args.contains(&"4096".to_string()));
         assert!(args.contains(&"--cache-type-k".to_string()));
@@ -548,6 +764,63 @@ mod tests {
         let args = build_cli_args(&config);
         assert!(!args.contains(&"--flash-attn".to_string()));
         assert!(!args.contains(&"--threads".to_string()));
+    }
+
+    #[test]
+    fn build_cli_args_auto_gpu_layers_omits_flag() {
+        // Negative n_gpu_layers = auto: the flag must be omitted so
+        // llama-server's device-memory fitter runs.
+        let config = LlamaServerConfig {
+            n_gpu_layers: -1,
+            ..Default::default()
+        };
+        let args = build_cli_args(&config);
+        assert!(!args.contains(&"--n-gpu-layers".to_string()));
+    }
+
+    #[test]
+    fn build_cli_args_cpu_moe_flags() {
+        // `--cpu-moe` (all experts) takes precedence over `--n-cpu-moe`.
+        let both = LlamaServerConfig {
+            cpu_moe: true,
+            n_cpu_moe: Some(20),
+            ..Default::default()
+        };
+        let args = build_cli_args(&both);
+        assert!(args.contains(&"--cpu-moe".to_string()));
+        assert!(!args.contains(&"--n-cpu-moe".to_string()));
+
+        // `--n-cpu-moe N` only when cpu_moe is false.
+        let partial = LlamaServerConfig {
+            cpu_moe: false,
+            n_cpu_moe: Some(20),
+            ..Default::default()
+        };
+        let args = build_cli_args(&partial);
+        assert!(!args.contains(&"--cpu-moe".to_string()));
+        let pos = args.iter().position(|a| a == "--n-cpu-moe").unwrap();
+        assert_eq!(args[pos + 1], "20");
+
+        // Neither flag when both are unset (default).
+        let none = LlamaServerConfig::default();
+        let args = build_cli_args(&none);
+        assert!(!args.contains(&"--cpu-moe".to_string()));
+        assert!(!args.contains(&"--n-cpu-moe".to_string()));
+    }
+
+    #[test]
+    fn build_cli_args_cache_ram() {
+        // None → flag omitted (llama-server default 8 GiB).
+        assert!(!build_cli_args(&LlamaServerConfig::default()).contains(&"--cache-ram".to_string()));
+
+        // Some(0) → `--cache-ram 0` (disable the prompt cache).
+        let off = LlamaServerConfig {
+            cache_ram: Some(0),
+            ..Default::default()
+        };
+        let args = build_cli_args(&off);
+        let pos = args.iter().position(|a| a == "--cache-ram").unwrap();
+        assert_eq!(args[pos + 1], "0");
     }
 
     #[test]

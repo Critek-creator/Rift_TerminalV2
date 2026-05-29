@@ -28,14 +28,18 @@ pub struct RouterService {
 }
 
 impl RouterService {
-    pub fn new(config: EnsembleConfig) -> Self {
+    pub fn new(mut config: EnsembleConfig) -> Self {
+        // Disabled models are invisible to routing (tags, profiles, default,
+        // and `models()`). The Settings UI keeps the full list separately.
+        config.models.retain(|m| m.enabled);
         Self {
             config,
             unavailable: HashSet::new(),
         }
     }
 
-    pub fn reload(&mut self, config: EnsembleConfig) {
+    pub fn reload(&mut self, mut config: EnsembleConfig) {
+        config.models.retain(|m| m.enabled);
         self.config = config;
         self.unavailable.clear();
     }
@@ -276,6 +280,7 @@ mod tests {
             models: vec![
                 ModelConfig {
                     id: "local-test".to_string(),
+                    enabled: true,
                     display_name: "Test Local".to_string(),
                     provider: ProviderType::LlamaServer,
                     model_identifier: "test.gguf".to_string(),
@@ -290,6 +295,7 @@ mod tests {
                 },
                 ModelConfig {
                     id: "cloud-test".to_string(),
+                    enabled: true,
                     display_name: "Test Cloud".to_string(),
                     provider: ProviderType::Anthropic,
                     model_identifier: "claude-test".to_string(),

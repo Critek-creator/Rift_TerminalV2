@@ -2094,6 +2094,12 @@ pub fn run() {
                     .unwrap_or_else(|| std::path::PathBuf::from("llama-server"));
                 let pm = std::sync::Arc::new(ProcessManager::new(llama_path, pm_bus));
 
+                // Safety net: a prior Rift that exited uncleanly (crash, force-kill,
+                // or the exit watchdog firing mid-shutdown) can leave a llama-server
+                // orphaned and holding its port. Kill any such recorded orphans
+                // before we auto-start, so the port is free and VRAM is reclaimed.
+                pm.cleanup_orphans();
+
                 if cfg.ensemble.enabled {
                     let pm_auto = pm.clone();
                     let auto_models: Vec<_> = cfg
@@ -2254,6 +2260,9 @@ pub fn run() {
             llm_commands::llm_ensemble,
             llm_commands::llm_key_store,
             llm_commands::llm_key_delete,
+            llm_commands::llm_model_start,
+            llm_commands::llm_model_stop,
+            llm_commands::llm_models_running,
         ]))
         .build(tauri::generate_context!())
         .expect("rift: tauri runtime failed to start")
@@ -2283,6 +2292,12 @@ pub fn run() {
                         let killed = registry.kill_all();
                         if killed > 0 {
                             tracing::info!("rift: killed {killed} PTY session(s) on exit");
+                        }
+                    }
+                    if let Some(pm) = app_handle.try_state::<std::sync::Arc<ProcessManager>>() {
+                        let killed = pm.kill_all();
+                        if killed > 0 {
+                            tracing::info!("rift: killed {killed} llama-server process(es) on exit");
                         }
                     }
                     if let Err(e) = rift_bus::clear_mcp_socket() {

@@ -123,6 +123,7 @@ mod tests {
         vec![
             ModelConfig {
                 id: "local".to_string(),
+                enabled: true,
                 display_name: "Local".to_string(),
                 provider: ProviderType::LlamaServer,
                 model_identifier: "test.gguf".to_string(),
@@ -142,6 +143,7 @@ mod tests {
             },
             ModelConfig {
                 id: "cloud".to_string(),
+                enabled: true,
                 display_name: "Cloud".to_string(),
                 provider: ProviderType::Anthropic,
                 model_identifier: "claude".to_string(),
