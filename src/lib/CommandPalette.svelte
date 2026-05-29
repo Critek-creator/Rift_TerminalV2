@@ -57,13 +57,32 @@
       };
       for (const m of llmModels.availableModels) {
         const isActive = llmModels.activeModelId === m.id;
+        const isLocal = m.hosting.mode === 'local';
+        const status = llmModels.processStatus[m.id];
+        const live = status === 'running' || status === 'starting';
+        const name = `${m.short_id || '???'}  ${m.display_name || m.model_identifier}`;
+        // A stopped local model needs its server started; activateModel does the
+        // hot-swap (stop other local servers to free VRAM, then start this one).
+        // For cloud models or an already-live local model it just points the
+        // router here — so a single action covers every case correctly.
+        const verb = isLocal && !live ? 'Start & activate' : 'Activate';
         items.push({
           id: `model:${m.id}`,
-          label: `${m.short_id || '???'}  ${m.display_name || m.model_identifier}${isActive ? '  (active)' : ''}`,
+          label: `${verb}: ${name}${isActive ? '  (active)' : ''}`,
           icon: statusIcon(m.id),
           category: 'model',
-          action: () => { llmModels.setActiveModel(m.id); onclose(); },
+          action: () => { void llmModels.activateModel(m.id); onclose(); },
         });
+        // Offer Stop for a local server that is up (or coming up).
+        if (isLocal && live) {
+          items.push({
+            id: `model-stop:${m.id}`,
+            label: `Stop: ${name}`,
+            icon: '■',
+            category: 'model',
+            action: () => { void llmModels.stopModel(m.id); onclose(); },
+          });
+        }
       }
     }
 

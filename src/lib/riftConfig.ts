@@ -136,7 +136,24 @@ export interface LlamaServerConfig {
   port: number;
   cuda_visible_devices: string | null;
   auto_start: boolean;
+  /** Auto-restart this local server if it crashes (bounded retry on the
+   *  backend health monitor). false = a crash surfaces as an error status
+   *  with no recovery. */
+  auto_restart: boolean;
   extra_flags: string[];
+}
+
+/** Architecture facts read from a GGUF file header by the `gguf_inspect`
+ *  command. Every field is nullable — the writer may omit any key, and the
+ *  VRAM estimator falls back to its filename heuristic for missing fields. */
+export interface GgufMeta {
+  architecture: string | null;
+  n_layers: number | null;
+  n_embd: number | null;
+  n_head: number | null;
+  n_head_kv: number | null;
+  expert_count: number | null;
+  parameter_count: number | null;
 }
 
 export type HostingMode =

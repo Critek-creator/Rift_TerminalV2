@@ -15,7 +15,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process::{Child, Command};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
@@ -299,6 +299,27 @@ struct ManagedProcess {
 }
 
 // ---------------------------------------------------------------------------
+// Auto-restart policy
+// ---------------------------------------------------------------------------
+
+/// Max auto-restart attempts allowed within [`RESTART_WINDOW`]. Once a model
+/// crashes this many times inside the window, auto-restart gives up and leaves
+/// it in an error state rather than restart-looping (e.g. a model that OOMs on
+/// every launch). The window resets after `RESTART_WINDOW` of no new attempts.
+const MAX_RESTART_ATTEMPTS: u32 = 3;
+
+/// Sliding window over which [`MAX_RESTART_ATTEMPTS`] is counted.
+const RESTART_WINDOW: Duration = Duration::from_secs(60);
+
+/// Per-model auto-restart bookkeeping. Tracks how many restarts have happened
+/// in the current window so a crash-looping model is capped instead of being
+/// respawned forever.
+struct RestartInfo {
+    attempts: u32,
+    window_start: Instant,
+}
+
+// ---------------------------------------------------------------------------
 // ProcessManager
 // ---------------------------------------------------------------------------
 
@@ -309,6 +330,9 @@ pub struct ProcessManager {
     llama_server_path: PathBuf,
     processes: Arc<Mutex<HashMap<String, ManagedProcess>>>,
     bus: RiftBus,
+    /// Per-model auto-restart attempt tracking, keyed by model id. Used by the
+    /// health monitor to cap crash-loop restarts within [`RESTART_WINDOW`].
+    restart_tracker: Arc<Mutex<HashMap<String, RestartInfo>>>,
     /// Kill-on-close Job Object that all spawned servers are assigned to, so
     /// Windows reaps them when Rift's process exits for any reason. `None` if
     /// job creation failed (falls back to kill_all / orphan cleanup).
@@ -322,6 +346,7 @@ impl ProcessManager {
             llama_server_path: llama_server_path.into(),
             processes: Arc::new(Mutex::new(HashMap::new())),
             bus,
+            restart_tracker: Arc::new(Mutex::new(HashMap::new())),
             #[cfg(windows)]
             job: job::KillOnCloseJob::new(),
         }
@@ -588,52 +613,118 @@ impl ProcessManager {
         self.processes.lock().keys().cloned().collect()
     }
 
-    /// Check all managed processes for crashes and publish events.
-    /// Called periodically by the health monitor loop.
+    /// Check all managed processes for crashes and publish events. Crashed
+    /// processes are dropped from the map; those whose config has
+    /// `auto_restart` are re-spawned, bounded by [`MAX_RESTART_ATTEMPTS`] per
+    /// [`RESTART_WINDOW`]. Called periodically by the health monitor loop.
+    ///
+    /// Detection is PID-death only (via `try_wait`) — a process that is alive
+    /// but unresponsive (a hung server) is NOT yet detected here; `/health`
+    /// liveness probing is future work.
     pub fn check_for_crashes(&self) {
-        let mut procs = self.processes.lock();
-        let mut crashed: Vec<String> = Vec::new();
+        // Phase 1 — detect crashes and drop dead processes under the lock.
+        // Capture each crashed model's config so it can be re-spawned after the
+        // lock is released: start() re-acquires the lock, and restarting while
+        // still holding it would deadlock (parking_lot mutexes aren't reentrant).
+        let crashed: Vec<(String, LlamaServerConfig)> = {
+            let mut procs = self.processes.lock();
+            let mut crashed: Vec<(String, LlamaServerConfig)> = Vec::new();
 
-        for (model_id, proc) in procs.iter_mut() {
-            match proc.child.try_wait() {
-                Ok(Some(status)) => {
-                    tracing::warn!(
-                        model_id = model_id.as_str(),
-                        pid = proc.child.id(),
-                        exit_code = ?status.code(),
-                        "llm_process: crash detected"
-                    );
-                    publish_process_event(
-                        &self.bus,
-                        "llm.process.crash",
-                        model_id,
-                        proc.child.id(),
-                        proc.port,
-                        status.code().map(|c| c.to_string()),
-                    );
-                    crashed.push(model_id.clone());
-                }
-                Ok(None) => {} // still running
-                Err(e) => {
-                    tracing::warn!(
-                        model_id = model_id.as_str(),
-                        "llm_process: try_wait error: {e}"
-                    );
+            for (model_id, proc) in procs.iter_mut() {
+                match proc.child.try_wait() {
+                    Ok(Some(status)) => {
+                        tracing::warn!(
+                            model_id = model_id.as_str(),
+                            pid = proc.child.id(),
+                            exit_code = ?status.code(),
+                            "llm_process: crash detected"
+                        );
+                        publish_process_event(
+                            &self.bus,
+                            "llm.process.crash",
+                            model_id,
+                            proc.child.id(),
+                            proc.port,
+                            status.code().map(|c| c.to_string()),
+                        );
+                        crashed.push((model_id.clone(), proc.config.clone()));
+                    }
+                    Ok(None) => {} // still running
+                    Err(e) => {
+                        tracing::warn!(
+                            model_id = model_id.as_str(),
+                            "llm_process: try_wait error: {e}"
+                        );
+                    }
                 }
             }
-        }
 
-        for id in &crashed {
-            procs.remove(id);
-        }
+            for (id, _) in &crashed {
+                procs.remove(id);
+            }
 
-        if !crashed.is_empty() {
-            // Update PID file
-            let alive_pids: Vec<u32> = procs.values().map(|p| p.child.id()).collect();
-            let mut pf = load_pid_file();
-            pf.processes.retain(|e| alive_pids.contains(&e.pid));
-            save_pid_file(&pf);
+            if !crashed.is_empty() {
+                // Drop the dead PIDs from the orphan-recovery file.
+                let alive_pids: Vec<u32> = procs.values().map(|p| p.child.id()).collect();
+                let mut pf = load_pid_file();
+                pf.processes.retain(|e| alive_pids.contains(&e.pid));
+                save_pid_file(&pf);
+            }
+
+            crashed
+        };
+        // Lock released — safe to call start() (which re-locks) below.
+
+        // Phase 2 — auto-restart eligible crashed models, capped per window so
+        // a model that crashes on every launch (e.g. OOM) stops being respawned
+        // and is left in an error state instead of looping forever.
+        for (model_id, config) in crashed {
+            if !config.auto_restart {
+                continue;
+            }
+            if !self.register_restart_attempt(&model_id) {
+                tracing::warn!(
+                    model_id = model_id.as_str(),
+                    "llm_process: auto-restart suppressed — {} attempts within {}s; leaving in error state",
+                    MAX_RESTART_ATTEMPTS,
+                    RESTART_WINDOW.as_secs()
+                );
+                continue;
+            }
+            match self.start(&model_id, &config) {
+                Ok(pid) => tracing::info!(
+                    model_id = model_id.as_str(),
+                    pid,
+                    "llm_process: auto-restarted after crash"
+                ),
+                Err(e) => tracing::warn!(
+                    model_id = model_id.as_str(),
+                    "llm_process: auto-restart failed: {e}"
+                ),
+            }
         }
+    }
+
+    /// Record an auto-restart attempt for `model_id` and report whether it is
+    /// permitted under the per-window cap. The window resets once
+    /// [`RESTART_WINDOW`] has elapsed since its first attempt, so a model that
+    /// recovers and later crashes again gets a fresh budget.
+    fn register_restart_attempt(&self, model_id: &str) -> bool {
+        let now = Instant::now();
+        let mut tracker = self.restart_tracker.lock();
+        let info = tracker.entry(model_id.to_string()).or_insert(RestartInfo {
+            attempts: 0,
+            window_start: now,
+        });
+        if now.duration_since(info.window_start) > RESTART_WINDOW {
+            info.attempts = 0;
+            info.window_start = now;
+        }
+        if info.attempts >= MAX_RESTART_ATTEMPTS {
+            return false;
+        }
+        info.attempts += 1;
+        true
     }
 }
 
@@ -723,6 +814,7 @@ mod tests {
             port: 8081,
             cuda_visible_devices: None,
             auto_start: false,
+            auto_restart: false,
             extra_flags: vec!["--verbose".to_string()],
         };
 
@@ -870,5 +962,19 @@ mod tests {
         assert!(json.contains("\"model_id\":\"test\""));
         assert!(json.contains("\"pid\":1234"));
         assert!(!json.contains("exit_info"));
+    }
+
+    #[test]
+    fn auto_restart_capped_per_window() {
+        let pm = ProcessManager::new("llama-server", RiftBus::default());
+        // The first MAX_RESTART_ATTEMPTS attempts within a window are permitted...
+        for _ in 0..MAX_RESTART_ATTEMPTS {
+            assert!(pm.register_restart_attempt("m1"));
+        }
+        // ...and the next is suppressed, so a model that crashes on every launch
+        // stops being respawned instead of looping forever.
+        assert!(!pm.register_restart_attempt("m1"));
+        // A different model tracks its own independent restart budget.
+        assert!(pm.register_restart_attempt("m2"));
     }
 }

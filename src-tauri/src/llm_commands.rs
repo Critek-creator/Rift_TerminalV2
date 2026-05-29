@@ -725,3 +725,52 @@ pub async fn llm_model_stop(
 pub fn llm_models_running(pm: State<'_, std::sync::Arc<ProcessManager>>) -> Vec<String> {
     pm.running_models()
 }
+
+// ---------------------------------------------------------------------------
+// VRAM-estimate inputs (GGUF metadata + GPU detection)
+// ---------------------------------------------------------------------------
+
+/// Read a GGUF model file's metadata header (layers, hidden size, head counts,
+/// expert count, total params) for an accurate VRAM estimate. Reads only the
+/// header KV section, not tensor weights, so it's cheap even for huge models.
+/// The frontend falls back to its filename heuristic when a field is absent.
+///
+/// Runs on a blocking thread — file I/O must not stall the async runtime.
+#[tauri::command]
+pub async fn gguf_inspect(path: String) -> Result<rift_bus::translators::gguf::GgufMeta, String> {
+    tokio::task::spawn_blocking(move || {
+        rift_bus::translators::gguf::inspect(std::path::Path::new(&path)).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| format!("gguf_inspect join error: {e}"))?
+}
+
+/// Best-effort total VRAM of the primary GPU, in MiB. Queries `nvidia-smi`
+/// (NVIDIA only); returns `None` if the tool is absent or output can't be
+/// parsed, in which case the frontend keeps its configured default rather than
+/// showing a wrong number. Runs on a blocking thread (spawns a subprocess).
+#[tauri::command]
+pub async fn gpu_vram_mb() -> Option<u32> {
+    tokio::task::spawn_blocking(|| {
+        let mut cmd = std::process::Command::new("nvidia-smi");
+        cmd.args(["--query-gpu=memory.total", "--format=csv,noheader,nounits"]);
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+            cmd.creation_flags(CREATE_NO_WINDOW);
+        }
+        let output = cmd.output().ok()?;
+        if !output.status.success() {
+            return None;
+        }
+        // First line is the primary GPU's total memory, in MiB (nounits).
+        String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .next()
+            .and_then(|l| l.trim().parse::<u32>().ok())
+    })
+    .await
+    .ok()
+    .flatten()
+}

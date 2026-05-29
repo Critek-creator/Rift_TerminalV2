@@ -9,6 +9,7 @@ pub mod agent;
 pub mod commands;
 pub mod errors;
 pub mod fs;
+pub mod gguf;
 pub mod index;
 pub mod lane;
 pub mod llm;

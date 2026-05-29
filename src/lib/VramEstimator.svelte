@@ -1,14 +1,18 @@
 <script lang="ts">
-  import type { LlamaServerConfig, KvCacheType } from './riftConfig';
+  import type { LlamaServerConfig, KvCacheType, GgufMeta } from './riftConfig';
 
   interface Props {
     config: LlamaServerConfig;
-    /** Model id / filename — used to estimate weights (params + quant). */
+    /** Model id / filename — used to estimate weights (params + quant) when
+     *  no GGUF metadata is available. */
     modelName?: string;
+    /** Measured architecture facts from the GGUF header (gguf_inspect). When
+     *  present these replace the filename/arch-table heuristics field by field. */
+    meta?: GgufMeta | null;
     gpuVramGb?: number;
   }
 
-  let { config, modelName = '', gpuVramGb = 16 }: Props = $props();
+  let { config, modelName = '', meta = null, gpuVramGb = 16 }: Props = $props();
 
   // Bytes per stored element for each KV-cache quantization.
   const KV_BYTES: Record<KvCacheType, number> = {
@@ -72,35 +76,65 @@
   // --- Estimate --------------------------------------------------------------
 
   let params = $derived(parseParams(modelName || config.model_path));
-  let arch = $derived(archEstimate(params?.total ?? 8));
+  let heuristicArch = $derived(archEstimate(params?.total ?? 8));
 
-  // Total model weights on disk/loaded (all experts included).
-  let weightsGb = $derived(
-    params ? (params.total * 1e9 * (quantBits(modelName || config.model_path) / 8)) / GIB : 0,
+  // True once we have at least one measured fact from the GGUF header. Drives
+  // both the per-field source selection below and the "measured vs estimated"
+  // tooltip language.
+  let hasMeta = $derived(!!(meta && (meta.n_layers != null || meta.parameter_count != null)));
+
+  // Prefer measured GGUF values; fall back to the filename/arch-table heuristic
+  // per field so a partial header still sharpens whatever it covers.
+  let layers = $derived(meta?.n_layers ?? heuristicArch.layers);
+  let hidden = $derived(meta?.n_embd ?? heuristicArch.hidden);
+  // Exact grouped-query-attention ratio when both head counts are known,
+  // otherwise the rough 0.25 estimate.
+  let gqa = $derived(
+    meta?.n_head_kv != null && meta?.n_head != null && meta.n_head > 0
+      ? meta.n_head_kv / meta.n_head
+      : GQA_FACTOR,
   );
+
+  // Total params (billions): the GGUF's own count when present, else parsed
+  // from the filename.
+  let totalParamsB = $derived(
+    meta?.parameter_count != null ? meta.parameter_count / 1e9 : (params?.total ?? 0),
+  );
+  let bits = $derived(quantBits(modelName || config.model_path));
+
+  // Total model weights loaded (all experts included).
+  let weightsGb = $derived(totalParamsB > 0 ? (totalParamsB * 1e9 * (bits / 8)) / GIB : 0);
 
   // Fraction of expert weights pushed to CPU. cpu_moe = all; n_cpu_moe = first
   // N layers' experts; neither = none. Only meaningful for MoE models.
   let expertOffload = $derived(
-    config.cpu_moe ? 1 : config.n_cpu_moe != null ? Math.min(1, config.n_cpu_moe / arch.layers) : 0,
+    config.cpu_moe ? 1 : config.n_cpu_moe != null ? Math.min(1, config.n_cpu_moe / layers) : 0,
   );
-  let isMoe = $derived(!!params && params.active < params.total);
-  // Expert share of weights ≈ everything beyond the active path.
-  let expertShare = $derived(isMoe && params ? 1 - params.active / params.total : 0);
+  let isMoe = $derived(
+    (meta?.expert_count != null && meta.expert_count > 0) ||
+      (!!params && params.active < params.total),
+  );
+  // Expert share of weights ≈ everything beyond the active path. Needs the
+  // active/total split, which only the filename carries — a GGUF that reports
+  // expert_count but no filename "aNb" marker still flags MoE but can't size
+  // the offload saving, so expertShare stays 0 (no double-counting).
+  let expertShare = $derived(
+    params && params.total > 0 && params.active < params.total
+      ? 1 - params.active / params.total
+      : 0,
+  );
   let weightsAfterMoe = $derived(weightsGb * (1 - expertShare * expertOffload));
 
   // GPU-layer fraction. -1 (auto) or ≥ layer count ⇒ fully resident.
-  let gpuFrac = $derived(
-    config.n_gpu_layers < 0 ? 1 : Math.min(1, config.n_gpu_layers / arch.layers),
-  );
+  let gpuFrac = $derived(config.n_gpu_layers < 0 ? 1 : Math.min(1, config.n_gpu_layers / layers));
   let autoFit = $derived(config.n_gpu_layers < 0);
 
   // KV cache: ctx × layers × hidden × gqa × (K bytes + V bytes).
   let kvGb = $derived(
     (config.ctx_size *
-      arch.layers *
-      arch.hidden *
-      GQA_FACTOR *
+      layers *
+      hidden *
+      gqa *
       ((KV_BYTES[config.cache_type_k] ?? 1.0) + (KV_BYTES[config.cache_type_v] ?? 1.0))) /
       GIB,
   );
@@ -109,22 +143,27 @@
   let kvOnGpu = $derived(kvGb * gpuFrac);
   let totalEstGb = $derived(weightsOnGpu + kvOnGpu + CUDA_OVERHEAD_GB);
 
+  // We can produce an estimate from either a parsed filename or GGUF metadata.
+  let canEstimate = $derived(!!params || hasMeta);
+
   let pct = $derived(Math.min(100, (totalEstGb / gpuVramGb) * 100));
   let barColor = $derived(
     pct > 90 ? 'var(--term-red)' : pct > 70 ? 'var(--amber-bright)' : 'var(--term-green)',
   );
 
+  let sizeLabel = $derived(totalParamsB > 0 ? `~${totalParamsB.toFixed(totalParamsB < 10 ? 1 : 0)}B` : '');
+
   let tooltip = $derived(
-    params
-      ? `Rough estimate (~${params.total}B${isMoe ? `, ${params.active}B active` : ''}, ` +
-        `${quantBits(modelName || config.model_path)}-bit):\n` +
+    canEstimate
+      ? `${hasMeta ? 'Measured from GGUF' : 'Rough estimate'} (${sizeLabel}${isMoe ? ', MoE' : ''}, ` +
+        `${bits}-bit):\n` +
         `• weights on GPU ~${weightsOnGpu.toFixed(1)}GB` +
         `${expertOffload > 0 && isMoe ? ` (experts offloaded to CPU)` : ''}\n` +
-        `• KV cache ~${kvOnGpu.toFixed(1)}GB (${config.ctx_size} ctx)\n` +
+        `• KV cache ~${kvOnGpu.toFixed(1)}GB (${config.ctx_size} ctx, ${layers} layers)\n` +
         `• CUDA overhead ~${CUDA_OVERHEAD_GB}GB\n` +
-        `${autoFit ? 'GPU layers: auto-fit' : `GPU layers: ${config.n_gpu_layers}/${arch.layers} est.`}\n` +
-        `Approximate — actual depends on the GGUF's real architecture.`
-      : `Set a model name/filename with params + quant (e.g. "...-26B-...-Q4_K_M.gguf") for a full estimate. Showing KV cache + overhead only.`,
+        `${autoFit ? 'GPU layers: auto-fit' : `GPU layers: ${config.n_gpu_layers}/${layers}`}\n` +
+        `${hasMeta ? 'Architecture read from the GGUF header.' : 'Approximate — set a model path to read exact GGUF metadata.'}`
+      : `Set a model path (GGUF) or a name with params + quant (e.g. "...-26B-...-Q4_K_M.gguf") for a full estimate. Showing KV cache + overhead only.`,
   );
 </script>
 

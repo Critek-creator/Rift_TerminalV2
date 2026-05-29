@@ -958,6 +958,12 @@ pub struct LlamaServerConfig {
     pub cuda_visible_devices: Option<String>,
     /// Launch this model automatically when Rift starts.
     pub auto_start: bool,
+    /// Automatically restart this server if it crashes. The health monitor
+    /// re-spawns it with a bounded retry (capped attempts per time window);
+    /// once the cap is hit the model is left in an error state rather than
+    /// restart-looping. Off by default — a crash then simply surfaces as an
+    /// error status in the UI with no auto-recovery.
+    pub auto_restart: bool,
     /// Additional CLI flags (validated against known llama-server flags).
     pub extra_flags: Vec<String>,
 }
@@ -979,6 +985,7 @@ impl Default for LlamaServerConfig {
             port: 8081,
             cuda_visible_devices: None,
             auto_start: false,
+            auto_restart: false,
             extra_flags: Vec::new(),
         }
     }
@@ -1676,6 +1683,7 @@ max_depth = 4
                         port: 8081,
                         cuda_visible_devices: Some("0".to_string()),
                         auto_start: true,
+                        auto_restart: false,
                         extra_flags: vec![],
                     },
                 },

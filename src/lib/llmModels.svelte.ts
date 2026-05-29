@@ -128,6 +128,7 @@ function defaultLocalConfig(): LlamaServerConfig & { mode: 'local' } {
     port: nextPort(),
     cuda_visible_devices: null,
     auto_start: false,
+    auto_restart: false,
     extra_flags: [],
   };
 }

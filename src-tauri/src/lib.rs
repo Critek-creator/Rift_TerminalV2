@@ -98,7 +98,7 @@ type DrainHandle = tauri::async_runtime::JoinHandle<()>;
 use rift_aegis::probe as aegis_probe;
 
 use base64::Engine as _;
-use rift_bus::translators::llm_process::ProcessManager;
+use rift_bus::translators::llm_process::{spawn_health_monitor, ProcessManager};
 use rift_bus::{
     build_tree, load_config, prepare_lane_prelude, publish_command, publish_error, read_text,
     save_config, spawn_fs_watcher, spawn_session_logger, spawn_status_translator,
@@ -2100,6 +2100,27 @@ pub fn run() {
                 // before we auto-start, so the port is free and VRAM is reclaimed.
                 pm.cleanup_orphans();
 
+                // Wire the crash/health monitor. Without this, check_for_crashes()
+                // never runs, so a llama-server that dies mid-session is never
+                // noticed: no llm.process.crash event fires and the UI status dot
+                // stays "running" over a dead process. The monitor polls every 5s
+                // and (for models with auto_restart) re-spawns crashed servers with
+                // a bounded retry. It lives for the life of the process — the
+                // shutdown Notify is never fired; the task ends when the runtime
+                // is torn down at exit (kill_all handles process cleanup there).
+                {
+                    let pm_monitor = pm.clone();
+                    tauri::async_runtime::spawn(async move {
+                        let shutdown = std::sync::Arc::new(tokio::sync::Notify::new());
+                        spawn_health_monitor(
+                            pm_monitor,
+                            shutdown,
+                            std::time::Duration::from_secs(5),
+                        )
+                        .await;
+                    });
+                }
+
                 if cfg.ensemble.enabled {
                     let pm_auto = pm.clone();
                     let auto_models: Vec<_> = cfg
@@ -2263,6 +2284,8 @@ pub fn run() {
             llm_commands::llm_model_start,
             llm_commands::llm_model_stop,
             llm_commands::llm_models_running,
+            llm_commands::gguf_inspect,
+            llm_commands::gpu_vram_mb,
         ]))
         .build(tauri::generate_context!())
         .expect("rift: tauri runtime failed to start")

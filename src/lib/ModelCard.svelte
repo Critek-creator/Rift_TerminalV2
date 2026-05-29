@@ -1,5 +1,20 @@
+<script module lang="ts">
+  import { invoke } from '@tauri-apps/api/core';
+
+  // Detect the GPU's real VRAM once per session, shared across every ModelCard
+  // (the promise is cached at module scope so N cards don't each spawn
+  // nvidia-smi). Returns total MiB, or null when detection isn't available.
+  let gpuVramPromise: Promise<number | null> | undefined;
+  function detectGpuVramMb(): Promise<number | null> {
+    if (!gpuVramPromise) {
+      gpuVramPromise = invoke<number | null>('gpu_vram_mb').catch(() => null);
+    }
+    return gpuVramPromise;
+  }
+</script>
+
 <script lang="ts">
-  import type { ModelConfig, ProviderType, KvCacheType, LlamaServerConfig } from './riftConfig';
+  import type { ModelConfig, ProviderType, KvCacheType, LlamaServerConfig, GgufMeta } from './riftConfig';
   import { llmModels, type ProcessStatus } from './llmModels.svelte';
   import VramEstimator from './VramEstimator.svelte';
 
@@ -89,6 +104,42 @@
 
   let confirmRemove = $state(false);
   let busy = $state(false);
+
+  // --- VRAM-estimate inputs (candidate #157) -------------------------------
+  // Real GPU VRAM + GGUF header metadata, both best-effort. VramEstimator falls
+  // back to its filename/arch heuristics when these are null/unset.
+  let gpuVramGb = $state(16);
+  let ggufMeta = $state<GgufMeta | null>(null);
+
+  // Detect GPU VRAM once (cached at module scope across all cards).
+  $effect(() => {
+    void (async () => {
+      const mb = await detectGpuVramMb();
+      if (mb && mb > 0) gpuVramGb = Math.round((mb / 1024) * 10) / 10;
+    })();
+  });
+
+  // Read GGUF metadata whenever a local model's path changes. A missing or
+  // unreadable file clears meta so the estimator silently uses heuristics.
+  $effect(() => {
+    const path = isLocal ? ((model.hosting as any).model_path as string) : '';
+    if (!path) {
+      ggufMeta = null;
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const meta = await invoke<GgufMeta>('gguf_inspect', { path });
+        if (!cancelled) ggufMeta = meta;
+      } catch {
+        if (!cancelled) ggufMeta = null;
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  });
 
   // Collapsed state — persisted per model so the list stays at-a-glance.
   // model.id read inside closures (not at script top level) to avoid Svelte's
@@ -558,9 +609,24 @@
           Auto-start when Rift launches
         </label>
 
+        <label class="field-lbl cap-toggle-lbl" style="margin-top: var(--space-sm)">
+          <input
+            type="checkbox"
+            checked={(model.hosting as any).auto_restart ?? false}
+            onchange={(e) => {
+              const h = { ...model.hosting, auto_restart: (e.target as HTMLInputElement).checked };
+              update('hosting', h);
+            }}
+          />
+          Auto-restart if it crashes
+          <span class="field-hint">Re-launches this server on crash (up to 3 times/min, then stops to avoid loops).</span>
+        </label>
+
         <VramEstimator
           config={model.hosting as unknown as LlamaServerConfig}
           modelName={model.model_identifier}
+          meta={ggufMeta}
+          {gpuVramGb}
         />
       </fieldset>
     {/if}
