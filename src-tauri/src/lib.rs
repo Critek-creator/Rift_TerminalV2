@@ -2286,6 +2286,7 @@ pub fn run() {
             llm_commands::llm_models_running,
             llm_commands::gguf_inspect,
             llm_commands::gpu_vram_mb,
+            llm_commands::gpu_vram_used_mb,
         ]))
         .build(tauri::generate_context!())
         .expect("rift: tauri runtime failed to start")

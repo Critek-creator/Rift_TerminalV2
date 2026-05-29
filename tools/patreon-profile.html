@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Abyssal Arts — Patreon Profile Photo</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    background: #111;
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700;800&display=swap');
+
+  .frame {
+    width: 1024px;
+    height: 1024px;
+    position: relative;
+    overflow: hidden;
+    background: #0a0a0a;
+  }
+
+  /* Subtle noise texture */
+  .frame::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
+    pointer-events: none;
+    z-index: 1;
+  }
+
+  /* Radial depth gradient — abyss feel */
+  .depth {
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(
+      ellipse 70% 70% at 50% 48%,
+      rgba(255, 168, 38, 0.06) 0%,
+      rgba(255, 168, 38, 0.02) 30%,
+      transparent 60%
+    );
+    z-index: 2;
+  }
+
+  /* Concentric rings — depth layers */
+  .rings {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 3;
+  }
+
+  .ring {
+    position: absolute;
+    border-radius: 50%;
+    border: 1px solid rgba(255, 168, 38, 0.08);
+  }
+
+  .ring:nth-child(1) { width: 900px; height: 900px; border-color: rgba(255, 168, 38, 0.04); }
+  .ring:nth-child(2) { width: 720px; height: 720px; border-color: rgba(255, 168, 38, 0.06); }
+  .ring:nth-child(3) { width: 540px; height: 540px; border-color: rgba(255, 168, 38, 0.09); }
+  .ring:nth-child(4) { width: 360px; height: 360px; border-color: rgba(255, 168, 38, 0.12); }
+  .ring:nth-child(5) { width: 180px; height: 180px; border-color: rgba(255, 168, 38, 0.06); }
+
+  /* The monogram */
+  .monogram {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10;
+  }
+
+  .monogram-text {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 220px;
+    font-weight: 800;
+    letter-spacing: -12px;
+    color: #FFA826;
+    text-shadow:
+      0 0 40px rgba(255, 168, 38, 0.4),
+      0 0 80px rgba(255, 168, 38, 0.2),
+      0 0 120px rgba(255, 168, 38, 0.1);
+    position: relative;
+  }
+
+  /* Subtle inner glow on letters */
+  .monogram-text::after {
+    content: 'AA';
+    position: absolute;
+    inset: 0;
+    color: transparent;
+    -webkit-text-stroke: 1px rgba(255, 200, 64, 0.3);
+    filter: blur(2px);
+  }
+
+  /* Brand name below monogram */
+  .brand {
+    position: absolute;
+    bottom: 260px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 10;
+    text-align: center;
+  }
+
+  .brand-name {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 36px;
+    font-weight: 700;
+    color: #E8E4D8;
+    letter-spacing: 8px;
+    text-transform: uppercase;
+    opacity: 0.9;
+  }
+
+  .brand-sub {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 14px;
+    font-weight: 400;
+    color: #A87830;
+    letter-spacing: 4px;
+    text-transform: uppercase;
+    margin-top: 12px;
+    opacity: 0.7;
+  }
+
+  /* Scanlines */
+  .scanlines {
+    position: absolute;
+    inset: 0;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(0, 0, 0, 0.15) 2px,
+      rgba(0, 0, 0, 0.15) 4px
+    );
+    z-index: 20;
+    pointer-events: none;
+  }
+
+  /* CRT vignette */
+  .vignette {
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(
+      ellipse 75% 75% at 50% 50%,
+      transparent 50%,
+      rgba(0, 0, 0, 0.7) 100%
+    );
+    z-index: 21;
+    pointer-events: none;
+  }
+
+  /* Corner accents */
+  .corner {
+    position: absolute;
+    width: 60px;
+    height: 60px;
+    z-index: 15;
+    opacity: 0.4;
+  }
+
+  .corner--tl { top: 40px; left: 40px; border-top: 2px solid #FFA826; border-left: 2px solid #FFA826; }
+  .corner--tr { top: 40px; right: 40px; border-top: 2px solid #FFA826; border-right: 2px solid #FFA826; }
+  .corner--bl { bottom: 40px; left: 40px; border-bottom: 2px solid #FFA826; border-left: 2px solid #FFA826; }
+  .corner--br { bottom: 40px; right: 40px; border-bottom: 2px solid #FFA826; border-right: 2px solid #FFA826; }
+
+  /* Decorative code fragments in background */
+  .code-frag {
+    position: absolute;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: rgba(255, 168, 38, 0.08);
+    white-space: pre;
+    z-index: 4;
+    pointer-events: none;
+  }
+
+  .code-frag--1 { top: 80px; left: 60px; }
+  .code-frag--2 { top: 150px; right: 80px; }
+  .code-frag--3 { bottom: 120px; left: 80px; }
+  .code-frag--4 { bottom: 180px; right: 60px; }
+
+  /* Horizontal rule accents */
+  .h-rule {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 200px;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(255, 168, 38, 0.3), transparent);
+    z-index: 10;
+  }
+
+  .h-rule--top { top: 320px; }
+  .h-rule--bottom { bottom: 230px; }
+
+  /* Guide text: tells user this is the capture area */
+  .guide {
+    position: fixed;
+    top: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-family: sans-serif;
+    font-size: 13px;
+    color: #666;
+    background: #1a1a1a;
+    padding: 8px 16px;
+    border-radius: 4px;
+    z-index: 999;
+  }
+</style>
+</head>
+<body>
+
+<div class="guide">1024 &times; 1024 &mdash; right-click &rarr; Inspect &rarr; screenshot node, or use browser DevTools capture</div>
+
+<div class="frame">
+  <div class="depth"></div>
+
+  <div class="rings">
+    <div class="ring"></div>
+    <div class="ring"></div>
+    <div class="ring"></div>
+    <div class="ring"></div>
+    <div class="ring"></div>
+  </div>
+
+  <div class="code-frag code-frag--1">fn descend() {
+  let depth = 0;
+  loop {
+    depth += 1;</div>
+
+  <div class="code-frag code-frag--2">impl Abyss {
+  pub fn surface(&self)
+    -> Signal {</div>
+
+  <div class="code-frag code-frag--3">  emit!(Event::Wake);
+  bus.publish(lane);</div>
+
+  <div class="code-frag code-frag--4">trait Forge {
+  fn ignite(&mut self);
+}</div>
+
+  <div class="h-rule h-rule--top"></div>
+
+  <div class="monogram">
+    <span class="monogram-text">AA</span>
+  </div>
+
+  <div class="brand">
+    <div class="brand-name">Abyssal Arts</div>
+    <div class="brand-sub">From the deep end</div>
+  </div>
+
+  <div class="h-rule h-rule--bottom"></div>
+
+  <div class="corner corner--tl"></div>
+  <div class="corner corner--tr"></div>
+  <div class="corner corner--bl"></div>
+  <div class="corner corner--br"></div>
+
+  <div class="scanlines"></div>
+  <div class="vignette"></div>
+</div>
+
+</body>
+</html>

@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Abyssal Arts — Patreon Tier Covers (460x200)</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700;800&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 40px;
+    padding: 40px;
+    min-height: 100vh;
+    background: #111;
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  .label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    color: #666;
+    margin-bottom: -28px;
+    letter-spacing: 2px;
+  }
+
+  /* ── Shared frame ── */
+  .tier {
+    width: 460px;
+    height: 200px;
+    position: relative;
+    overflow: hidden;
+    background: #0a0a0a;
+  }
+
+  /* Noise overlay */
+  .tier::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
+    pointer-events: none;
+    z-index: 1;
+  }
+
+  /* Scanlines */
+  .tier::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(0, 0, 0, 0.12) 2px,
+      rgba(0, 0, 0, 0.12) 4px
+    );
+    z-index: 20;
+    pointer-events: none;
+  }
+
+  .tier-content {
+    position: relative;
+    z-index: 10;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    padding: 0 36px;
+  }
+
+  .tier-left {
+    flex: 1;
+  }
+
+  .tier-name {
+    font-size: 28px;
+    font-weight: 800;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    line-height: 1.1;
+  }
+
+  .tier-tagline {
+    font-size: 11px;
+    font-weight: 400;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    margin-top: 8px;
+    opacity: 0.6;
+  }
+
+  .tier-price {
+    font-size: 36px;
+    font-weight: 800;
+    text-align: right;
+    white-space: nowrap;
+  }
+
+  .tier-price span {
+    font-size: 14px;
+    font-weight: 400;
+    opacity: 0.5;
+  }
+
+  /* Vignette */
+  .vignette {
+    position: absolute;
+    inset: 0;
+    z-index: 15;
+    pointer-events: none;
+  }
+
+  /* Corner brackets */
+  .corner {
+    position: absolute;
+    width: 24px;
+    height: 24px;
+    z-index: 12;
+    opacity: 0.3;
+  }
+  .corner--tl { top: 12px; left: 12px; border-top: 1.5px solid; border-left: 1.5px solid; }
+  .corner--tr { top: 12px; right: 12px; border-top: 1.5px solid; border-right: 1.5px solid; }
+  .corner--bl { bottom: 12px; left: 12px; border-bottom: 1.5px solid; border-left: 1.5px solid; }
+  .corner--br { bottom: 12px; right: 12px; border-bottom: 1.5px solid; border-right: 1.5px solid; }
+
+  /* Depth line */
+  .depth-line {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 3px;
+    z-index: 12;
+  }
+
+  /* ─────────────────────────────────────
+     TIER 1 — Signal Listener
+     Subtle, minimal, surface-level feel
+  ───────────────────────────────────── */
+  .tier-1 .tier-name { color: #A87830; }
+  .tier-1 .tier-tagline { color: #A87830; }
+  .tier-1 .tier-price { color: #A87830; }
+  .tier-1 .corner { border-color: #A87830; }
+  .tier-1 .depth-line { background: linear-gradient(90deg, transparent, #A87830, transparent); opacity: 0.3; }
+
+  .tier-1 .vignette {
+    background: radial-gradient(ellipse 90% 90% at 50% 50%, transparent 40%, rgba(0,0,0,0.6) 100%);
+  }
+
+  .tier-1 .glow {
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(ellipse 60% 80% at 80% 50%, rgba(168, 120, 48, 0.06) 0%, transparent 60%);
+    z-index: 2;
+  }
+
+  /* Code whisper */
+  .tier-1 .code-whisper {
+    position: absolute;
+    right: 30px;
+    top: 20px;
+    font-size: 9px;
+    color: rgba(168, 120, 48, 0.1);
+    white-space: pre;
+    z-index: 3;
+    line-height: 1.5;
+  }
+
+  /* ─────────────────────────────────────
+     TIER 2 — Deep Diver
+     Warmer, more presence, amber glow
+  ───────────────────────────────────── */
+  .tier-2 .tier-name { color: #FFA826; }
+  .tier-2 .tier-tagline { color: #E8E4D8; }
+  .tier-2 .tier-price { color: #FFA826; }
+  .tier-2 .corner { border-color: #FFA826; opacity: 0.4; }
+  .tier-2 .depth-line { background: linear-gradient(90deg, transparent, #FFA826, transparent); opacity: 0.5; }
+
+  .tier-2 .vignette {
+    background: radial-gradient(ellipse 85% 85% at 50% 50%, transparent 35%, rgba(0,0,0,0.65) 100%);
+  }
+
+  .tier-2 .glow {
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(ellipse 50% 70% at 75% 50%, rgba(255, 168, 38, 0.1) 0%, transparent 60%);
+    z-index: 2;
+  }
+
+  /* Depth rings */
+  .tier-2 .ring {
+    position: absolute;
+    border-radius: 50%;
+    border: 1px solid rgba(255, 168, 38, 0.06);
+    z-index: 3;
+  }
+  .tier-2 .ring-1 { width: 300px; height: 300px; right: -80px; top: -50px; }
+  .tier-2 .ring-2 { width: 200px; height: 200px; right: -30px; top: 0px; }
+
+  /* ─────────────────────────────────────
+     TIER 3 — Abyssal Core
+     Full intensity, bright amber, CRT bloom
+  ───────────────────────────────────── */
+  .tier-3 .tier-name {
+    color: #FFC840;
+    text-shadow: 0 0 20px rgba(255, 200, 64, 0.3), 0 0 40px rgba(255, 200, 64, 0.15);
+  }
+  .tier-3 .tier-tagline { color: #E8E4D8; opacity: 0.8; }
+  .tier-3 .tier-price {
+    color: #FFC840;
+    text-shadow: 0 0 15px rgba(255, 200, 64, 0.3);
+  }
+  .tier-3 .corner { border-color: #FFC840; opacity: 0.5; width: 28px; height: 28px; }
+  .tier-3 .depth-line { background: linear-gradient(90deg, transparent, #FFC840, transparent); opacity: 0.7; height: 4px; }
+
+  .tier-3 .vignette {
+    background: radial-gradient(ellipse 80% 80% at 50% 50%, transparent 30%, rgba(0,0,0,0.6) 100%);
+  }
+
+  .tier-3 .glow {
+    position: absolute;
+    inset: 0;
+    background:
+      radial-gradient(ellipse 40% 60% at 70% 50%, rgba(255, 200, 64, 0.12) 0%, transparent 60%),
+      radial-gradient(ellipse 50% 80% at 30% 50%, rgba(255, 168, 38, 0.06) 0%, transparent 60%);
+    z-index: 2;
+  }
+
+  /* Multiple rings — abyss depth */
+  .tier-3 .ring {
+    position: absolute;
+    border-radius: 50%;
+    border: 1px solid rgba(255, 200, 64, 0.08);
+    z-index: 3;
+  }
+  .tier-3 .ring-1 { width: 400px; height: 400px; right: -120px; top: -100px; }
+  .tier-3 .ring-2 { width: 280px; height: 280px; right: -60px; top: -40px; }
+  .tier-3 .ring-3 { width: 160px; height: 160px; right: 0px; top: 20px; }
+
+  /* Core pulse — subtle bright center dot */
+  .tier-3 .core-pulse {
+    position: absolute;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #FFC840;
+    box-shadow: 0 0 12px 4px rgba(255, 200, 64, 0.4), 0 0 30px 8px rgba(255, 200, 64, 0.15);
+    right: 60px;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 5;
+  }
+</style>
+</head>
+<body>
+
+<!-- ═══ TIER 1: Signal Listener ═══ -->
+<div class="label">TIER 1 — 460 x 200</div>
+<div class="tier tier-1">
+  <div class="glow"></div>
+  <div class="code-whisper">bus.subscribe(
+  Signal::Surface,
+  |event| {
+    listen(event);
+  }
+);</div>
+  <div class="tier-content">
+    <div class="tier-left">
+      <div class="tier-name">Signal<br>Listener</div>
+      <div class="tier-tagline">Tuned in from the surface</div>
+    </div>
+    <div class="tier-price">$3<span>/mo</span></div>
+  </div>
+  <div class="corner corner--tl"></div>
+  <div class="corner corner--tr"></div>
+  <div class="corner corner--bl"></div>
+  <div class="corner corner--br"></div>
+  <div class="depth-line"></div>
+  <div class="vignette"></div>
+</div>
+
+<!-- ═══ TIER 2: Deep Diver ═══ -->
+<div class="label">TIER 2 — 460 x 200</div>
+<div class="tier tier-2">
+  <div class="glow"></div>
+  <div class="ring ring-1"></div>
+  <div class="ring ring-2"></div>
+  <div class="tier-content">
+    <div class="tier-left">
+      <div class="tier-name">Deep<br>Diver</div>
+      <div class="tier-tagline">Past the surface, into the build</div>
+    </div>
+    <div class="tier-price">$7<span>/mo</span></div>
+  </div>
+  <div class="corner corner--tl"></div>
+  <div class="corner corner--tr"></div>
+  <div class="corner corner--bl"></div>
+  <div class="corner corner--br"></div>
+  <div class="depth-line"></div>
+  <div class="vignette"></div>
+</div>
+
+<!-- ═══ TIER 3: Abyssal Core ═══ -->
+<div class="label">TIER 3 — 460 x 200</div>
+<div class="tier tier-3">
+  <div class="glow"></div>
+  <div class="ring ring-1"></div>
+  <div class="ring ring-2"></div>
+  <div class="ring ring-3"></div>
+  <div class="core-pulse"></div>
+  <div class="tier-content">
+    <div class="tier-left">
+      <div class="tier-name">Abyssal<br>Core</div>
+      <div class="tier-tagline">The inner circle</div>
+    </div>
+    <div class="tier-price">$15<span>/mo</span></div>
+  </div>
+  <div class="corner corner--tl"></div>
+  <div class="corner corner--tr"></div>
+  <div class="corner corner--bl"></div>
+  <div class="corner corner--br"></div>
+  <div class="depth-line"></div>
+  <div class="vignette"></div>
+</div>
+
+</body>
+</html>

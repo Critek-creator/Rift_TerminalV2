@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Abyssal Arts — Patreon Cover Photo (2500x1000)</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;700;800&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    background: #111;
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  .guide {
+    font-family: sans-serif;
+    font-size: 13px;
+    color: #666;
+    background: #1a1a1a;
+    padding: 8px 16px;
+    border-radius: 4px;
+    margin-bottom: 20px;
+  }
+
+  .frame {
+    width: 2500px;
+    height: 1000px;
+    position: relative;
+    overflow: hidden;
+    background: #0a0a0a;
+  }
+
+  /* Noise texture */
+  .frame::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 512 512' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
+    pointer-events: none;
+    z-index: 1;
+  }
+
+  /* Scanlines */
+  .scanlines {
+    position: absolute;
+    inset: 0;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(0, 0, 0, 0.1) 2px,
+      rgba(0, 0, 0, 0.1) 4px
+    );
+    z-index: 30;
+    pointer-events: none;
+  }
+
+  /* CRT vignette — wide format */
+  .vignette {
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(
+      ellipse 85% 120% at 50% 50%,
+      transparent 40%,
+      rgba(0, 0, 0, 0.55) 100%
+    );
+    z-index: 31;
+    pointer-events: none;
+  }
+
+  /* Ambient glow — three pools */
+  .glow-1 {
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(ellipse 30% 80% at 25% 50%, rgba(255, 168, 38, 0.07) 0%, transparent 60%);
+    z-index: 2;
+  }
+  .glow-2 {
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(ellipse 25% 70% at 75% 50%, rgba(255, 200, 64, 0.05) 0%, transparent 60%);
+    z-index: 2;
+  }
+  .glow-center {
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(ellipse 35% 90% at 50% 50%, rgba(255, 168, 38, 0.04) 0%, transparent 50%);
+    z-index: 2;
+  }
+
+  /* ── Left side: code waterfall ── */
+  .code-col {
+    position: absolute;
+    font-size: 14px;
+    line-height: 1.7;
+    white-space: pre;
+    z-index: 3;
+    pointer-events: none;
+  }
+
+  .code-col-1 {
+    left: 60px;
+    top: 60px;
+    color: rgba(255, 168, 38, 0.1);
+  }
+
+  .code-col-2 {
+    left: 340px;
+    top: 140px;
+    color: rgba(255, 168, 38, 0.07);
+  }
+
+  /* ── Right side: code waterfall ── */
+  .code-col-3 {
+    right: 60px;
+    top: 70px;
+    color: rgba(255, 168, 38, 0.1);
+    text-align: right;
+  }
+
+  .code-col-4 {
+    right: 340px;
+    top: 120px;
+    color: rgba(255, 168, 38, 0.07);
+    text-align: right;
+  }
+
+  /* ── Center branding ── */
+  .brand-center {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    z-index: 10;
+  }
+
+  .monogram {
+    font-size: 140px;
+    font-weight: 800;
+    color: #FFA826;
+    letter-spacing: -8px;
+    text-shadow:
+      0 0 30px rgba(255, 168, 38, 0.35),
+      0 0 60px rgba(255, 168, 38, 0.15),
+      0 0 100px rgba(255, 168, 38, 0.08);
+    position: relative;
+  }
+
+  .monogram::after {
+    content: 'AA';
+    position: absolute;
+    inset: 0;
+    color: transparent;
+    -webkit-text-stroke: 1px rgba(255, 200, 64, 0.2);
+    filter: blur(2px);
+  }
+
+  .brand-name {
+    font-size: 52px;
+    font-weight: 700;
+    color: #E8E4D8;
+    letter-spacing: 20px;
+    text-transform: uppercase;
+    margin-top: 4px;
+    opacity: 0.95;
+  }
+
+  .brand-tagline {
+    font-size: 18px;
+    font-weight: 300;
+    color: #A87830;
+    letter-spacing: 8px;
+    text-transform: uppercase;
+    margin-top: 16px;
+    opacity: 0.6;
+  }
+
+  /* ── Horizontal separator lines ── */
+  .h-line {
+    position: absolute;
+    height: 1px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 10;
+  }
+
+  .h-line-top {
+    top: 180px;
+    width: 700px;
+    background: linear-gradient(90deg, transparent, rgba(255, 168, 38, 0.2), transparent);
+  }
+
+  .h-line-bottom {
+    bottom: 180px;
+    width: 700px;
+    background: linear-gradient(90deg, transparent, rgba(255, 168, 38, 0.2), transparent);
+  }
+
+  /* ── Concentric rings — far right ── */
+  .ring {
+    position: absolute;
+    border-radius: 50%;
+    z-index: 3;
+    pointer-events: none;
+  }
+
+  .ring-r1 {
+    width: 900px; height: 900px;
+    right: -250px; top: -50px;
+    border: 1px solid rgba(255, 168, 38, 0.04);
+  }
+  .ring-r2 {
+    width: 650px; height: 650px;
+    right: -125px; top: 75px;
+    border: 1px solid rgba(255, 168, 38, 0.06);
+  }
+  .ring-r3 {
+    width: 400px; height: 400px;
+    right: 0px; top: 200px;
+    border: 1px solid rgba(255, 168, 38, 0.04);
+  }
+
+  /* ── Concentric rings — far left ── */
+  .ring-l1 {
+    width: 800px; height: 800px;
+    left: -220px; top: -25px;
+    border: 1px solid rgba(255, 168, 38, 0.04);
+  }
+  .ring-l2 {
+    width: 550px; height: 550px;
+    left: -80px; top: 125px;
+    border: 1px solid rgba(255, 168, 38, 0.05);
+  }
+
+  /* ── Corner brackets ── */
+  .corner {
+    position: absolute;
+    width: 50px;
+    height: 50px;
+    z-index: 12;
+    opacity: 0.3;
+    border-color: #FFA826;
+  }
+  .corner--tl { top: 28px; left: 28px; border-top: 2px solid #FFA826; border-left: 2px solid #FFA826; }
+  .corner--tr { top: 28px; right: 28px; border-top: 2px solid #FFA826; border-right: 2px solid #FFA826; }
+  .corner--bl { bottom: 28px; left: 28px; border-bottom: 2px solid #FFA826; border-left: 2px solid #FFA826; }
+  .corner--br { bottom: 28px; right: 28px; border-bottom: 2px solid #FFA826; border-right: 2px solid #FFA826; }
+
+  /* ── Project tags — subtle floating labels ── */
+  .project-tags {
+    position: absolute;
+    bottom: 60px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 32px;
+    z-index: 10;
+  }
+
+  .ptag {
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    padding: 5px 16px;
+    border: 1px solid rgba(255, 168, 38, 0.15);
+    border-radius: 2px;
+    color: rgba(255, 168, 38, 0.35);
+    background: rgba(255, 168, 38, 0.03);
+  }
+
+  /* Bottom accent line */
+  .bottom-line {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 4px;
+    background: linear-gradient(90deg, transparent 5%, #A87830 20%, #FFA826 50%, #A87830 80%, transparent 95%);
+    opacity: 0.4;
+    z-index: 15;
+  }
+</style>
+</head>
+<body>
+
+<div class="guide">2500 &times; 1000 — right-click the .frame in DevTools &rarr; "Capture node screenshot"</div>
+
+<div class="frame">
+  <!-- Ambient glow pools -->
+  <div class="glow-1"></div>
+  <div class="glow-2"></div>
+  <div class="glow-center"></div>
+
+  <!-- Depth rings -->
+  <div class="ring ring-r1"></div>
+  <div class="ring ring-r2"></div>
+  <div class="ring ring-r3"></div>
+  <div class="ring ring-l1"></div>
+  <div class="ring ring-l2"></div>
+
+  <!-- Code waterfalls — left -->
+  <div class="code-col code-col-1">pub struct Abyss {
+    depth: u64,
+    signal: Bus,
+    forge: Arc&lt;Forge&gt;,
+}
+
+impl Abyss {
+    pub fn descend(&mut self) {
+        self.depth += 1;
+        self.signal.emit(
+            Event::Deeper
+        );
+    }
+
+    pub fn surface(&self)
+      -> Vec&lt;Signal&gt; {
+        self.signal.drain()
+    }
+}</div>
+
+  <div class="code-col code-col-2">fn main() {
+    let mut abyss
+      = Abyss::new();
+
+    loop {
+        abyss.descend();
+        let signals
+          = abyss.surface();
+
+        for s in signals {
+            match s.lane {
+              Lane::Core
+                => forge(s),
+              Lane::Signal
+                => listen(s),
+              _ => {}
+            }
+        }
+    }
+}</div>
+
+  <!-- Code waterfalls — right -->
+  <div class="code-col code-col-3">trait Forge {
+    fn ignite(
+      &mut self
+    ) -> Flame;
+
+    fn temper(
+      &self,
+      raw: Metal
+    ) -> Artifact;
+}
+
+enum Lane {
+    Core,
+    Signal,
+    Ambient,
+    Deep,
+}</div>
+
+  <div class="code-col code-col-4">struct Signal {
+    lane: Lane,
+    payload: Vec&lt;u8&gt;,
+    depth: u64,
+    ts: Instant,
+}
+
+impl Bus {
+    pub fn emit(
+      &self,
+      event: Event
+    ) {
+        self.tx.send(
+          event
+        ).ok();
+    }
+}</div>
+
+  <!-- Separator lines -->
+  <div class="h-line h-line-top"></div>
+  <div class="h-line h-line-bottom"></div>
+
+  <!-- Center brand -->
+  <div class="brand-center">
+    <div class="monogram">AA</div>
+    <div class="brand-name">Abyssal Arts</div>
+    <div class="brand-tagline">Indie dev studio &middot; from the deep end</div>
+  </div>
+
+  <!-- Project tags -->
+  <div class="project-tags">
+    <span class="ptag">Rift Terminal</span>
+    <span class="ptag">Brain Dump</span>
+    <span class="ptag">Aethergard</span>
+    <span class="ptag">Anchor</span>
+    <span class="ptag">Ledger</span>
+  </div>
+
+  <!-- Corner brackets -->
+  <div class="corner corner--tl"></div>
+  <div class="corner corner--tr"></div>
+  <div class="corner corner--bl"></div>
+  <div class="corner corner--br"></div>
+
+  <!-- Bottom accent -->
+  <div class="bottom-line"></div>
+
+  <!-- Overlays -->
+  <div class="scanlines"></div>
+  <div class="vignette"></div>
+</div>
+
+</body>
+</html>

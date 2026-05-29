@@ -774,3 +774,34 @@ pub async fn gpu_vram_mb() -> Option<u32> {
     .ok()
     .flatten()
 }
+
+/// Best-effort *currently-used* VRAM of the primary GPU, in MiB. Queries
+/// `nvidia-smi` (NVIDIA only); returns `None` if the tool is absent or the
+/// output can't be parsed. NOTE: this is GPU-wide usage (desktop + every
+/// process), not just our llama-server — the StatusLine tooltip says so. Runs
+/// on a blocking thread (spawns a subprocess); polled while a local model runs.
+#[tauri::command]
+pub async fn gpu_vram_used_mb() -> Option<u32> {
+    tokio::task::spawn_blocking(|| {
+        let mut cmd = std::process::Command::new("nvidia-smi");
+        cmd.args(["--query-gpu=memory.used", "--format=csv,noheader,nounits"]);
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+            cmd.creation_flags(CREATE_NO_WINDOW);
+        }
+        let output = cmd.output().ok()?;
+        if !output.status.success() {
+            return None;
+        }
+        // First line is the primary GPU's used memory, in MiB (nounits).
+        String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .next()
+            .and_then(|l| l.trim().parse::<u32>().ok())
+    })
+    .await
+    .ok()
+    .flatten()
+}
