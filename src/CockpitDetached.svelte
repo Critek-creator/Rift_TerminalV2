@@ -16,10 +16,11 @@
   // calls `.close()` — same Destroyed path. Neither button needs to emit
   // the event itself.
 
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
   import { getCurrentWindow, PhysicalPosition, PhysicalSize, availableMonitors } from '@tauri-apps/api/window';
   import type { Window as TauriWindow } from '@tauri-apps/api/window';
+  import type { UnlistenFn } from '@tauri-apps/api/event';
   import Tree from './lib/Tree.svelte';
   import IndexGraph from './lib/IndexGraph.svelte';
   import Splitter from './lib/Splitter.svelte';
@@ -49,6 +50,13 @@
   // setup races the module load. onMount fires after Svelte's hydration,
   // by which time __TAURI_INTERNALS__ is fully populated.
   let appWindow: TauriWindow;
+
+  // Move/resize listener handles — stored so onDestroy can unregister them.
+  // Without this, each detach→reattach cycle accumulates orphaned Tauri event
+  // callbacks ("Couldn't find callback id" spam / window-thread crash on slow
+  // machines). NotifDetached.svelte already does this; cockpit must match.
+  let unlistenMoved: UnlistenFn | undefined;
+  let unlistenResized: UnlistenFn | undefined;
 
   const POS_KEY = 'rift.cockpit.detached_pos';
 
@@ -136,19 +144,25 @@
       savePosition(pos.x, pos.y, size.width, size.height);
     } catch { /* non-fatal */ }
 
-    // Listen for move + resize — both fire position changes.
-    appWindow.onMoved(({ payload: pos }) => {
+    // Listen for move + resize — both fire position changes. Store the
+    // unlisten handles so onDestroy can release them on dock/close.
+    unlistenMoved = await appWindow.onMoved(({ payload: pos }) => {
       appWindow.outerSize().then((size) => {
         savePosition(pos.x, pos.y, size.width, size.height);
       }).catch(() => { /* non-fatal */ });
     });
 
-    appWindow.onResized(({ payload: size }) => {
+    unlistenResized = await appWindow.onResized(({ payload: size }) => {
       appWindow.outerPosition().then((pos) => {
         savePosition(pos.x, pos.y, size.width, size.height);
       }).catch(() => { /* non-fatal */ });
     });
   }
+
+  onDestroy(() => {
+    unlistenMoved?.();
+    unlistenResized?.();
+  });
 
   onMount(() => {
     // Phase 8.7d: cockpit window is pre-built at setup() in lib.rs, so the

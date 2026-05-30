@@ -29,10 +29,13 @@ impl GeminiProvider {
         model_identifier: impl Into<String>,
     ) -> Self {
         Self {
+            // Fall back to a default client rather than panicking the calling
+            // (async) task if the builder fails — async-task panics are not
+            // caught by the IPC guarded_invoke_handler.
             client: Client::builder()
                 .timeout(std::time::Duration::from_secs(300))
                 .build()
-                .expect("reqwest client"),
+                .unwrap_or_else(|_| Client::new()),
             endpoint: endpoint.into().trim_end_matches('/').to_string(),
             api_key: api_key.into(),
             model_identifier: model_identifier.into(),

@@ -132,10 +132,20 @@
   let unsubscribeFn: (() => Promise<void>) | undefined;
 
   $effect(() => {
+    // Mount-race guard (NotificationPane reference pattern): if the component
+    // unmounts before `subscribe()` resolves, the sync cleanup below runs
+    // while `unsubscribeFn` is still undefined — the in-flight handle would
+    // leak. We flip `cancelled` in cleanup and unsubscribe on resolution.
+    let cancelled = false;
     // Async setup inside IIFE — cleanup returned from $effect must be sync.
     void (async () => {
       try {
-        unsubscribeFn = await subscribe({ category: 'index' }, handleEnvelope);
+        const u = await subscribe({ category: 'index' }, handleEnvelope);
+        if (cancelled) {
+          void u().catch(() => {});
+          return;
+        }
+        unsubscribeFn = u;
         connected = true;
       } catch (err) {
         console.error('[IndexTabContent] bus subscribe failed', err);
@@ -149,6 +159,7 @@
 
     // Sync cleanup.
     return () => {
+      cancelled = true;
       if (tickTimer) clearInterval(tickTimer);
       // Async teardown in IIFE (pr003 svelte5-async-cleanup-via-sync-shell-iife).
       void (async () => {
@@ -208,7 +219,14 @@
     >
       <span class="handle-glyph" style="color: var(--amber-warm); font-size: 14px">⬢</span>
       <span class="handle-title">INDEX</span>
-      <span class="handle-hint">drag to dock</span>
+      <button
+        type="button"
+        class="dock-btn"
+        draggable={false}
+        onclick={(e) => { e.stopPropagation(); onDragBack?.(); }}
+        title="Return to tab strip"
+        aria-label="Dock pane back to tab strip"
+      >↩ dock</button>
     </div>
   {/if}
 
@@ -401,13 +419,6 @@
   .drag-handle .handle-title {
     color: var(--accent);
     text-transform: uppercase;
-  }
-  .drag-handle .handle-hint {
-    margin-left: auto;
-    color: var(--amber-faint);
-    font-style: italic;
-    font-weight: 400;
-    letter-spacing: 0.04em;
   }
 
   /* Capability-driven empty state (§10.7) */

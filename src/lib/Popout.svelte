@@ -42,12 +42,29 @@
     popouts.dismiss(entry.id);
   }
 
+  // Track where the gesture that produced a backdrop `click` STARTED. A
+  // genuine dismiss-click presses and releases on the backdrop itself. A
+  // native CSS resize drag (`.card { resize: both }`) presses on the card's
+  // BR resize widget and, on release, WebView2/Chromium synthesizes a
+  // trailing `click` whose target is the backdrop (the pointer left the
+  // card's old geometry) — which would otherwise dismiss the popout
+  // mid-resize. Requiring the pointer-DOWN to have landed on the backdrop
+  // discriminates the two, and as a bonus stops a text-selection drag that
+  // begins in the card and releases over the backdrop from closing it.
+  let pointerDownOnBackdrop = false;
+
+  function onBackdropPointerDown(e: PointerEvent) {
+    pointerDownOnBackdrop = e.target === e.currentTarget;
+  }
+
   function onBackdropClick() {
     // Only the top overlay reacts to backdrop clicks — clicks on a
     // lower-stack backdrop would otherwise dismiss something the user
     // can't even see. Non-dismissible entries ignore backdrop too.
     if (!isTop) return;
     if (entry.dismissible === false) return;
+    // Gesture started on the card (e.g. a resize drag) — not a dismiss.
+    if (!pointerDownOnBackdrop) return;
     popouts.dismiss(entry.id);
   }
 
@@ -111,7 +128,78 @@
       first.focus();
     }
   }
-  const cardWidth = $derived(entry.width ?? 'min(640px, 80vw)');
+  // Per-kind size persistence. The card has `resize: both`; we remember the
+  // user's resized width+height in localStorage keyed by popout kind so it
+  // sticks across re-opens (otherwise the default width is restored every
+  // time). Settings also gets a wider default since the Models tab needs room.
+  const SIZE_KEY = (kind: string) => `rift.popout.size.${kind}`;
+
+  function loadSavedSize(kind: string): { w: number; h: number } | null {
+    try {
+      const raw = localStorage.getItem(SIZE_KEY(kind));
+      if (!raw) return null;
+      const v = JSON.parse(raw) as { w?: unknown; h?: unknown };
+      if (typeof v.w === 'number' && typeof v.h === 'number' && v.w > 0 && v.h > 0) {
+        return { w: v.w, h: v.h };
+      }
+    } catch { /* corrupt entry — ignore */ }
+    return null;
+  }
+
+  // `userSize` is set only on a real user resize; until then the persisted
+  // value (if any) is read from storage. Deriving keeps this reactive on
+  // `entry` without the state_referenced_locally pitfall of seeding `$state`
+  // from a prop.
+  let userSize = $state<{ w: number; h: number } | null>(null);
+  const savedSize = $derived(userSize ?? loadSavedSize(entry.content.kind));
+
+  // Snapshot size on card pointer-down; if it changed by pointer-up, the user
+  // dragged the resize widget — persist the new size. Guarding on a non-zero
+  // start size means content-driven reflows (no preceding card pointer-down)
+  // never get persisted.
+  let resizeStartW = 0;
+  let resizeStartH = 0;
+
+  function onCardPointerDown() {
+    if (!cardEl) return;
+    resizeStartW = cardEl.offsetWidth;
+    resizeStartH = cardEl.offsetHeight;
+  }
+
+  function persistSizeIfResized() {
+    if (!cardEl || resizeStartW === 0) return;
+    const w = cardEl.offsetWidth;
+    const h = cardEl.offsetHeight;
+    if ((w !== resizeStartW || h !== resizeStartH) && w > 0 && h > 0) {
+      userSize = { w, h };
+      try {
+        localStorage.setItem(SIZE_KEY(entry.content.kind), JSON.stringify(savedSize));
+      } catch { /* quota / disabled — non-fatal */ }
+    }
+    resizeStartW = 0;
+    resizeStartH = 0;
+  }
+
+  $effect(() => {
+    const onUp = () => persistSizeIfResized();
+    window.addEventListener('pointerup', onUp);
+    return () => window.removeEventListener('pointerup', onUp);
+  });
+
+  // Default width by kind. A persisted size, when present, overrides this.
+  const cardWidth = $derived(
+    entry.width
+      ?? (entry.content.kind === 'settings' ? 'min(960px, 92vw)' : 'min(640px, 80vw)'),
+  );
+
+  // Card inline style: a persisted size wins (width + height); otherwise
+  // width-only so height stays content-driven until the first manual resize.
+  // Viewer keeps its CSS-class default size when nothing is persisted.
+  const cardStyle = $derived(
+    savedSize
+      ? `width: ${savedSize.w}px; height: ${savedSize.h}px;`
+      : (entry.content.kind === 'viewer' ? '' : `width: ${cardWidth};`),
+  );
 
   /** Display title for the card header. */
   const cardTitle = $derived(
@@ -134,13 +222,15 @@
 <div
   class="backdrop"
   style="z-index: {zIndex};"
+  onpointerdown={onBackdropPointerDown}
   onclick={onBackdropClick}
   role="presentation"
 >
   <div
     class="card"
     class:is-viewer={entry.content.kind === 'viewer'}
-    style={entry.content.kind === 'viewer' ? '' : `width: ${cardWidth};`}
+    style={cardStyle}
+    onpointerdown={onCardPointerDown}
     onclick={onCardClick}
     onkeydown={(e) => { trapFocus(e); onCardKey(e); }}
     role="dialog"

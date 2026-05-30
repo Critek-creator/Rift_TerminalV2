@@ -203,7 +203,14 @@
     >
       <span class="handle-glyph" style="color: var({accent === 'cyan' ? '--term-cyan' : accent === 'red' ? '--term-red' : accent === 'purple' ? '--term-purple' : '--amber-warm'}); font-size: 14px">{icon}</span>
       <span class="handle-title">{title}</span>
-      <span class="handle-hint">drag to dock</span>
+      <button
+        type="button"
+        class="dock-btn"
+        draggable={false}
+        onclick={(e) => { e.stopPropagation(); onDragBack?.(); }}
+        title="Return to tab strip"
+        aria-label="Dock pane back to tab strip"
+      >↩ dock</button>
     </div>
   {/if}
 
@@ -397,13 +404,6 @@
     color: var(--accent, var(--amber-primary));
     text-transform: uppercase;
     text-shadow: 0 0 4px var(--accent-glow, rgba(255, 168, 38, 0.2));
-  }
-  .drag-handle .handle-hint {
-    margin-left: auto;
-    color: var(--amber-faint);
-    font-style: italic;
-    font-weight: 400;
-    letter-spacing: 0.04em;
   }
 
   .status {

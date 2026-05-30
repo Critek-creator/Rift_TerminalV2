@@ -142,6 +142,24 @@ jobs:
               '. + {"linux-x86_64": {"url": $url, "signature": $sig}}')
           fi
 
+          # macOS (.app.tar.gz) — built on macos-latest (Apple Silicon, so the
+          # bundle is arm64 → keyed darwin-aarch64). Intel Macs are NOT covered:
+          # the matrix builds a single arm64 bundle, and serving it under
+          # darwin-x86_64 would hand an Intel Mac an arm binary that can't
+          # launch. To cover Intel, add an x86_64-apple-darwin build target and
+          # a matching darwin-x86_64 entry here.
+          macos_name=$(gh release view "$tag" --repo "$repo" --json assets \
+            --jq '[.assets[] | select(.name | endswith(".app.tar.gz"))][0].name')
+          if [ -n "$macos_name" ] && [ "$macos_name" != "null" ]; then
+            echo "Signing $macos_name..."
+            gh release download "$tag" --repo "$repo" --pattern "$macos_name" --dir /tmp/rift-sign
+            npx --yes @tauri-apps/cli@latest signer sign "/tmp/rift-sign/$macos_name"
+            macos_sig=$(cat "/tmp/rift-sign/${macos_name}.sig")
+            platforms=$(echo "$platforms" | jq \
+              --arg url "$base/$macos_name" --arg sig "$macos_sig" \
+              '. + {"darwin-aarch64": {"url": $url, "signature": $sig}}')
+          fi
+
           count=$(echo "$platforms" | jq 'length')
           if [ "$count" -gt 0 ]; then
             now=$(date -u +"%Y-%m-%dT%H:%M:%SZ")

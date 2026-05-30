@@ -308,18 +308,27 @@
 
 <section class="pane">
   {#if onDragBack}
-    <button
-      type="button"
+    <div
       class="drag-handle"
+      role="button"
+      tabindex="0"
       draggable={true}
       ondragstart={onHandleDragStart}
+      onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onDragBack?.(); } }}
       title="drag back to tab strip to dock"
       aria-label="Bus tail — drag to dock back to tab strip"
     >
       <span class="handle-glyph">▣</span>
       <span class="handle-title">bus tail</span>
-      <span class="handle-hint">drag to dock</span>
-    </button>
+      <button
+        type="button"
+        class="dock-btn"
+        draggable={false}
+        onclick={(e) => { e.stopPropagation(); onDragBack?.(); }}
+        title="Return to tab strip"
+        aria-label="Dock pane back to tab strip"
+      >↩ dock</button>
+    </div>
   {/if}
 
   {#if error}
@@ -558,13 +567,6 @@
   .drag-handle .handle-title {
     color: var(--amber-bright);
     text-transform: uppercase;
-  }
-  .drag-handle .handle-hint {
-    margin-left: auto;
-    color: var(--amber-faint);
-    font-style: italic;
-    font-weight: 400;
-    letter-spacing: 0.04em;
   }
 
   .status {

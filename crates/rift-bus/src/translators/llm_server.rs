@@ -30,10 +30,13 @@ pub struct LlamaServerProvider {
 impl LlamaServerProvider {
     pub fn new(endpoint: impl Into<String>, model_identifier: impl Into<String>) -> Self {
         Self {
+            // Fall back to a default client rather than panicking the calling
+            // (async) task if the builder fails — async-task panics are not
+            // caught by the IPC guarded_invoke_handler.
             client: Client::builder()
                 .timeout(std::time::Duration::from_secs(300))
                 .build()
-                .expect("reqwest client"),
+                .unwrap_or_else(|_| Client::new()),
             endpoint: endpoint.into().trim_end_matches('/').to_string(),
             model_identifier: model_identifier.into(),
             provider_tag: "llama_server".to_string(),

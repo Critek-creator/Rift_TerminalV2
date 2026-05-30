@@ -177,7 +177,14 @@
     >
       <span class="handle-glyph" style="color: var(--term-red); font-size: 14px">⌾</span>
       <span class="handle-title">sentinel</span>
-      <span class="handle-hint">drag to dock</span>
+      <button
+        type="button"
+        class="dock-btn"
+        draggable={false}
+        onclick={(e) => { e.stopPropagation(); onDragBack?.(); }}
+        title="Return to tab strip"
+        aria-label="Dock pane back to tab strip"
+      >↩ dock</button>
     </div>
   {/if}
 
@@ -332,13 +339,6 @@
   .drag-handle .handle-title {
     color: var(--term-red);
     text-transform: uppercase;
-  }
-  .drag-handle .handle-hint {
-    margin-left: auto;
-    color: var(--amber-faint);
-    font-style: italic;
-    font-weight: 400;
-    letter-spacing: 0.04em;
   }
 
   .status {

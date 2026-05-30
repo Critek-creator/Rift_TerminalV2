@@ -497,6 +497,46 @@ button:focus-visible,
 }
 
 /* =========================================================
+   DOCK BUTTON — return-to-tab-strip control on the drag-handle of
+   every promoted notification pane. Global (not per-component scoped)
+   so all 13 pane chassis share one definition. Drag-to-dock is
+   unreliable in WebView2 (HTML5 drag doesn't always fire), so this
+   clickable button is the primary affordance; the drag handle stays
+   as a secondary path. `margin-left: auto` floats it to the right edge
+   where the old "drag to dock" hint sat.
+   ========================================================= */
+.dock-btn {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: none;
+  border: 1px solid var(--amber-faint);
+  border-radius: var(--radius-sm);
+  color: var(--amber-dim);
+  font-family: var(--font-family);
+  font-size: var(--text-2xs);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 2px var(--space-8);
+  cursor: pointer;
+  transition: color var(--duration-base), border-color var(--duration-base),
+              background var(--duration-base);
+}
+.dock-btn:hover {
+  color: var(--amber-bright);
+  border-color: var(--amber-primary);
+  background: rgba(212, 137, 10, 0.08);
+}
+.dock-btn:active {
+  background: rgba(255, 168, 38, 0.12);
+}
+.dock-btn:focus-visible {
+  outline: 1px solid var(--amber-warm);
+  outline-offset: 1px;
+}
+
+/* =========================================================
    TOGGLE SWITCH — reusable iOS-style switch (amber aesthetic).
    Markup: <label class="rift-switch">
              <input type="checkbox" ... />

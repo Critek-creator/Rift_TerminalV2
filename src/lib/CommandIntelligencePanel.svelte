@@ -131,7 +131,14 @@
     >
       <span class="handle-glyph">◇</span>
       <span class="handle-title">ANALYTICS</span>
-      <span class="handle-hint">drag to dock</span>
+      <button
+        type="button"
+        class="dock-btn"
+        draggable={false}
+        onclick={(e) => { e.stopPropagation(); onDragBack?.(); }}
+        title="Return to tab strip"
+        aria-label="Dock pane back to tab strip"
+      >↩ dock</button>
     </div>
   {/if}
 
@@ -241,13 +248,6 @@
     color: var(--amber-primary);
     text-transform: uppercase;
     text-shadow: 0 0 4px rgba(255, 168, 38, 0.2);
-  }
-  .drag-handle .handle-hint {
-    margin-left: auto;
-    color: var(--amber-faint);
-    font-style: italic;
-    font-weight: 400;
-    letter-spacing: 0.04em;
   }
 
   .section-header {
