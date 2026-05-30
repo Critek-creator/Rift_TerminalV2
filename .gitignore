@@ -38,6 +38,8 @@ tools/*.png
 .claude/
 # Playwright MCP browser scratch dir (created by claude-in-chrome / playwright MCPs)
 .playwright-mcp/
+# Serena MCP project cache/config (created when serena activates on this project)
+.serena/
 
 # Aegis Verifier session state (ephemeral — verify.toml + lessons/ ARE committed)
 .aegis/session/
