@@ -4,6 +4,11 @@ on:
   push:
     tags:
       - 'v*'
+  # auto-tag.yml dispatches this against a freshly-created tag. A tag pushed
+  # by auto-tag's GITHUB_TOKEN cannot fire the `push: tags` event above —
+  # GitHub blocks workflow-token pushes from starting new runs (recursion
+  # guard). workflow_dispatch is an explicit exception, so it works there.
+  workflow_dispatch:
 
 # tauri-action calls the GitHub Releases API to create the draft release
 # and upload assets. The default GITHUB_TOKEN doesn't have write access to
@@ -175,11 +180,7 @@ jobs:
             exit 1
           fi
 
-  publish:
-    needs: updater-json
-    runs-on: ubuntu-latest
-    steps:
-      - name: Publish release (remove draft flag)
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release edit "${{ github.ref_name }}" --repo "${{ github.repository }}" --draft=false
+  # NOTE: the release is intentionally left as a DRAFT. Review the assets +
+  # notes on the Releases page, then click Publish manually (RELEASING.md §3).
+  # The updater endpoint only serves assets once the release is published, so
+  # the draft state is a real review gate before users can auto-update.

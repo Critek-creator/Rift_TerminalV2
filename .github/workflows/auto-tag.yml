@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: write
+  actions: write   # needed to dispatch release.yml via `gh workflow run`
 
 jobs:
   auto-tag:
@@ -19,6 +20,8 @@ jobs:
           fetch-depth: 2
 
       - name: Check for version bump and tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           version=$(node -p "require('./package.json').version")
           tag="v${version}"
@@ -47,4 +50,13 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git tag -a "$tag" -m "Release $tag"
           git push origin "$tag"
-          echo "Created and pushed tag $tag — release workflow will fire"
+          echo "Created and pushed tag $tag"
+
+          # A tag pushed with GITHUB_TOKEN does NOT trigger release.yml's
+          # `on: push: tags` — GitHub blocks workflow-token pushes from
+          # starting new runs (recursion guard). workflow_dispatch is an
+          # explicit exception, so dispatch the release workflow at the tag.
+          # (release.yml reads github.ref_name, which resolves to "$tag" when
+          # dispatched with --ref.)
+          gh workflow run release.yml --ref "$tag"
+          echo "Dispatched release.yml against $tag"
