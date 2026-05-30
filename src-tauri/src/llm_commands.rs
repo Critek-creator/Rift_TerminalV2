@@ -101,9 +101,20 @@ fn parse_task_type(raw: &str) -> Option<TaskType> {
 /// keyword classification. §9: the HTTP call is the existing llm_server
 /// translator behind `provider.complete`.
 async fn classify_via_llm(provider: &dyn LlmProvider, prompt: &str) -> Option<TaskType> {
-    const SYSTEM: &str = "You are a task-type classifier. Read the user request and reply \
-        with EXACTLY ONE of these tokens and nothing else: code_generation code_refactoring \
-        lint_format large_context_analysis documentation quick_query architecture debug other";
+    // Per-token definitions matter more than model size: bare token names let a
+    // small model pattern-match "code" words to code_refactoring (4/8 on a test
+    // battery); these definitions took gemma-4-E4B to 8/8.
+    const SYSTEM: &str =
+        "You are a task-type classifier. Reply with EXACTLY ONE token. Definitions:\n\
+        - code_generation: write NEW code/functions from scratch\n\
+        - code_refactoring: restructure/rename/extract EXISTING code\n\
+        - lint_format: linting, formatting, style (clippy, prettier, rustfmt)\n\
+        - large_context_analysis: analyze/review/audit across the WHOLE codebase\n\
+        - documentation: write docs, comments, docstrings, summaries, explanations\n\
+        - quick_query: a short factual question\n\
+        - architecture: high-level design / system decisions\n\
+        - debug: diagnose or fix a bug, error, crash, panic, or failing test\n\
+        - other: anything else";
     // GBNF grammar: forces the model to emit exactly one valid TaskType token —
     // no prose, no punctuation. A weak 1B can't wander off-format. llama.cpp
     // extension, passed through the llm_server translator via provider_options.
