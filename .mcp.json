@@ -22,6 +22,21 @@
       "env": {
         "CHROME_DEVTOOLS_MCP_NO_USAGE_STATISTICS": "1"
       }
+    },
+    "cratesio": {
+      "command": "C:/Users/Critek/.cargo/bin/cratesio-mcp.exe",
+      "args": []
+    },
+    "probe": {
+      "command": "cmd",
+      "args": [
+        "/c",
+        "npx",
+        "-y",
+        "@probelabs/probe@latest",
+        "agent",
+        "--mcp"
+      ]
     }
   }
 }
