@@ -56,6 +56,11 @@ struct ChatRequest {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     stop: Vec<String>,
     stream: bool,
+    /// GBNF grammar (llama.cpp extension) constraining generation. Sourced from
+    /// `CompletionRequest.provider_options["grammar"]`. Omitted for other
+    /// providers / unconstrained requests.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    grammar: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -147,6 +152,14 @@ fn build_chat_request(req: &CompletionRequest, model: &str, stream: bool) -> Cha
         });
     }
 
+    // Pass through a GBNF grammar if the caller supplied one in provider_options.
+    let grammar = req
+        .provider_options
+        .as_ref()
+        .and_then(|opts| opts.get("grammar"))
+        .and_then(|g| g.as_str())
+        .map(str::to_string);
+
     ChatRequest {
         model: model.to_string(),
         messages,
@@ -154,6 +167,7 @@ fn build_chat_request(req: &CompletionRequest, model: &str, stream: bool) -> Cha
         temperature: req.temperature,
         stop: req.stop_sequences.clone(),
         stream,
+        grammar,
     }
 }
 
@@ -487,6 +501,27 @@ mod tests {
         let chat = build_chat_request(&req, "model", true);
         assert_eq!(chat.messages.len(), 1);
         assert!(chat.stream);
+        assert!(chat.grammar.is_none());
+    }
+
+    #[test]
+    fn build_chat_request_forwards_grammar() {
+        let req = CompletionRequest {
+            messages: vec![Message {
+                role: Role::User,
+                content: "x".to_string(),
+            }],
+            max_tokens: Some(8),
+            temperature: Some(0.0),
+            stop_sequences: vec![],
+            system_prompt: None,
+            provider_options: Some(serde_json::json!({ "grammar": "root ::= \"other\"" })),
+        };
+        let chat = build_chat_request(&req, "m", false);
+        assert_eq!(chat.grammar.as_deref(), Some("root ::= \"other\""));
+        // And it must actually serialize into the wire body.
+        let body = serde_json::to_value(&chat).unwrap();
+        assert_eq!(body["grammar"], "root ::= \"other\"");
     }
 
     #[test]

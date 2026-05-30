@@ -104,6 +104,10 @@ async fn classify_via_llm(provider: &dyn LlmProvider, prompt: &str) -> Option<Ta
     const SYSTEM: &str = "You are a task-type classifier. Read the user request and reply \
         with EXACTLY ONE of these tokens and nothing else: code_generation code_refactoring \
         lint_format large_context_analysis documentation quick_query architecture debug other";
+    // GBNF grammar: forces the model to emit exactly one valid TaskType token —
+    // no prose, no punctuation. A weak 1B can't wander off-format. llama.cpp
+    // extension, passed through the llm_server translator via provider_options.
+    const GRAMMAR: &str = r#"root ::= "code_generation" | "code_refactoring" | "lint_format" | "large_context_analysis" | "documentation" | "quick_query" | "architecture" | "debug" | "other""#;
     // Cap input — a classifier needs the gist, not the whole payload.
     let truncated: String = prompt.chars().take(2000).collect();
     let request = CompletionRequest {
@@ -115,7 +119,7 @@ async fn classify_via_llm(provider: &dyn LlmProvider, prompt: &str) -> Option<Ta
         temperature: Some(0.0),
         stop_sequences: vec![],
         system_prompt: Some(SYSTEM.to_string()),
-        provider_options: None,
+        provider_options: Some(serde_json::json!({ "grammar": GRAMMAR })),
     };
     let resp = provider.complete(request).await.ok()?;
     parse_task_type(&resp.content)
