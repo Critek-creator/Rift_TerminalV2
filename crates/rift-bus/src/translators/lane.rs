@@ -94,6 +94,12 @@ pub struct LaneChange {
     pub byte_offset: usize,
 }
 
+// FUTURE (core::range, Rust 1.96+): if lane events ever move from a point
+// (`byte_offset`) to a span model — a `Lane` over a `start..end` byte range,
+// which selection/search highlighting would also want — make that span struct
+// `Copy` using `core::range::Range` (legacy `ops::Range` blocks `Copy` because
+// it impls `Iterator`). Same applies to any selection/search-match span type.
+
 /// The lane state machine. Feed PTY byte chunks via [`LaneClassifier::feed`];
 /// read resulting lane transitions from the returned `Vec<LaneChange>`.
 ///
