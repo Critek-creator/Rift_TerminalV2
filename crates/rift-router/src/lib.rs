@@ -56,6 +56,13 @@ impl RouterService {
         !self.unavailable.contains(model_id)
     }
 
+    /// Whether `model_id` is the configured task classifier. The classifier is
+    /// a special-purpose refiner for the `Other` bucket — it must never be
+    /// selected as a routing target or fallback for actual prompts.
+    pub fn is_classifier(&self, model_id: &str) -> bool {
+        self.config.classifier_model_id.as_deref() == Some(model_id)
+    }
+
     /// Route a prompt to the appropriate model.
     ///
     /// Full Phase 2 routing pipeline:
@@ -136,12 +143,13 @@ impl RouterService {
             _ => {
                 let task_type = task_hint.unwrap_or_else(|| classifier::classify(effective_prompt));
 
-                // Filter to available models only
+                // Filter to available models only, excluding the classifier
+                // (it's a special-purpose refiner, never a routing target).
                 let available_models: Vec<&ModelConfig> = self
                     .config
                     .models
                     .iter()
-                    .filter(|m| self.is_available(&m.id))
+                    .filter(|m| self.is_available(&m.id) && !self.is_classifier(&m.id))
                     .collect();
 
                 if available_models.is_empty() {
@@ -200,7 +208,9 @@ impl RouterService {
             .config
             .models
             .iter()
-            .filter(|m| m.id != primary_id && self.is_available(&m.id))
+            .filter(|m| {
+                m.id != primary_id && self.is_available(&m.id) && !self.is_classifier(&m.id)
+            })
             .collect();
 
         // Sort: tag-matched first, then by cost (cheapest first)
@@ -467,5 +477,17 @@ mod tests {
             .route_with_hint(&long, None, Some(TaskType::CodeGeneration))
             .unwrap();
         assert_eq!(code.model_id, "cloud-test");
+    }
+
+    #[test]
+    fn classifier_excluded_from_routing() {
+        let mut cfg = test_config();
+        cfg.active_profile = RoutingProfile::CostOptimized;
+        // local-test is the cheapest model, but marking it the classifier must
+        // remove it from the routing pool — real prompts go to cloud-test.
+        cfg.classifier_model_id = Some("local-test".to_string());
+        let svc = RouterService::new(cfg);
+        let decision = svc.route("hello world", None).unwrap();
+        assert_eq!(decision.model_id, "cloud-test");
     }
 }

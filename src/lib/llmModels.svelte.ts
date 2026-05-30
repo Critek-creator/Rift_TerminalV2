@@ -282,14 +282,26 @@ export const llmModels = {
    *  local servers: routing away from local should release its VRAM, and it
    *  keeps the store's process state honest. (Previously the stop loop ran
    *  only for local targets, so swapping to cloud left the local server up;
-   *  swapping back then tried to start an already-bound port and failed.) */
+   *  swapping back then tried to start an already-bound port and failed.)
+   *
+   *  The task classifier is exempt on both sides: it's a tiny always-on
+   *  companion (~1GB) that co-resides with the active worker, so it is never
+   *  evicted when another model activates, and activating it never evicts the
+   *  worker — it just starts additively without becoming the active model. */
   async activateModel(id: string): Promise<void> {
     const model = models.find((m) => m.id === id);
     if (!model) return;
-    // Stop every running local server except the target. Use backend truth so a
-    // server the store didn't track can't get stacked on top. Runs for cloud
-    // targets too — for a cloud target nothing matches `id`, so all local
-    // servers stop and the GPU is freed.
+
+    // Companion classifier: additive start, no eviction, not the active model.
+    if (id === classifierModelId) {
+      if (model.hosting.mode === 'local') await startProcess(id);
+      return;
+    }
+
+    // Stop every running local server except the target — and except the
+    // classifier companion. Use backend truth so a server the store didn't
+    // track can't get stacked on top. Runs for cloud targets too — for a cloud
+    // target nothing matches `id`, so all local workers stop and the GPU frees.
     let running: string[] = [];
     try {
       running = await invoke<string[]>('llm_models_running');
@@ -297,7 +309,9 @@ export const llmModels = {
       running = models.filter((m) => processStatus[m.id] === 'running').map((m) => m.id);
     }
     for (const rid of running) {
-      if (rid !== id) await stopProcess(rid).catch(() => { /* best effort */ });
+      if (rid !== id && rid !== classifierModelId) {
+        await stopProcess(rid).catch(() => { /* best effort */ });
+      }
     }
     if (model.hosting.mode === 'local') {
       await startProcess(id);

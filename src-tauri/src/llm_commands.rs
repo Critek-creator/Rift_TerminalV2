@@ -927,19 +927,63 @@ pub async fn gpu_vram_used_mb() -> Option<u32> {
 /// present** at `model_path`, so registering against a missing file never
 /// spams launch errors and never adds routing latency (a disabled model is
 /// dropped by `RouterService`, and refinement falls back to keyword routing).
-/// Drop the GGUF and re-run to activate. Defaults: `C:\Models\Llama-3.2-1B-Instruct-Q6_K.gguf`, port 8082.
+/// Drop the GGUF and re-run to activate. Defaults: `C:\Models\Llama-3.2-1B-Instruct-Q6_K.gguf`;
+/// the port auto-picks the lowest free slot from 8082 up so it never collides with another worker.
 #[tauri::command]
 pub async fn llm_classifier_register(
+    cached: tauri::State<'_, crate::CachedConfig>,
     model_path: Option<String>,
     port: Option<u16>,
 ) -> Result<serde_json::Value, String> {
+    const CLASSIFIER_ID: &str = "llama-classifier";
+
     let path = std::path::PathBuf::from(
         model_path.unwrap_or_else(|| r"C:\Models\Llama-3.2-1B-Instruct-Q6_K.gguf".to_string()),
     );
-    let port = port.unwrap_or(8082);
     let file_present = path.exists();
 
-    let mut cfg = load_config().map_err(|e| format!("config load error: {e}"))?;
+    // Base on the in-memory cache (the app's source of truth that `config_get`
+    // returns), NOT a fresh disk read — otherwise our write is invisible to the
+    // frontend and gets clobbered by the next cache flush.
+    let mut cfg = cached.get();
+
+    // Ports already bound by OTHER local models (exclude any prior classifier
+    // entry so re-registration can reuse its own slot).
+    let used_ports: std::collections::HashSet<u16> = cfg
+        .ensemble
+        .models
+        .iter()
+        .filter(|m| m.id != CLASSIFIER_ID)
+        .filter_map(|m| match &m.hosting {
+            HostingMode::Local { process_config } => Some(process_config.port),
+            _ => None,
+        })
+        .collect();
+
+    // Port priority: explicit arg → existing classifier's port (if still free)
+    // → lowest free port from 8082 up. Never collide with another worker.
+    let existing_port = cfg
+        .ensemble
+        .models
+        .iter()
+        .find(|m| m.id == CLASSIFIER_ID)
+        .and_then(|m| match &m.hosting {
+            HostingMode::Local { process_config } => Some(process_config.port),
+            _ => None,
+        });
+    let port = match port {
+        Some(p) => p,
+        None => match existing_port {
+            Some(p) if !used_ports.contains(&p) => p,
+            _ => {
+                let mut p = 8082u16;
+                while used_ports.contains(&p) {
+                    p += 1;
+                }
+                p
+            }
+        },
+    };
 
     let mut model = ModelConfig::llama_classifier(path.clone(), port);
     // Inert unless the file exists — registered-but-disabled is a safe no-op.
@@ -958,6 +1002,9 @@ pub async fn llm_classifier_register(
     cfg.ensemble.classifier_model_id = Some(model_id.clone());
 
     save_config(&cfg).map_err(|e| format!("config save error: {e}"))?;
+    // Keep the in-memory cache in lock-step with disk so `config_get` returns
+    // the classifier and no later flush clobbers it.
+    cached.set(cfg);
 
     Ok(json!({
         "registered": true,
