@@ -255,7 +255,7 @@
         aria-label="Filter index events"
       />
       <button type="button"
-        class="vault-root-btn"
+        class="rift-btn rift-btn--sm vault-root-btn"
         onclick={openVaultRoot}
         title="Open vault root (~/.claude/abyssal-index/) in file manager"
       >VAULT ROOT ↗</button>
@@ -349,7 +349,7 @@
 <style>
   .connecting-state {
     color: var(--amber-faint);
-    padding: 1rem 14px;
+    padding: var(--space-lg) var(--space-14);
     font-style: italic;
     font-size: var(--text-sm);
     letter-spacing: 0.04em;
@@ -393,6 +393,7 @@
   }
   .drag-handle:active { cursor: grabbing; }
   .drag-handle:hover { background: var(--bg-hover); }
+  .drag-handle:focus-visible { outline: 1px solid var(--amber-warm); outline-offset: -2px; }
   .drag-handle .handle-glyph {
     color: var(--accent);
     font-size: var(--text-base);
@@ -494,7 +495,7 @@
     display: flex;
     align-items: center;
     gap: var(--space-14);
-    background: linear-gradient(to bottom, rgba(74, 212, 212, 0.06), transparent);
+    background: linear-gradient(to bottom, rgba(111, 224, 224, 0.06), transparent);
     color: var(--amber-dim);
     font-size: var(--text-xs);
     letter-spacing: 0.1em;
@@ -512,7 +513,7 @@
     font-weight: 600;
     letter-spacing: 0.05em;
     white-space: nowrap;
-    background: rgba(74, 212, 212, 0.06);
+    background: rgba(111, 224, 224, 0.06);
     flex-shrink: 0;
   }
 
@@ -605,7 +606,7 @@
     font-size: var(--text-2xs);
     font-weight: 600;
     letter-spacing: 0.06em;
-    background: rgba(74, 212, 212, 0.06);
+    background: rgba(111, 224, 224, 0.06);
     display: flex;
     align-items: center;
     gap: var(--space-xs);
@@ -645,23 +646,15 @@
     border-color: var(--accent);
   }
   .vault-root-btn {
-    padding: 2px var(--space-8);
-    border: 1px solid var(--accent);
+    border-color: var(--accent);
     color: var(--accent);
-    background: rgba(74, 212, 212, 0.06);
-    font-family: var(--font-family);
-    font-size: var(--text-2xs);
-    font-weight: 600;
-    letter-spacing: 0.06em;
-    cursor: pointer;
+    background: rgba(111, 224, 224, 0.06);
     white-space: nowrap;
-    transition: background var(--duration-fast);
   }
   .vault-root-btn:hover {
-    background: rgba(74, 212, 212, 0.14);
-  }
-  .vault-root-btn:active {
-    background: rgba(74, 212, 212, 0.22);
+    background: rgba(111, 224, 224, 0.14);
+    border-color: var(--accent);
+    color: var(--accent);
   }
   .vault-root-error {
     padding: 2px var(--space-14);

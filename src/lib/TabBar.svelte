@@ -427,7 +427,10 @@
   /* Close button — 18×18 click target, smooth red transition */
   .close {
     margin-left: var(--space-xs);
+    background: transparent;
+    border: none;
     color: var(--amber-dim);
+    font-family: inherit;
     font-size: var(--text-base);
     width: 18px;
     height: 18px;
@@ -437,6 +440,10 @@
     border-radius: var(--radius-sm);
     transition: color var(--duration-med) var(--ease-out), background var(--duration-med) var(--ease-out);
     flex-shrink: 0;
+  }
+  .close:focus-visible {
+    outline: 1px solid var(--amber-warm);
+    outline-offset: -1px;
   }
   .close:hover {
     color: var(--term-red);

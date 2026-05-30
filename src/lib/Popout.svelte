@@ -265,7 +265,7 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: var(--space-12) 18px;
+    padding: var(--space-12) var(--space-lg);
     border-bottom: 1px solid var(--border-active);
     flex-shrink: 0;
   }
@@ -303,10 +303,14 @@
     color: var(--term-red);
     background: rgba(255, 72, 72, 0.12);
   }
+  .card-close:focus-visible {
+    outline: 1px solid var(--amber-warm);
+    outline-offset: -2px;
+  }
 
-  /* Body: consistent 18px padding, smooth scrolling with styled scrollbar */
+  /* Body: consistent padding, smooth scrolling with styled scrollbar */
   .card-body {
-    padding: 18px;
+    padding: var(--space-lg);
     overflow: auto;
     scroll-behavior: smooth;
   }
@@ -378,7 +382,13 @@
     letter-spacing: 0.08em;
     font-weight: 600;
     cursor: pointer;
+    border-radius: var(--radius-md);
     transition: border-color var(--duration-med) var(--ease-out), color var(--duration-med) var(--ease-out), box-shadow var(--duration-med) var(--ease-out);
+  }
+  .btn-cancel:focus-visible,
+  .btn-confirm:focus-visible {
+    outline: 1px solid var(--amber-warm);
+    outline-offset: 1px;
   }
   .btn-cancel {
     background: transparent;

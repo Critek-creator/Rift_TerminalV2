@@ -75,7 +75,7 @@
     white-space: nowrap;
   }
   .index-row:hover {
-    background: rgba(74, 212, 212, 0.06);
+    background: rgba(111, 224, 224, 0.06);
   }
 
   .ts {
@@ -85,12 +85,12 @@
     flex-shrink: 0;
   }
 
-  /* Cyan-bordered INDEX tag — matches §10.1 cyan lane (#6FE0E0) */
+  /* Cyan-bordered INDEX tag — matches §10.1 cyan lane (--term-cyan) */
   .tag {
     display: inline-block;
     padding: 0 var(--space-xs);
-    border: 1px solid var(--term-cyan, #6FE0E0);
-    color: var(--term-cyan, #6FE0E0);
+    border: 1px solid var(--term-cyan);
+    color: var(--term-cyan);
     font-size: var(--text-2xs);
     font-weight: 700;
     letter-spacing: 0.08em;
@@ -109,7 +109,7 @@
 
   /* vault.update rows are slightly brighter — these are the primary signal */
   .index-row[data-kind='vault.update'] .label {
-    color: var(--term-cyan, #6FE0E0);
+    color: var(--term-cyan);
     font-weight: 600;
   }
 

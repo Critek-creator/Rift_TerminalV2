@@ -228,6 +228,10 @@
     font-weight: var(--type-label-weight);
   }
   .drag-handle:active { cursor: grabbing; background: var(--bg-hover); }
+  .drag-handle:focus-visible {
+    outline: 1px solid var(--amber-warm);
+    outline-offset: -2px;
+  }
   .drag-handle .handle-glyph {
     color: var(--amber-primary);
     font-size: var(--text-md);
@@ -380,27 +384,10 @@
   }
 
   .empty-state {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: var(--space-sm);
-    padding: var(--space-xl) var(--space-md);
     flex: 1;
   }
   .empty-state-icon {
-    font-size: 24px;
-    color: var(--amber-faint);
-    opacity: 0.6;
-  }
-  .empty-state-text {
-    font-size: var(--text-sm);
-    color: var(--amber-dim);
-  }
-  .empty-state-hint {
-    font-size: var(--text-xs);
-    color: var(--amber-faint);
-    font-style: italic;
+    font-size: var(--text-2xl);
   }
   .error-text {
     color: var(--term-red);

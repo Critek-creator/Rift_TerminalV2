@@ -184,6 +184,13 @@
       e.dataTransfer.setData('text/plain', '__promoted_pane__');
     }
   }
+
+  function onHandleDragKeydown(e: KeyboardEvent) {
+    if ((e.key === 'Enter' || e.key === ' ') && onDragBack) {
+      e.preventDefault();
+      onDragBack();
+    }
+  }
 </script>
 
 <section class="pane" data-accent="amber">
@@ -194,7 +201,9 @@
       tabindex="0"
       draggable={true}
       ondragstart={onHandleDragStart}
+      onkeydown={onHandleDragKeydown}
       title="drag back to tab strip to dock"
+      aria-label="Aegis pane — drag to dock"
     >
       <span class="handle-glyph" style="color: var(--amber-warm); font-size: 14px">◈</span>
       <span class="handle-title">AEGIS</span>
@@ -316,8 +325,8 @@
 
       <!-- Phase 7.3: quick-action buttons -->
       <div class="quick-actions">
-        <button type="button" class="qa-btn" onclick={openLessons}>Open Lessons</button>
-        <button type="button" class="qa-btn" onclick={openSettings}>Open Settings</button>
+        <button type="button" class="rift-btn rift-btn--sm" onclick={openLessons}>Open Lessons</button>
+        <button type="button" class="rift-btn rift-btn--sm" onclick={openSettings}>Open Settings</button>
       </div>
       {#if quickActionError}
         <div class="qa-error">{quickActionError}</div>
@@ -563,7 +572,7 @@
     flex-shrink: 0;
   }
   .skill-path {
-    color: var(--amber-faint, #A87830);
+    color: var(--amber-faint);
     font-style: italic;
     font-size: var(--text-2xs);
     overflow: hidden;
@@ -571,32 +580,13 @@
     white-space: nowrap;
   }
 
-  /* Phase 7.3: quick-action buttons — amber-bordered small boxes per §10.1 */
+  /* Phase 7.3: quick-action buttons */
   .quick-actions {
     display: flex;
     flex-direction: row;
     gap: var(--space-sm);
     margin-top: var(--space-md);
     padding-top: var(--space-8);
-  }
-  .qa-btn {
-    padding: 2px var(--space-8);
-    border: 1px solid var(--accent);
-    color: var(--accent);
-    background: rgba(212, 137, 10, 0.06);
-    font-family: var(--font-family);
-    font-size: var(--text-2xs);
-    font-weight: 600;
-    letter-spacing: 0.06em;
-    cursor: pointer;
-    text-transform: uppercase;
-    transition: background var(--duration-fast);
-  }
-  .qa-btn:hover {
-    background: rgba(212, 137, 10, 0.14);
-  }
-  .qa-btn:active {
-    background: rgba(212, 137, 10, 0.22);
   }
   /* Error text — §10.1 terminal red lane */
   .qa-error {

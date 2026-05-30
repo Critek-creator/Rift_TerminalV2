@@ -374,35 +374,7 @@
   }
   .spacer { flex: 1; }
 
-  /* .rift-btn tokens */
-  .rift-btn {
-    background: transparent;
-    border: 1px solid var(--amber-faint);
-    color: var(--amber-warm);
-    font-family: inherit;
-    font-size: var(--text-2xs);
-    letter-spacing: 0.1em;
-    font-weight: 700;
-    padding: 2px var(--space-8);
-    cursor: pointer;
-    text-transform: uppercase;
-    border-radius: var(--radius-md, 4px);
-    transition: color var(--duration-base, 0.12s) var(--ease-out, ease-out),
-                background var(--duration-base, 0.12s) var(--ease-out, ease-out),
-                border-color var(--duration-base, 0.12s) var(--ease-out, ease-out);
-  }
-  .rift-btn:hover {
-    border-color: var(--amber-bright);
-    color: var(--amber-bright);
-  }
-  .rift-btn:focus-visible {
-    outline: 1px solid var(--amber-bright);
-    outline-offset: 1px;
-  }
-  .rift-btn--sm {
-    padding: 2px var(--space-8);
-    font-size: var(--text-2xs);
-  }
+  /* .rift-btn--active: overlay-mode active state (global .rift-btn handles base) */
   .rift-btn--active {
     background: rgba(255, 200, 64, 0.12);
     border-color: var(--amber-bright);
@@ -531,9 +503,9 @@
     gap: var(--space-sm);
   }
   .overlay-chart {
-    border: 1px solid rgba(255, 168, 38, 0.15);
-    border-radius: var(--radius-md, 4px);
-    background: rgba(255, 168, 38, 0.05);
+    border: 1px solid var(--border-amber-tint);
+    border-radius: var(--radius-md);
+    background: var(--bg-amber-tint);
     padding: var(--space-xs);
   }
   .overlay-svg {

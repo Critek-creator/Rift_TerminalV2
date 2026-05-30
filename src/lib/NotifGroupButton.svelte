@@ -132,6 +132,7 @@
               onclick={(e) => { e.stopPropagation(); onDetach(tab.id); }}
               onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); onDetach(tab.id); } }}
               title="pop out to own window"
+              aria-label="pop out {tab.title} to own window"
             >⧉</span>
           {/if}
         </button>
@@ -270,6 +271,10 @@
     text-align: left;
     position: relative;
   }
+  .dropdown-tab:focus-visible {
+    outline: 1px solid var(--amber-warm);
+    outline-offset: -2px;
+  }
   .dropdown-tab:hover {
     color: var(--amber-bright);
     background: var(--bg-hover);
@@ -372,7 +377,12 @@
     border-radius: var(--radius-sm);
     flex-shrink: 0;
   }
-  .dropdown-tab:hover .popout-btn { display: inline-flex; }
+  .dropdown-tab:hover .popout-btn,
+  .dropdown-tab:focus-within .popout-btn { display: inline-flex; }
+  .popout-btn:focus-visible {
+    outline: 1px solid var(--amber-warm);
+    outline-offset: 1px;
+  }
   .popout-btn:hover {
     color: var(--term-blue);
     border-color: var(--term-blue);

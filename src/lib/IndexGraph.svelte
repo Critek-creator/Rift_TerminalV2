@@ -532,12 +532,16 @@
     <!-- Vault list -->
     <div class="browser-body">
       {#if activeNodes.length === 0 && !walkComplete}
-        <div class="browser-loading">
-          <span class="loading-glyph">◆</span>
-          <span>scanning vaults...</span>
+        <div class="browser-loading empty-state">
+          <span class="loading-glyph empty-state-icon">◆</span>
+          <span class="empty-state-text">scanning vaults...</span>
         </div>
       {:else if categories.length === 0 && searchQuery}
-        <div class="browser-empty">no vaults match "{searchQuery}"</div>
+        <div class="browser-empty empty-state">
+          <span class="empty-state-icon">◇</span>
+          <span class="empty-state-text">no vaults match "{searchQuery}"</span>
+          <span class="empty-state-hint">try a shorter term or clear the filter</span>
+        </div>
       {:else}
         <!-- Recents strip -->
         {#if recentVaults.length > 0 && !searchQuery && !activeKindFilter}
@@ -722,8 +726,8 @@
   .mode-btn:first-child { border-top-right-radius: 0; border-bottom-right-radius: 0; border-right: none; }
   .mode-btn:last-child  { border-top-left-radius: 0; border-bottom-left-radius: 0; }
   .mode-btn.active {
-    color: var(--term-cyan, #6FE0E0);
-    border-color: var(--term-cyan, #6FE0E0);
+    color: var(--term-cyan);
+    border-color: var(--term-cyan);
     background: rgba(74, 212, 212, 0.1);
     box-shadow: 0 0 6px rgba(74, 212, 212, 0.15);
   }
@@ -731,6 +735,10 @@
     color: var(--amber-dim);
     border-color: var(--amber-dim);
     background: var(--bg-hover);
+  }
+  .mode-btn:focus-visible {
+    outline: 1px solid var(--amber-warm);
+    outline-offset: 1px;
   }
   .browser-count {
     font-size: var(--text-2xs);
@@ -829,6 +837,10 @@
     background: var(--bg-hover);
     color: var(--amber-warm);
   }
+  .kind-chip:focus-visible {
+    outline: 1px solid var(--amber-warm);
+    outline-offset: 1px;
+  }
   .kind-chip.active { border-color: currentColor; box-shadow: 0 0 6px rgba(255, 168, 38, 0.15); }
   .kind-chip-p.active       { color: var(--amber-bright); background: rgba(255, 200, 64, 0.1); }
   .kind-chip-pr.active      { color: var(--amber-warm);   background: rgba(240, 160, 48, 0.1); }
@@ -900,6 +912,10 @@
     background: var(--bg-hover);
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
   }
+  .recent-card:focus-visible {
+    outline: 1px solid var(--amber-warm);
+    outline-offset: 1px;
+  }
   .recent-card.selected {
     border-color: var(--amber-bright);
     box-shadow: 0 0 8px rgba(255, 200, 64, 0.2);
@@ -935,16 +951,8 @@
   .browser-body::-webkit-scrollbar { width: 6px; }
   .browser-body::-webkit-scrollbar-thumb { background: var(--amber-faint); }
 
-  .browser-loading, .browser-empty {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: var(--space-8);
-    padding: var(--space-24) var(--space-12);
-    color: var(--amber-faint);
-    font-size: var(--text-sm);
-    font-style: italic;
-  }
+  /* .browser-loading and .browser-empty extend .empty-state (global) for layout/color;
+     local overrides only: loading-glyph animation. */
   .loading-glyph {
     font-size: var(--text-xl);
     font-style: normal;
@@ -977,6 +985,10 @@
     overflow: hidden;
   }
   .category-header:hover { color: var(--amber-warm); }
+  .category-header:focus-visible {
+    outline: 1px solid var(--amber-warm);
+    outline-offset: -2px;
+  }
   .cat-accent {
     position: absolute;
     left: 0;
@@ -1027,6 +1039,10 @@
     position: relative;
   }
   .vault-row:hover { background: var(--bg-hover); }
+  .vault-row:focus-visible {
+    outline: 1px solid var(--amber-warm);
+    outline-offset: -2px;
+  }
   .vault-row:hover .vault-kind-bar { opacity: 1; }
   .vault-kind-bar {
     width: 2px;
@@ -1218,6 +1234,10 @@
   .conn-chip:hover {
     background: rgba(255, 168, 38, 0.1);
     box-shadow: 0 0 6px rgba(255, 168, 38, 0.15);
+  }
+  .conn-chip:focus-visible {
+    outline: 1px solid var(--amber-warm);
+    outline-offset: 1px;
   }
   .conn-chip-glyph { font-size: var(--text-2xs); }
 

@@ -195,29 +195,34 @@
     display: flex;
     flex-direction: column;
     height: 100%;
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 11px;
+    font-family: var(--font-family);
+    font-size: var(--text-sm);
   }
 
   .status-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 6px 10px;
+    padding: var(--space-sm) var(--space-md);
     border-bottom: 1px solid rgba(168, 120, 48, 0.15);
     user-select: none;
   }
 
+  .status-header[role="button"]:focus-visible {
+    outline: 1px solid var(--amber-warm);
+    outline-offset: -2px;
+  }
+
   .header-title {
     font-weight: 700;
-    color: var(--amber-bright, #FFC840);
+    color: var(--amber-bright);
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: var(--space-sm);
   }
 
   .icon {
-    font-size: 10px;
+    font-size: var(--text-xs);
   }
 
   .drag-back-btn {
@@ -226,43 +231,54 @@
     border-radius: var(--radius-sm);
     color: var(--amber-faint);
     cursor: pointer;
-    font-size: 10px;
-    padding: 0 4px;
+    font-size: var(--text-xs);
+    padding: 0 var(--space-xs);
     line-height: 1.4;
+    font-family: var(--font-family);
+  }
+
+  .drag-back-btn:hover {
+    color: var(--amber-warm);
+    border-color: var(--amber-faint);
+  }
+
+  .drag-back-btn:focus-visible {
+    outline: 1px solid var(--amber-warm);
+    outline-offset: 1px;
   }
 
   .header-stats {
-    font-size: 9px;
-    color: var(--amber-faint, #A87830);
+    font-size: var(--text-2xs);
+    color: var(--amber-faint);
   }
 
   .live-strip {
     display: flex;
-    gap: 2px;
-    padding: 3px 10px;
+    gap: var(--space-xs);
+    padding: var(--space-xs) var(--space-md);
     border-bottom: 1px solid rgba(168, 120, 48, 0.1);
     min-height: 10px;
     flex-wrap: wrap;
   }
 
   .live-dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
+    width: var(--space-sm);
+    height: var(--space-sm);
+    border-radius: var(--radius-full);
     opacity: 0.8;
   }
 
   .log-body {
     flex: 1;
     overflow-y: auto;
-    padding: 4px 0;
+    padding: var(--space-xs) 0;
   }
 
   .log-entry {
     display: flex;
     align-items: baseline;
-    gap: 6px;
-    padding: 2px 10px;
+    gap: var(--space-sm);
+    padding: 2px var(--space-md);
     line-height: 1.5;
   }
   .log-entry:hover {
@@ -270,84 +286,84 @@
   }
 
   .ts {
-    font-size: 9px;
-    color: var(--amber-faint, #A87830);
+    font-size: var(--text-2xs);
+    color: var(--amber-faint);
     flex-shrink: 0;
     font-style: italic;
   }
 
   .kind-badge {
-    font-size: 8px;
+    font-size: var(--text-2xs);
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.05em;
     border: 1px solid;
     border-radius: var(--radius-sm);
-    padding: 0 4px;
+    padding: 0 var(--space-xs);
     flex-shrink: 0;
   }
 
   .model-id {
     font-weight: 700;
-    color: var(--amber-bright, #FFC840);
+    color: var(--amber-bright);
     flex-shrink: 0;
     min-width: 28px;
   }
 
   .summary {
-    color: var(--term-white, #E8E4D8);
+    color: var(--term-white);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 
   .empty {
-    padding: 12px 10px;
-    color: var(--amber-faint, #A87830);
+    padding: var(--space-12) var(--space-md);
+    color: var(--amber-faint);
     font-style: italic;
-    font-size: 10px;
+    font-size: var(--text-xs);
   }
 
   .persistent-panel {
     border-top: 1px solid rgba(168, 120, 48, 0.15);
-    padding: 6px 10px;
+    padding: var(--space-sm) var(--space-md);
   }
 
   .model-status-row {
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: var(--space-sm);
     padding: 2px 0;
-    font-size: 10px;
+    font-size: var(--text-xs);
   }
 
   .status-dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
+    width: var(--space-sm);
+    height: var(--space-sm);
+    border-radius: var(--radius-full);
     flex-shrink: 0;
   }
 
   .model-sid {
     font-weight: 700;
-    color: var(--amber-bright, #FFC840);
+    color: var(--amber-bright);
     min-width: 28px;
   }
 
   .model-dname {
-    color: var(--term-white, #E8E4D8);
+    color: var(--term-white);
     flex: 1;
   }
 
   .model-hosting {
-    font-size: 9px;
-    color: var(--amber-faint, #A87830);
+    font-size: var(--text-2xs);
+    color: var(--amber-faint);
     text-transform: uppercase;
   }
 
   .escalation-badge {
-    color: var(--term-red, #FF4848);
+    color: var(--term-red);
     font-weight: 700;
-    margin-left: 4px;
+    margin-left: var(--space-xs);
   }
 </style>

@@ -278,19 +278,13 @@
         {:else}
           {#each sessions as s (s.id)}
             {@const isBaseline = s.id === baselineId}
-            <div
+            <button
+              type="button"
               class="session-row"
               class:session-row--baseline={isBaseline}
               class:session-row--disabled={isBaseline && viewMode === 'select-compare'}
-              role="button"
-              tabindex="0"
+              disabled={isBaseline && viewMode === 'select-compare'}
               onclick={() => selectSession(s.id)}
-              onkeydown={(ev) => {
-                if (ev.key === 'Enter' || ev.key === ' ') {
-                  ev.preventDefault();
-                  selectSession(s.id);
-                }
-              }}
             >
               {#if isBaseline}
                 <span class="session-badge">BASE</span>
@@ -301,7 +295,7 @@
               {#if !isSelectingMode}
                 <span class="session-arrow">&#x25B6;</span>
               {/if}
-            </div>
+            </button>
           {/each}
         {/if}
       </div>
@@ -334,21 +328,14 @@
         {:else}
           {#each events as e, i (i)}
             {@const isExpanded = expandedRows.has(i)}
-            <div
+            <button
+              type="button"
               class="row"
               class:expanded={isExpanded}
-              role="button"
-              tabindex="0"
               onclick={(ev) => {
                 const target = ev.target as HTMLElement;
                 if (target.closest('.payload-expanded')) return;
                 toggleRow(i);
-              }}
-              onkeydown={(ev) => {
-                if (ev.key === 'Enter' || ev.key === ' ') {
-                  ev.preventDefault();
-                  toggleRow(i);
-                }
               }}
               aria-expanded={isExpanded}
               title="click to {isExpanded ? 'collapse' : 'expand'}"
@@ -366,7 +353,7 @@
               {:else}
                 <span class="payload">{formatPayload(e.payload)}</span>
               {/if}
-            </div>
+            </button>
           {/each}
         {/if}
       </div>
@@ -405,6 +392,7 @@
   .drag-handle { transition: background var(--duration-base) ease-out; }
   .drag-handle:active { cursor: grabbing; }
   .drag-handle:hover { background: var(--bg-hover); }
+  .drag-handle:focus-visible { outline: 1px solid var(--amber-warm); outline-offset: -2px; }
   .drag-handle .handle-glyph {
     color: var(--amber-bright);
     font-size: var(--text-base);
@@ -562,10 +550,18 @@
     align-items: center;
     gap: var(--space-14);
     padding: var(--space-md) var(--space-xs);
+    width: 100%;
+    background: transparent;
+    border: none;
+    color: inherit;
+    font-family: inherit;
+    font-size: inherit;
+    text-align: left;
     cursor: pointer;
     transition: background var(--duration-base) ease-out;
   }
-  .session-row:hover { background: rgba(212, 137, 10, 0.08); }
+  .session-row:hover:not(:disabled) { background: rgba(212, 137, 10, 0.08); }
+  .session-row:focus-visible { outline: 1px solid var(--amber-warm); outline-offset: -2px; }
   .session-row + .session-row { margin-top: 1px; }
   .session-row--baseline {
     background: rgba(108, 182, 255, 0.08);
@@ -624,9 +620,17 @@
     white-space: nowrap;
     cursor: pointer;
     user-select: text;
+    width: 100%;
+    background: transparent;
+    border: none;
+    color: inherit;
+    font-family: inherit;
+    font-size: inherit;
+    text-align: left;
     transition: background var(--duration-base) ease-out;
   }
   .log-body .row:hover { background: rgba(212, 137, 10, 0.06); }
+  .log-body .row:focus-visible { outline: 1px solid var(--amber-warm); outline-offset: -1px; }
   .log-body .row.expanded {
     grid-template-columns: 14px 85px 60px minmax(0, 1fr);
     grid-template-areas:

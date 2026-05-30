@@ -341,6 +341,7 @@
   }
   .drag-handle:active { cursor: grabbing; }
   .drag-handle:hover { background: var(--bg-hover); }
+  .drag-handle:focus-visible { outline: 1px solid var(--amber-warm); outline-offset: -2px; }
   .drag-handle .handle-glyph {
     color: var(--amber-bright);
     font-size: var(--text-base);
@@ -439,6 +440,7 @@
     transition: background var(--duration-base) ease-out, color var(--duration-base) ease-out;
   }
   .chip:hover { background: rgba(212, 137, 10, 0.06); }
+  .chip:focus-visible { outline: 1px solid var(--amber-warm); outline-offset: 1px; }
   .chip.active {
     background: var(--chip-color, var(--amber-bright));
     color: var(--bg-base);

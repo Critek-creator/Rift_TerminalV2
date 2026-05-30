@@ -468,7 +468,7 @@
 <style>
   .connecting-state {
     color: var(--amber-faint);
-    padding: 1rem var(--space-14);
+    padding: var(--space-lg) var(--space-14);
     font-style: italic;
     font-size: var(--text-sm);
     letter-spacing: 0.04em;
@@ -503,6 +503,7 @@
   .drag-handle { transition: background var(--duration-base) ease-out; }
   .drag-handle:active { cursor: grabbing; }
   .drag-handle:hover { background: var(--bg-hover); }
+  .drag-handle:focus-visible { outline: 1px solid var(--amber-warm); outline-offset: -2px; }
   .drag-handle .handle-glyph {
     color: var(--term-green);
     font-size: var(--text-base);
@@ -532,7 +533,6 @@
     font-weight: var(--type-section-weight);
     letter-spacing: var(--type-section-spacing);
     color: var(--term-green);
-    text-shadow: 0 0 4px rgba(51, 204, 51, 0.35);
   }
   .status .icon { margin-right: var(--space-8); opacity: 0.85; font-size: var(--text-lg); }
   .status .state {
@@ -554,6 +554,7 @@
     transition: background var(--duration-base), border-color var(--duration-base);
   }
   .ctrl-btn:hover { background: var(--bg-hover); border-color: var(--amber-faint); }
+  .ctrl-btn:focus-visible { outline: 1px solid var(--amber-warm); outline-offset: 1px; }
   .ctrl-btn.active { border-color: var(--term-green); color: var(--term-green); }
 
   .strip {
@@ -561,7 +562,7 @@
     padding: 0 var(--space-14);
     box-shadow: var(--sep-depth);
     display: flex; align-items: center; gap: var(--space-14);
-    background: linear-gradient(to bottom, rgba(51, 204, 51, 0.05), transparent);
+    background: linear-gradient(to bottom, rgba(79, 232, 85, 0.05), transparent);
     color: var(--amber-dim);
     font-size: var(--text-xs);
     letter-spacing: 0.1em;
@@ -578,7 +579,7 @@
     font-weight: 600;
     letter-spacing: 0.05em;
     white-space: nowrap;
-    background: rgba(51, 204, 51, 0.06);
+    background: rgba(79, 232, 85, 0.06);
     flex-shrink: 0;
   }
 
@@ -746,11 +747,11 @@
     white-space: nowrap;
   }
   .git-ahead { color: var(--amber-bright); }
-  .git-behind { color: #D4890A; }
+  .git-behind { color: var(--amber-primary); }
   .git-synced { color: var(--term-green); font-weight: 400; }
   .git-na { color: var(--amber-faint); font-style: italic; font-weight: 400; }
 
-  .state-panel { box-shadow: 0 -2px 6px rgba(0, 0, 0, 0.45); flex-shrink: 0; }
+  .state-panel { box-shadow: var(--depth-lift); flex-shrink: 0; }
 
   .git-actions-body {
     padding: var(--space-12) var(--space-lg);

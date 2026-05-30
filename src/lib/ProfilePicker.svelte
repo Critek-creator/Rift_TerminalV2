@@ -163,7 +163,7 @@
   </button>
 
   {#if open}
-    <div class="profile-dropdown" bind:this={dropdownEl}>
+    <div class="profile-dropdown" bind:this={dropdownEl} role="listbox" aria-label="Workspace profiles">
       {#if errorMsg}
         <div class="dropdown-error">{errorMsg}</div>
       {/if}
@@ -192,8 +192,9 @@
           <button type="button"
             class="item-delete"
             onclick={(e) => deleteProfile(profile.name, e)}
+            aria-label="Delete profile {profile.name}"
             title="Delete profile"
-          >x</button>
+          >×</button>
         </div>
       {/each}
 
@@ -251,6 +252,10 @@
   .profile-trigger:hover {
     border-color: var(--amber-primary);
     color: var(--amber-bright);
+  }
+  .profile-trigger:focus-visible {
+    outline: 1px solid var(--amber-warm);
+    outline-offset: 1px;
   }
 
   .profile-icon {
@@ -422,5 +427,15 @@
   .save-confirm:hover {
     border-color: var(--amber-primary);
     color: var(--amber-bright);
+  }
+  .save-confirm:focus-visible {
+    outline: 1px solid var(--amber-warm);
+    outline-offset: 1px;
+  }
+
+  .item-delete:focus-visible {
+    outline: 1px solid var(--term-red);
+    outline-offset: 1px;
+    opacity: 1;
   }
 </style>

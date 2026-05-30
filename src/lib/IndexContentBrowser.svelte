@@ -284,14 +284,14 @@
     font-size: var(--text-2xs);
     font-weight: 700;
     letter-spacing: 0.14em;
-    color: var(--term-cyan, #6FE0E0);
+    color: var(--term-cyan);
   }
   .cb-count {
     font-size: var(--text-2xs);
     font-weight: 700;
     color: var(--bg-base);
-    background: var(--term-cyan, #6FE0E0);
-    padding: 1px 5px;
+    background: var(--term-cyan);
+    padding: 1px var(--space-sm);
     min-width: 18px;
     text-align: center;
   }
@@ -312,7 +312,7 @@
 
   .cb-filters, .cb-floor-filters {
     display: flex;
-    gap: 3px;
+    gap: var(--space-xs);
     padding: var(--space-xs) var(--space-md);
     flex-wrap: wrap;
     box-shadow: var(--sep-depth);
@@ -332,15 +332,19 @@
     border-color: var(--amber-dim);
     color: var(--amber-warm);
   }
+  .filter-chip:focus-visible, .floor-chip:focus-visible {
+    outline: 1px solid var(--amber-warm);
+    outline-offset: 1px;
+  }
   .filter-chip.active {
     border-color: var(--chip-color, var(--term-cyan));
     color: var(--chip-color, var(--term-cyan));
-    background: rgba(74, 212, 212, 0.08);
+    background: var(--bg-amber-tint);
   }
   .floor-chip.active {
     border-color: var(--amber-bright);
     color: var(--amber-bright);
-    background: rgba(255, 168, 38, 0.08);
+    background: var(--bg-amber-tint);
   }
 
   .cb-body {
@@ -360,7 +364,7 @@
     font-style: italic;
     font-size: var(--text-sm);
   }
-  .cb-error { color: var(--term-red, #FF4848); }
+  .cb-error { color: var(--term-red); }
 
   .floor-group { box-shadow: var(--sep-depth); }
   .floor-header {
@@ -417,6 +421,10 @@
     border-left-color: var(--term-cyan);
     color: var(--term-cyan);
   }
+  .node-row:focus-visible {
+    outline: 1px solid var(--amber-warm);
+    outline-offset: -2px;
+  }
   .node-domain-dot {
     width: 6px;
     height: 6px;
@@ -470,6 +478,7 @@
     font-family: inherit;
   }
   .detail-close:hover { color: var(--amber-bright); }
+  .detail-close:focus-visible { outline: 1px solid var(--amber-warm); outline-offset: 1px; }
 
   .detail-meta {
     display: flex;
@@ -499,7 +508,7 @@
     font-style: italic;
     margin-bottom: var(--space-8);
     padding: var(--space-sm) var(--space-8);
-    background: rgba(74, 212, 212, 0.06);
+    background: rgba(111, 224, 224, 0.06);
     border-left: 2px solid var(--term-cyan);
   }
 

@@ -208,7 +208,12 @@
     font-size: var(--text-sm);
     letter-spacing: 0.1em;
     cursor: pointer;
+    border-radius: var(--radius-md);
     transition: color var(--duration-base), border-color var(--duration-base), background var(--duration-base);
+  }
+  .manager-btn:focus-visible {
+    outline: 1px solid var(--amber-warm);
+    outline-offset: 1px;
   }
   .manager-btn-secondary {
     background: transparent;

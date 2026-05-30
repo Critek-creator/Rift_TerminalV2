@@ -576,8 +576,15 @@
     letter-spacing: 0.06em;
     cursor: pointer;
     padding: 3px var(--space-md);
-    border-radius: var(--radius-md, 4px);
+    border-radius: var(--radius-md);
     transition: color var(--duration-base) var(--ease-out), background var(--duration-base) var(--ease-out), border-color var(--duration-base) var(--ease-out), box-shadow var(--duration-base) var(--ease-out), opacity var(--duration-base) var(--ease-out);
+  }
+  .viewer-btn-edit:focus-visible,
+  .viewer-btn-save:focus-visible,
+  .viewer-btn-cancel:focus-visible,
+  .viewer-btn-retry:focus-visible {
+    outline: 1px solid var(--amber-warm);
+    outline-offset: 1px;
   }
 
   .viewer-btn-edit {
@@ -693,7 +700,7 @@
     align-items: center;
     justify-content: center;
     gap: var(--space-8);
-    padding: var(--space-4xl)var(--space-lg);
+    padding: var(--space-4xl) var(--space-lg);
     color: var(--amber-faint);
     font-size: var(--text-sm);
     font-style: italic;
@@ -710,7 +717,7 @@
     align-items: center;
     justify-content: center;
     gap: var(--space-12);
-    padding: var(--space-4xl)var(--space-24);
+    padding: var(--space-4xl) var(--space-24);
     color: var(--term-red);
     font-size: var(--text-sm);
     text-align: center;
@@ -732,7 +739,7 @@
     margin-top: var(--space-xs);
   }
   .viewer-btn-retry:hover {
-    background: rgba(204, 51, 51, 0.12);
-    box-shadow: 0 0 4px rgba(204, 51, 51, 0.15);
+    background: rgba(255, 72, 72, 0.12);
+    box-shadow: 0 0 4px rgba(255, 72, 72, 0.15);
   }
 </style>

@@ -462,7 +462,7 @@
     ></textarea>
     <button
       type="button"
-      class="rift-btn primary send-btn"
+      class="rift-btn rift-btn--primary send-btn"
       disabled={!modelAId || !modelBId || sending || !inputText.trim()}
       onclick={send}
     >{sending ? '...' : 'Send'}</button>
@@ -698,8 +698,13 @@
   }
 
   .badge-caret {
-    font-size: 8px;
+    font-size: var(--text-2xs);
     opacity: 0.6;
+  }
+
+  .model-badge:focus-visible {
+    outline: 1px solid var(--amber-warm);
+    outline-offset: 1px;
   }
 
   .picker-backdrop {
@@ -749,6 +754,11 @@
 
   .picker-item:hover {
     background: var(--bg-amber-hover);
+  }
+
+  .picker-item:focus-visible {
+    outline: 1px solid var(--amber-warm);
+    outline-offset: -2px;
   }
 
   .picker-item.active {
@@ -808,6 +818,11 @@
     background: rgba(197, 143, 255, 0.1);
   }
 
+  .critique-header:focus-visible {
+    outline: 1px solid var(--amber-warm);
+    outline-offset: -2px;
+  }
+
   .critique-badge {
     font-size: var(--text-2xs);
     font-weight: 700;
@@ -818,7 +833,7 @@
   }
 
   .critique-caret {
-    font-size: 8px;
+    font-size: var(--text-2xs);
     opacity: 0.6;
   }
 

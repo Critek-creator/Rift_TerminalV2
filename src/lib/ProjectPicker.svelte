@@ -313,6 +313,12 @@
     background: var(--bg-hover);
     border-color: var(--border-subtle);
   }
+  .picker-item:focus-visible {
+    outline: 1px solid var(--amber-warm);
+    outline-offset: -1px;
+    border-color: var(--amber-dim);
+    background: var(--bg-hover);
+  }
   .picker-item:active {
     background: var(--bg-surface);
     border-color: var(--amber-dim);
@@ -465,6 +471,10 @@
     color: var(--amber-warm);
     border-color: var(--amber-primary);
     background: var(--bg-hover);
+  }
+  .picker-browse:focus-visible {
+    outline: 1px solid var(--amber-warm);
+    outline-offset: -2px;
   }
   .picker-browse:disabled {
     opacity: 0.4;

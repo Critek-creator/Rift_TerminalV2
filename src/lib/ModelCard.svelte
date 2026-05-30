@@ -31,10 +31,10 @@
   let showAdvanced = $state(false);
 
   const PROVIDER_META: Record<ProviderType, { label: string; desc: string; color: string }> = {
-    anthropic:      { label: 'Anthropic',        desc: 'Claude models via Anthropic API',        color: 'var(--term-blue)' },
-    google:         { label: 'Google Gemini',     desc: 'Gemini models via Google AI API',        color: 'var(--term-cyan)' },
-    llama_server:   { label: 'Local (llama.cpp)', desc: 'Self-hosted GGUF model via llama-server', color: 'var(--term-green)' },
-    open_ai_compat: { label: 'OpenAI-Compatible', desc: 'Any OpenAI-compatible endpoint',          color: 'var(--term-purple)' },
+    anthropic:      { label: 'Anthropic',        desc: 'Claude models via Anthropic API',        color: 'var(--model-claude)' },
+    google:         { label: 'Google Gemini',     desc: 'Gemini models via Google AI API',        color: 'var(--model-gemini)' },
+    llama_server:   { label: 'Local (llama.cpp)', desc: 'Self-hosted GGUF model via llama-server', color: 'var(--model-local)' },
+    open_ai_compat: { label: 'OpenAI-Compatible', desc: 'Any OpenAI-compatible endpoint',          color: 'var(--model-custom)' },
   };
 
   const KNOWN_MODELS: Record<ProviderType, string[]> = {
@@ -185,7 +185,7 @@
 
   let fitChipColor = $derived(
     !fitVerdict ? ''
-      : fitVerdict.verdict === 'fits' ? 'var(--term-green)'
+      : fitVerdict.verdict === 'fits' ? 'var(--model-local)'
         : fitVerdict.verdict === 'wont-fit' ? 'var(--term-red)'
           : 'var(--amber-bright)',
   );
@@ -852,11 +852,15 @@
     border: none;
     color: var(--amber-faint);
     cursor: pointer;
-    font-size: 11px;
+    font-size: var(--text-sm);
     line-height: 1;
-    padding: 2px 4px;
+    padding: 2px var(--space-xs);
     margin-top: 2px;
     border-radius: var(--radius-sm);
+  }
+  .collapse-btn:focus-visible {
+    outline: 1px solid var(--amber-warm);
+    outline-offset: 1px;
   }
   .collapse-btn:hover {
     color: var(--amber-bright);
@@ -1166,6 +1170,30 @@
     letter-spacing: 0.08em;
     font-weight: 700;
     padding: 0 6px;
+  }
+
+  /* ─── Fit-to-GPU row ─────────────────────── */
+  .fit-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-md);
+    margin-top: var(--space-md);
+    flex-wrap: wrap;
+  }
+  .fit-chip {
+    font-size: var(--text-2xs);
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    border: 1px solid;
+    border-radius: var(--radius-sm);
+    padding: 1px var(--space-sm);
+    white-space: nowrap;
+  }
+  .fit-flash {
+    margin-top: var(--space-xs);
+    font-size: var(--text-2xs);
+    color: var(--amber-warm);
+    font-style: italic;
   }
 
   /* ─── Advanced toggle ─────────────────────── */

@@ -70,14 +70,14 @@
   .vram-est {
     display: flex;
     align-items: center;
-    gap: 6px;
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 9px;
-    margin-top: 8px;
+    gap: var(--space-sm);
+    font-family: var(--font-family);
+    font-size: var(--text-2xs);
+    margin-top: var(--space-8);
   }
 
   .label {
-    color: var(--amber-faint, #A87830);
+    color: var(--amber-faint);
     text-transform: uppercase;
     letter-spacing: 0.05em;
     flex-shrink: 0;
@@ -99,13 +99,13 @@
   }
 
   .value {
-    color: var(--term-white, #E8E4D8);
+    color: var(--term-white);
     flex-shrink: 0;
     min-width: 70px;
     text-align: right;
   }
 
   .tag {
-    color: var(--amber-faint, #A87830);
+    color: var(--amber-faint);
   }
 </style>

@@ -202,6 +202,11 @@
     outline: 2px solid transparent;
     border-color: var(--amber-dim);
   }
+  .note-input:focus-visible {
+    outline: 1px solid var(--amber-warm);
+    outline-offset: -1px;
+    border-color: var(--amber-dim);
+  }
 
   .tag-section {
     display: flex;
@@ -241,7 +246,11 @@
   .tag-chip.active {
     border-color: var(--chip-color);
     color: var(--chip-color);
-    background: rgba(255, 168, 38, 0.08);
+    background: var(--bg-amber-hover);
+  }
+  .tag-chip:focus-visible {
+    outline: 1px solid var(--amber-warm);
+    outline-offset: 1px;
   }
 
   .popover-footer {

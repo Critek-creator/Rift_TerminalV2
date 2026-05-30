@@ -61,6 +61,6 @@
     z-index: 10;
     /* box-shadow set inline via style: directive so it transitions
        in sync with background-color (both use the reactive gutterColor). */
-    transition: background-color 150ms ease-out, box-shadow 150ms ease-out;
+    transition: background-color var(--duration-med) var(--ease-out), box-shadow var(--duration-med) var(--ease-out);
   }
 </style>

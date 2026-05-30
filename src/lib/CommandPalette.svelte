@@ -233,9 +233,9 @@
   .palette-panel {
     width: min(520px, 85vw);
     max-height: 420px;
-    background: var(--bg-surface, #1a1814);
-    border: 1px solid var(--border-subtle, rgba(255, 168, 38, 0.15));
-    border-radius: var(--radius-md, 6px);
+    background: var(--bg-surface);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
     box-shadow: var(--shadow-overlay);
     display: flex;
     flex-direction: column;
@@ -245,16 +245,20 @@
   input {
     background: transparent;
     border: none;
-    border-bottom: 1px solid var(--border-subtle, rgba(255, 168, 38, 0.15));
-    color: var(--term-white, #E8E4D8);
-    font-family: 'JetBrains Mono', monospace;
+    border-bottom: 1px solid var(--border-subtle);
+    color: var(--term-white);
+    font-family: var(--font-family);
     font-size: var(--text-lg);
     padding: var(--space-12) var(--space-lg);
     outline: 2px solid transparent;
   }
   input::placeholder {
-    color: var(--amber-faint, #A87830);
+    color: var(--amber-faint);
     opacity: 0.6;
+  }
+  input:focus-visible {
+    outline: 1px solid var(--amber-warm);
+    outline-offset: -2px;
   }
 
   .results {
@@ -267,7 +271,7 @@
     font-size: var(--text-2xs);
     font-weight: 700;
     letter-spacing: 0.12em;
-    color: var(--amber-faint, #A87830);
+    color: var(--amber-faint);
     text-transform: uppercase;
   }
 
@@ -278,7 +282,7 @@
     padding: var(--space-sm) var(--space-lg);
     cursor: default;
     font-size: var(--text-md);
-    color: var(--term-white, #E8E4D8);
+    color: var(--term-white);
   }
   .entry.actionable {
     cursor: pointer;
@@ -309,16 +313,21 @@
     font-weight: 700;
     letter-spacing: 0.08em;
     text-transform: uppercase;
-    color: var(--amber-faint, #A87830);
-    border: 1px solid var(--amber-faint, #A87830);
+    color: var(--amber-faint);
+    border: 1px solid var(--amber-faint);
     border-radius: var(--radius-sm);
-    padding: 1px 5px;
+    padding: 1px var(--space-sm);
   }
 
   .empty {
-    padding: var(--space-lg);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: var(--space-4xl) var(--space-lg);
     text-align: center;
-    color: var(--amber-faint, #A87830);
-    font-size: var(--text-base);
+    color: var(--amber-dim);
+    font-size: var(--type-body-size);
+    min-height: 80px;
   }
 </style>

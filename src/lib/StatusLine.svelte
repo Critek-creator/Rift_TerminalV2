@@ -226,7 +226,7 @@
     gap: 2px;
     margin-left: 4px;
     padding: 1px 5px;
-    font-family: 'JetBrains Mono', monospace;
+    font-family: var(--font-family);
     font-size: var(--text-2xs);
     font-weight: 700;
     letter-spacing: 0.05em;

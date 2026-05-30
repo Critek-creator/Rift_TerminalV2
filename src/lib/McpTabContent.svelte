@@ -215,6 +215,13 @@
       e.dataTransfer.setData('text/plain', '__promoted_pane__');
     }
   }
+
+  function onHandleDragKeydown(e: KeyboardEvent) {
+    if ((e.key === 'Enter' || e.key === ' ') && onDragBack) {
+      e.preventDefault();
+      onDragBack();
+    }
+  }
 </script>
 
 <section class="pane">
@@ -225,7 +232,9 @@
       tabindex="0"
       draggable={true}
       ondragstart={onHandleDragStart}
+      onkeydown={onHandleDragKeydown}
       title="drag back to tab strip to dock"
+      aria-label="MCP pane — drag to dock"
     >
       <span class="handle-glyph" style="color: var(--term-cyan); font-size: 14px">⬡</span>
       <span class="handle-title">mcp</span>
@@ -296,9 +305,10 @@
     <div class="log-header">RECENT EVENTS</div>
     <div class="log-body" aria-live="polite" bind:this={logBodyEl}>
       {#if recentEvents.length === 0}
-        <div class="empty-card">
-          <div class="empty-title">Waiting for MCP traffic</div>
-          <div class="empty-desc">This tab renders when the rift-mcp translator publishes JSON-RPC events on the bus.</div>
+        <div class="empty-state">
+          <span class="empty-state-icon">⬡</span>
+          <span class="empty-state-text">Waiting for MCP traffic</span>
+          <span class="empty-state-hint">This tab renders when the rift-mcp translator publishes JSON-RPC events on the bus.</span>
         </div>
       {:else}
         {#each recentEvents as e, i (e.ts + ':' + e.kind + ':' + i)}
@@ -535,30 +545,6 @@
     background: rgba(255, 72, 72, 0.06);
     box-shadow: var(--sep-depth);
   }
-  .empty-card {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: var(--space-8);
-    padding: var(--space-2xl) var(--space-lg);
-    text-align: center;
-    min-height: 120px;
-  }
-  .empty-title {
-    color: var(--amber-dim);
-    font-size: var(--type-body-size);
-    font-weight: var(--type-body-weight);
-    letter-spacing: var(--type-body-spacing);
-  }
-  .empty-desc {
-    color: var(--amber-faint);
-    font-size: var(--type-caption-size);
-    letter-spacing: var(--type-caption-spacing);
-    font-style: italic;
-    max-width: 320px;
-  }
-
   .log-body .row {
     display: grid;
     grid-template-columns: 70px 72px 120px minmax(0, 1fr);
@@ -634,7 +620,7 @@
     transition: color var(--duration-base) ease-out, border-color var(--duration-base) ease-out, background var(--duration-base) ease-out;
   }
   .ctrl-btn:hover { color: var(--term-blue); border-color: var(--term-blue); }
-  .ctrl-btn:focus-visible { outline: 1px solid var(--term-blue); outline-offset: 1px; }
+  .ctrl-btn:focus-visible { outline: 1px solid var(--amber-warm); outline-offset: 1px; }
   .ctrl-btn.active { color: var(--term-green); border-color: var(--term-green); }
 
   .perf-section {
@@ -658,6 +644,10 @@
     cursor: pointer;
     text-transform: uppercase;
     letter-spacing: 0.05em;
+  }
+  .sort-btn:focus-visible {
+    outline: 1px solid var(--amber-warm);
+    outline-offset: 1px;
   }
   .sort-btn.active {
     color: var(--amber-bright);

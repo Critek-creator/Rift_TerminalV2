@@ -291,7 +291,7 @@
 <style>
   .connecting-state {
     color: var(--amber-faint);
-    padding: 1rem var(--space-14);
+    padding: var(--space-lg) var(--space-14);
     font-style: italic;
     font-size: var(--text-sm);
     letter-spacing: 0.04em;
@@ -326,6 +326,7 @@
   .drag-handle { transition: background var(--duration-base) ease-out; }
   .drag-handle:active { cursor: grabbing; }
   .drag-handle:hover { background: var(--bg-hover); }
+  .drag-handle:focus-visible { outline: 1px solid var(--amber-warm); outline-offset: -2px; }
   .drag-handle .handle-glyph {
     color: var(--term-cyan);
     font-size: var(--text-base);
@@ -355,7 +356,6 @@
     font-weight: var(--type-section-weight);
     letter-spacing: var(--type-section-spacing);
     color: var(--term-cyan);
-    text-shadow: 0 0 4px rgba(111, 224, 224, 0.35);
   }
   .status .icon { margin-right: var(--space-8); opacity: 0.85; font-size: var(--text-lg); }
   .status .state {

@@ -204,9 +204,26 @@
       role="separator"
       aria-orientation={node.type === 'vsplit' ? 'vertical' : 'horizontal'}
       aria-valuenow={Math.round(ratio * 100)}
+      aria-valuemin={10}
+      aria-valuemax={90}
+      aria-label="{node.type === 'vsplit' ? 'Vertical' : 'Horizontal'} split — arrow keys to resize, double-click to reset"
       tabindex="0"
       onpointerdown={onSplitterPointerDown}
       ondblclick={onSplitterDblClick}
+      onkeydown={(ev) => {
+        const step = ev.shiftKey ? 0.1 : 0.02;
+        if (node.type === 'vsplit') {
+          if (ev.key === 'ArrowLeft') { ev.preventDefault(); ratio = Math.max(0.1, ratio - step); }
+          else if (ev.key === 'ArrowRight') { ev.preventDefault(); ratio = Math.min(0.9, ratio + step); }
+        } else {
+          if (ev.key === 'ArrowUp') { ev.preventDefault(); ratio = Math.max(0.1, ratio - step); }
+          else if (ev.key === 'ArrowDown') { ev.preventDefault(); ratio = Math.min(0.9, ratio + step); }
+        }
+        if (ev.key === 'Home') { ev.preventDefault(); ratio = 0.1; }
+        if (ev.key === 'End') { ev.preventDefault(); ratio = 0.9; }
+        if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); onSplitterDblClick(); }
+        try { if (storageKey) localStorage.setItem(storageKey, String(ratio)); } catch { /* quota */ }
+      }}
     ></div>
 
     <div
@@ -285,7 +302,12 @@
 
   .pane-splitter:hover,
   .pane-splitter.dragging {
-    background: rgba(255, 191, 0, 0.45);
+    background: rgba(255, 200, 64, 0.4); /* --amber-bright at 0.4 */
+  }
+  .pane-splitter:focus-visible {
+    outline: 2px solid var(--amber-warm);
+    outline-offset: -1px;
+    background: rgba(255, 200, 64, 0.2);
   }
 
   .pane-splitter-vertical {
@@ -339,8 +361,8 @@
     font-size: var(--text-base);
     line-height: 1;
     background: rgba(30, 26, 20, 0.85);
-    color: var(--amber-dim, #A87830);
-    border: 1px solid var(--border-subtle, #2a2520);
+    color: var(--amber-dim, #D8A028);
+    border: 1px solid var(--border-subtle, #2a2418);
     border-radius: var(--radius-sm);
     cursor: pointer;
     transition: background var(--duration-fast), color var(--duration-fast), border-color var(--duration-fast);

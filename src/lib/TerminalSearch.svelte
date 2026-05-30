@@ -95,24 +95,24 @@
 <style>
   .search-bar {
     position: absolute;
-    top: 4px;
-    right: 12px;
+    top: var(--space-xs);
+    right: var(--space-12);
     z-index: 10;
     display: flex;
     align-items: center;
     gap: 2px;
-    background: var(--bg-surface, #1a1814);
-    border: 1px solid var(--border-subtle, rgba(255, 168, 38, 0.15));
-    border-radius: var(--radius-md, 6px);
+    background: var(--bg-surface);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
     padding: 3px var(--space-xs);
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+    box-shadow: var(--shadow-flyout);
   }
 
   input {
     background: transparent;
     border: none;
-    color: var(--term-white, #E8E4D8);
-    font-family: 'JetBrains Mono', monospace;
+    color: var(--term-white);
+    font-family: var(--font-family);
     font-size: var(--text-base);
     width: 200px;
     padding: 3px var(--space-sm);
@@ -130,8 +130,8 @@
   button {
     background: transparent;
     border: 1px solid transparent;
-    color: var(--amber-faint, #A87830);
-    font-family: 'JetBrains Mono', monospace;
+    color: var(--amber-faint);
+    font-family: var(--font-family);
     font-size: var(--text-sm);
     padding: 2px 5px;
     cursor: pointer;
@@ -139,18 +139,22 @@
     line-height: 1;
   }
   button:hover {
-    color: var(--amber-bright, #FFC840);
-    background: rgba(255, 168, 38, 0.08);
+    color: var(--amber-bright);
+    background: var(--bg-amber-hover);
+  }
+  button:focus-visible {
+    outline: 1px solid var(--amber-warm);
+    outline-offset: 1px;
   }
 
   .toggle.active {
-    color: var(--amber-bright, #FFC840);
-    border-color: var(--amber-bright, #FFC840);
-    background: rgba(255, 200, 64, 0.12);
+    color: var(--amber-bright);
+    border-color: var(--amber-bright);
+    background: var(--bg-amber-selected);
   }
 
   .close:hover {
-    color: var(--term-red, #FF4848);
+    color: var(--term-red);
   }
 
   .nav {

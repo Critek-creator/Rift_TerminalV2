@@ -106,7 +106,7 @@
     border: 1px solid var(--amber-dim);
     border-radius: var(--radius-md);
     padding: var(--space-sm);
-    font-family: var(--font-family), monospace;
+    font-family: var(--font-family);
     box-shadow: var(--glow-amber-faint);
     pointer-events: none;
     opacity: 0;
@@ -139,7 +139,7 @@
   }
 
   .tooltip-lang {
-    font-size: var(--text-2xs, 9px);
+    font-size: var(--text-2xs);
     color: var(--bg-base);
     background: var(--amber-faint);
     padding: 1px var(--space-xs);
@@ -200,7 +200,7 @@
   }
 
   .line-text {
-    color: var(--amber-warm, #F0A030);
+    color: var(--amber-warm);
     white-space: pre;
     overflow: hidden;
     text-overflow: ellipsis;

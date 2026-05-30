@@ -269,7 +269,7 @@
     ></textarea>
     <button
       type="button"
-      class="rift-btn primary send-btn"
+      class="rift-btn rift-btn--primary send-btn"
       disabled={!activeModel || sending || !inputText.trim()}
       onclick={send}
     >{sending ? '...' : 'Send'}</button>
@@ -318,8 +318,13 @@
     box-shadow: var(--glow-amber-faint);
   }
 
+  .model-badge:focus-visible {
+    outline: 1px solid var(--amber-warm);
+    outline-offset: 1px;
+  }
+
   .badge-caret {
-    font-size: 8px;
+    font-size: var(--text-2xs);
     opacity: 0.6;
   }
 
@@ -372,6 +377,11 @@
     background: var(--bg-amber-hover);
   }
 
+  .picker-item:focus-visible {
+    outline: 1px solid var(--amber-warm);
+    outline-offset: -2px;
+  }
+
   .picker-item.active {
     background: var(--bg-amber-selected);
   }
@@ -405,7 +415,7 @@
   }
 
   .override-badge {
-    font-size: 8px;
+    font-size: var(--text-2xs);
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.08em;
@@ -448,18 +458,23 @@
     justify-content: center;
     flex: 1;
     gap: var(--space-8);
-    opacity: 0.5;
+    padding: var(--space-4xl) var(--space-lg);
+    text-align: center;
+    opacity: 0.6;
   }
 
   .empty-title {
     font-size: var(--text-lg);
-    color: var(--amber-bright);
     font-weight: 700;
+    color: var(--amber-bright);
+    text-shadow: var(--glow-amber-faint);
   }
 
   .empty-hint {
-    font-size: var(--text-xs);
+    font-size: var(--type-caption-size);
+    letter-spacing: var(--type-caption-spacing);
     color: var(--amber-faint);
+    font-style: italic;
   }
 
   .message {
@@ -502,10 +517,10 @@
   }
 
   .msg-routing {
-    font-size: 8px;
+    font-size: var(--text-2xs);
     color: var(--amber-faint);
     opacity: 0.5;
-    margin-top: 2px;
+    margin-top: var(--space-xs);
   }
 
   .escalated-badge {

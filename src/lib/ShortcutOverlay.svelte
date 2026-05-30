@@ -55,7 +55,7 @@
     position: fixed;
     inset: 0;
     z-index: 100;
-    background: rgba(0, 0, 0, 0.55);
+    background: var(--backdrop-overlay);
     display: flex;
     justify-content: center;
     align-items: center;
@@ -64,10 +64,10 @@
   .overlay-panel {
     width: min(480px, 85vw);
     max-height: 70vh;
-    background: var(--bg-surface, #1a1814);
-    border: 1px solid var(--border-subtle, rgba(255, 168, 38, 0.15));
-    border-radius: var(--radius-md, 6px);
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.7);
+    background: var(--bg-surface);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-overlay);
     display: flex;
     flex-direction: column;
     overflow: hidden;
@@ -78,13 +78,13 @@
     align-items: center;
     gap: var(--space-md);
     padding: var(--space-12) var(--space-lg);
-    border-bottom: 1px solid var(--border-subtle, rgba(255, 168, 38, 0.15));
-    background: var(--bg-elevated, #1e1a14);
+    border-bottom: 1px solid var(--border-subtle);
+    background: var(--bg-elevated);
   }
 
   .header-icon {
     font-size: var(--text-lg);
-    color: var(--amber-bright, #FFC840);
+    color: var(--amber-bright);
     text-shadow: var(--glow-amber-faint);
   }
 
@@ -93,13 +93,14 @@
     font-size: var(--text-sm);
     font-weight: 700;
     letter-spacing: 0.14em;
-    color: var(--amber-bright, #FFC840);
+    color: var(--amber-bright);
   }
 
   .close-btn {
     background: transparent;
-    border: 1px solid var(--amber-faint, #A87830);
-    color: var(--amber-faint, #A87830);
+    border: 1px solid var(--amber-faint);
+    border-radius: var(--radius-sm);
+    color: var(--amber-faint);
     font-family: inherit;
     font-size: var(--text-2xs);
     font-weight: 700;
@@ -109,8 +110,12 @@
     transition: color var(--duration-base), border-color var(--duration-base);
   }
   .close-btn:hover {
-    color: var(--amber-bright, #FFC840);
-    border-color: var(--amber-bright, #FFC840);
+    color: var(--amber-bright);
+    border-color: var(--amber-bright);
+  }
+  .close-btn:focus-visible {
+    outline: 1px solid var(--amber-warm);
+    outline-offset: 1px;
   }
 
   .overlay-body {
@@ -118,7 +123,7 @@
     padding: var(--space-8) 0 var(--space-12);
   }
   .overlay-body::-webkit-scrollbar { width: 5px; }
-  .overlay-body::-webkit-scrollbar-thumb { background: var(--amber-faint, #A87830); }
+  .overlay-body::-webkit-scrollbar-thumb { background: var(--amber-faint); }
 
   .category-section {
     padding: 0 var(--space-lg);
@@ -131,10 +136,10 @@
     font-size: var(--text-2xs);
     font-weight: 700;
     letter-spacing: 0.12em;
-    color: var(--amber-faint, #A87830);
+    color: var(--amber-faint);
     text-transform: uppercase;
     padding: var(--space-sm) 0 var(--space-xs);
-    border-bottom: 1px solid rgba(168, 120, 48, 0.15);
+    border-bottom: 1px solid var(--border-amber-tint);
     margin-bottom: var(--space-xs);
   }
 
@@ -149,10 +154,10 @@
     display: inline-block;
     min-width: 110px;
     text-align: right;
-    background: var(--bg-elevated, #1e1a14);
-    border: 1px solid var(--border-subtle, rgba(255, 168, 38, 0.15));
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-subtle);
     border-radius: var(--radius-sm);
-    color: var(--amber-primary, #FFA826);
+    color: var(--amber-primary);
     font-family: inherit;
     font-size: var(--text-sm);
     font-weight: 600;
@@ -161,7 +166,7 @@
   }
 
   .desc {
-    color: var(--term-white, #E8E4D8);
+    color: var(--term-white);
     font-size: var(--text-base);
   }
 </style>

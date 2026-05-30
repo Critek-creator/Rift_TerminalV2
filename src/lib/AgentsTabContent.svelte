@@ -243,7 +243,7 @@
   }
 
   function archiveStatusColor(status: AgentStatus): string {
-    if (status === 'completed') return 'var(--term-green, #4FE855)';
+    if (status === 'completed') return 'var(--term-green)';
     if (status === 'cancelled') return 'var(--amber-faint)';
     if (status === 'error') return 'var(--term-red)';
     return 'var(--amber-warm)';
@@ -256,6 +256,13 @@
       e.dataTransfer.setData('text/plain', '__promoted_pane__');
     }
   }
+
+  function onHandleDragKeydown(e: KeyboardEvent) {
+    if ((e.key === 'Enter' || e.key === ' ') && onDragBack) {
+      e.preventDefault();
+      onDragBack();
+    }
+  }
 </script>
 
 <section class="pane">
@@ -266,7 +273,9 @@
       tabindex="0"
       draggable={true}
       ondragstart={onHandleDragStart}
+      onkeydown={onHandleDragKeydown}
       title="drag back to tab strip to dock"
+      aria-label="Agents pane — drag to dock"
     >
       <span class="handle-glyph" style="color: var(--term-purple); font-size: 14px">◇</span>
       <span class="handle-title">agents</span>
@@ -687,7 +696,7 @@
     border: 1px solid currentColor;
   }
   .card-running {
-    color: var(--term-green, #4FE855);
+    color: var(--term-green);
   }
   .card-inactive {
     color: var(--amber-faint);
@@ -709,6 +718,10 @@
   .card-cancel:hover:not(:disabled) {
     background: var(--term-red);
     color: var(--bg-base);
+  }
+  .card-cancel:focus-visible {
+    outline: 1px solid var(--term-red);
+    outline-offset: 1px;
   }
   .card-cancel:disabled { opacity: 0.4; cursor: not-allowed; }
 
@@ -783,6 +796,10 @@
     transition: color var(--duration-base) ease-out;
   }
   .archive-clear:hover { color: var(--term-red); }
+  .archive-clear:focus-visible {
+    outline: 1px solid var(--amber-warm);
+    outline-offset: 1px;
+  }
   .state-body {
     padding: var(--space-md) var(--space-lg) var(--space-14);
     display: flex;

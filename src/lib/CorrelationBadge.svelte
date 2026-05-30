@@ -79,7 +79,7 @@
   }
   .corr-flyout {
     position: absolute;
-    right: 8px;
+    right: var(--space-8);
     z-index: 20;
     background: var(--bg-elevated);
     border: 1px solid var(--border-subtle);

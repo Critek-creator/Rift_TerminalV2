@@ -154,6 +154,13 @@
       e.dataTransfer.setData('text/plain', '__promoted_pane__');
     }
   }
+
+  function onHandleDragKeydown(e: KeyboardEvent) {
+    if ((e.key === 'Enter' || e.key === ' ') && onDragBack) {
+      e.preventDefault();
+      onDragBack();
+    }
+  }
 </script>
 
 <section class="pane">
@@ -164,7 +171,9 @@
       tabindex="0"
       draggable={true}
       ondragstart={onHandleDragStart}
+      onkeydown={onHandleDragKeydown}
       title="drag back to tab strip to dock"
+      aria-label="Sentinel pane — drag to dock"
     >
       <span class="handle-glyph" style="color: var(--term-red); font-size: 14px">⌾</span>
       <span class="handle-title">sentinel</span>
@@ -218,16 +227,13 @@
     <div class="log-header">VIOLATIONS</div>
     <div class="log-body" aria-live="polite">
       {#if violations.length === 0 && !integrationActive}
-        <div class="empty-card">
-          <div class="empty-glyph">⊘</div>
-          <div class="empty-title">Sentinel watchdog</div>
-          <div class="empty-desc">
+        <div class="empty-state">
+          <span class="empty-state-icon">⊘</span>
+          <span class="empty-state-text">Sentinel watchdog</span>
+          <span class="empty-state-hint">
             Sentinel monitors agent behavior — detecting stuck agents, runaway edits,
-            and unauthorized changes. It surfaces violations here when connected.
-          </div>
-          <div class="empty-hint">
-            Sentinel events will appear here when an integration publishes to the sentinel bus category.
-          </div>
+            and unauthorized changes. Events appear when an integration publishes to the sentinel bus category.
+          </span>
         </div>
       {:else if violations.length === 0}
         <div class="all-clear">
@@ -366,6 +372,10 @@
     transition: background var(--duration-base), border-color var(--duration-base);
   }
   .ctrl-btn:hover { background: var(--bg-hover); border-color: var(--amber-faint); }
+  .ctrl-btn:focus-visible {
+    outline: 1px solid var(--amber-warm);
+    outline-offset: 1px;
+  }
   .ctrl-btn.active { border-color: var(--term-red); color: var(--term-red); }
 
   .strip {
@@ -431,41 +441,6 @@
     box-shadow: var(--sep-depth);
   }
 
-  .empty-card {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: var(--space-8);
-    padding: var(--space-2xl) var(--space-lg);
-    text-align: center;
-    min-height: 120px;
-  }
-  .empty-glyph {
-    font-size: var(--text-2xl);
-    color: var(--term-red);
-    opacity: 0.4;
-  }
-  .empty-title {
-    color: var(--amber-dim);
-    font-size: var(--type-body-size);
-    font-weight: var(--type-body-weight);
-    letter-spacing: var(--type-body-spacing);
-  }
-  .empty-desc {
-    font-size: var(--type-caption-size);
-    line-height: 1.6;
-    max-width: 320px;
-    color: var(--amber-dim);
-    letter-spacing: var(--type-caption-spacing);
-  }
-  .empty-hint {
-    font-size: var(--type-caption-size);
-    font-style: italic;
-    color: var(--amber-faint);
-    letter-spacing: var(--type-caption-spacing);
-  }
-
   .all-clear {
     display: flex;
     align-items: center;
@@ -527,7 +502,7 @@
     flex-shrink: 0;
   }
 
-  .state-panel { box-shadow: 0 -2px 6px rgba(0, 0, 0, 0.45); }
+  .state-panel { box-shadow: var(--depth-lift), var(--depth-edge-light); }
   .state-header {
     padding: var(--space-8) var(--space-lg);
     color: var(--amber-faint);

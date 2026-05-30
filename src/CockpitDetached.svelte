@@ -311,6 +311,10 @@
     color: var(--amber-primary);
     border-color: var(--amber-primary);
   }
+  .btn:focus-visible {
+    outline: 1px solid var(--amber-warm);
+    outline-offset: 1px;
+  }
 
   .btn.close {
     width: 14px;

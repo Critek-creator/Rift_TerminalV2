@@ -96,30 +96,30 @@
   .model-indicator {
     display: inline-flex;
     align-items: center;
-    gap: 3px;
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 10px;
+    gap: var(--space-xs);
+    font-family: var(--font-family);
+    font-size: var(--text-xs);
     user-select: none;
     cursor: default;
   }
 
   .glyph {
-    font-size: 8px;
+    font-size: var(--text-2xs);
     line-height: 1;
   }
 
   .sid {
     font-weight: 700;
-    font-size: 9px;
+    font-size: var(--text-2xs);
     letter-spacing: 0.05em;
   }
 
   .vram {
-    color: var(--amber-faint, #A87830);
-    font-size: 9px;
+    color: var(--amber-faint);
+    font-size: var(--text-2xs);
     font-variant-numeric: tabular-nums;
     letter-spacing: 0.03em;
-    padding-left: 3px;
+    padding-left: var(--space-xs);
     border-left: 1px solid rgba(168, 120, 48, 0.25);
   }
 </style>

@@ -83,8 +83,8 @@
   .tag {
     display: inline-block;
     padding: 0 var(--space-xs);
-    border: 1px solid var(--amber-primary, #FFA826);
-    color: var(--amber-primary, #FFA826);
+    border: 1px solid var(--amber-primary);
+    color: var(--amber-primary);
     font-size: var(--text-2xs);
     font-weight: 700;
     letter-spacing: 0.08em;
@@ -107,7 +107,7 @@
   }
 
   .aegis-row[data-kind='aegis.context'] .label {
-    color: var(--amber-primary, #FFA826);
+    color: var(--amber-primary);
     font-weight: 600;
   }
 </style>

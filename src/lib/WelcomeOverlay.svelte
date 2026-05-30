@@ -219,6 +219,7 @@
     position: fixed;
     inset: 0;
     z-index: 200;
+    /* Slightly denser than --backdrop-overlay (0.55) for the welcome modal */
     background: rgba(0, 0, 0, 0.65);
     display: flex;
     justify-content: center;
@@ -228,10 +229,10 @@
   .welcome-panel {
     width: min(560px, 90vw);
     max-height: 80vh;
-    background: var(--bg-surface, #1a1814);
-    border: 1px solid var(--border-subtle, rgba(255, 168, 38, 0.15));
-    border-radius: var(--radius-md, 6px);
-    box-shadow: 0 12px 48px rgba(0, 0, 0, 0.8);
+    background: var(--bg-surface);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-overlay);
     display: flex;
     flex-direction: column;
     overflow: hidden;
@@ -242,13 +243,13 @@
     align-items: center;
     gap: var(--space-md);
     padding: var(--space-14) var(--space-lg);
-    border-bottom: 1px solid var(--border-subtle, rgba(255, 168, 38, 0.15));
-    background: var(--bg-elevated, #1e1a14);
+    border-bottom: 1px solid var(--border-subtle);
+    background: var(--bg-elevated);
   }
 
   .header-icon {
     font-size: var(--text-xl);
-    color: var(--amber-bright, #FFC840);
+    color: var(--amber-bright);
     text-shadow: var(--glow-amber-faint);
   }
 
@@ -257,13 +258,14 @@
     font-size: var(--text-sm);
     font-weight: 700;
     letter-spacing: 0.14em;
-    color: var(--amber-bright, #FFC840);
+    color: var(--amber-bright);
   }
 
   .skip-btn {
     background: transparent;
-    border: 1px solid var(--amber-faint, #A87830);
-    color: var(--amber-faint, #A87830);
+    border: 1px solid var(--amber-faint);
+    border-radius: var(--radius-sm);
+    color: var(--amber-faint);
     font-family: inherit;
     font-size: var(--text-2xs);
     font-weight: 700;
@@ -273,8 +275,12 @@
     transition: color var(--duration-base), border-color var(--duration-base);
   }
   .skip-btn:hover {
-    color: var(--amber-bright, #FFC840);
-    border-color: var(--amber-bright, #FFC840);
+    color: var(--amber-bright);
+    border-color: var(--amber-bright);
+  }
+  .skip-btn:focus-visible {
+    outline: 1px solid var(--amber-warm);
+    outline-offset: 1px;
   }
 
   .welcome-body {
@@ -288,22 +294,22 @@
     margin: 0 0 var(--space-12);
     font-size: var(--text-xl);
     font-weight: 700;
-    color: var(--amber-bright, #FFC840);
+    color: var(--amber-bright);
     letter-spacing: 0.02em;
   }
 
   .step p {
-    color: var(--term-white, #E8E4D8);
+    color: var(--term-white);
     font-size: var(--text-md);
     line-height: 1.6;
     margin: 0 0 var(--space-md);
   }
   .step p strong {
-    color: var(--amber-warm, #E8B840);
+    color: var(--amber-warm);
   }
 
   .hint {
-    color: var(--amber-faint, #A87830);
+    color: var(--amber-faint);
     font-size: var(--text-xs);
     font-style: italic;
     margin-top: var(--space-14);
@@ -322,7 +328,7 @@
     border-radius: 50%;
   }
   .lane-label {
-    color: var(--term-white, #E8E4D8);
+    color: var(--term-white);
     font-size: var(--text-sm);
   }
 
@@ -332,9 +338,9 @@
     font-weight: 700;
     letter-spacing: 0.08em;
     padding: 1px var(--space-sm);
-    border: 1px solid var(--amber-faint, #A87830);
+    border: 1px solid var(--amber-faint);
     border-radius: var(--radius-sm);
-    color: var(--amber-warm, #E8B840);
+    color: var(--amber-warm);
     margin: 0 2px;
   }
 
@@ -345,7 +351,7 @@
     padding: var(--space-sm) 0;
   }
   .tab-item {
-    color: var(--term-white, #E8E4D8);
+    color: var(--term-white);
     font-size: var(--text-base);
     display: flex;
     align-items: center;
@@ -355,7 +361,7 @@
     font-size: var(--text-md);
     width: 18px;
     text-align: center;
-    color: var(--amber-bright, #FFC840);
+    color: var(--amber-bright);
   }
 
   .tip-list {
@@ -365,7 +371,7 @@
     padding: var(--space-sm) 0;
   }
   .tip {
-    color: var(--term-white, #E8E4D8);
+    color: var(--term-white);
     font-size: var(--text-base);
     display: flex;
     align-items: center;
@@ -382,9 +388,9 @@
     align-items: flex-start;
     gap: var(--space-md);
     padding: var(--space-8) var(--space-md);
-    border: 1px solid var(--border-subtle, rgba(255, 168, 38, 0.15));
-    border-radius: var(--radius-sm, 4px);
-    background: rgba(255, 168, 38, 0.05);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+    background: var(--bg-amber-tint);
   }
   .integration-status {
     font-size: var(--text-md);
@@ -394,36 +400,36 @@
     margin-top: 1px;
   }
   .integration-info {
-    color: var(--term-white, #E8E4D8);
+    color: var(--term-white);
     font-size: var(--text-sm);
     line-height: 1.5;
   }
   .integration-info strong {
-    color: var(--amber-warm, #E8B840);
+    color: var(--amber-warm);
   }
   .integration-detail {
     font-size: var(--text-xs);
-    color: var(--amber-faint, #A87830);
+    color: var(--amber-faint);
     margin-top: 2px;
   }
   .integration-warning {
     margin-top: var(--space-md);
     padding: var(--space-8) var(--space-md);
-    border: 1px solid var(--term-red, #CC3333);
-    border-radius: var(--radius-sm, 4px);
-    color: var(--term-red, #CC3333);
+    border: 1px solid var(--term-red);
+    border-radius: var(--radius-sm);
+    color: var(--term-red);
     font-size: var(--text-xs);
-    background: rgba(204, 51, 51, 0.06);
+    background: rgba(255, 72, 72, 0.06);
   }
 
   .tip kbd {
     display: inline-block;
     min-width: 90px;
     text-align: right;
-    background: var(--bg-elevated, #1e1a14);
-    border: 1px solid var(--border-subtle, rgba(255, 168, 38, 0.15));
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-subtle);
     border-radius: var(--radius-sm);
-    color: var(--amber-primary, #FFA826);
+    color: var(--amber-primary);
     font-family: inherit;
     font-size: var(--text-sm);
     font-weight: 600;
@@ -435,8 +441,8 @@
     align-items: center;
     justify-content: space-between;
     padding: var(--space-12) var(--space-lg);
-    border-top: 1px solid var(--border-subtle, rgba(255, 168, 38, 0.15));
-    background: var(--bg-elevated, #1e1a14);
+    border-top: 1px solid var(--border-subtle);
+    background: var(--bg-elevated);
   }
 
   .step-dots {
@@ -447,15 +453,19 @@
     width: var(--space-8);
     height: var(--space-8);
     border-radius: 50%;
-    background: var(--amber-faint, #A87830);
+    background: var(--amber-faint);
     border: none;
     cursor: pointer;
     padding: 0;
     transition: background var(--duration-med), box-shadow var(--duration-med);
   }
   .dot.active {
-    background: var(--amber-bright, #FFC840);
+    background: var(--amber-bright);
     box-shadow: 0 0 6px rgba(255, 200, 64, 0.5);
+  }
+  .dot:focus-visible {
+    outline: 1px solid var(--amber-warm);
+    outline-offset: 2px;
   }
 
   .step-nav {
@@ -464,8 +474,9 @@
   }
   .nav-btn {
     background: transparent;
-    border: 1px solid var(--amber-faint, #A87830);
-    color: var(--amber-faint, #A87830);
+    border: 1px solid var(--amber-faint);
+    border-radius: var(--radius-sm);
+    color: var(--amber-faint);
     font-family: inherit;
     font-size: var(--text-xs);
     font-weight: 700;
@@ -475,17 +486,21 @@
     transition: color var(--duration-base), border-color var(--duration-base), background var(--duration-base);
   }
   .nav-btn:hover {
-    color: var(--amber-bright, #FFC840);
-    border-color: var(--amber-bright, #FFC840);
+    color: var(--amber-bright);
+    border-color: var(--amber-bright);
+  }
+  .nav-btn:focus-visible {
+    outline: 1px solid var(--amber-warm);
+    outline-offset: 1px;
   }
   .nav-btn.primary {
-    background: rgba(255, 168, 38, 0.12);
-    border-color: var(--amber-primary, #FFA826);
-    color: var(--amber-primary, #FFA826);
+    background: var(--bg-amber-hover);
+    border-color: var(--amber-primary);
+    color: var(--amber-primary);
   }
   .nav-btn.primary:hover {
     background: rgba(255, 168, 38, 0.22);
-    color: var(--amber-bright, #FFC840);
-    border-color: var(--amber-bright, #FFC840);
+    color: var(--amber-bright);
+    border-color: var(--amber-bright);
   }
 </style>

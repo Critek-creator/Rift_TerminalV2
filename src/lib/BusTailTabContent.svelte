@@ -308,18 +308,18 @@
 
 <section class="pane">
   {#if onDragBack}
-    <div
+    <button
+      type="button"
       class="drag-handle"
-      role="button"
-      tabindex="0"
       draggable={true}
       ondragstart={onHandleDragStart}
       title="drag back to tab strip to dock"
+      aria-label="Bus tail — drag to dock back to tab strip"
     >
-      <span class="handle-glyph" style="color: var(--amber-warm); font-size: 14px">▣</span>
+      <span class="handle-glyph">▣</span>
       <span class="handle-title">bus tail</span>
       <span class="handle-hint">drag to dock</span>
-    </div>
+    </button>
   {/if}
 
   {#if error}
@@ -373,14 +373,15 @@
     <div class="log-header">RECENT EVENTS</div>
     <div class="log-body" aria-live="polite" bind:this={logBodyEl}>
       {#if recentEvents.length === 0}
-        <div class="empty-card">
+        <div class="empty-state">
           {#if paused}
-            <div class="empty-title">Paused</div>
-            <div class="empty-desc">Click LIVE to resume the event stream.</div>
+            <span class="empty-state-icon">⏸</span>
+            <span class="empty-state-text">Paused</span>
+            <span class="empty-state-hint">Click LIVE to resume the event stream.</span>
           {:else}
-            <div class="empty-state-icon">▣</div>
-            <div class="empty-state-text">Bus is quiet</div>
-            <div class="empty-state-hint">event stream from all bus categories will populate here</div>
+            <span class="empty-state-icon">▣</span>
+            <span class="empty-state-text">Bus is quiet</span>
+            <span class="empty-state-hint">event stream from all bus categories will populate here</span>
           {/if}
         </div>
       {:else}
@@ -535,10 +536,20 @@
     font-size: var(--type-label-size);
     letter-spacing: var(--type-label-spacing);
     font-weight: var(--type-label-weight);
+    font-family: var(--font-family);
+    /* Reset <button> defaults */
+    border: none;
+    border-radius: 0;
+    width: 100%;
+    text-align: left;
+    transition: background var(--duration-base) ease-out;
   }
-  .drag-handle { transition: background var(--duration-base) ease-out; }
   .drag-handle:active { cursor: grabbing; }
   .drag-handle:hover { background: var(--bg-hover); }
+  .drag-handle:focus-visible {
+    outline: 1px solid var(--amber-warm);
+    outline-offset: -2px;
+  }
   .drag-handle .handle-glyph {
     color: var(--amber-bright);
     font-size: var(--text-base);
@@ -692,29 +703,6 @@
     background: rgba(255, 72, 72, 0.06);
     box-shadow: var(--sep-depth);
   }
-  .empty-card {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: var(--space-8);
-    padding: var(--space-2xl) var(--space-lg);
-    text-align: center;
-    min-height: 120px;
-  }
-  .empty-title {
-    color: var(--amber-dim);
-    font-size: var(--type-body-size);
-    font-weight: var(--type-body-weight);
-    letter-spacing: var(--type-body-spacing);
-  }
-  .empty-desc {
-    color: var(--amber-faint);
-    font-size: var(--type-caption-size);
-    letter-spacing: var(--type-caption-spacing);
-    font-style: italic;
-    max-width: 320px;
-  }
 
   .log-body .row {
     display: grid;
@@ -815,6 +803,7 @@
     cursor: pointer;
     padding: 0 2px;
     line-height: 1;
+    border-radius: var(--radius-sm);
   }
   .query-clear:hover {
     color: var(--term-red);

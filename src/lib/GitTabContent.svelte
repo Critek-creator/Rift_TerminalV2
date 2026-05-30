@@ -196,7 +196,7 @@
   function statusColor(s: string): string {
     switch (s) {
       case 'M': return 'var(--amber-bright)';
-      case 'A': return 'var(--term-green, #4FE855)';
+      case 'A': return 'var(--term-green)';
       case 'D': return 'var(--term-red)';
       case 'R': return 'var(--term-purple)';
       case 'C': return 'var(--term-cyan)';
@@ -212,6 +212,13 @@
       e.dataTransfer.setData('text/plain', '__promoted_pane__');
     }
   }
+
+  function onHandleDragKeydown(e: KeyboardEvent) {
+    if ((e.key === 'Enter' || e.key === ' ') && onDragBack) {
+      e.preventDefault();
+      onDragBack();
+    }
+  }
 </script>
 
 <section class="pane">
@@ -222,7 +229,9 @@
       tabindex="0"
       draggable={true}
       ondragstart={onHandleDragStart}
+      onkeydown={onHandleDragKeydown}
       title="drag back to tab strip to dock"
+      aria-label="Git pane — drag to dock"
     >
       <span class="handle-glyph" style="color: var(--term-green); font-size: 14px">⎇</span>
       <span class="handle-title">git</span>
@@ -566,8 +575,8 @@
     align-items: center;
     gap: var(--space-8);
     padding: 2px var(--space-8);
-    border: 1px solid var(--term-green, #4FE855);
-    color: var(--term-green, #4FE855);
+    border: 1px solid var(--term-green);
+    color: var(--term-green);
     font-size: var(--text-2xs);
     letter-spacing: 0.06em;
     text-transform: uppercase;
@@ -599,6 +608,10 @@
     padding: 0 2px;
     transition: color var(--duration-base) ease-out, opacity var(--duration-base) ease-out;
   }
+  .banner-close:focus-visible {
+    outline: 1px solid var(--amber-warm);
+    outline-offset: 1px;
+  }
 
   .commit-form {
     padding: var(--space-8) var(--space-lg) var(--space-md);
@@ -619,7 +632,7 @@
     min-height: 32px;
   }
   .commit-input:focus {
-    outline: 2px solid transparent;
+    outline: none;
     border-color: var(--amber-bright);
     box-shadow: var(--glow-amber-faint);
   }
@@ -643,10 +656,10 @@
   .chip-ahead { border-color: var(--term-cyan); color: var(--term-cyan); }
   .chip-behind { border-color: var(--term-red); color: var(--term-red); }
   .chip-clean {
-    border-color: var(--term-green, #4FE855);
-    color: var(--term-green, #4FE855);
+    border-color: var(--term-green);
+    color: var(--term-green);
   }
-  .chip-staged { border-color: var(--term-green, #4FE855); color: var(--term-green, #4FE855); }
+  .chip-staged { border-color: var(--term-green); color: var(--term-green); }
   .chip-modified { border-color: var(--amber-bright); color: var(--amber-bright); }
   .chip-untracked { border-color: var(--amber-faint); color: var(--amber-faint); }
 

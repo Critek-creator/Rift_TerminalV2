@@ -262,7 +262,7 @@
 
   /* Close button gets the standard red-on-hover treatment */
   .btn.close:hover {
-    color: var(--term-white, #E8E4D8);
+    color: var(--term-white);
     background: rgba(255, 72, 72, 0.20);
     text-shadow: none;
   }

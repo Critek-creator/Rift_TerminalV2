@@ -199,6 +199,7 @@
       draggable={true}
       ondragstart={onHandleDragStart}
       title="drag back to tab strip to dock"
+      aria-label="drag {title} back to tab strip to dock"
     >
       <span class="handle-glyph" style="color: var({accent === 'cyan' ? '--term-cyan' : accent === 'red' ? '--term-red' : accent === 'purple' ? '--term-purple' : '--amber-warm'}); font-size: 14px">{icon}</span>
       <span class="handle-title">{title}</span>
@@ -377,6 +378,10 @@
     font-size: var(--type-label-size);
     letter-spacing: var(--type-label-spacing);
     font-weight: var(--type-label-weight);
+  }
+  .drag-handle:focus-visible {
+    outline: 1px solid var(--amber-warm);
+    outline-offset: -2px;
   }
   .drag-handle:active { cursor: grabbing; background: var(--bg-hover); }
   .drag-handle:hover {
@@ -715,7 +720,7 @@
     background: rgba(255, 168, 38, 0.1);
   }
   .ctrl-btn:focus-visible {
-    outline: 1px solid var(--amber-primary);
+    outline: 1px solid var(--amber-warm);
     outline-offset: 1px;
   }
   .ctrl-btn.active {

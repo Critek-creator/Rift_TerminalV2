@@ -422,18 +422,23 @@
     padding: var(--space-sm) var(--space-md) var(--space-md);
   }
 
+  /* Scoped override of the global .empty-state so it works inline
+     in a compact panel (not the full-height centered version). */
   .empty-state {
     color: var(--amber-faint);
     font-size: var(--text-xs);
     font-style: italic;
     padding: var(--space-8) var(--space-xs);
     line-height: 1.5;
+    display: block;
+    min-height: unset;
+    text-align: left;
   }
 
   /* Bookmark rows */
   .bm-row {
     padding: var(--space-xs) 0;
-    border-bottom: 1px solid rgba(42, 36, 24, 0.5);
+    border-bottom: 1px solid var(--border-subtle);
   }
   .bm-row:last-child {
     border-bottom: none;
@@ -461,6 +466,10 @@
   }
   .bm-icon.star:hover {
     color: var(--term-red);
+  }
+  .bm-icon.star:focus-visible {
+    outline: 1px solid var(--amber-warm);
+    outline-offset: 2px;
   }
   .bm-icon.dot::after {
     content: '';
@@ -505,6 +514,10 @@
   .bm-jump:hover {
     color: var(--amber-bright);
   }
+  .bm-jump:focus-visible {
+    outline: 1px solid var(--amber-warm);
+    outline-offset: 2px;
+  }
 
   .bm-annotation {
     margin-left: var(--space-xl);
@@ -545,7 +558,7 @@
     align-items: center;
     gap: var(--space-8);
     padding: var(--space-xs) 0;
-    border-bottom: 1px solid rgba(42, 36, 24, 0.5);
+    border-bottom: 1px solid var(--border-subtle);
   }
   .sq-row:last-child {
     border-bottom: none;

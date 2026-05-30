@@ -35,6 +35,40 @@
   type SettingsTab = 'general' | 'terminal' | 'integrations' | 'index' | 'tree' | 'mcp' | 'statusline' | 'alerts' | 'models';
   let activeTab = $state<SettingsTab>('general');
 
+  const SETTINGS_TABS: { id: SettingsTab; label: string }[] = [
+    { id: 'general',      label: 'GENERAL' },
+    { id: 'terminal',     label: 'TERMINAL' },
+    { id: 'integrations', label: 'INTEGRATIONS' },
+    { id: 'statusline',   label: 'STATUS LINE' },
+    { id: 'index',        label: 'INDEX' },
+    { id: 'tree',         label: 'TREE' },
+    { id: 'mcp',          label: 'MCP' },
+    { id: 'alerts',       label: 'ALERTS' },
+    { id: 'models',       label: 'MODELS' },
+  ];
+
+  let tabStripEl = $state<HTMLElement | null>(null);
+
+  /** Roving-tabindex keyboard nav for the WAI-ARIA tablist pattern:
+   *  Left/Right move + activate the adjacent tab, Home/End jump to ends. */
+  function onTabKeydown(e: KeyboardEvent) {
+    const idx = SETTINGS_TABS.findIndex((t) => t.id === activeTab);
+    if (idx === -1) return;
+    let next = idx;
+    switch (e.key) {
+      case 'ArrowRight': case 'ArrowDown': next = (idx + 1) % SETTINGS_TABS.length; break;
+      case 'ArrowLeft':  case 'ArrowUp':   next = (idx - 1 + SETTINGS_TABS.length) % SETTINGS_TABS.length; break;
+      case 'Home': next = 0; break;
+      case 'End':  next = SETTINGS_TABS.length - 1; break;
+      default: return;
+    }
+    e.preventDefault();
+    activeTab = SETTINGS_TABS[next].id;
+    // Move focus to the newly-activated tab button (roving tabindex).
+    const btn = tabStripEl?.querySelectorAll<HTMLButtonElement>('.tab-btn')[next];
+    btn?.focus();
+  }
+
   // ---------------------------------------------------------------------
   // About
   // ---------------------------------------------------------------------
@@ -711,29 +745,30 @@
      role="dialog"
      tabindex="-1"
 >
-  <div class="tab-strip" role="tablist" aria-label="settings sections">
-    {#each [
-      { id: 'general',      label: 'GENERAL' },
-      { id: 'terminal',     label: 'TERMINAL' },
-      { id: 'integrations', label: 'INTEGRATIONS' },
-      { id: 'statusline',   label: 'STATUS LINE' },
-      { id: 'index',      label: 'INDEX' },
-      { id: 'tree',       label: 'TREE' },
-      { id: 'mcp',        label: 'MCP' },
-      { id: 'alerts',     label: 'ALERTS' },
-      { id: 'models',     label: 'MODELS' },
-    ] as tab (tab.id)}
+  <!-- svelte-ignore a11y_interactive_supports_focus -->
+  <!-- WAI-ARIA tabs pattern: focus rolls across the tabs (roving tabindex),
+       the tablist itself stays out of the tab sequence. -->
+  <div class="tab-strip" role="tablist" aria-label="settings sections"
+       bind:this={tabStripEl} onkeydown={onTabKeydown}>
+    {#each SETTINGS_TABS as tab (tab.id)}
       <button type="button"
         role="tab"
+        id="settings-tab-{tab.id}"
         aria-selected={activeTab === tab.id}
+        aria-controls="settings-panel-{tab.id}"
+        tabindex={activeTab === tab.id ? 0 : -1}
         class="tab-btn"
         class:active={activeTab === tab.id}
-        onclick={() => (activeTab = tab.id as SettingsTab)}
+        onclick={() => (activeTab = tab.id)}
       >{tab.label}</button>
     {/each}
   </div>
 
-  <div class="settings-body">
+  <div class="settings-body"
+       role="tabpanel"
+       id="settings-panel-{activeTab}"
+       aria-labelledby="settings-tab-{activeTab}"
+  >
 
     {#if activeTab === 'general'}
     <!-- ABOUT -->
@@ -745,7 +780,7 @@
       </div>
       <div class="kv">
         <div class="k">version</div>
-        <div class="v">{appVersion} <span style="background: rgba(255,168,38,0.18); border: 1px solid var(--amber-faint, #A87830); border-radius: 3px; padding: 0 5px; font-size: 8px; font-weight: 700; letter-spacing: 0.1em; color: var(--amber-primary, #FFA826); margin-left: 6px;">BETA</span></div>
+        <div class="v">{appVersion} <span class="beta-badge">BETA</span></div>
       </div>
       <div class="kv">
         <div class="k">identifier</div>
@@ -941,12 +976,17 @@
         {/each}
       </div>
 
-      <div class="save-row">
+      <div class="row">
         <button type="button"
-          class="save-btn"
+          class="btn primary"
           disabled={!notifDirty || savingNotif}
           onclick={saveNotifFilters}
-        >{savingNotif ? 'saving...' : 'save filters'}</button>
+        >{savingNotif ? 'saving…' : 'save filters'}</button>
+        {#if saveBanner && saveBanner.section === 'notif'}
+          <span class="banner-inline" class:fail={!saveBanner.ok} role="status">
+            {saveBanner.msg}
+          </span>
+        {/if}
       </div>
     </section>
     {/if}
@@ -966,16 +1006,17 @@
           automatically when an integration is detected and enabled.
         </div>
         <div class="field-row">
-          <label class="field-label" for="aegis-toggle">Aegis (agent observability)</label>
-          <div class="field-detail">
-            {#if status.aegis.installed}
-              <span class="badge badge-ok">installed</span>
-            {:else}
-              <span class="badge badge-warn">not installed</span>
-            {/if}
+          <div class="field-row-main">
+            <label class="field-row-label" for="aegis-toggle">Aegis</label>
+            <span class="field-row-desc">agent observability</span>
           </div>
+          {#if status.aegis.installed}
+            <span class="rift-badge rift-badge--ok">installed</span>
+          {:else}
+            <span class="rift-badge rift-badge--warn">not installed</span>
+          {/if}
           {#if config}
-          <label class="toggle-switch">
+          <label class="rift-switch">
             <input
               id="aegis-toggle"
               type="checkbox"
@@ -988,21 +1029,22 @@
                 }
               }}
             />
-            <span class="toggle-slider"></span>
+            <span class="rift-switch-track"></span>
           </label>
           {/if}
         </div>
         <div class="field-row">
-          <label class="field-label" for="index-toggle">Abyssal Index (knowledge cockpit)</label>
-          <div class="field-detail">
-            {#if status.index.installed}
-              <span class="badge badge-ok">installed</span>
-            {:else}
-              <span class="badge badge-warn">not installed</span>
-            {/if}
+          <div class="field-row-main">
+            <label class="field-row-label" for="index-toggle">Abyssal Index</label>
+            <span class="field-row-desc">knowledge cockpit</span>
           </div>
+          {#if status.index.installed}
+            <span class="rift-badge rift-badge--ok">installed</span>
+          {:else}
+            <span class="rift-badge rift-badge--warn">not installed</span>
+          {/if}
           {#if config}
-          <label class="toggle-switch">
+          <label class="rift-switch">
             <input
               id="index-toggle"
               type="checkbox"
@@ -1015,22 +1057,23 @@
                 }
               }}
             />
-            <span class="toggle-slider"></span>
+            <span class="rift-switch-track"></span>
           </label>
           {/if}
         </div>
         <div class="field-row">
-          <span class="field-label">Node.js</span>
-          <div class="field-detail">
-            {#if status.node_available}
-              <span class="badge badge-ok">{status.node_version}</span>
-            {:else}
-              <span class="badge badge-warn">not found — maintenance scripts require Node.js 18+</span>
-            {/if}
+          <div class="field-row-main">
+            <span class="field-row-label">Node.js</span>
+            <span class="field-row-desc">required for maintenance scripts (18+)</span>
           </div>
+          {#if status.node_available}
+            <span class="rift-badge rift-badge--ok">{status.node_version}</span>
+          {:else}
+            <span class="rift-badge rift-badge--warn">not found</span>
+          {/if}
         </div>
         {#if !status.claude_dir_exists}
-          <div class="hint" style="color: var(--term-red, #CC3333); margin-top: var(--space-md)">
+          <div class="banner banner-fail" role="alert">
             Claude Code directory (~/.claude/) not found. Install Claude Code to use integrations.
           </div>
         {/if}
@@ -1820,7 +1863,10 @@
     box-shadow: var(--sep-glow);
     padding: 0 var(--space-lg);
     background: var(--bg-panel);
+    overflow-x: auto;
+    scrollbar-width: none;
   }
+  .tab-strip::-webkit-scrollbar { height: 0; }
   .tab-btn {
     background: none;
     border: none;
@@ -1837,6 +1883,7 @@
                 background var(--duration-base) var(--ease-out);
     margin-bottom: -1px;
     text-transform: uppercase;
+    white-space: nowrap;
   }
   .tab-btn:hover {
     color: var(--amber-warm);
@@ -1920,6 +1967,21 @@
     color: var(--amber-dim);
   }
 
+  /* ─── BETA badge (About → version) ───────────────────────────────────── */
+  .beta-badge {
+    display: inline-block;
+    margin-left: var(--space-sm);
+    padding: 0 var(--space-xs);
+    background: rgba(255, 168, 38, 0.18);
+    border: 1px solid var(--amber-faint);
+    border-radius: var(--radius-sm);
+    font-size: var(--text-2xs);
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    color: var(--amber-primary);
+    vertical-align: middle;
+  }
+
   /* ─── Flex utility row (buttons / inline banners) ────────────────────── */
   .row {
     display: flex;
@@ -1970,6 +2032,35 @@
   .kv-toggle input[type="checkbox"]:disabled {
     opacity: 0.4;
     cursor: not-allowed;
+  }
+
+  /* ─── Integration field rows (label + badge + switch) ───────────────── */
+  .field-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-md);
+    padding: var(--space-8) 0;
+  }
+  .field-row + .field-row {
+    border-top: 1px solid var(--border-subtle);
+  }
+  .field-row-main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    min-width: 0;
+  }
+  .field-row-label {
+    color: var(--amber-warm);
+    font-size: var(--text-sm);
+    font-weight: 600;
+    letter-spacing: 0.02em;
+  }
+  .field-row-desc {
+    color: var(--amber-faint);
+    font-size: var(--text-2xs);
+    letter-spacing: 0.02em;
   }
 
   /* ─── Mono value display ─────────────────────────────────────────────── */
@@ -2267,35 +2358,6 @@
     font-size: var(--text-xs);
     padding-top: 0;
     padding-bottom: 0;
-  }
-  .save-row {
-    margin-top: var(--space-md);
-  }
-  .save-btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    background: var(--amber-bright);
-    border: 1px solid var(--amber-bright);
-    border-radius: var(--radius-md);
-    color: var(--bg-base);
-    font-family: var(--font-family);
-    font-size: var(--text-xs);
-    font-weight: 700;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    padding: 0 var(--space-md);
-    height: var(--control-lg);
-    cursor: pointer;
-    transition: box-shadow var(--duration-base) var(--ease-out);
-    user-select: none;
-  }
-  .save-btn:hover:not(:disabled) {
-    box-shadow: var(--glow-amber);
-  }
-  .save-btn:disabled {
-    opacity: 0.35;
-    cursor: not-allowed;
   }
 
   /* ─── Footer ─────────────────────────────────────────────────────────── */
