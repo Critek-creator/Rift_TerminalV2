@@ -118,6 +118,8 @@
     ok: boolean;
     msg: string;
   } | null>(null);
+  let classifierBanner = $state<{ ok: boolean; msg: string } | null>(null);
+  let registeringClassifier = $state(false);
 
   // Terminal — D-018 groundwork (audit close 2026-04-29).
   let termShellKind = $state<ShellKind>('auto');
@@ -1730,6 +1732,63 @@
         {#if saveBanner && saveBanner.section === 'models'}
           <span class="banner-inline" class:fail={!saveBanner.ok} role="status">
             {saveBanner.msg}
+          </span>
+        {/if}
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="section-label">Task Classifier</div>
+      <div class="hint">
+        A tiny local model (Llama&nbsp;3.2&nbsp;1B) that refines the router's
+        ambiguous <em>Other</em> bucket — long, keyword-less prompts that would
+        otherwise default to the cloud. It fires <strong>only</strong> on that
+        bucket under an auto profile; keyword-matched prompts are untouched and
+        pay zero extra latency. Keeps grunt work off the paid API.
+      </div>
+
+      <div class="field" style="margin-top: var(--space-md);">
+        <span class="field-label">Active classifier</span>
+        <select
+          value={llmModels.classifierModelId ?? ''}
+          onchange={(e) => llmModels.setClassifier((e.target as HTMLSelectElement).value || null)}
+          class="select"
+        >
+          <option value="">None — keyword routing only</option>
+          {#each llmModels.models as m (m.id)}
+            <option value={m.id}>{m.display_name || m.id}</option>
+          {/each}
+        </select>
+        <span class="hint" style="display: block; margin-top: var(--space-sm);">
+          Selecting here is an edit — click <em>Save Models</em> above to persist.
+          The one-click button below registers + persists in one step.
+        </span>
+      </div>
+
+      <div class="models-save-row" style="margin-top: var(--space-sm);">
+        <button
+          type="button"
+          class="btn"
+          disabled={registeringClassifier}
+          onclick={async () => {
+            classifierBanner = null;
+            registeringClassifier = true;
+            try {
+              const res = await llmModels.registerClassifier();
+              broadcastConfigChanged();
+              classifierBanner = { ok: res.file_present, msg: res.message };
+            } catch (err) {
+              classifierBanner = { ok: false, msg: String(err) };
+            } finally {
+              registeringClassifier = false;
+            }
+          }}
+        >
+          {registeringClassifier ? 'Registering…' : 'Register Llama 3.2 1B classifier'}
+        </button>
+        {#if classifierBanner}
+          <span class="banner-inline" class:fail={!classifierBanner.ok} role="status">
+            {classifierBanner.msg}
           </span>
         {/if}
       </div>

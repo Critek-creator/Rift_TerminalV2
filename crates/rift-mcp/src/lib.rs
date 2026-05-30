@@ -383,6 +383,11 @@ USE PROACTIVELY:\n\
 - `notif_tabs` — to see unread counts and which notification categories are active.\n\
 - `fs_tree` — for project structure overview (honors ignore globs).\n\
 - `git_status` — current branch, staged/unstaged changes, recent commits.\n\
+- `llm_prompt` — OFFLOAD grunt subtasks (summarize, reformat, log/diff \
+  digestion, boilerplate scaffolding, docstrings, extraction) to a LOCAL model \
+  instead of spending your own tokens generating rote output. Routes via the \
+  Ensemble Router (local-first on auto profiles). Best for bulky, low-judgment \
+  work; skip one-liners where the round-trip costs more than doing it yourself.\n\
 \n\
 The terminal uses lane classification — output lines are color-coded by source \
 (user input, Claude, agents, hooks, aegis, system, errors). Your output appears \

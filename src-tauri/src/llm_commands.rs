@@ -6,14 +6,14 @@
 //! through the fallback chain.
 
 use futures_util::StreamExt;
-use rift_bus::config::{load_config, HostingMode, ProviderType};
+use rift_bus::config::{load_config, save_config, HostingMode, ModelConfig, ProviderType};
 use rift_bus::translators::llm::{CompletionRequest, LlmProvider, Message, Role};
 use rift_bus::translators::llm_anthropic::AnthropicProvider;
 use rift_bus::translators::llm_gemini::GeminiProvider;
 use rift_bus::translators::llm_process::ProcessManager;
 use rift_bus::translators::llm_server::LlamaServerProvider;
 use rift_bus::{Category, Envelope, RiftBus};
-use rift_router::{RouterService, RoutingDecision};
+use rift_router::{RouterService, RoutingDecision, TaskType};
 use serde::Serialize;
 use serde_json::json;
 use tauri::ipc::Channel;
@@ -69,6 +69,111 @@ fn compute_cost(model: &rift_bus::config::ModelConfig, tokens_in: u64, tokens_ou
     let cost_in = (tokens_in as f64 / 1_000_000.0) * model.capabilities.cost_per_1m_input;
     let cost_out = (tokens_out as f64 / 1_000_000.0) * model.capabilities.cost_per_1m_output;
     cost_in + cost_out
+}
+
+/// Parse a classifier model's free-text reply into a [`TaskType`]. Tolerant
+/// of surrounding whitespace/punctuation and stray words — matches the first
+/// `snake_case` enum name that appears in the reply. Returns `None` on no
+/// match so the caller keeps the keyword result.
+fn parse_task_type(raw: &str) -> Option<TaskType> {
+    let norm = raw.to_lowercase();
+    // Longest / most-specific names first so e.g. "code_generation" wins over
+    // a bare "code"; "other" last since it's the safe keyword default anyway.
+    const TABLE: &[(&str, TaskType)] = &[
+        ("code_generation", TaskType::CodeGeneration),
+        ("code_refactoring", TaskType::CodeRefactoring),
+        ("large_context_analysis", TaskType::LargeContextAnalysis),
+        ("lint_format", TaskType::LintFormat),
+        ("documentation", TaskType::Documentation),
+        ("quick_query", TaskType::QuickQuery),
+        ("architecture", TaskType::Architecture),
+        ("debug", TaskType::Debug),
+        ("other", TaskType::Other),
+    ];
+    TABLE
+        .iter()
+        .find(|(name, _)| norm.contains(name))
+        .map(|(_, t)| *t)
+}
+
+/// Ask the configured tiny classifier model to label a prompt. Returns `None`
+/// on any failure (HTTP error, unparseable reply) — the caller then keeps the
+/// keyword classification. §9: the HTTP call is the existing llm_server
+/// translator behind `provider.complete`.
+async fn classify_via_llm(provider: &dyn LlmProvider, prompt: &str) -> Option<TaskType> {
+    const SYSTEM: &str = "You are a task-type classifier. Read the user request and reply \
+        with EXACTLY ONE of these tokens and nothing else: code_generation code_refactoring \
+        lint_format large_context_analysis documentation quick_query architecture debug other";
+    // Cap input — a classifier needs the gist, not the whole payload.
+    let truncated: String = prompt.chars().take(2000).collect();
+    let request = CompletionRequest {
+        messages: vec![Message {
+            role: Role::User,
+            content: truncated,
+        }],
+        max_tokens: Some(8),
+        temperature: Some(0.0),
+        stop_sequences: vec![],
+        system_prompt: Some(SYSTEM.to_string()),
+        provider_options: None,
+    };
+    let resp = provider.complete(request).await.ok()?;
+    parse_task_type(&resp.content)
+}
+
+/// Phase 2 refinement: when the keyword router lands on the ambiguous
+/// `TaskType::Other` bucket under an auto profile, ask the tiny classifier
+/// model to relabel and re-route. Falls back to the original decision on any
+/// failure or when no classifier is configured — so the keyword result always
+/// stands as the floor. Never fires on overridden/`@tag`/Manual routes.
+pub(crate) async fn maybe_refine_with_classifier(
+    router: &RouterService,
+    ensemble: &rift_bus::config::EnsembleConfig,
+    prompt: &str,
+    decision: RoutingDecision,
+) -> RoutingDecision {
+    use rift_bus::config::RoutingProfile;
+
+    if decision.task_type != TaskType::Other
+        || decision.was_overridden
+        || matches!(ensemble.active_profile, RoutingProfile::Manual)
+    {
+        return decision;
+    }
+
+    // Classifier must be configured, available, resolvable — and must not be
+    // asked to classify a route that already picked the classifier itself.
+    let Some(cid) = ensemble.classifier_model_id.as_deref() else {
+        return decision;
+    };
+    if !router.is_available(cid) {
+        return decision;
+    }
+    let model = match router.find_model(cid) {
+        Ok(m) => m.clone(),
+        Err(_) => return decision,
+    };
+    let provider = match create_provider(&model) {
+        Ok(p) => p,
+        Err(_) => return decision,
+    };
+
+    // Classify the clean (tag-stripped) prompt.
+    let clean = rift_router::parse_model_tag(prompt).clean_prompt;
+    let refined = match classify_via_llm(provider.as_ref(), &clean).await {
+        // A confirmed `Other` is identical to the keyword result — no re-route.
+        Some(t) if t != TaskType::Other => t,
+        _ => return decision,
+    };
+
+    match router.route_with_hint(prompt, None, Some(refined)) {
+        Ok(mut refined_decision) => {
+            refined_decision.reason =
+                format!("{} (classifier → {:?})", refined_decision.reason, refined);
+            refined_decision
+        }
+        Err(_) => decision,
+    }
 }
 
 fn publish_route_event(bus: &RiftBus, decision: &RoutingDecision) {
@@ -174,6 +279,10 @@ pub async fn llm_complete(
     let decision = router
         .route(&prompt, model_id.as_deref())
         .map_err(|e| format!("{e}"))?;
+
+    // Phase 2: refine the ambiguous `Other` bucket with the tiny classifier
+    // (no-op unless one is configured; only fires on auto, non-overridden routes).
+    let decision = maybe_refine_with_classifier(&router, &config.ensemble, &prompt, decision).await;
 
     publish_route_event(&bus, &decision);
 
@@ -294,6 +403,10 @@ pub async fn llm_stream(
     let decision = router
         .route(&prompt, model_id.as_deref())
         .map_err(|e| format!("{e}"))?;
+
+    // Phase 2: refine the ambiguous `Other` bucket with the tiny classifier
+    // (no-op unless one is configured; only fires on auto, non-overridden routes).
+    let decision = maybe_refine_with_classifier(&router, &config.ensemble, &prompt, decision).await;
 
     publish_route_event(&bus, &decision);
 
@@ -804,4 +917,128 @@ pub async fn gpu_vram_used_mb() -> Option<u32> {
     .await
     .ok()
     .flatten()
+}
+
+/// Register (or refresh) the tiny Llama-3.2-1B classifier used to refine the
+/// router's ambiguous `TaskType::Other` bucket. Idempotent: upserts a
+/// `llama-classifier` model and points `ensemble.classifier_model_id` at it.
+///
+/// The model is enabled + auto-started **only when the GGUF is actually
+/// present** at `model_path`, so registering against a missing file never
+/// spams launch errors and never adds routing latency (a disabled model is
+/// dropped by `RouterService`, and refinement falls back to keyword routing).
+/// Drop the GGUF and re-run to activate. Defaults: `C:\Models\Llama-3.2-1B-Instruct-Q6_K.gguf`, port 8082.
+#[tauri::command]
+pub async fn llm_classifier_register(
+    model_path: Option<String>,
+    port: Option<u16>,
+) -> Result<serde_json::Value, String> {
+    let path = std::path::PathBuf::from(
+        model_path.unwrap_or_else(|| r"C:\Models\Llama-3.2-1B-Instruct-Q6_K.gguf".to_string()),
+    );
+    let port = port.unwrap_or(8082);
+    let file_present = path.exists();
+
+    let mut cfg = load_config().map_err(|e| format!("config load error: {e}"))?;
+
+    let mut model = ModelConfig::llama_classifier(path.clone(), port);
+    // Inert unless the file exists — registered-but-disabled is a safe no-op.
+    model.enabled = file_present;
+    if let HostingMode::Local { process_config } = &mut model.hosting {
+        process_config.auto_start = file_present;
+    }
+    let model_id = model.id.clone();
+
+    // Upsert by id (idempotent across re-runs).
+    if let Some(existing) = cfg.ensemble.models.iter_mut().find(|m| m.id == model_id) {
+        *existing = model;
+    } else {
+        cfg.ensemble.models.push(model);
+    }
+    cfg.ensemble.classifier_model_id = Some(model_id.clone());
+
+    save_config(&cfg).map_err(|e| format!("config save error: {e}"))?;
+
+    Ok(json!({
+        "registered": true,
+        "model_id": model_id,
+        "port": port,
+        "model_path": path.to_string_lossy(),
+        "file_present": file_present,
+        "active": file_present,
+        "message": if file_present {
+            "Classifier registered and set to auto-start. Other-bucket prompts now refine via the local model."
+        } else {
+            "Classifier registered but DISABLED — GGUF not found at that path. Drop the file there and re-run (or enable it in Settings) to activate."
+        },
+    }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_task_type_exact_tokens() {
+        assert_eq!(parse_task_type("quick_query"), Some(TaskType::QuickQuery));
+        assert_eq!(parse_task_type("debug"), Some(TaskType::Debug));
+        assert_eq!(
+            parse_task_type("architecture"),
+            Some(TaskType::Architecture)
+        );
+    }
+
+    #[test]
+    fn parse_task_type_tolerates_whitespace_and_case() {
+        assert_eq!(parse_task_type("  DEBUG\n"), Some(TaskType::Debug));
+        assert_eq!(parse_task_type("Quick_Query"), Some(TaskType::QuickQuery));
+    }
+
+    #[test]
+    fn parse_task_type_extracts_from_noisy_reply() {
+        assert_eq!(
+            parse_task_type("route: \"code_generation\""),
+            Some(TaskType::CodeGeneration)
+        );
+        assert_eq!(
+            parse_task_type("The task is documentation."),
+            Some(TaskType::Documentation)
+        );
+    }
+
+    #[test]
+    fn parse_task_type_specificity() {
+        // `code_refactoring` must not be swallowed by the `code_generation` arm.
+        assert_eq!(
+            parse_task_type("code_refactoring"),
+            Some(TaskType::CodeRefactoring)
+        );
+        assert_eq!(
+            parse_task_type("large_context_analysis"),
+            Some(TaskType::LargeContextAnalysis)
+        );
+    }
+
+    #[test]
+    fn parse_task_type_unknown_is_none() {
+        assert_eq!(parse_task_type("banana"), None);
+        assert_eq!(parse_task_type(""), None);
+    }
+
+    #[test]
+    fn llama_classifier_factory_shape() {
+        let m = ModelConfig::llama_classifier(std::path::PathBuf::from("C:/Models/x.gguf"), 8082);
+        assert_eq!(m.id, "llama-classifier");
+        assert_eq!(m.provider, ProviderType::LlamaServer);
+        assert_eq!(m.endpoint, "http://127.0.0.1:8082");
+        assert_eq!(m.capabilities.cost_per_1m_input, 0.0);
+        match m.hosting {
+            HostingMode::Local { process_config } => {
+                assert_eq!(process_config.port, 8082);
+                assert_eq!(process_config.n_gpu_layers, 99);
+                assert_eq!(process_config.ctx_size, 2048);
+            }
+            _ => panic!("expected Local hosting"),
+        }
+    }
 }

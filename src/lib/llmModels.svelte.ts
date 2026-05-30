@@ -21,6 +21,7 @@ let models = $state<ModelConfig[]>([]);
 let enabled = $state(false);
 let activeProfile = $state<RoutingProfile>('manual');
 let defaultModel = $state('');
+let classifierModelId = $state<string | null>(null);
 let activeModelId = $state<string | null>(null);
 
 export type ProcessStatus = 'stopped' | 'starting' | 'running' | 'error' | 'offline';
@@ -38,6 +39,7 @@ export function loadFromConfig(ensemble: EnsembleConfig | undefined) {
   enabled = ensemble.enabled ?? false;
   activeProfile = ensemble.active_profile ?? 'manual';
   defaultModel = ensemble.default_model ?? '';
+  classifierModelId = ensemble.classifier_model_id ?? null;
   if (!activeModelId && defaultModel) {
     activeModelId = defaultModel;
   }
@@ -53,6 +55,7 @@ function buildEnsembleConfig(): EnsembleConfig {
     active_profile: activeProfile,
     default_model: defaultModel,
     models,
+    classifier_model_id: classifierModelId,
   };
 }
 
@@ -156,6 +159,7 @@ export const llmModels = {
   get enabled() { return enabled; },
   get activeProfile() { return activeProfile; },
   get defaultModel() { return defaultModel; },
+  get classifierModelId() { return classifierModelId; },
   get activeModelId() { return activeModelId; },
   get processStatus() { return processStatus; },
   get healthLatency() { return healthLatency; },
@@ -170,6 +174,42 @@ export const llmModels = {
 
   setDefaultModel(id: string) {
     defaultModel = id;
+  },
+
+  /** Point the router's `Other`-bucket refiner at a model id (or `null` to
+   *  disable LLM classification). In-memory only — persisted on `save()`. */
+  setClassifier(id: string | null) {
+    classifierModelId = id;
+  },
+
+  /** One-click: register the recommended Llama-3.2-1B classifier via the
+   *  backend command (upserts the model, gates enable/auto-start on the GGUF
+   *  actually being present, sets `classifier_model_id`, persists). Saves
+   *  current edits first so the disk-reading backend sees them, then reloads
+   *  config so the store reflects the upserted model. */
+  async registerClassifier(
+    modelPath?: string,
+    port?: number,
+  ): Promise<{ message: string; file_present: boolean; active: boolean; model_id: string }> {
+    try {
+      await saveEnsemble();
+    } catch (err) {
+      console.warn('[llmModels] save before classifier register failed:', err);
+    }
+    const args = modelPath ? { modelPath, port } : {};
+    const res = await invoke<{
+      message: string;
+      file_present: boolean;
+      active: boolean;
+      model_id: string;
+    }>('llm_classifier_register', args);
+    try {
+      const config = await invoke<import('./riftConfig').RiftConfig>('config_get');
+      loadFromConfig(config.ensemble);
+    } catch (err) {
+      console.warn('[llmModels] reload after classifier register failed:', err);
+    }
+    return res;
   },
 
   setActiveModel(id: string | null) {

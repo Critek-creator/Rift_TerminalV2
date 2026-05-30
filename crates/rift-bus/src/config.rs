@@ -821,6 +821,11 @@ pub struct EnsembleConfig {
     pub default_model: String,
     /// Configured models (cloud APIs, local llama-server, remote endpoints).
     pub models: Vec<ModelConfig>,
+    /// Optional tiny model used to refine `TaskType::Other` classifications
+    /// under auto profiles. Its `id` must match one of `models`. `None` =
+    /// pure keyword routing (fully backward compatible — zero extra latency).
+    #[serde(default)]
+    pub classifier_model_id: Option<String>,
 }
 
 impl Default for EnsembleConfig {
@@ -830,6 +835,7 @@ impl Default for EnsembleConfig {
             active_profile: RoutingProfile::Manual,
             default_model: String::new(),
             models: Vec::new(),
+            classifier_model_id: None,
         }
     }
 }
@@ -884,6 +890,45 @@ pub struct ModelConfig {
 /// Default for [`ModelConfig::enabled`] — models are enabled unless toggled off.
 fn default_enabled() -> bool {
     true
+}
+
+impl ModelConfig {
+    /// Build the recommended tiny task-type classifier — a Llama-3.2-1B GGUF
+    /// served by a dedicated local llama-server on its own port. Used to
+    /// refine the router's ambiguous [`TaskType::Other`](crate) bucket
+    /// (see `EnsembleConfig::classifier_model_id`). Small context, full GPU
+    /// offload, zero cost. The caller decides `enabled` / `auto_start` based
+    /// on whether the GGUF is actually present.
+    pub fn llama_classifier(model_path: std::path::PathBuf, port: u16) -> Self {
+        ModelConfig {
+            id: "llama-classifier".to_string(),
+            display_name: "Llama 3.2 1B (classifier)".to_string(),
+            provider: ProviderType::LlamaServer,
+            model_identifier: "Llama-3.2-1B-Instruct-Q6_K.gguf".to_string(),
+            hosting: HostingMode::Local {
+                process_config: LlamaServerConfig {
+                    model_path,
+                    ctx_size: 2048,
+                    n_gpu_layers: 99,
+                    port,
+                    auto_start: true,
+                    ..LlamaServerConfig::default()
+                },
+            },
+            endpoint: format!("http://127.0.0.1:{port}"),
+            api_key_ref: None,
+            color: "--model-local".to_string(),
+            short_id: "CLS".to_string(),
+            capabilities: ModelCapabilities {
+                cost_per_1m_input: 0.0,
+                cost_per_1m_output: 0.0,
+                max_context_tokens: 2048,
+                supports_streaming: false,
+                ..ModelCapabilities::default()
+            },
+            enabled: true,
+        }
+    }
 }
 
 /// Provider type — determines which LLM translator handles requests.
@@ -1700,6 +1745,7 @@ max_depth = 4
                     strength_tags: vec!["fast".to_string(), "private".to_string()],
                 },
             }],
+            classifier_model_id: None,
         };
         let toml_str = toml::to_string_pretty(&original).expect("serialize");
         let back: EnsembleConfig = toml::from_str(&toml_str).expect("deserialize");

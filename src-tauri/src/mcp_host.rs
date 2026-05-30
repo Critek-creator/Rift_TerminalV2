@@ -1845,6 +1845,16 @@ async fn tool_llm_prompt(bus: &RiftBus, payload: &Value) -> Result<Value, String
         .route(prompt, model_id_override)
         .map_err(|e| format!("{e}"))?;
 
+    // Phase 2: refine the ambiguous `Other` bucket with the tiny classifier
+    // (no-op unless one is configured; only fires on auto, non-overridden routes).
+    let decision = crate::llm_commands::maybe_refine_with_classifier(
+        &router,
+        &config.ensemble,
+        prompt,
+        decision,
+    )
+    .await;
+
     // Publish routing decision
     let mut route_env = Envelope::new(Category::Llm, "llm.route");
     route_env.payload = json!({

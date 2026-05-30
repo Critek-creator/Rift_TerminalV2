@@ -69,6 +69,22 @@ impl RouterService {
         prompt: &str,
         override_model_id: Option<&str>,
     ) -> Result<RoutingDecision, RoutingError> {
+        self.route_with_hint(prompt, override_model_id, None)
+    }
+
+    /// Like [`route`](Self::route) but accepts an optional pre-computed
+    /// `TaskType`. When `Some`, it overrides the internal keyword classifier
+    /// (e.g. a refinement from an LLM classifier the caller ran for the
+    /// ambiguous `Other` bucket); when `None`, behavior is identical to
+    /// `route`. §9 stays intact — the router still makes no external calls;
+    /// the LLM classification happens in the caller/translator layer and is
+    /// passed in here as data.
+    pub fn route_with_hint(
+        &self,
+        prompt: &str,
+        override_model_id: Option<&str>,
+        task_hint: Option<TaskType>,
+    ) -> Result<RoutingDecision, RoutingError> {
         // Phase 2: Parse @model tags from prompt
         let parsed = tags::parse_model_tag(prompt);
         let effective_prompt = &parsed.clean_prompt;
@@ -87,7 +103,7 @@ impl RouterService {
             let was_tag = parsed.model_tag.is_some() && override_model_id.is_none();
             return Ok(RoutingDecision {
                 model_id: model.id.clone(),
-                task_type: classifier::classify(effective_prompt),
+                task_type: task_hint.unwrap_or_else(|| classifier::classify(effective_prompt)),
                 profile: self.config.active_profile.clone(),
                 reason: if was_tag {
                     format!(
@@ -110,7 +126,7 @@ impl RouterService {
                 let model = self.find_model(&self.config.default_model)?;
                 Ok(RoutingDecision {
                     model_id: model.id.clone(),
-                    task_type: classifier::classify(effective_prompt),
+                    task_type: task_hint.unwrap_or_else(|| classifier::classify(effective_prompt)),
                     profile: RoutingProfile::Manual,
                     reason: "manual profile — using default model".to_string(),
                     was_overridden: false,
@@ -118,7 +134,7 @@ impl RouterService {
                 })
             }
             _ => {
-                let task_type = classifier::classify(effective_prompt);
+                let task_type = task_hint.unwrap_or_else(|| classifier::classify(effective_prompt));
 
                 // Filter to available models only
                 let available_models: Vec<&ModelConfig> = self
@@ -312,6 +328,7 @@ mod tests {
                     },
                 },
             ],
+            classifier_model_id: None,
         }
     }
 
@@ -421,5 +438,34 @@ mod tests {
             .route("implement a new feature with lots of code that goes beyond the short prompt threshold", None)
             .unwrap();
         assert!(!decision.fallback_chain.contains(&decision.model_id));
+    }
+
+    #[test]
+    fn route_with_hint_overrides_keyword_classifier() {
+        let mut cfg = test_config();
+        cfg.active_profile = RoutingProfile::Balanced;
+        let svc = RouterService::new(cfg);
+
+        // A long, keyword-less prompt keyword-classifies as `Other` → tag
+        // "code" → the cloud model. This is the exact bucket the LLM
+        // classifier exists to rescue.
+        let long = "x ".repeat(300); // 600 chars, no keywords
+        let baseline = svc.route(&long, None).unwrap();
+        assert_eq!(baseline.task_type, TaskType::Other);
+        assert_eq!(baseline.model_id, "cloud-test");
+
+        // A `QuickQuery` hint flips the same prompt to the local model,
+        // keeping it off the paid API.
+        let hinted = svc
+            .route_with_hint(&long, None, Some(TaskType::QuickQuery))
+            .unwrap();
+        assert_eq!(hinted.task_type, TaskType::QuickQuery);
+        assert_eq!(hinted.model_id, "local-test");
+
+        // A code hint still routes to cloud — the hint is honored, not ignored.
+        let code = svc
+            .route_with_hint(&long, None, Some(TaskType::CodeGeneration))
+            .unwrap();
+        assert_eq!(code.model_id, "cloud-test");
     }
 }

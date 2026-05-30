@@ -191,6 +191,9 @@ export interface EnsembleConfig {
   active_profile: RoutingProfile;
   default_model: string;
   models: ModelConfig[];
+  /** Optional tiny model that refines the router's ambiguous `Other` bucket.
+   *  `null`/absent = keyword routing only. */
+  classifier_model_id?: string | null;
 }
 
 export interface RiftConfig {
