@@ -36,6 +36,20 @@
         "@probelabs/probe@latest",
         "mcp"
       ]
+    },
+    "serena": {
+      "command": "C:/Users/Critek/.local/bin/serena.exe",
+      "args": [
+        "start-mcp-server",
+        "--context",
+        "ide-assistant",
+        "--project",
+        "C:/Users/Critek/Documents/Abyssal_Arts_main/Projects/Rift_TerminalV2",
+        "--enable-web-dashboard",
+        "false",
+        "--enable-gui-log-window",
+        "false"
+      ]
     }
   }
 }
