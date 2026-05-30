@@ -34,8 +34,7 @@
         "npx",
         "-y",
         "@probelabs/probe@latest",
-        "agent",
-        "--mcp"
+        "mcp"
       ]
     }
   }
