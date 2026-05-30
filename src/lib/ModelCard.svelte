@@ -17,6 +17,7 @@
   import type { ModelConfig, ProviderType, KvCacheType, LlamaServerConfig, GgufMeta } from './riftConfig';
   import { llmModels, type ProcessStatus } from './llmModels.svelte';
   import VramEstimator from './VramEstimator.svelte';
+  import { fitToGpu, classifyConfig } from './vramModel';
 
   interface Props {
     model: ModelConfig;
@@ -161,6 +162,76 @@
       /* localStorage unavailable — non-fatal */
     }
   }
+
+  // --- "Fit to my GPU" auto-tuner (candidate #789) -------------------------
+  // The verdict chip is LIVE: it classifies the CURRENT hosting config (incl.
+  // hand edits) against detected VRAM via the same math as the VRAM readout, so
+  // it's always accurate without needing the solver to have run. The button runs
+  // the solver and applies the winning n_gpu_layers / cpu_moe / n_cpu_moe combo
+  // through the existing update('hosting', …) path; ctx_size and KV-quant are
+  // never auto-touched (they encode quality intent — the chip names them when
+  // they're the only remaining lever). `changedFlash` lists what the last click
+  // altered, and clears on the next manual edit.
+  let fitVerdict = $derived(
+    isLocal
+      ? classifyConfig(
+          model.hosting as unknown as LlamaServerConfig,
+          model.model_identifier,
+          ggufMeta,
+          gpuVramGb,
+        )
+      : null,
+  );
+
+  let fitChipColor = $derived(
+    !fitVerdict ? ''
+      : fitVerdict.verdict === 'fits' ? 'var(--term-green)'
+        : fitVerdict.verdict === 'wont-fit' ? 'var(--term-red)'
+          : 'var(--amber-bright)',
+  );
+
+  let changedFlash = $state<string | null>(null);
+  // Set true for the duration of a solver write so the clearing effect below
+  // skips the change the solver itself made (otherwise the "Applied: …" flash
+  // would be wiped the instant it's set).
+  let applyingFit = false;
+
+  function handleFitToGpu() {
+    if (!isLocal) return;
+    const h = model.hosting as unknown as LlamaServerConfig;
+    const res = fitToGpu(h, model.model_identifier, ggufMeta, gpuVramGb);
+    if (res.patch) {
+      const changed: string[] = [];
+      if (res.patch.n_gpu_layers !== h.n_gpu_layers) changed.push(`GPU layers→${res.patch.n_gpu_layers}`);
+      if (res.patch.cpu_moe !== h.cpu_moe) changed.push(`all experts on CPU ${res.patch.cpu_moe ? 'on' : 'off'}`);
+      if ((res.patch.n_cpu_moe ?? null) !== (h.n_cpu_moe ?? null)) {
+        changed.push(res.patch.n_cpu_moe == null ? 'CPU-MoE layers cleared' : `CPU-MoE layers→${res.patch.n_cpu_moe}`);
+      }
+      applyingFit = true;
+      // Spread model.hosting (not the mode-stripped `h`) so the 'local'
+      // discriminant survives — update() expects a full HostingMode.
+      update('hosting', { ...model.hosting, ...res.patch });
+      changedFlash = changed.length ? `Applied: ${changed.join(', ')}` : 'Already optimal — no change';
+    } else {
+      changedFlash = res.message;
+    }
+  }
+
+  // A manual edit to any solver-owned/read knob clears the last "changed" flash
+  // (it described the pre-edit click). The live chip recomputes on its own.
+  // Skips exactly one run after the solver writes, so the solver's own patch
+  // doesn't wipe the flash it just produced.
+  $effect(() => {
+    void (model.hosting as any).n_gpu_layers;
+    void (model.hosting as any).cpu_moe;
+    void (model.hosting as any).n_cpu_moe;
+    void (model.hosting as any).ctx_size;
+    if (applyingFit) {
+      applyingFit = false;
+      return;
+    }
+    changedFlash = null;
+  });
 
   // Start = hot-swap activate: stops other running local servers (frees VRAM
   // on a single GPU), starts this one, and makes it the active route.
@@ -621,6 +692,32 @@
           Auto-restart if it crashes
           <span class="field-hint">Re-launches this server on crash (up to 3 times/min, then stops to avoid loops).</span>
         </label>
+
+        <!-- ─── "Fit to my GPU" auto-tuner (candidate #789) ─── -->
+        <div class="fit-row">
+          <button
+            type="button"
+            class="rift-btn fit-btn"
+            onclick={handleFitToGpu}
+            title="Compute the best GPU-layer / expert-offload split to fit this model in detected VRAM, and apply it"
+          >▣ Fit to my GPU</button>
+          {#if fitVerdict}
+            <span
+              class="fit-chip"
+              style:color={fitChipColor}
+              style:border-color={fitChipColor}
+              title={fitVerdict.message}
+            >
+              {fitVerdict.verdict === 'fits' ? '✓ fits'
+                : fitVerdict.verdict === 'fits-experts-cpu' ? '◐ fits (experts on CPU)'
+                : fitVerdict.verdict === 'fits-partial-layers' ? '◐ fits (partial layers)'
+                : '✕ won’t fit'}
+            </span>
+          {/if}
+        </div>
+        {#if changedFlash}
+          <div class="fit-flash">{changedFlash}</div>
+        {/if}
 
         <VramEstimator
           config={model.hosting as unknown as LlamaServerConfig}
