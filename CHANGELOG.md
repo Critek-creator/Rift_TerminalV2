@@ -6,6 +6,24 @@ loosely [Keep a Changelog](https://keepachangelog.com/), the project follows
 
 ---
 
+## [1.2.1] — 2026-05-30
+
+### Fixed
+
+- **Settings panel no longer closes when resized** — dragging the popout's resize handle ended in a synthesized click that WebView2 targets at the backdrop, dismissing the panel mid-resize. Backdrop dismiss now requires the pointer-down to also start on the backdrop. Fixes every popout (also stops a text-selection drag that releases outside from closing it).
+- **Settings panel sizing** — wider default (960px) so the Models tab no longer clips, plus per-popout resize persistence: a manual resize is remembered across re-opens.
+- **Subscription leaks on fast tab-switch** — Index and Aegis tab panes could leak a bus subscription if unmounted before `subscribe()` resolved; added the mount-race cancelled-flag guard.
+- **Detached cockpit listener leak** — the cockpit window discarded its move/resize unlisten handles, accumulating orphaned Tauri callbacks across detach/reattach cycles.
+- **LLM provider crash hardening** — three provider constructors panicked an async task if the HTTP client failed to build (uncaught by the IPC guard); they now fall back to a default client.
+
+### Added
+
+- **Return-to-dock button on all notification panes** — every promoted pane now has a clickable `↩ dock` button (drag-to-dock is unreliable in WebView2), matching the LLM activity panel.
+
+### Changed
+
+- **macOS auto-update coverage** — the release pipeline now signs and registers the macOS bundle in `latest.json` (`darwin-aarch64`), so Apple-Silicon Mac users receive update notifications.
+
 ## [1.1.0] — 2026-05-26
 
 ### Fixed
