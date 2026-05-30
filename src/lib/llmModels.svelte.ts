@@ -236,24 +236,30 @@ export const llmModels = {
     return stopProcess(id);
   },
 
-  /** Activate a model. For local models, free VRAM by stopping other running
-   *  local servers first, then start this one (a single GPU rarely holds two).
-   *  Cloud models simply become the active route. */
+  /** Activate a model. Frees the GPU by stopping every OTHER running local
+   *  server first (a single GPU rarely holds two), then — only if the target
+   *  is itself local — starts it. Activating a CLOUD model also stops running
+   *  local servers: routing away from local should release its VRAM, and it
+   *  keeps the store's process state honest. (Previously the stop loop ran
+   *  only for local targets, so swapping to cloud left the local server up;
+   *  swapping back then tried to start an already-bound port and failed.) */
   async activateModel(id: string): Promise<void> {
     const model = models.find((m) => m.id === id);
     if (!model) return;
+    // Stop every running local server except the target. Use backend truth so a
+    // server the store didn't track can't get stacked on top. Runs for cloud
+    // targets too — for a cloud target nothing matches `id`, so all local
+    // servers stop and the GPU is freed.
+    let running: string[] = [];
+    try {
+      running = await invoke<string[]>('llm_models_running');
+    } catch {
+      running = models.filter((m) => processStatus[m.id] === 'running').map((m) => m.id);
+    }
+    for (const rid of running) {
+      if (rid !== id) await stopProcess(rid).catch(() => { /* best effort */ });
+    }
     if (model.hosting.mode === 'local') {
-      // Stop every other running local server first (free VRAM). Use backend
-      // truth so a server the store didn't track can't get stacked on top.
-      let running: string[] = [];
-      try {
-        running = await invoke<string[]>('llm_models_running');
-      } catch {
-        running = models.filter((m) => processStatus[m.id] === 'running').map((m) => m.id);
-      }
-      for (const rid of running) {
-        if (rid !== id) await stopProcess(rid).catch(() => { /* best effort */ });
-      }
       await startProcess(id);
     }
     activeModelId = id;

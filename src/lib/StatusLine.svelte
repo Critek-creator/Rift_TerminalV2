@@ -39,6 +39,8 @@
     sessionUse?: string;
     week?: string;
     visibility?: StatusLineConfig;
+    /** Open the command palette pre-filtered to model switching (hot-swap). */
+    onmodelswap?: () => void;
   }
 
   let {
@@ -54,6 +56,7 @@
     sessionUse = '—',
     week = '—',
     visibility,
+    onmodelswap,
   }: Props = $props();
 
   const show = $derived({
@@ -89,6 +92,15 @@
       <div class="seg model" style:background={override('model')}>
         <span class="label">MODEL</span><span class="value">{model}</span>
         <ModelIndicator />
+        {#if onmodelswap}
+          <button
+            type="button"
+            class="swap-btn"
+            onclick={onmodelswap}
+            title="Switch / hot-swap model (Ctrl+Shift+M)"
+            aria-label="Switch model"
+          >⇄ swap</button>
+        {/if}
       </div>
     {/if}
     {#if show.thinking}
@@ -205,6 +217,31 @@
 
   /* CYAN — model identity + thinking */
   .model    { background: var(--status-cyan-bright); }
+
+  /* Hot-swap affordance inside the MODEL segment — dark text on the cyan
+     block, matching the segment's inverted color scheme. */
+  .swap-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    margin-left: 4px;
+    padding: 1px 5px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: var(--text-2xs);
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    color: rgba(0, 0, 0, 0.78);
+    background: rgba(0, 0, 0, 0.12);
+    border: 1px solid rgba(0, 0, 0, 0.28);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: background var(--duration-fast) var(--ease-out);
+  }
+  .swap-btn:hover { background: rgba(0, 0, 0, 0.22); }
+  .swap-btn:focus-visible {
+    outline: 2px solid rgba(0, 0, 0, 0.5);
+    outline-offset: 1px;
+  }
   .thinking { background: var(--status-cyan-dim); }
 
   /* BLUE family — usage metrics */

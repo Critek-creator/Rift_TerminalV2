@@ -1055,6 +1055,7 @@
     sessionUse={statusSessionUse || '—'}
     week={statusWeek || '—'}
     visibility={statuslineConfig}
+    onmodelswap={() => { paletteInitialQuery = 'model'; paletteOpen = true; }}
   />
 
   <!-- Phase 3.5b — pop-out stack (§10.5). Renders one overlay per entry
