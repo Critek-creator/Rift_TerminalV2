@@ -28,6 +28,14 @@
   const routeCount = $derived(entries.filter((e) => e.kind === 'llm.route').length);
   const requestCount = $derived(entries.filter((e) => e.kind === 'llm.request').length);
 
+  // Grunt-tier savings ledger (candidate 598).
+  const ledgerTotal = $derived(llmRouting.localRequests + llmRouting.cloudRequests);
+  const savingsRefName = $derived.by(() => {
+    const id = llmRouting.savingsRefModelId;
+    if (!id) return null;
+    return llmModels.getModel(id)?.display_name ?? id;
+  });
+
   function handleEnvelope(env: Envelope) {
     if (!shouldShow(env.kind, severityThreshold)) return;
     entries = [...entries, env];
@@ -172,6 +180,38 @@
       </div>
     {/each}
   </div>
+
+  <!-- Grunt-tier savings ledger — local (grunt) vs cloud routing -->
+  {#if ledgerTotal > 0}
+  <div class="ledger">
+    <div class="ledger-head">GRUNT-TIER LEDGER</div>
+    <div class="ledger-grid">
+      <div class="ledger-cell local">
+        <span class="cell-label">LOCAL</span>
+        <span class="cell-val">{llmRouting.localRequests} req</span>
+        <span class="cell-sub">{llmRouting.formatTokens(llmRouting.localTokensIn + llmRouting.localTokensOut)} tok</span>
+      </div>
+      <div class="ledger-cell cloud">
+        <span class="cell-label">CLOUD</span>
+        <span class="cell-val">{llmRouting.cloudRequests} req · {llmRouting.formatCost(llmRouting.cloudSpendUsd)}</span>
+        <span class="cell-sub">{llmRouting.formatTokens(llmRouting.cloudTokensIn + llmRouting.cloudTokensOut)} tok</span>
+      </div>
+      <div class="ledger-cell savings">
+        <span class="cell-label">SAVED</span>
+        <span class="cell-val">{savingsRefName ? llmRouting.formatCost(llmRouting.savingsUsd) : 'n/a'}</span>
+        <span class="cell-sub">{savingsRefName ? `vs ${savingsRefName}` : 'set a cloud model price'}</span>
+      </div>
+    </div>
+    <div
+      class="ledger-bar"
+      role="img"
+      aria-label="{Math.round(llmRouting.localShare * 100)}% of requests served locally"
+      title="{Math.round(llmRouting.localShare * 100)}% local / {llmRouting.localRequests} of {ledgerTotal}"
+    >
+      <div class="bar-local" style="width: {llmRouting.localShare * 100}%"></div>
+    </div>
+  </div>
+  {/if}
 
   <!-- §10.8 Section 4 — Persistent panel (model status overview) -->
   <div class="persistent-panel">
@@ -365,5 +405,73 @@
     color: var(--term-red);
     font-weight: 700;
     margin-left: var(--space-xs);
+  }
+
+  /* Grunt-tier savings ledger (candidate 598) */
+  .ledger {
+    flex-shrink: 0;
+    padding: var(--space-sm);
+    border-top: 1px solid var(--border-subtle);
+    background: var(--bg-panel, rgba(212, 137, 10, 0.03));
+  }
+  .ledger-head {
+    font-size: var(--text-2xs);
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    color: var(--amber-faint);
+    margin-bottom: var(--space-xs);
+  }
+  .ledger-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: var(--space-sm);
+  }
+  .ledger-cell {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    padding: var(--space-xs) var(--space-sm);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+    border-left-width: 2px;
+    min-width: 0;
+  }
+  .ledger-cell.local   { border-left-color: var(--term-purple); }
+  .ledger-cell.cloud   { border-left-color: var(--term-blue, #6CB6FF); }
+  .ledger-cell.savings { border-left-color: var(--term-green); }
+  .cell-label {
+    font-size: var(--text-2xs);
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    color: var(--amber-faint);
+  }
+  .cell-val {
+    font-size: var(--text-sm);
+    font-weight: 600;
+    color: var(--term-white);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .ledger-cell.savings .cell-val { color: var(--term-green); }
+  .cell-sub {
+    font-size: var(--text-2xs);
+    color: var(--amber-dim);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .ledger-bar {
+    margin-top: var(--space-sm);
+    height: 6px;
+    border-radius: var(--radius-sm);
+    background: var(--term-blue, #6CB6FF);
+    overflow: hidden;
+  }
+  .bar-local {
+    height: 100%;
+    background: var(--term-purple);
+    transition: width var(--duration-base) ease-out;
   }
 </style>

@@ -4,6 +4,7 @@
 // metadata. Subscribes to Category::Llm bus events.
 
 import type { RoutingProfile } from './riftConfig';
+import { llmModels } from './llmModels.svelte';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -39,7 +40,66 @@ let recentRoutes = $state<RoutingEvent[]>([]);
 let costByModel = $state<Record<string, number>>({});
 let escalationCount = $state(0);
 
+// Grunt-tier savings ledger (candidate 598) — local (grunt) vs cloud routing.
+// Local responses cost ~$0; the savings figure is the counterfactual: what the
+// same token volume WOULD have cost on the reference cloud model the user is
+// configured to use. Cloud spend is the actual reported cost.
+let localRequests = $state(0);
+let cloudRequests = $state(0);
+let localTokensIn = $state(0);
+let localTokensOut = $state(0);
+let cloudTokensIn = $state(0);
+let cloudTokensOut = $state(0);
+let cloudSpendUsd = $state(0);
+let savingsUsd = $state(0);
+let savingsRefModelId = $state<string | null>(null);
+
 const MAX_RECENT = 50;
+
+// ---------------------------------------------------------------------------
+// Hosting classification + counterfactual reference rate
+// ---------------------------------------------------------------------------
+
+/** Classify a model id as local (grunt) or cloud. Local AND remote
+ *  (self-hosted) count as local — neither incurs per-token cloud cost. Unknown
+ *  ids are treated as cloud so an unrecognized model never inflates savings. */
+function hostingOf(modelId: string): 'local' | 'cloud' {
+  const m = llmModels.getModel(modelId);
+  if (!m) return 'cloud';
+  return m.hosting.mode === 'cloud' ? 'cloud' : 'local';
+}
+
+/** The cloud model whose rate stands in for "what you'd have paid". Prefers the
+ *  configured default model when it is cloud with a real rate; otherwise the
+ *  highest-output-cost configured cloud model (the realistic escalation
+ *  target). Returns null when no cloud model carries a price — savings can't be
+ *  estimated without one. */
+function referenceCloudRate(): { modelId: string; input: number; output: number } | null {
+  const priced = (c: { cost_per_1m_input: number; cost_per_1m_output: number }) =>
+    c.cost_per_1m_input > 0 || c.cost_per_1m_output > 0;
+
+  const def = llmModels.getModel(llmModels.defaultModel ?? '');
+  if (def && def.hosting.mode === 'cloud' && priced(def.capabilities)) {
+    return {
+      modelId: def.id,
+      input: def.capabilities.cost_per_1m_input,
+      output: def.capabilities.cost_per_1m_output,
+    };
+  }
+
+  const clouds = llmModels.models.filter(
+    (m) => m.hosting.mode === 'cloud' && priced(m.capabilities),
+  );
+  if (clouds.length === 0) return null;
+  const top = clouds.reduce((a, b) =>
+    b.capabilities.cost_per_1m_output > a.capabilities.cost_per_1m_output ? b : a,
+  );
+  return {
+    modelId: top.id,
+    input: top.capabilities.cost_per_1m_input,
+    output: top.capabilities.cost_per_1m_output,
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Bus event handlers
@@ -75,6 +135,23 @@ export function handleResponseEvent(payload: Record<string, unknown>) {
       ...costByModel,
       [modelId]: (costByModel[modelId] ?? 0) + cost,
     };
+
+    // Ledger: split by hosting and accrue counterfactual savings for local runs.
+    if (hostingOf(modelId) === 'local') {
+      localRequests++;
+      localTokensIn += tokIn;
+      localTokensOut += tokOut;
+      const ref = referenceCloudRate();
+      if (ref) {
+        savingsUsd += (tokIn / 1_000_000) * ref.input + (tokOut / 1_000_000) * ref.output;
+        savingsRefModelId = ref.modelId;
+      }
+    } else {
+      cloudRequests++;
+      cloudTokensIn += tokIn;
+      cloudTokensOut += tokOut;
+      cloudSpendUsd += cost;
+    }
   }
 
   if (wasEscalated) {
@@ -91,6 +168,15 @@ export function resetSession() {
   recentRoutes = [];
   costByModel = {};
   escalationCount = 0;
+  localRequests = 0;
+  cloudRequests = 0;
+  localTokensIn = 0;
+  localTokensOut = 0;
+  cloudTokensIn = 0;
+  cloudTokensOut = 0;
+  cloudSpendUsd = 0;
+  savingsUsd = 0;
+  savingsRefModelId = null;
 }
 
 // ---------------------------------------------------------------------------
@@ -106,6 +192,24 @@ export const llmRouting = {
   get recentRoutes() { return recentRoutes; },
   get costByModel() { return costByModel; },
   get escalationCount() { return escalationCount; },
+
+  // Grunt-tier savings ledger (candidate 598).
+  get localRequests() { return localRequests; },
+  get cloudRequests() { return cloudRequests; },
+  get localTokensIn() { return localTokensIn; },
+  get localTokensOut() { return localTokensOut; },
+  get cloudTokensIn() { return cloudTokensIn; },
+  get cloudTokensOut() { return cloudTokensOut; },
+  get cloudSpendUsd() { return cloudSpendUsd; },
+  /** Counterfactual savings from routing locally instead of to the reference
+   *  cloud model. `null` ref id means no priced cloud model is configured. */
+  get savingsUsd() { return savingsUsd; },
+  get savingsRefModelId() { return savingsRefModelId; },
+  /** Fraction of accounted requests served locally (0..1). */
+  get localShare() {
+    const total = localRequests + cloudRequests;
+    return total === 0 ? 0 : localRequests / total;
+  },
 
   formatCost(usd: number): string {
     if (usd === 0) return '$0';
