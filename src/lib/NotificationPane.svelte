@@ -19,6 +19,8 @@
   import { subscribe, type Category, type Envelope } from './bus';
   import { NOTIF_TAB_MIME } from './dragMime';
   import { shouldShow, kindToSeverity, type SeverityLevel } from './notifFilter';
+  import { clusterEvents, type EventCluster, type SourceLocation } from './errorClustering';
+  import { popouts } from './popouts.svelte';
 
   interface Props {
     title: string;
@@ -44,12 +46,23 @@
   let paused = $state(false);
   let unsubscribe: (() => Promise<void>) | undefined;
 
+  // Candidate 0ec — cluster the recent log by structural signature so a
+  // repeating error reads as one row + occurrence count instead of a
+  // scrolling wall of near-identical lines. Opt-in per pane (off by
+  // default so other tabs are unchanged); the Errors tab is the primary
+  // user of this toggle.
+  let grouped = $state(false);
+  let expandedClusters = $state<Set<string>>(new Set());
+
   // Derived sections
   const liveEvents = $derived.by(() => {
     const cutoff = lastTickTs - LIVE_ACTIVITY_WINDOW_MS;
     return events.filter((e) => e.ts >= cutoff);
   });
   const recentEvents = $derived(events.slice(-RECENT_LOG_LIMIT).reverse());
+  // Cluster over the full buffered window (not just the last 100) so the
+  // count reflects every folded duplicate; recomputed only while grouped.
+  const clusters = $derived.by<EventCluster[]>(() => (grouped ? clusterEvents(events) : []));
   const totalCount = $derived(events.length);
   const lastSeenLabel = $derived.by(() => {
     if (events.length === 0) return '—';
@@ -151,10 +164,37 @@
     expandedRows = next;
   }
 
+  function toggleCluster(key: string): void {
+    const next = new Set(expandedClusters);
+    if (next.has(key)) next.delete(key);
+    else next.add(key);
+    expandedClusters = next;
+  }
+
+  /** Time-context label for a cluster header — a single timestamp for a
+   *  lone event, or the span over which the duplicates arrived. */
+  function clusterRangeLabel(c: EventCluster): string {
+    if (c.count <= 1) return formatTs(c.lastTs);
+    const spanMs = Math.max(0, c.lastTs - c.firstTs);
+    if (spanMs < 1000) return `${formatTs(c.lastTs)} · burst`;
+    if (spanMs < 60_000) return `over ${Math.round(spanMs / 1000)}s`;
+    if (spanMs < 3_600_000) return `over ${Math.round(spanMs / 60_000)}m`;
+    return `over ${Math.round(spanMs / 3_600_000)}h`;
+  }
+
+  /** Jump-to-source — open the parsed file in the Viewer popout. The Viewer
+   *  does not accept a line param yet (same limitation TodoTabContent notes),
+   *  so we open the file by path; the line is shown in the label for
+   *  reference and follows when Viewer gains line-jump support. */
+  function openLocation(loc: SourceLocation): void {
+    popouts.summon({ content: { kind: 'viewer', path: loc.file } });
+  }
+
   function clearEvents(): void {
     events = [];
     kindHistogram = {};
     expandedRows = new Set();
+    expandedClusters = new Set();
   }
 
   function kindColor(kind: string): string {
@@ -218,13 +258,24 @@
     <span class="title"><span class="icon">{icon}</span>{title.toUpperCase()}</span>
     <span class="state">
       {#if categoryFilter}
-        {totalCount} event{totalCount === 1 ? '' : 's'} · last {lastSeenLabel}
+        {#if grouped}
+          {clusters.length} group{clusters.length === 1 ? '' : 's'} · {totalCount} event{totalCount === 1 ? '' : 's'}
+        {:else}
+          {totalCount} event{totalCount === 1 ? '' : 's'} · last {lastSeenLabel}
+        {/if}
       {:else}
         idle · 0 events
       {/if}
     </span>
     <span class="spacer"></span>
     {#if categoryFilter}
+      <button type="button"
+        class="ctrl-btn"
+        class:active={grouped}
+        onclick={() => (grouped = !grouped)}
+        title={grouped ? 'ungroup — show every event' : 'group similar events'}
+        aria-label={grouped ? 'Ungroup events' : 'Group similar events'}
+      >⧉</button>
       <button type="button"
         class="ctrl-btn"
         class:active={!paused}
@@ -271,6 +322,51 @@
           <span class="empty-state-text">Subscribed to {categoryFilter}</span>
           <span class="empty-state-hint">no events received yet — they will stream in as activity occurs</span>
         </div>
+      {:else if grouped}
+        {#each clusters as c (c.key)}
+          {@const isOpen = expandedClusters.has(c.key)}
+          <div
+            class="cluster"
+            class:expanded={isOpen}
+            role="button"
+            tabindex="0"
+            onclick={() => toggleCluster(c.key)}
+            onkeydown={(ev) => {
+              if (ev.key === 'Enter' || ev.key === ' ') {
+                ev.preventDefault();
+                toggleCluster(c.key);
+              }
+            }}
+            aria-expanded={isOpen}
+            title="{c.count} occurrence{c.count === 1 ? '' : 's'} — click to {isOpen ? 'collapse' : 'expand'}"
+          >
+            <span class="caret" style="color: {severityColor(c.kind)}">{isOpen ? '▼' : '▶'}</span>
+            <span class="cluster-count" class:multi={c.count > 1}>×{c.count}</span>
+            <span class="kind" style="color: {kindColor(c.kind)}">{c.kind}</span>
+            <span class="cluster-sample">{c.sample}</span>
+            <span class="cluster-range">{clusterRangeLabel(c)}</span>
+            {#if c.location}
+              <button
+                type="button"
+                class="cluster-jump"
+                onclick={(ev) => { ev.stopPropagation(); openLocation(c.location!); }}
+                title="open {c.location.file} (line {c.location.line})"
+                aria-label="Open {c.location.file} at line {c.location.line}"
+              >↗ {c.location.file.split(/[\\/]/).pop()}:{c.location.line}</button>
+            {/if}
+            {#if isOpen}
+              <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+              <div class="cluster-instances" onclick={(ev) => ev.stopPropagation()} onkeydown={(ev) => ev.stopPropagation()} role="list">
+                {#each c.instances.slice().reverse() as inst, j (inst.ts + ':' + j)}
+                  <div class="cluster-inst" role="listitem">
+                    <span class="ts">{formatTs(inst.ts)}</span>
+                    <span class="inst-payload">{formatPayload(inst.payload)}</span>
+                  </div>
+                {/each}
+              </div>
+            {/if}
+          </div>
+        {/each}
       {:else}
         {#each recentEvents as e, i (e.ts + ':' + e.kind + ':' + i)}
           {@const rowKey = e.ts + ':' + e.kind + ':' + i}
@@ -617,6 +713,107 @@
   }
   .log-body .payload-expanded::-webkit-scrollbar { width: 5px; }
   .log-body .payload-expanded::-webkit-scrollbar-thumb { background: var(--amber-faint); border-radius: var(--radius-sm); }
+
+  /* Candidate 0ec — clustered event rows (group toggle on). One row per
+     structural signature; ×N count badge; expandable to raw instances. */
+  .log-body .cluster {
+    display: grid;
+    grid-template-columns: 14px auto 140px minmax(0, 1fr) auto;
+    gap: var(--space-md);
+    align-items: baseline;
+    padding: var(--space-xs) var(--space-sm);
+    cursor: pointer;
+    user-select: none;
+    border-left: 2px solid transparent;
+    border-radius: var(--radius-md, 4px);
+    transition: background var(--duration-base), border-color var(--duration-base);
+  }
+  .log-body .cluster:hover {
+    background: rgba(212, 137, 10, 0.06);
+    border-left-color: var(--accent, var(--amber-primary));
+  }
+  .log-body .cluster.expanded {
+    background: var(--accent-bg, rgba(212, 137, 10, 0.05));
+    border-left-color: var(--accent, var(--amber-primary));
+  }
+  .log-body .cluster:focus-visible {
+    outline: 1px solid var(--amber-warm);
+    outline-offset: -2px;
+  }
+  .cluster-count {
+    font-variant-numeric: tabular-nums;
+    font-weight: 700;
+    font-size: var(--text-xs);
+    color: var(--amber-faint);
+    padding: 0 var(--space-sm);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+    line-height: 1.5;
+    white-space: nowrap;
+    text-align: center;
+  }
+  .cluster-count.multi {
+    color: var(--bg-base);
+    background: var(--amber-primary);
+    border-color: var(--amber-primary);
+  }
+  .cluster-sample {
+    color: var(--amber-dim);
+    font-size: var(--text-xs);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+  }
+  .cluster-range {
+    color: var(--amber-faint);
+    font-size: var(--text-2xs);
+    font-style: italic;
+    white-space: nowrap;
+    justify-self: end;
+  }
+  .cluster-jump {
+    grid-column: 1 / -1;
+    justify-self: start;
+    margin: 2px 0 0 22px;
+    background: transparent;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+    color: var(--term-cyan);
+    font-family: var(--font-family);
+    font-size: var(--text-2xs);
+    padding: 1px var(--space-sm);
+    cursor: pointer;
+    transition: color var(--duration-base), border-color var(--duration-base), background var(--duration-base);
+  }
+  .cluster-jump:hover {
+    color: var(--bg-base);
+    background: var(--term-cyan);
+    border-color: var(--term-cyan);
+  }
+  .cluster-jump:focus-visible { outline: 1px solid var(--term-cyan); outline-offset: 1px; }
+  .cluster-instances {
+    grid-column: 1 / -1;
+    margin: var(--space-sm) 0 var(--space-xs) 22px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    border-left: 1px solid var(--border-subtle);
+    padding-left: var(--space-md);
+    cursor: default;
+  }
+  .cluster-inst {
+    display: grid;
+    grid-template-columns: 70px minmax(0, 1fr);
+    gap: var(--space-md);
+    font-size: var(--text-2xs);
+    align-items: baseline;
+  }
+  .cluster-inst .ts { color: var(--amber-faint); font-variant-numeric: tabular-nums; }
+  .cluster-inst .inst-payload {
+    color: var(--amber-dim);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
+  }
 
   .state-panel {
     flex-shrink: 0;
