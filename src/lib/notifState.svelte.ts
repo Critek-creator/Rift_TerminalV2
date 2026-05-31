@@ -7,7 +7,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import type { NotifTab } from './TabBar.svelte';
 import { publish, type Category } from './bus';
-import { parseSeverity, type SeverityLevel } from './notifFilter';
+import { parseSeverity, floorAtWarn, type SeverityLevel } from './notifFilter';
 import type { RiftConfig as RiftConfigType } from './riftConfig';
 import { sectionCatalog, NOTIF_GROUPS, type GroupDescriptor } from './sectionCatalog.svelte';
 import { popouts } from './popouts.svelte';
@@ -97,8 +97,15 @@ const groupedNotifs = $derived.by((): NotifGroupState[] => {
 // ---------------------------------------------------------------------------
 
 function thresholdFor(tabId: string): SeverityLevel {
-  if (tabId in notifFilterPerTab) return notifFilterPerTab[tabId];
+  // Errors tab is fed by the whole `system` category; floor it at warn so
+  // info-level system events (health/project snapshots, notif.window.state)
+  // never surface as "errors" — even when the user picks a lower per-tab
+  // threshold or the default is `info`. See floorAtWarn in notifFilter.ts.
+  if (tabId in notifFilterPerTab) {
+    return tabId === 'errors' ? floorAtWarn(notifFilterPerTab[tabId]) : notifFilterPerTab[tabId];
+  }
   if (tabId === 'bustail') return 'debug';
+  if (tabId === 'errors') return 'warn';
   return notifFilterDefault;
 }
 

@@ -161,7 +161,7 @@
   <!-- §10.8 Section 2 — Live activity strip -->
   {#if liveEntries.length > 0}
   <div class="live-strip">
-    {#each liveEntries as env}
+    {#each liveEntries as env, i (env.ts + ':' + env.kind + ':' + i)}
       <span class="live-dot" style="background: {kindColor(env.kind)}" title={env.kind}></span>
     {/each}
   </div>
@@ -172,7 +172,7 @@
     {#if recentEntries.length === 0}
       <div class="empty">No LLM events yet. Configure a model in Settings → Models.</div>
     {/if}
-    {#each recentEntries as env}
+    {#each recentEntries as env, i (env.ts + ':' + env.kind + ':' + i)}
       <div class="log-entry">
         <span class="ts">{formatTs(env.ts)}</span>
         <span class="kind-badge" style="border-color: {kindColor(env.kind)}; color: {kindColor(env.kind)}">{kindLabel(env.kind)}</span>
@@ -222,7 +222,7 @@
     {#if llmModels.models.length === 0}
       <div class="empty">No models configured.</div>
     {:else}
-      {#each llmModels.models as m}
+      {#each llmModels.models as m (m.id)}
         <div class="model-status-row">
           <span class="status-dot" style="background: {llmModels.modelStatusColor(m.id)}"></span>
           <span class="model-sid">{m.short_id || '???'}</span>

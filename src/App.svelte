@@ -44,6 +44,7 @@
   import { notifPriority } from './lib/notifPriority.svelte';
   import { sessionManager as sm } from './lib/sessionManager.svelte';
   import { notifManager as nm } from './lib/notifState.svelte';
+  import { shouldShow } from './lib/notifFilter';
   import { llmModels, loadFromConfig as loadLlmFromConfig } from './lib/llmModels.svelte';
 
   // ----- session state (extracted to sessionManager.svelte.ts) -----
@@ -246,6 +247,14 @@
           const target = nm.notifs.find((n) => n.id === id);
           if (!target) return;
           const inView = nm.promoted === id;
+          // H-1 fix (notif-filter audit 2026-05-31): gate the unread *count* by
+          // the tab's severity threshold so the badge agrees with the filtered
+          // events list (which already calls shouldShow). Detection (§10.7) and
+          // the live-border pulse stay severity-independent — a tab still
+          // appears and pulses for any activity; only the count honors the
+          // threshold. `bustail` resolves to a 'debug' threshold so it is
+          // unaffected (counts everything, matching its firehose role).
+          const passesFilter = shouldShow(env.kind, nm.thresholdFor(id));
           // Once a tab hits UNREAD_CAP, further increments are clamped away
           // anyway — skip accumulation to avoid unnecessary flush cycles.
           if (target.detected && !inView && target.unreadCount >= UNREAD_CAP) {
@@ -254,7 +263,7 @@
             if (existing) { existing.lastActivityTs = now; }
             else { _pendingBadges.set(id, { lastActivityTs: now, unreadDelta: 0 }); }
           } else {
-            const delta = (target.enabled && !inView) ? 1 : 0;
+            const delta = (target.enabled && !inView && passesFilter) ? 1 : 0;
             const existing = _pendingBadges.get(id);
             if (existing) {
               existing.lastActivityTs = now;

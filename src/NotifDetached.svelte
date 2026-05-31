@@ -17,6 +17,8 @@
   import HealthTabContent from './lib/HealthTabContent.svelte';
   import IntegrationInspector from './lib/IntegrationInspector.svelte';
   import FeaturePipelineTabContent from './lib/FeaturePipelineTabContent.svelte';
+  import LlmActivityTabContent from './lib/LlmActivityTabContent.svelte';
+  import CommandIntelligencePanel from './lib/CommandIntelligencePanel.svelte';
   import { signalBusReady, type Category } from './lib/bus';
   import { parseSeverity, type SeverityLevel } from './lib/notifFilter';
 
@@ -228,8 +230,12 @@
           <SentinelTabContent {severityThreshold} />
         {:else if config.tabId === 'health'}
           <HealthTabContent {severityThreshold} />
+        {:else if config.tabId === 'llm-activity'}
+          <LlmActivityTabContent {severityThreshold} />
         {:else if config.tabId === 'sessions'}
           <SessionsTabContent />
+        {:else if config.tabId === 'cmd-intelligence'}
+          <CommandIntelligencePanel />
         {:else if config.tabId === 'integrations'}
           <IntegrationInspector />
         {:else if config.tabId === 'feature-pipeline'}

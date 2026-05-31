@@ -517,7 +517,7 @@
             <div class="empty-desc">The session file may be empty or corrupted.</div>
           </div>
         {:else}
-          {#each events as e, i (i)}
+          {#each events as e, i (e.ts + ':' + i)}
             {@const isExpanded = expandedRows.has(i)}
             <button
               type="button"

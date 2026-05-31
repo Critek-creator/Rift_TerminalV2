@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { kindToSeverity, shouldShow, parseSeverity } from '../notifFilter';
+import { kindToSeverity, shouldShow, parseSeverity, floorAtWarn } from '../notifFilter';
 
 // Unit tests for notifFilter.ts — severity derivation from kind strings,
 // threshold gating, and parseSeverity edge cases.
@@ -37,6 +37,27 @@ describe('kindToSeverity', () => {
     expect(kindToSeverity('Warning')).toBe('warn');
     expect(kindToSeverity('DEBUG')).toBe('debug');
   });
+
+  // notif-filter audit 2026-05-31: domain-noun kinds emitted by real
+  // translators that previously fell through to `info` and got hidden at
+  // raised thresholds.
+  it('classifies real crash/fatal kinds as error', () => {
+    expect(kindToSeverity('llm.process.crash')).toBe('error');
+    expect(kindToSeverity('worker.fatal')).toBe('error');
+  });
+
+  it('classifies violation/deny kinds as warn', () => {
+    expect(kindToSeverity('sentinel.violation')).toBe('warn');
+    expect(kindToSeverity('mcp.handshake.deny')).toBe('warn');
+    expect(kindToSeverity('access.denied')).toBe('warn');
+  });
+
+  it('leaves genuinely-info kinds unaffected by the new matches', () => {
+    expect(kindToSeverity('command.submitted')).toBe('info');
+    expect(kindToSeverity('fs.create')).toBe('info');
+    expect(kindToSeverity('health.portfolio')).toBe('info');
+    expect(kindToSeverity('llm.process.start')).toBe('info');
+  });
 });
 
 describe('shouldShow', () => {
@@ -62,6 +83,36 @@ describe('shouldShow', () => {
     expect(shouldShow('warn.disk', 'error')).toBe(false);
     expect(shouldShow('info.heartbeat', 'error')).toBe(false);
     expect(shouldShow('error.crash', 'error')).toBe(true);
+  });
+
+  // Regression guard for the audit fix: these kinds must survive a raised
+  // threshold instead of being silently filtered out as `info`.
+  it('keeps crash/violation/deny visible at raised thresholds', () => {
+    expect(shouldShow('llm.process.crash', 'error')).toBe(true);
+    expect(shouldShow('sentinel.violation', 'warn')).toBe(true);
+    expect(shouldShow('mcp.handshake.deny', 'warn')).toBe(true);
+    // violation is warn-tier, so an error-only threshold still suppresses it.
+    expect(shouldShow('sentinel.violation', 'error')).toBe(false);
+  });
+});
+
+describe('floorAtWarn', () => {
+  it('raises debug/info up to warn', () => {
+    expect(floorAtWarn('debug')).toBe('warn');
+    expect(floorAtWarn('info')).toBe('warn');
+  });
+
+  it('leaves warn/error unchanged', () => {
+    expect(floorAtWarn('warn')).toBe('warn');
+    expect(floorAtWarn('error')).toBe('error');
+  });
+
+  it('keeps system noise out of an errors tab floored at warn', () => {
+    // health.portfolio / project.changed are info → suppressed at the warn floor
+    expect(shouldShow('health.portfolio', floorAtWarn('info'))).toBe(false);
+    expect(shouldShow('project.changed', floorAtWarn('info'))).toBe(false);
+    // genuine system errors still pass
+    expect(shouldShow('error', floorAtWarn('info'))).toBe(true);
   });
 });
 
