@@ -25,6 +25,7 @@
   import { shouldShow, kindToSeverity, type SeverityLevel } from './notifFilter';
   import { HeatstripBuffer } from './HeatstripBuffer';
   import HeatstripTimeline from './HeatstripTimeline.svelte';
+  import AgentGantt from './AgentGantt.svelte';
 
   interface Props {
     severityThreshold?: SeverityLevel;
@@ -81,6 +82,28 @@
   const runningCount = $derived(runningAgents.length);
   const archiveCount = $derived(archive.length);
   const integrationDetected = $derived(totalEvents > 0);
+
+  // Parallel agent run timeline (candidate 7d8). A flattened run list — live
+  // agents as open bars, archived agents as closed bars — feeds the gantt,
+  // oldest-start first so concurrent lifespans stack readably.
+  let agentView = $state<'list' | 'timeline'>('list');
+  const ganttRuns = $derived.by(() => {
+    const live = Object.values(agents).map((a) => ({
+      id: a.id,
+      name: a.name,
+      status: a.status,
+      startedTs: a.startedTs,
+      endTs: null as number | null,
+    }));
+    const done = archive.map((a) => ({
+      id: a.id,
+      name: a.name,
+      status: a.status,
+      startedTs: a.startedTs,
+      endTs: a.lastActivityTs as number | null,
+    }));
+    return [...live, ...done].sort((x, y) => x.startedTs - y.startedTs);
+  });
 
   function handleEnvelope(env: Envelope) {
     if (!shouldShow(env.kind, severityThreshold)) return;
@@ -304,6 +327,25 @@
         no agent envelopes received yet
       {/if}
     </span>
+    {#if integrationDetected}
+      <span class="spacer"></span>
+      <div class="view-toggle" role="group" aria-label="Agents view">
+        <button
+          type="button"
+          class="view-btn"
+          class:active={agentView === 'list'}
+          aria-pressed={agentView === 'list'}
+          onclick={() => (agentView = 'list')}
+        >list</button>
+        <button
+          type="button"
+          class="view-btn"
+          class:active={agentView === 'timeline'}
+          aria-pressed={agentView === 'timeline'}
+          onclick={() => (agentView = 'timeline')}
+        >timeline</button>
+      </div>
+    {/if}
   </header>
 
   <div class="heatstrip-row">
@@ -329,6 +371,14 @@
     {/if}
   </div>
 
+  {#if integrationDetected && agentView === 'timeline'}
+    <div class="log">
+      <div class="log-header">RUN TIMELINE</div>
+      <div class="log-body gantt-scroll">
+        <AgentGantt runs={ganttRuns} />
+      </div>
+    </div>
+  {:else}
   <div class="log">
     <div class="log-header">RUNNING AGENTS</div>
     <div class="log-body" aria-live="polite">
@@ -404,6 +454,8 @@
       {/if}
     </div>
   </div>
+
+  {/if}
 
   <footer class="state-panel">
     <div class="state-header">
@@ -687,6 +739,34 @@
     font-style: italic;
   }
   .spacer { flex: 1; }
+  .view-toggle {
+    display: inline-flex;
+    border: 1px solid var(--amber-faint);
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+    flex-shrink: 0;
+  }
+  .view-btn {
+    background: transparent;
+    border: none;
+    color: var(--amber-faint);
+    font-family: inherit;
+    font-size: var(--text-2xs);
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 2px var(--space-8);
+    cursor: pointer;
+    transition: color var(--duration-base) ease-out, background var(--duration-base) ease-out;
+  }
+  .view-btn + .view-btn { border-left: 1px solid var(--amber-faint); }
+  .view-btn:hover { color: var(--amber-warm); }
+  .view-btn.active {
+    color: var(--bg-base, #0a0a0a);
+    background: var(--amber-primary);
+  }
+  .view-btn:focus-visible { outline: 1px solid var(--amber-bright); outline-offset: -1px; }
+  .gantt-scroll { overflow-y: auto; }
   .card-status {
     font-size: var(--text-2xs);
     font-weight: 700;
