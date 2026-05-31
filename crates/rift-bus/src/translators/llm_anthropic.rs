@@ -162,11 +162,19 @@ fn build_request(req: &CompletionRequest, model: &str, stream: bool) -> Messages
         })
         .collect();
 
+    // Prefer an explicit system_prompt. Otherwise hoist every System message
+    // into Anthropic's top-level `system` field — concatenating them, since
+    // `build_request` filters all System messages out of `messages` and
+    // taking only the first would silently drop the rest.
     let system = req.system_prompt.clone().or_else(|| {
-        req.messages
+        let parts: Vec<&str> = req
+            .messages
             .iter()
-            .find(|m| m.role == Role::System)
-            .map(|m| m.content.clone())
+            .filter(|m| m.role == Role::System)
+            .map(|m| m.content.as_str())
+            .filter(|c| !c.is_empty())
+            .collect();
+        (!parts.is_empty()).then(|| parts.join("\n\n"))
     });
 
     MessagesRequest {
@@ -227,6 +235,12 @@ fn parse_sse_line(line: &str, tokens_so_far: &mut u32) -> Option<StreamChunk> {
         }
         "message_delta" => {
             let stop = event.delta.as_ref().and_then(|d| d.stop_reason.clone());
+            // Anthropic reports the authoritative output token count on the
+            // message_delta event. Prefer it over our per-delta tally, which
+            // counts deltas (each may carry multiple tokens), not tokens.
+            if let Some(output) = event.usage.as_ref().and_then(|u| u.output_tokens) {
+                *tokens_so_far = output as u32;
+            }
             Some(StreamChunk {
                 text: String::new(),
                 is_final: true,
@@ -453,6 +467,55 @@ mod tests {
     }
 
     #[test]
+    fn build_request_concatenates_multiple_system_messages() {
+        let req = CompletionRequest {
+            messages: vec![
+                Message {
+                    role: Role::System,
+                    content: "First.".to_string(),
+                },
+                Message {
+                    role: Role::System,
+                    content: "Second.".to_string(),
+                },
+                Message {
+                    role: Role::User,
+                    content: "Hi".to_string(),
+                },
+            ],
+            max_tokens: None,
+            temperature: None,
+            stop_sequences: vec![],
+            system_prompt: None,
+            provider_options: None,
+        };
+
+        let built = build_request(&req, "model", false);
+        // Both system messages survive; only the user turn stays in messages.
+        assert_eq!(built.system, Some("First.\n\nSecond.".to_string()));
+        assert_eq!(built.messages.len(), 1);
+        assert_eq!(built.messages[0].role, "user");
+    }
+
+    #[test]
+    fn build_request_system_prompt_takes_precedence() {
+        let req = CompletionRequest {
+            messages: vec![Message {
+                role: Role::System,
+                content: "Ignored.".to_string(),
+            }],
+            max_tokens: None,
+            temperature: None,
+            stop_sequences: vec![],
+            system_prompt: Some("Explicit.".to_string()),
+            provider_options: None,
+        };
+
+        let built = build_request(&req, "model", false);
+        assert_eq!(built.system, Some("Explicit.".to_string()));
+    }
+
+    #[test]
     fn map_stop_reason_variants() {
         assert_eq!(
             map_stop_reason(&Some("end_turn".to_string())),
@@ -492,6 +555,18 @@ mod tests {
         let chunk = parse_sse_line(line, &mut tokens).unwrap();
         assert!(chunk.is_final);
         assert_eq!(chunk.stop_reason, Some(StopReason::EndTurn));
+        // The authoritative usage.output_tokens overrides the per-delta tally.
+        assert_eq!(chunk.token_count, Some(42));
+        assert_eq!(tokens, 42);
+    }
+
+    #[test]
+    fn parse_message_delta_without_usage_keeps_running_tally() {
+        let line = r#"data: {"type":"message_delta","delta":{"stop_reason":"end_turn"}}"#;
+        let mut tokens = 7;
+        let chunk = parse_sse_line(line, &mut tokens).unwrap();
+        assert!(chunk.is_final);
+        assert_eq!(chunk.token_count, Some(7));
     }
 
     #[test]
