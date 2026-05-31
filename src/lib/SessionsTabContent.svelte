@@ -13,9 +13,12 @@
   }
 
   interface SessionEvent {
-    id: string;
     version: number;
-    timestamp: number;
+    // Wire field is `ts` (see envelope.rs / bus.ts). The previous interface
+    // read `timestamp`, which does not exist on persisted envelopes — every
+    // replay row rendered NaN. Aligning to `ts` fixes that and lets the
+    // marker timeline position pips by real time.
+    ts: number;
     category: string;
     kind: string;
     payload: unknown;
@@ -58,14 +61,14 @@
         const p = (e.payload ?? {}) as { label?: unknown; note?: unknown };
         return {
           idx: i,
-          ts: e.timestamp,
+          ts: e.ts,
           label: typeof p.label === 'string' ? p.label : 'marker',
           note: typeof p.note === 'string' ? p.note : null,
         };
       }),
   );
-  const sessionStartTs = $derived(events.length > 0 ? events[0].timestamp : 0);
-  const sessionEndTs = $derived(events.length > 0 ? events[events.length - 1].timestamp : 0);
+  const sessionStartTs = $derived(events.length > 0 ? events[0].ts : 0);
+  const sessionEndTs = $derived(events.length > 0 ? events[events.length - 1].ts : 0);
 
   function seekToEvent(idx: number): void {
     expandedRows = new Set(expandedRows).add(idx);
@@ -407,7 +410,7 @@
               title="click to {isExpanded ? 'collapse' : 'expand'}"
             >
               <span class="caret">{isExpanded ? '&#x25BC;' : '&#x25B6;'}</span>
-              <span class="ts">{formatTs(e.timestamp)}</span>
+              <span class="ts">{formatTs(e.ts)}</span>
               <span class="cat" style="color: {catColor(e.category)};">{e.category}</span>
               <span class="kind">{e.kind}</span>
               {#if isExpanded}
