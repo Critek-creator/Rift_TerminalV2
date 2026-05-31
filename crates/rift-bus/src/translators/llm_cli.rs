@@ -172,6 +172,143 @@ fn resolve_program(program: &str) -> String {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Gemini CLI auth detection
+// ---------------------------------------------------------------------------
+
+/// Authentication / install status for the `gemini` CLI.
+///
+/// Surfaced to the Settings UI so the Gemini model wizard can show "signed in
+/// as X" / "not signed in" without making a network call or spawning the tool.
+/// Detection is pure filesystem + PATH inspection — the OAuth credentials the
+/// `gemini` CLI writes on first interactive login live under `~/.gemini/`.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct GeminiAuthStatus {
+    /// `true` when a `gemini` binary resolves on PATH (honors Windows PATHEXT).
+    pub cli_installed: bool,
+    /// `true` when non-empty OAuth credentials exist at `~/.gemini/oauth_creds.json`.
+    pub authenticated: bool,
+    /// Best-effort signed-in account email, parsed from
+    /// `~/.gemini/google_accounts.json` when present.
+    pub account: Option<String>,
+    /// `true` when `~/.gemini/settings.json` selects an auth method
+    /// (`security.auth.selectedType`). Headless `gemini -p` exits 41 without
+    /// one even when OAuth creds exist — interactive mode picks it, automated
+    /// mode cannot. [`gemini_enable_headless`] sets it to `oauth-personal`.
+    pub headless_ready: bool,
+}
+
+/// Path to the gemini CLI's user settings file (`~/.gemini/settings.json`).
+fn gemini_settings_path() -> Option<std::path::PathBuf> {
+    directories::BaseDirs::new().map(|d| d.home_dir().join(".gemini").join("settings.json"))
+}
+
+/// Read `security.auth.selectedType` from the gemini settings file, if set.
+fn gemini_selected_auth() -> Option<String> {
+    let raw = std::fs::read_to_string(gemini_settings_path()?).ok()?;
+    let json: serde_json::Value = serde_json::from_str(&raw).ok()?;
+    json.get("security")?
+        .get("auth")?
+        .get("selectedType")?
+        .as_str()
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+}
+
+/// Ensure headless `gemini -p` can authenticate by selecting the
+/// "Login with Google" (`oauth-personal`) auth method in the gemini settings
+/// file. Merges into any existing settings (never clobbers other keys); a
+/// pre-existing non-empty `selectedType` is left untouched. Returns the value
+/// now in effect. Lives in the translator boundary (§9): only this module
+/// knows the gemini CLI's on-disk schema.
+pub fn gemini_enable_headless() -> Result<String, String> {
+    const OAUTH_PERSONAL: &str = "oauth-personal";
+    let path = gemini_settings_path().ok_or("could not resolve home directory")?;
+
+    // Start from existing settings (or an empty object) so we never drop keys.
+    let mut root: serde_json::Value = match std::fs::read_to_string(&path) {
+        Ok(s) if !s.trim().is_empty() => {
+            serde_json::from_str(&s).map_err(|e| format!("settings.json parse error: {e}"))?
+        }
+        _ => serde_json::json!({}),
+    };
+    if !root.is_object() {
+        return Err("settings.json root is not a JSON object".to_string());
+    }
+
+    // Respect an already-selected method (e.g. a user on API-key/vertex auth).
+    if let Some(existing) = gemini_selected_auth() {
+        return Ok(existing);
+    }
+
+    root["security"]["auth"]["selectedType"] =
+        serde_json::Value::String(OAUTH_PERSONAL.to_string());
+
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| format!("create ~/.gemini failed: {e}"))?;
+    }
+    let pretty = serde_json::to_string_pretty(&root).map_err(|e| format!("serialize: {e}"))?;
+    std::fs::write(&path, pretty).map_err(|e| format!("write settings.json failed: {e}"))?;
+    Ok(OAUTH_PERSONAL.to_string())
+}
+
+/// Inspect the local `gemini` CLI install + OAuth session state.
+///
+/// Lives in the translator boundary (§9): all knowledge of the external
+/// `gemini` tool's on-disk layout stays here, not in Rift core. Never errors —
+/// any missing file / unreadable path degrades to `false` / `None`.
+pub fn gemini_auth_status() -> GeminiAuthStatus {
+    // PATH check: resolve_program returns the input unchanged when nothing
+    // matches, so a successful resolution differs from the bare name (or, on
+    // non-Windows, points at an existing file).
+    let cli_installed = {
+        let resolved = resolve_program("gemini");
+        #[cfg(windows)]
+        {
+            resolved != "gemini"
+        }
+        #[cfg(not(windows))]
+        {
+            // resolve_program is a pass-through off-Windows; probe PATH here.
+            std::env::var("PATH")
+                .ok()
+                .map(|path| std::env::split_paths(&path).any(|dir| dir.join("gemini").is_file()))
+                .unwrap_or(false)
+                || resolved != "gemini"
+        }
+    };
+
+    let gemini_dir = directories::BaseDirs::new().map(|d| d.home_dir().join(".gemini"));
+
+    let authenticated = gemini_dir
+        .as_ref()
+        .map(|dir| {
+            std::fs::metadata(dir.join("oauth_creds.json"))
+                .map(|m| m.len() > 0)
+                .unwrap_or(false)
+        })
+        .unwrap_or(false);
+
+    let account = gemini_dir.as_ref().and_then(|dir| {
+        let raw = std::fs::read_to_string(dir.join("google_accounts.json")).ok()?;
+        let json: serde_json::Value = serde_json::from_str(&raw).ok()?;
+        // Shape is small and undocumented; accept the common keys defensively.
+        json.get("active")
+            .and_then(|v| v.as_str())
+            .or_else(|| json.get("email").and_then(|v| v.as_str()))
+            .map(str::to_string)
+    });
+
+    let headless_ready = gemini_selected_auth().is_some();
+
+    GeminiAuthStatus {
+        cli_installed,
+        authenticated,
+        account,
+        headless_ready,
+    }
+}
+
 /// A `Stream` that yields exactly one already-computed item, then ends. Used to
 /// adapt the one-shot CLI result to the streaming trait method without pulling
 /// in `futures-util` (mirrors `llm_server`'s hand-rolled stream approach).

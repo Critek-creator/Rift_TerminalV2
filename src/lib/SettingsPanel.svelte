@@ -1750,19 +1750,24 @@
             <span class="provider-card-name" style="color: var(--term-blue)">Anthropic</span>
             <span class="provider-card-desc">Claude models via the Anthropic API</span>
           </button>
-          <button type="button" class="provider-card" onclick={() => llmModels.addModel('google')}>
-            <span class="provider-card-name" style="color: var(--term-cyan)">Gemini</span>
-            <span class="provider-card-desc">Google Gemini models via AI API</span>
+          <button type="button" class="provider-card" onclick={() => llmModels.addGeminiCliModel()}>
+            <span class="provider-card-name" style="color: var(--model-gemini)">Gemini</span>
+            <span class="provider-card-desc">Sign in with Google — no API key. Pick a model and go.</span>
           </button>
           <button type="button" class="provider-card" onclick={() => llmModels.addModel('open_ai_compat')}>
             <span class="provider-card-name" style="color: var(--term-purple)">OpenAI-compat</span>
             <span class="provider-card-desc">Any OpenAI-compatible API endpoint</span>
           </button>
           <button type="button" class="provider-card" onclick={() => llmModels.addModel('cli')}>
-            <span class="provider-card-name" style="color: var(--model-gemini)">CLI tool</span>
-            <span class="provider-card-desc">External CLI (e.g. gemini) — endpoint holds the command, no API key</span>
+            <span class="provider-card-name" style="color: var(--model-custom)">CLI tool</span>
+            <span class="provider-card-desc">Drive any external CLI tool as a model</span>
           </button>
         </div>
+        <button
+          type="button"
+          class="provider-advanced-link"
+          onclick={() => llmModels.addModel('google')}
+        >Advanced: use a Gemini API key instead →</button>
       </div>
 
       <div class="models-save-row">
@@ -2644,6 +2649,25 @@
     font-size: var(--text-2xs);
     color: var(--amber-faint);
     line-height: 1.4;
+  }
+  .provider-advanced-link {
+    margin-top: var(--space-sm);
+    background: none;
+    border: none;
+    padding: 2px 0;
+    color: var(--amber-faint);
+    font-family: var(--font-family);
+    font-size: var(--text-2xs);
+    cursor: pointer;
+    transition: color var(--duration-base) var(--ease-out);
+  }
+  .provider-advanced-link:hover {
+    color: var(--amber-warm);
+    text-decoration: underline;
+  }
+  .provider-advanced-link:focus-visible {
+    outline: 1px solid var(--amber-warm);
+    outline-offset: 2px;
   }
 
   /* ─── Models — save row ──────────────────────────────────────────────── */

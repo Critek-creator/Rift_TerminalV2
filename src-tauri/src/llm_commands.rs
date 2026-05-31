@@ -9,7 +9,10 @@ use futures_util::StreamExt;
 use rift_bus::config::{load_config, save_config, HostingMode, ModelConfig, ProviderType};
 use rift_bus::translators::llm::{CompletionRequest, LlmProvider, Message, Role};
 use rift_bus::translators::llm_anthropic::AnthropicProvider;
-use rift_bus::translators::llm_cli::CliProvider;
+use rift_bus::translators::llm_cli::{
+    gemini_auth_status as cli_gemini_auth_status,
+    gemini_enable_headless as cli_gemini_enable_headless, CliProvider, GeminiAuthStatus,
+};
 use rift_bus::translators::llm_gemini::GeminiProvider;
 use rift_bus::translators::llm_process::ProcessManager;
 use rift_bus::translators::llm_server::LlamaServerProvider;
@@ -1043,6 +1046,29 @@ pub async fn llm_classifier_register(
             "Classifier registered but DISABLED — GGUF not found at that path. Drop the file there and re-run (or enable it in Settings) to activate."
         },
     }))
+}
+
+/// Report the local `gemini` CLI install + OAuth login state.
+///
+/// Backs the Settings → Gemini model wizard: it shows "signed in as X" when the
+/// CLI already holds OAuth credentials, or a sign-in prompt otherwise. Pure
+/// filesystem + PATH inspection (no network, no process spawn) — the detection
+/// logic lives in the `llm_cli` translator to keep external-tool knowledge
+/// inside the §9 boundary.
+#[tauri::command]
+pub fn gemini_auth_status() -> GeminiAuthStatus {
+    cli_gemini_auth_status()
+}
+
+/// Make the `gemini` CLI usable in headless (`-p`) mode by selecting the
+/// "Login with Google" auth method in `~/.gemini/settings.json`. Without a
+/// selected auth method, headless `gemini -p` exits 41 even when OAuth
+/// credentials are present (interactive mode picks the method; automated mode
+/// cannot). Idempotent and non-clobbering — returns the auth method now in
+/// effect. Backs the Settings → Gemini "finish setup" action.
+#[tauri::command]
+pub fn gemini_enable_headless() -> Result<String, String> {
+    cli_gemini_enable_headless()
 }
 
 #[cfg(test)]

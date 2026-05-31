@@ -23,6 +23,12 @@ let active = $state<ActiveSurface>({ kind: 'session', id: 0 });
 
 const paneSessionPaths = new Map<number, string | null>();
 
+// One-shot commands to type into a pane once its PTY is live, keyed by pane
+// (leaf) id. Used by features that open a fresh terminal to run a command —
+// e.g. the Settings → Gemini "sign in" button launches `gemini` here so the
+// user lands in the interactive OAuth flow without typing anything.
+const pendingInitialCommands = new Map<number, string>();
+
 let exitedPaneIds = $state(new Set<number>());
 let pendingCloseId = $state<number | null>(null);
 
@@ -60,6 +66,23 @@ const multiProject = $derived(
 
 function activateSession(id: number) {
   active = { kind: 'session', id };
+}
+
+/** Open a fresh terminal tab and queue `command` to run in it once the PTY is
+ *  live. Returns the new pane id, or `undefined` if a tab could not be opened.
+ *  The Terminal component consumes the queued command after `pty_start`. */
+function openTerminalWithCommand(command: string): number | undefined {
+  const id = addSession();
+  if (id !== undefined) pendingInitialCommands.set(id, command);
+  return id;
+}
+
+/** Consume (read-and-clear) the one-shot command queued for a pane, if any.
+ *  Called once by Terminal after its PTY starts. */
+function consumeInitialCommand(paneId: number): string | undefined {
+  const cmd = pendingInitialCommands.get(paneId);
+  if (cmd !== undefined) pendingInitialCommands.delete(paneId);
+  return cmd;
 }
 
 function addSession(opts?: { pickProject?: boolean }): number | undefined {
@@ -181,6 +204,7 @@ function cleanupSessionResources(id: number) {
     for (const lid of leafIds) {
       exitedPaneIds.delete(lid);
       paneSessionPaths.delete(lid);
+      pendingInitialCommands.delete(lid);
     }
     exitedPaneIds = exitedPaneIds;
   }
@@ -268,6 +292,8 @@ export const sessionManager = {
   get paneSessionPaths() { return paneSessionPaths; },
   activateSession,
   addSession,
+  openTerminalWithCommand,
+  consumeInitialCommand,
   handleSplit,
   handleClosePane,
   openProjectInNewTab,

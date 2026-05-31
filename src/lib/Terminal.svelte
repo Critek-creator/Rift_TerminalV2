@@ -31,6 +31,7 @@
   import { getTerminalSettings, invalidateTerminalSettingsCache } from './terminalConfigCache';
   import { resolveTheme } from './terminalPalettes';
   import { LaneTintManager } from './laneTint';
+  import { sessionManager } from './sessionManager.svelte';
 
   type PtyExited = { id: number; code: number };
 
@@ -44,9 +45,12 @@
     projectPath?: string | null;
     /** Fired when this terminal's PTY process exits. */
     onPtyExited?: () => void;
+    /** Pane (leaf) id. Used to consume any one-shot command queued for this
+     *  pane via sessionManager (e.g. the Gemini "sign in" launcher). */
+    paneId?: number;
   }
 
-  let { visible = true, projectPath = null, onPtyExited }: Props = $props();
+  let { visible = true, projectPath = null, onPtyExited, paneId }: Props = $props();
 
   let host: HTMLDivElement = $state(undefined!);
   let term: XTerm | undefined = $state(undefined);
@@ -518,6 +522,23 @@
 
     await startPty();
     requestAnimationFrame(refitAndResize);
+
+    // One-shot launch command for this pane (e.g. Gemini "sign in" opens a tab
+    // that auto-runs `gemini`). Sent after a short delay so the shell prompt is
+    // ready to read it; guarded by `alive` so a teardown before it fires is a
+    // no-op. Consumed (read-and-cleared) so a remount never re-runs it.
+    if (paneId !== undefined && sessionId !== null) {
+      const launchCmd = sessionManager.consumeInitialCommand(paneId);
+      if (launchCmd) {
+        const idForLaunch = sessionId;
+        setTimeout(() => {
+          if (alive && idForLaunch !== null) {
+            const bytes = Array.from(encoder.encode(`${launchCmd}\r`));
+            invoke('pty_write', { id: idForLaunch, bytes }).catch(() => {});
+          }
+        }, 700);
+      }
+    }
 
     // Post-startup content guarantee — detects "PTY started but nothing
     // visible" and forces recovery. This is the safety net that catches

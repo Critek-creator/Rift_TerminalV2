@@ -251,6 +251,38 @@ export const llmModels = {
     return model;
   },
 
+  /** One-click Gemini: a CLI-backed model that drives the local `gemini` CLI
+   *  via the user's Google login — no API key. Pre-fills a sensible flash
+   *  model (the CLI's own battle-tested default); the card's model picker can
+   *  swap it. This is the login-first path; an API-key Gemini model is still
+   *  reachable via addModel('google'). */
+  addGeminiCliModel(): ModelConfig {
+    const id = `model-${Date.now()}`;
+    const model: ModelConfig = {
+      id,
+      display_name: 'Gemini',
+      provider: 'cli',
+      // model_identifier mirrors the --model token for display/routing; the
+      // ModelCard picker keeps the two in sync.
+      model_identifier: 'gemini-2.5-flash',
+      hosting: { mode: 'cloud' as const }, // unused for cli; command lives in endpoint
+      // --skip-trust: headless `gemini -p` refuses to run in an untrusted
+      // workspace otherwise (exits 55). Auth method is set separately via the
+      // gemini_enable_headless command (settings.json selectedType).
+      endpoint: 'gemini -p {prompt} --model gemini-2.5-flash --skip-trust',
+      api_key_ref: null, // OAuth session — no key
+      color: '--model-gemini',
+      short_id: 'GEM',
+      capabilities: {
+        ...defaultCapabilities(),
+        supports_streaming: false, // CLI is one-shot
+      },
+      enabled: true,
+    };
+    models = [...models, model];
+    return model;
+  },
+
   updateModel(id: string, updates: Partial<ModelConfig>) {
     models = models.map((m) =>
       m.id === id ? { ...m, ...updates } : m,

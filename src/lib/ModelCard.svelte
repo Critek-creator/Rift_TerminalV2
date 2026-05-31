@@ -18,6 +18,8 @@
   import { llmModels, type ProcessStatus } from './llmModels.svelte';
   import VramEstimator from './VramEstimator.svelte';
   import { fitToGpu, classifyConfig } from './vramModel';
+  import { sessionManager } from './sessionManager.svelte';
+  import { popouts } from './popouts.svelte';
 
   interface Props {
     model: ModelConfig;
@@ -43,9 +45,12 @@
       'claude-opus-4-6', 'claude-sonnet-4-6', 'claude-haiku-4-5-20251001',
       'claude-opus-4-5-20250414', 'claude-sonnet-4-5-20250414',
     ],
+    // Verified against the installed gemini CLI bundle (v0.44.1, 2026-05-31) —
+    // newest first. There is no gemini-3.5; the current flagship line is 3.1.
     google: [
-      'gemini-3.5-flash', 'gemini-3.1-flash-lite', 'gemini-2.5-pro',
-      'gemini-2.5-flash', 'gemini-2.5-flash-lite',
+      'gemini-3.1-pro', 'gemini-3.1-flash', 'gemini-3.1-flash-lite',
+      'gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-2.5-flash-lite',
+      'gemini-2.0-flash',
     ],
     llama_server: [
       'gemma-4-27b-it-Q4_K_M.gguf', 'gemma-4-12b-it-Q6_K.gguf',
@@ -57,9 +62,14 @@
       'o3-mini', 'o4-mini',
     ],
     cli: [
-      'gemini-2.5-pro', 'gemini-2.5-flash',
+      'gemini-3.1-pro', 'gemini-3.1-flash', 'gemini-3.1-flash-lite',
+      'gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-2.5-flash-lite',
+      'gemini-2.0-flash',
     ],
   };
+
+  /** Gemini models offered in the CLI sign-in panel picker (newest first). */
+  const GEMINI_CLI_MODELS = KNOWN_MODELS.cli;
 
   const KV_CACHE_OPTIONS: KvCacheType[] = [
     'f32', 'f16', 'bf16', 'q8_0', 'q4_0', 'q4_1', 'iq4_nl', 'q5_0', 'q5_1',
@@ -79,6 +89,90 @@
   );
 
   let isLocal = $derived(model.hosting.mode === 'local');
+
+  // ─── CLI-backed (Gemini) provider state ──────────────────────────────────
+  // A CLI model drives an external tool (the `gemini` CLI) via its own OAuth
+  // session — no API key. The command template lives in `endpoint`; the model
+  // picker rewrites its --model/-m token.
+  let isCli = $derived(model.provider === 'cli');
+
+  type GeminiAuth = {
+    cli_installed: boolean;
+    authenticated: boolean;
+    account: string | null;
+    headless_ready: boolean;
+  };
+  let geminiAuth = $state<GeminiAuth | null>(null);
+  let geminiAuthLoading = $state(false);
+  // One-shot guard so the auto-probe effect fires exactly once per card even
+  // when the probe FAILS (on error geminiAuth stays null — without this flag
+  // the effect's `=== null` guard would re-fire in a loop). The Recheck button
+  // calls refreshGeminiAuth directly and is unaffected.
+  let geminiAuthProbed = $state(false);
+
+  async function refreshGeminiAuth() {
+    geminiAuthLoading = true;
+    geminiAuthProbed = true;
+    try {
+      geminiAuth = await invoke<GeminiAuth>('gemini_auth_status');
+    } catch {
+      geminiAuth = null;
+    } finally {
+      geminiAuthLoading = false;
+    }
+  }
+
+  // Probe auth state once when this is a CLI card (and re-probe is available
+  // via the button). Cheap: pure filesystem + PATH check on the backend.
+  $effect(() => {
+    if (isCli && !geminiAuthProbed) {
+      void refreshGeminiAuth();
+    }
+  });
+
+  /** Open a Rift terminal tab running `gemini` (triggers the browser OAuth on
+   *  first use), and close Settings so the user lands in that terminal. */
+  function signInToGemini() {
+    sessionManager.openTerminalWithCommand('gemini');
+    popouts.dismissAll();
+  }
+
+  /** Select the OAuth method in ~/.gemini/settings.json so headless `gemini -p`
+   *  works (it exits 41 without one). Then re-probe to update the panel. */
+  let enablingHeadless = $state(false);
+  async function finishGeminiSetup() {
+    enablingHeadless = true;
+    try {
+      await invoke('gemini_enable_headless');
+      await refreshGeminiAuth();
+    } catch (e) {
+      console.error('[ModelCard] gemini_enable_headless failed', e);
+    } finally {
+      enablingHeadless = false;
+    }
+  }
+
+  /** Extract the model from a `gemini … --model X` / `-m X` command template,
+   *  falling back to the stored model_identifier. */
+  function cliModelFromTemplate(template: string): string {
+    const m = template.match(/(?:--model|-m)[ =]([^\s]+)/);
+    return m ? m[1] : model.model_identifier;
+  }
+
+  let currentCliModel = $derived(isCli ? cliModelFromTemplate(model.endpoint) : '');
+
+  /** Set the Gemini model: rewrite the --model/-m token in the command
+   *  template in place (or append one if absent), and keep model_identifier in
+   *  sync for routing/display. */
+  function setCliModel(next: string) {
+    let template = model.endpoint;
+    if (/(?:--model|-m)[ =][^\s]+/.test(template)) {
+      template = template.replace(/((?:--model|-m)[ =])[^\s]+/, `$1${next}`);
+    } else {
+      template = `${template.trim()} --model ${next}`;
+    }
+    llmModels.updateModel(model.id, { endpoint: template, model_identifier: next });
+  }
 
   let providerMeta = $derived(PROVIDER_META[model.provider] ?? { label: model.provider, desc: '', color: 'var(--amber-faint)' });
 
@@ -348,6 +442,84 @@
   <!-- ─── Core settings (always visible) ─────────────────── -->
   <div class="card-body">
     <div class="core-fields">
+      {#if isCli}
+        <!-- ─── Gemini sign-in panel (CLI provider) ──────────────── -->
+        <div class="gemini-signin">
+          <div class="gemini-signin-status">
+            {#if geminiAuthLoading && geminiAuth === null}
+              <span class="gemini-dot checking"></span>
+              <span class="gemini-status-text">Checking sign-in…</span>
+            {:else if geminiAuth && !geminiAuth.cli_installed}
+              <span class="gemini-dot err"></span>
+              <span class="gemini-status-text">
+                <code>gemini</code> CLI not found —
+                <code>npm install -g @google/gemini-cli</code>
+              </span>
+            {:else if geminiAuth && geminiAuth.authenticated}
+              <span class="gemini-dot {geminiAuth.headless_ready ? 'ok' : 'checking'}"></span>
+              <span class="gemini-status-text">
+                Signed in{#if geminiAuth.account} as <strong>{geminiAuth.account}</strong>{/if}
+                {#if !geminiAuth.headless_ready}
+                  — <span class="gemini-warn">one-time setup needed for headless use</span>
+                {/if}
+              </span>
+            {:else}
+              <span class="gemini-dot off"></span>
+              <span class="gemini-status-text">Not signed in</span>
+            {/if}
+          </div>
+          <div class="gemini-signin-actions">
+            {#if geminiAuth && geminiAuth.cli_installed && !geminiAuth.authenticated}
+              <button type="button" class="rift-btn" onclick={signInToGemini}>
+                ▸ Sign in to Gemini
+              </button>
+            {/if}
+            {#if geminiAuth && geminiAuth.authenticated && !geminiAuth.headless_ready}
+              <button
+                type="button"
+                class="rift-btn"
+                onclick={finishGeminiSetup}
+                disabled={enablingHeadless}
+                title="Select the Google login auth method so Rift/Claude can use Gemini non-interactively"
+              >{enablingHeadless ? '… Finishing' : '✓ Finish setup'}</button>
+            {/if}
+            <button
+              type="button"
+              class="rift-btn ghost"
+              onclick={refreshGeminiAuth}
+              disabled={geminiAuthLoading}
+              title="Re-check sign-in status (after completing the browser login)"
+            >↻ Recheck</button>
+          </div>
+          <span class="field-hint" style="margin-left: 0;">
+            Uses your Google login via the <code>gemini</code> CLI — no API key. Claude
+            can also route prompts here via the <code>llm_prompt</code> MCP tool.
+          </span>
+        </div>
+
+        <!-- ─── Gemini model picker ──────────────────────────────── -->
+        <div class="field-group">
+          <label class="field-lbl" for="mc-gemini-model-{model.id}">
+            Model
+            <span class="field-hint">Which Gemini model the CLI runs</span>
+          </label>
+          <select
+            id="mc-gemini-model-{model.id}"
+            class="field-select"
+            value={currentCliModel}
+            onchange={(e) => setCliModel((e.target as HTMLSelectElement).value)}
+          >
+            {#each GEMINI_CLI_MODELS as m}
+              <option value={m}>{m}</option>
+            {/each}
+            {#if currentCliModel && !GEMINI_CLI_MODELS.includes(currentCliModel)}
+              <option value={currentCliModel}>{currentCliModel} (custom)</option>
+            {/if}
+          </select>
+        </div>
+      {/if}
+
+      {#if !isCli}
       <div class="field-group">
         <label class="field-lbl" for="mc-modelid-{model.id}">
           Model ID
@@ -370,18 +542,27 @@
           </datalist>
         </div>
       </div>
+      {/if}
 
       <div class="field-group">
         <label class="field-lbl" for="mc-endpoint-{model.id}">
-          Endpoint
-          <span class="field-hint">API base URL for requests</span>
+          {isCli ? 'Command' : 'Endpoint'}
+          <span class="field-hint">
+            {isCli
+              ? 'Command template — {prompt} is substituted; the Model picker rewrites --model'
+              : 'API base URL for requests'}
+          </span>
         </label>
         <input
           id="mc-endpoint-{model.id}"
           class="field-input"
           type="text"
           value={model.endpoint}
-          placeholder={isLocal ? 'http://127.0.0.1:8081' : 'https://api.example.com'}
+          placeholder={isLocal
+            ? 'http://127.0.0.1:8081'
+            : isCli
+              ? 'gemini -p {prompt} --model gemini-2.5-flash --skip-trust'
+              : 'https://api.example.com'}
           onchange={(e) => update('endpoint', (e.target as HTMLInputElement).value)}
         />
       </div>
@@ -403,7 +584,7 @@
           />
         </div>
 
-        {#if !isLocal}
+        {#if !isLocal && !isCli}
           <div class="field-group">
             <label class="field-lbl" for="mc-apikey-{model.id}">
               API Key
@@ -1198,6 +1379,55 @@
     font-size: var(--text-2xs);
     color: var(--amber-warm);
     font-style: italic;
+  }
+
+  /* ─── Gemini sign-in panel (CLI provider) ─── */
+  .gemini-signin {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+    padding: var(--space-md);
+    margin-bottom: var(--space-sm);
+    background: rgba(255, 168, 38, 0.05);
+    border: 1px solid var(--amber-faint);
+    border-radius: var(--radius-md);
+  }
+  .gemini-signin-status {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+  }
+  .gemini-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: var(--radius-full);
+    flex-shrink: 0;
+  }
+  .gemini-dot.ok { background: var(--term-green); }
+  .gemini-dot.off { background: var(--amber-faint); }
+  .gemini-dot.err { background: var(--term-red); }
+  .gemini-dot.checking { background: var(--amber-bright); }
+  .gemini-status-text {
+    font-size: var(--text-xs);
+    color: var(--term-white);
+  }
+  .gemini-status-text code {
+    font-size: var(--text-2xs);
+    color: var(--amber-warm);
+    background: rgba(0, 0, 0, 0.3);
+    padding: 1px 4px;
+    border-radius: var(--radius-sm);
+  }
+  .gemini-status-text strong { color: var(--amber-bright); }
+  .gemini-warn { color: var(--amber-bright); }
+  .gemini-signin-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    flex-wrap: wrap;
+  }
+  .rift-btn.ghost {
+    background: transparent;
   }
 
   /* ─── Advanced toggle ─────────────────────── */

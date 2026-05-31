@@ -255,7 +255,7 @@
           onclick={(e) => { e.stopPropagation(); onClose(leaf.id); }}
         >✕</button>
       </div>
-      <Terminal visible={true} {projectPath} onPtyExited={() => onPtyExited?.(leaf.id)} />
+      <Terminal visible={true} {projectPath} paneId={leaf.id} onPtyExited={() => onPtyExited?.(leaf.id)} />
     </div>
   {/each}
 

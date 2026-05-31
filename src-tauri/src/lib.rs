@@ -2288,6 +2288,8 @@ pub fn run() {
             llm_commands::gpu_vram_mb,
             llm_commands::gpu_vram_used_mb,
             llm_commands::llm_classifier_register,
+            llm_commands::gemini_auth_status,
+            llm_commands::gemini_enable_headless,
         ]))
         .build(tauri::generate_context!())
         .expect("rift: tauri runtime failed to start")
