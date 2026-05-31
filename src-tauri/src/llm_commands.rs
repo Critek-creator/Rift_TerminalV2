@@ -14,7 +14,7 @@ use rift_bus::translators::llm_cli::{
     gemini_enable_headless as cli_gemini_enable_headless, CliProvider, GeminiAuthStatus,
 };
 use rift_bus::translators::llm_gemini::GeminiProvider;
-use rift_bus::translators::llm_process::ProcessManager;
+use rift_bus::translators::llm_process::{ApplyOutcome, ProcessManager};
 use rift_bus::translators::llm_server::LlamaServerProvider;
 use rift_bus::{Category, Envelope, RiftBus};
 use rift_router::{RouterService, RoutingDecision, TaskType};
@@ -864,6 +864,45 @@ pub async fn llm_model_stop(
 #[tauri::command]
 pub fn llm_models_running(pm: State<'_, std::sync::Arc<ProcessManager>>) -> Vec<String> {
     pm.running_models()
+}
+
+/// Apply the persisted config for `model_id` to its running server.
+///
+/// Fixes the stale-server trap: llama-server reads launch flags (ctx_size,
+/// gpu layers, flash-attn, …) only at spawn, so a running model keeps OLD
+/// flags after a config edit until restarted. The frontend/caller must save
+/// model edits first (this reads the persisted config from disk), then call
+/// this to reconcile the running server. Returns `"restarted"` (launch args
+/// drifted → stop+start), `"unchanged"` (already matches), or `"not_running"`.
+#[tauri::command]
+pub async fn llm_model_apply_config(
+    pm: State<'_, std::sync::Arc<ProcessManager>>,
+    model_id: String,
+) -> Result<String, String> {
+    let config = load_config().map_err(|e| e.to_string())?;
+    let model = config
+        .ensemble
+        .models
+        .iter()
+        .find(|m| m.id == model_id)
+        .ok_or_else(|| format!("model not found: {model_id}"))?;
+    let process_config = match &model.hosting {
+        HostingMode::Local { process_config } => process_config.clone(),
+        _ => return Err(format!("model '{model_id}' is not a local model")),
+    };
+
+    let pm = pm.inner().clone();
+    let outcome = tokio::task::spawn_blocking(move || pm.apply_config(&model_id, &process_config))
+        .await
+        .map_err(|e| format!("apply_config join error: {e}"))?
+        .map_err(|e| e.to_string())?;
+
+    Ok(match outcome {
+        ApplyOutcome::Restarted => "restarted",
+        ApplyOutcome::Unchanged => "unchanged",
+        ApplyOutcome::NotRunning => "not_running",
+    }
+    .to_string())
 }
 
 // ---------------------------------------------------------------------------

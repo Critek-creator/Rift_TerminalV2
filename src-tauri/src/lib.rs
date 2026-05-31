@@ -2284,6 +2284,7 @@ pub fn run() {
             llm_commands::llm_key_delete,
             llm_commands::llm_model_start,
             llm_commands::llm_model_stop,
+            llm_commands::llm_model_apply_config,
             llm_commands::llm_models_running,
             llm_commands::gguf_inspect,
             llm_commands::gpu_vram_mb,

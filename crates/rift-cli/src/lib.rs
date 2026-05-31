@@ -10,6 +10,8 @@ use anyhow::{anyhow, Context, Result};
 use clap::{Parser, Subcommand};
 use rift_bus::{Category, Envelope, IpcClient};
 
+mod llm;
+
 /// Environment variable consulted when `--socket` is omitted. Set by
 /// the running Rift instance when it spawns child shells, so commands
 /// like `rift hook ...` from inside a Rift terminal "just work."
@@ -56,6 +58,14 @@ pub enum Cmd {
     /// Connect to the running instance and print the resolved socket
     /// name. Useful as a smoke test from inside a Rift shell.
     Status,
+
+    /// Use a local model through the running Rift host — prompt, list, switch,
+    /// or health-check. Routed via rift-router (the §9-clean gateway). Exits
+    /// non-zero when Rift isn't running so callers fall back. See `llm` module.
+    Llm {
+        #[command(subcommand)]
+        sub: llm::LlmCmd,
+    },
 }
 
 /// Resolve the socket name from `--socket` arg, `$RIFT_SOCKET_NAME`, or
@@ -145,6 +155,7 @@ pub async fn execute(cli: Cli) -> Result<()> {
             println!("rift: connected to {socket}");
             Ok(())
         }
+        Cmd::Llm { sub } => llm::run(cli.socket.as_deref(), sub).await,
     }
 }
 

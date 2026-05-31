@@ -298,6 +298,18 @@ struct ManagedProcess {
     config: LlamaServerConfig,
 }
 
+/// Outcome of [`ProcessManager::apply_config`] — whether reconciling a running
+/// server with new config required a restart.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ApplyOutcome {
+    /// Model is not currently running — nothing to apply.
+    NotRunning,
+    /// Running launch args already match the new config — no restart needed.
+    Unchanged,
+    /// Launch args drifted — the server was stopped and restarted on new config.
+    Restarted,
+}
+
 // ---------------------------------------------------------------------------
 // Auto-restart policy
 // ---------------------------------------------------------------------------
@@ -551,6 +563,49 @@ impl ProcessManager {
         save_pid_file(&pf);
 
         Ok(())
+    }
+
+    /// Reconcile a *running* server with `new_config`.
+    ///
+    /// llama-server reads launch flags (`--ctx-size`, `--n-gpu-layers`,
+    /// `--flash-attn`, cache types, port, model path, …) only at spawn time, so
+    /// a model left running across a config edit keeps its OLD flags until an
+    /// explicit restart — the stale-server trap (a server pinned an old
+    /// `ctx_size` after the config was changed). This method compares the
+    /// running process's launch args against what `new_config` would produce
+    /// (via the same [`build_cli_args`] used to spawn it) and:
+    ///
+    /// - [`ApplyOutcome::NotRunning`] — model isn't running; nothing to apply
+    ///   (the next [`start`](Self::start) reads the persisted config anyway).
+    /// - [`ApplyOutcome::Unchanged`] — launch args identical; no restart.
+    /// - [`ApplyOutcome::Restarted`] — args drifted; the server was stopped and
+    ///   restarted on `new_config` so the change takes effect.
+    pub fn apply_config(
+        &self,
+        model_id: &str,
+        new_config: &LlamaServerConfig,
+    ) -> Result<ApplyOutcome, super::llm::LlmError> {
+        // Snapshot the running config's launch args under a brief lock, then
+        // release before calling stop()/start() (each takes the lock itself).
+        let current_args = {
+            let procs = self.processes.lock();
+            match procs.get(model_id) {
+                Some(p) => build_cli_args(&p.config),
+                None => return Ok(ApplyOutcome::NotRunning),
+            }
+        };
+
+        if current_args == build_cli_args(new_config) {
+            return Ok(ApplyOutcome::Unchanged);
+        }
+
+        tracing::info!(
+            model_id,
+            "llm_process: launch args drifted — restarting to apply new config"
+        );
+        self.stop(model_id)?;
+        self.start(model_id, new_config)?;
+        Ok(ApplyOutcome::Restarted)
     }
 
     /// Force-stop every managed process immediately. Exit-path counterpart to
