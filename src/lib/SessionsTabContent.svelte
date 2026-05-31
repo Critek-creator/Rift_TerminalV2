@@ -1,8 +1,9 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
   import { NOTIF_TAB_MIME } from './dragMime';
   import SessionCompare from './SessionCompare.svelte';
+  import MarkerTimeline from './MarkerTimeline.svelte';
 
   interface SessionMeta {
     id: string;
@@ -34,6 +35,49 @@
   let loading = $state(false);
   let error = $state<string | null>(null);
   let expandedRows = $state<Set<number>>(new Set());
+
+  /** Candidate 49d — session markers. Markers are `status`/`session.marker`
+   *  envelopes (dropped via Ctrl+Shift+K during the live session); they ride
+   *  the normal event stream and persist in the session .jsonl. In replay we
+   *  surface them on a clickable MarkerTimeline that seeks the event log. */
+  interface SessionMarker {
+    idx: number;
+    ts: number;
+    label: string;
+    note: string | null;
+  }
+  let replayLogBody = $state<HTMLDivElement | undefined>(undefined);
+  let seekedIdx = $state<number | null>(null);
+  let seekTimer: ReturnType<typeof setTimeout> | undefined;
+
+  const markers = $derived.by<SessionMarker[]>(() =>
+    events
+      .map((e, i) => ({ e, i }))
+      .filter(({ e }) => e.kind === 'session.marker')
+      .map(({ e, i }) => {
+        const p = (e.payload ?? {}) as { label?: unknown; note?: unknown };
+        return {
+          idx: i,
+          ts: e.timestamp,
+          label: typeof p.label === 'string' ? p.label : 'marker',
+          note: typeof p.note === 'string' ? p.note : null,
+        };
+      }),
+  );
+  const sessionStartTs = $derived(events.length > 0 ? events[0].timestamp : 0);
+  const sessionEndTs = $derived(events.length > 0 ? events[events.length - 1].timestamp : 0);
+
+  function seekToEvent(idx: number): void {
+    expandedRows = new Set(expandedRows).add(idx);
+    seekedIdx = idx;
+    if (seekTimer) clearTimeout(seekTimer);
+    seekTimer = setTimeout(() => { seekedIdx = null; }, 1600);
+    // Defer to next frame so the (now-expanded) row is laid out before scroll.
+    requestAnimationFrame(() => {
+      const row = replayLogBody?.querySelector<HTMLElement>(`[data-event-idx="${idx}"]`);
+      row?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    });
+  }
 
   /** Comparison state */
   let viewMode = $state<ViewMode>('list');
@@ -186,6 +230,10 @@
   onMount(() => {
     loadSessions();
   });
+
+  onDestroy(() => {
+    if (seekTimer) clearTimeout(seekTimer);
+  });
 </script>
 
 <section class="pane">
@@ -319,9 +367,18 @@
       <span class="spacer"></span>
     </header>
 
+    {#if markers.length > 0}
+      <MarkerTimeline
+        markers={markers}
+        startTs={sessionStartTs}
+        endTs={sessionEndTs}
+        onSeek={seekToEvent}
+      />
+    {/if}
+
     <div class="log">
       <div class="log-header">SESSION EVENTS</div>
-      <div class="log-body" aria-busy={loading}>
+      <div class="log-body" aria-busy={loading} bind:this={replayLogBody}>
         {#if loading}
           <div class="empty-card">
             <div class="empty-title">Loading...</div>
@@ -339,6 +396,8 @@
               type="button"
               class="row"
               class:expanded={isExpanded}
+              class:seeked={seekedIdx === i}
+              data-event-idx={i}
               onclick={(ev) => {
                 const target = ev.target as HTMLElement;
                 if (target.closest('.payload-expanded')) return;
@@ -631,6 +690,12 @@
   }
   .log-body .row:hover { background: rgba(212, 137, 10, 0.06); }
   .log-body .row:focus-visible { outline: 1px solid var(--amber-warm); outline-offset: -1px; }
+  /* Candidate 49d — transient flash when seeked via a MarkerTimeline pip. */
+  .log-body .row.seeked { animation: seek-flash 1.6s ease-out; }
+  @keyframes seek-flash {
+    0%, 30% { background: rgba(255, 200, 64, 0.22); box-shadow: inset 2px 0 0 var(--amber-bright); }
+    100% { background: transparent; box-shadow: none; }
+  }
   .log-body .row.expanded {
     grid-template-columns: 14px 85px 60px minmax(0, 1fr);
     grid-template-areas:

@@ -26,7 +26,7 @@
   import Tree from './lib/Tree.svelte';
   import IndexGraph from './lib/IndexGraph.svelte';
   import Splitter from './lib/Splitter.svelte';
-  import { subscribe, signalBusReady } from './lib/bus';
+  import { subscribe, signalBusReady, publish } from './lib/bus';
   import { popouts } from './lib/popouts.svelte';
   import { enrichmentStore } from './lib/enrichmentStore.svelte';
   import type { RiftConfig as RiftConfigType, StatusLineConfig, AlertRule } from './lib/riftConfig';
@@ -765,6 +765,23 @@
         e.preventDefault();
         paletteInitialQuery = 'model';
         paletteOpen = true;
+        return;
+      }
+      // Ctrl+Shift+K — drop a session marker (candidate 49d). Ctrl+M is
+      // Carriage Return in a terminal, so the candidate's suggested Ctrl+M
+      // would shadow Enter; Ctrl+Shift+K is terminal-safe. The marker is a
+      // `status`/`session.marker` envelope — the session logger persists every
+      // envelope, so it lands in the active session's .jsonl and surfaces as a
+      // clickable point on the replay timeline (SessionsTabContent).
+      if (e.ctrlKey && e.shiftKey && (e.key === 'K' || e.key === 'k')) {
+        e.preventDefault();
+        const now = new Date();
+        const label = `Mark @ ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
+        void publish('status', 'session.marker', {
+          marker_id: `mk-${now.getTime()}`,
+          label,
+          note: null,
+        }).catch((err) => console.warn('[App] session marker publish failed:', err));
         return;
       }
       if (e.ctrlKey && e.key === 'b') {

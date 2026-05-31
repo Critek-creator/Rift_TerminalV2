@@ -12,6 +12,7 @@ export const keybindings: Keybinding[] = [
 
   // Terminal
   { key: 'Ctrl+Shift+F', description: 'Search terminal', category: 'terminal' },
+  { key: 'Ctrl+Shift+K', description: 'Mark session moment', category: 'terminal' },
   { key: 'Ctrl+=', description: 'Zoom in', category: 'terminal' },
   { key: 'Ctrl+-', description: 'Zoom out', category: 'terminal' },
   { key: 'Ctrl+0', description: 'Reset zoom', category: 'terminal' },
