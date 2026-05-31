@@ -19,8 +19,9 @@
   import FeaturePipelineTabContent from './lib/FeaturePipelineTabContent.svelte';
   import LlmActivityTabContent from './lib/LlmActivityTabContent.svelte';
   import CommandIntelligencePanel from './lib/CommandIntelligencePanel.svelte';
-  import { signalBusReady, type Category } from './lib/bus';
-  import { parseSeverity, type SeverityLevel } from './lib/notifFilter';
+  import { signalBusReady, subscribe, type Category } from './lib/bus';
+  import { parseSeverity, resolveThreshold, type SeverityLevel } from './lib/notifFilter';
+  import type { RiftConfig as RiftConfigType } from './lib/riftConfig';
 
   // On-demand window: built fresh each time a tab is detached.
   // signalBusReady at module scope is safe — see CockpitDetached:28-31.
@@ -37,9 +38,28 @@
   let appWindow: TauriWindow;
   let config = $state<NotifConfig | null>(null);
 
-  let severityThreshold = $derived<SeverityLevel>(
-    config ? parseSeverity(config.severityThreshold) : 'info',
-  );
+  // Live severity threshold. Initialized from the detach-time snapshot
+  // (config.severityThreshold), then kept current by re-resolving from
+  // config_get whenever a `config.changed` bus event arrives — so changing a
+  // threshold in the main window's Settings propagates here without a reload.
+  // (S-3, notif-filter audit 2026-05-31.)
+  let severityThreshold = $state<SeverityLevel>('info');
+
+  async function refreshThresholdFromConfig(): Promise<void> {
+    if (!config) return;
+    try {
+      const cfg = await invoke<RiftConfigType>('config_get');
+      const nf = cfg?.notif_filters;
+      const def = parseSeverity(nf?.default_threshold);
+      const perTab: Record<string, SeverityLevel> = {};
+      if (nf?.per_tab) {
+        for (const [k, v] of Object.entries(nf.per_tab)) perTab[k] = parseSeverity(v);
+      }
+      severityThreshold = resolveThreshold(config.tabId, def, perTab);
+    } catch {
+      // keep current value on error
+    }
+  }
 
   function posKey(tabId: string): string {
     return `rift.notif.detached_pos.${tabId}`;
@@ -164,6 +184,11 @@
 
   function applyConfig(cfg: NotifConfig): void {
     config = cfg;
+    // Instant value from the detach-time snapshot, then reconcile with live
+    // config (identical at detach, but refresh keeps it correct if anything
+    // changed between detach and mount).
+    severityThreshold = parseSeverity(cfg.severityThreshold);
+    void refreshThresholdFromConfig();
     appWindow.setTitle(`Rift — ${cfg.title}`).catch(() => {});
     void restoreSavedPosition().then(() => startPositionTracking()).catch(() => startPositionTracking());
   }
@@ -187,6 +212,24 @@
         console.error('[NotifDetached] notif_get_config failed:', err);
       }
     })();
+
+    // S-3: live-update the threshold when config changes in ANY window.
+    // config_save publishes `system/config.changed` on the (cross-process)
+    // bus; the window-local `rift:config-changed` DOM event never reaches us.
+    // pr003 svelte5-async-cleanup-via-sync-shell-iife + cancelled-flag guard.
+    let cancelled = false;
+    let unsub: (() => Promise<void>) | undefined;
+    void (async () => {
+      const u = await subscribe({ category: 'system' }, (env) => {
+        if (env.kind === 'config.changed') void refreshThresholdFromConfig();
+      });
+      if (cancelled) { void u(); } else { unsub = u; }
+    })();
+
+    return () => {
+      cancelled = true;
+      void unsub?.();
+    };
   });
 </script>
 

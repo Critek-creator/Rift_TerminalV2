@@ -43,6 +43,25 @@ export function floorAtWarn(level: SeverityLevel): SeverityLevel {
   return severityRank(level) >= severityRank('warn') ? level : 'warn';
 }
 
+// Resolve the effective severity threshold for a tab from the persisted
+// notif-filter config. Single source of truth shared by the main window
+// (notifState.thresholdFor) and detached pop-out windows (NotifDetached) so
+// the two can never drift. Special cases: `errors` floors at warn (its feed is
+// the whole `system` category — see floorAtWarn); `bustail` floors at debug
+// (firehose — show everything).
+export function resolveThreshold(
+  tabId: string,
+  defaultThreshold: SeverityLevel,
+  perTab: Record<string, SeverityLevel>,
+): SeverityLevel {
+  if (tabId in perTab) {
+    return tabId === 'errors' ? floorAtWarn(perTab[tabId]) : perTab[tabId];
+  }
+  if (tabId === 'bustail') return 'debug';
+  if (tabId === 'errors') return 'warn';
+  return defaultThreshold;
+}
+
 export function parseSeverity(s: string | undefined | null): SeverityLevel {
   if (s === 'debug' || s === 'info' || s === 'warn' || s === 'error') return s;
   return 'info';

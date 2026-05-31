@@ -1615,6 +1615,16 @@ async fn config_save(
     .map_err(|e| format!("config_save: task join error: {e}"))??;
     tree_cache.clear();
     cached.set(cfg);
+    // Notify ALL windows (incl. detached notif pop-outs) cross-process via the
+    // bus so they can re-read config without a page reload. SettingsPanel's
+    // `rift:config-changed` DOM event is window-local and never reaches
+    // detached windows — this is the cross-window channel for e.g. live
+    // severity-threshold changes. (S-3, notif-filter audit 2026-05-31.)
+    if let Ok(env) = Envelope::new(Category::System, "config.changed")
+        .with_payload(&json!({ "source": "settings" }))
+    {
+        bus.publish(env);
+    }
     Ok(())
 }
 

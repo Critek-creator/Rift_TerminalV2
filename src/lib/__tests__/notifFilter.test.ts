@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { kindToSeverity, shouldShow, parseSeverity, floorAtWarn } from '../notifFilter';
+import { kindToSeverity, shouldShow, parseSeverity, floorAtWarn, resolveThreshold } from '../notifFilter';
 
 // Unit tests for notifFilter.ts — severity derivation from kind strings,
 // threshold gating, and parseSeverity edge cases.
@@ -113,6 +113,28 @@ describe('floorAtWarn', () => {
     expect(shouldShow('project.changed', floorAtWarn('info'))).toBe(false);
     // genuine system errors still pass
     expect(shouldShow('error', floorAtWarn('info'))).toBe(true);
+  });
+});
+
+describe('resolveThreshold', () => {
+  it('respects an explicit per-tab override for normal tabs', () => {
+    expect(resolveThreshold('agents', 'info', { agents: 'error' })).toBe('error');
+    expect(resolveThreshold('mcp', 'warn', { mcp: 'debug' })).toBe('debug');
+  });
+
+  it('floors the errors tab at warn (default and per-tab)', () => {
+    expect(resolveThreshold('errors', 'info', {})).toBe('warn');
+    expect(resolveThreshold('errors', 'debug', { errors: 'debug' })).toBe('warn');
+    expect(resolveThreshold('errors', 'info', { errors: 'error' })).toBe('error');
+  });
+
+  it('floors bustail at debug (firehose)', () => {
+    expect(resolveThreshold('bustail', 'error', {})).toBe('debug');
+  });
+
+  it('falls back to the default threshold when no per-tab entry', () => {
+    expect(resolveThreshold('agents', 'info', {})).toBe('info');
+    expect(resolveThreshold('filesystem', 'warn', {})).toBe('warn');
   });
 });
 
