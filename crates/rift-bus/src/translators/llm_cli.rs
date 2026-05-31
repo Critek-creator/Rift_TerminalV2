@@ -90,7 +90,7 @@ fn build_invocation(template: &str, prompt: &str) -> Result<Invocation, LlmError
         .to_string();
 
     let mut saw_placeholder = false;
-    let args: Vec<String> = tokens
+    let mut args: Vec<String> = tokens
         .map(|t| {
             if t.contains("{prompt}") {
                 saw_placeholder = true;
@@ -100,6 +100,20 @@ fn build_invocation(template: &str, prompt: &str) -> Result<Invocation, LlmError
             }
         })
         .collect();
+
+    // The `gemini` CLI refuses to run headless in an untrusted directory
+    // (exit 55) without `--skip-trust`. The generic provider is already
+    // gemini-aware (it manages ~/.gemini OAuth settings below), so inject the
+    // trust flag for gemini invocations only — scoped to this command, NOT a
+    // global trust bypass. No-op if the user already supplied it.
+    let is_gemini = std::path::Path::new(&program)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .map(|s| s.eq_ignore_ascii_case("gemini"))
+        .unwrap_or(false);
+    if is_gemini && !args.iter().any(|a| a == "--skip-trust") {
+        args.push("--skip-trust".to_string());
+    }
 
     Ok(Invocation {
         program,
@@ -488,9 +502,16 @@ mod tests {
         let inv = build_invocation("gemini -p {prompt} --model gemini-2.5-pro", "hello world")
             .expect("invocation");
         assert_eq!(inv.program, "gemini");
+        // gemini gets `--skip-trust` auto-appended (headless trust — exit 55).
         assert_eq!(
             inv.args,
-            vec!["-p", "hello world", "--model", "gemini-2.5-pro"]
+            vec![
+                "-p",
+                "hello world",
+                "--model",
+                "gemini-2.5-pro",
+                "--skip-trust"
+            ]
         );
         assert!(inv.stdin_prompt.is_none());
     }
@@ -507,8 +528,24 @@ mod tests {
     fn no_placeholder_routes_prompt_to_stdin() {
         let inv = build_invocation("gemini chat", "piped prompt").expect("invocation");
         assert_eq!(inv.program, "gemini");
-        assert_eq!(inv.args, vec!["chat"]);
+        // `--skip-trust` auto-appended for gemini even on the stdin path.
+        assert_eq!(inv.args, vec!["chat", "--skip-trust"]);
         assert_eq!(inv.stdin_prompt.as_deref(), Some("piped prompt"));
+    }
+
+    #[test]
+    fn gemini_skip_trust_not_duplicated() {
+        // User already supplied --skip-trust → we must not add a second one.
+        let inv = build_invocation("gemini --skip-trust -p {prompt}", "x").expect("invocation");
+        let n = inv.args.iter().filter(|a| *a == "--skip-trust").count();
+        assert_eq!(n, 1, "skip-trust should appear exactly once");
+    }
+
+    #[test]
+    fn non_gemini_gets_no_skip_trust() {
+        // Only gemini gets the trust flag — a generic tool is left untouched.
+        let inv = build_invocation("tool --input={prompt}", "abc").expect("invocation");
+        assert!(!inv.args.iter().any(|a| a == "--skip-trust"));
     }
 
     #[test]
