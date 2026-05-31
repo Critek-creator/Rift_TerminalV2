@@ -35,6 +35,7 @@
     google:         { label: 'Google Gemini',     desc: 'Gemini models via Google AI API',        color: 'var(--model-gemini)' },
     llama_server:   { label: 'Local (llama.cpp)', desc: 'Self-hosted GGUF model via llama-server', color: 'var(--model-local)' },
     open_ai_compat: { label: 'OpenAI-Compatible', desc: 'Any OpenAI-compatible endpoint',          color: 'var(--model-custom)' },
+    cli:            { label: 'CLI tool',          desc: 'External CLI (e.g. gemini) — endpoint holds the command, no API key', color: 'var(--model-custom)' },
   };
 
   const KNOWN_MODELS: Record<ProviderType, string[]> = {
@@ -54,6 +55,9 @@
     open_ai_compat: [
       'gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-3.5-turbo',
       'o3-mini', 'o4-mini',
+    ],
+    cli: [
+      'gemini-2.5-pro', 'gemini-2.5-flash',
     ],
   };
 

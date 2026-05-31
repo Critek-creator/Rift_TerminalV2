@@ -939,6 +939,10 @@ pub enum ProviderType {
     Google,
     LlamaServer,
     OpenAiCompat,
+    /// External command-line tool (e.g. the `gemini` CLI). Authenticates via
+    /// the tool's own session — no API key. The model's `endpoint` field holds
+    /// the command template; see `translators::llm_cli`.
+    Cli,
 }
 
 /// How a model is hosted — determines process management and health-check

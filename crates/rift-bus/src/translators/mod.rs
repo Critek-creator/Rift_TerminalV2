@@ -14,6 +14,7 @@ pub mod index;
 pub mod lane;
 pub mod llm;
 pub mod llm_anthropic;
+pub mod llm_cli;
 pub mod llm_gemini;
 pub mod llm_process;
 pub mod llm_server;

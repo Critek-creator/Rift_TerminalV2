@@ -230,17 +230,18 @@ export const llmModels = {
       model_identifier: '',
       hosting: isLocal
         ? defaultLocalConfig()
-        : provider === 'anthropic'
-          ? { mode: 'cloud' as const }
-          : provider === 'google'
-            ? { mode: 'cloud' as const }
-            : { mode: 'remote' as const, health_check_interval_secs: 30 },
+        : provider === 'open_ai_compat'
+          ? { mode: 'remote' as const, health_check_interval_secs: 30 }
+          : { mode: 'cloud' as const }, // anthropic / google / cli (hosting unused for cli)
       endpoint: provider === 'anthropic'
         ? 'https://api.anthropic.com/v1/messages'
         : provider === 'google'
           ? 'https://generativelanguage.googleapis.com/v1beta'
-          : '',
-      api_key_ref: isLocal ? null : '',
+          : provider === 'cli'
+            ? 'gemini -p {prompt} --model gemini-2.5-pro' // command template; {prompt} is substituted
+            : '',
+      // CLI tools authenticate via their own session (OAuth) — no API key.
+      api_key_ref: (isLocal || provider === 'cli') ? null : '',
       color: '--model-custom',
       short_id: '',
       capabilities: defaultCapabilities(),

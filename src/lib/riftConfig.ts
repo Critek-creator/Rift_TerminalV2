@@ -109,7 +109,7 @@ interface IntegrationsConfig {
   index_enabled: boolean;
 }
 
-export type ProviderType = 'anthropic' | 'google' | 'llama_server' | 'open_ai_compat';
+export type ProviderType = 'anthropic' | 'google' | 'llama_server' | 'open_ai_compat' | 'cli';
 export type RoutingProfile = 'manual' | 'cost_optimized' | 'quality_first' | 'balanced';
 export type KvCacheType = 'f32' | 'f16' | 'bf16' | 'q8_0' | 'q4_0' | 'q4_1' | 'iq4_nl' | 'q5_0' | 'q5_1';
 

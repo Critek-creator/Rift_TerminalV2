@@ -9,6 +9,7 @@ use futures_util::StreamExt;
 use rift_bus::config::{load_config, save_config, HostingMode, ModelConfig, ProviderType};
 use rift_bus::translators::llm::{CompletionRequest, LlmProvider, Message, Role};
 use rift_bus::translators::llm_anthropic::AnthropicProvider;
+use rift_bus::translators::llm_cli::CliProvider;
 use rift_bus::translators::llm_gemini::GeminiProvider;
 use rift_bus::translators::llm_process::ProcessManager;
 use rift_bus::translators::llm_server::LlamaServerProvider;
@@ -48,6 +49,14 @@ pub fn create_provider(
         (HostingMode::Cloud, ProviderType::Google) => Ok(Box::new(GeminiProvider::new(
             &model.endpoint,
             &api_key,
+            &model.model_identifier,
+        ))),
+        // CLI provider — matches any hosting (the command, not an HTTP host, is
+        // what matters). Must precede the `(Cloud, _)` catch-all so a CLI model
+        // configured with `hosting = "cloud"` still routes here. The command
+        // template lives in `endpoint`; no API key. See `translators::llm_cli`.
+        (_, ProviderType::Cli) => Ok(Box::new(CliProvider::new(
+            &model.endpoint,
             &model.model_identifier,
         ))),
         (HostingMode::Cloud, _) => Err(format!("unsupported cloud provider: {:?}", model.provider)),

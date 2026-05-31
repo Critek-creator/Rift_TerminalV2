@@ -1758,6 +1758,10 @@
             <span class="provider-card-name" style="color: var(--term-purple)">OpenAI-compat</span>
             <span class="provider-card-desc">Any OpenAI-compatible API endpoint</span>
           </button>
+          <button type="button" class="provider-card" onclick={() => llmModels.addModel('cli')}>
+            <span class="provider-card-name" style="color: var(--model-gemini)">CLI tool</span>
+            <span class="provider-card-desc">External CLI (e.g. gemini) — endpoint holds the command, no API key</span>
+          </button>
         </div>
       </div>
 
