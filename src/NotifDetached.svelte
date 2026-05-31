@@ -15,6 +15,7 @@
   import SentinelTabContent from './lib/SentinelTabContent.svelte';
   import SessionsTabContent from './lib/SessionsTabContent.svelte';
   import HealthTabContent from './lib/HealthTabContent.svelte';
+  import IntegrationInspector from './lib/IntegrationInspector.svelte';
   import { signalBusReady, type Category } from './lib/bus';
   import { parseSeverity, type SeverityLevel } from './lib/notifFilter';
 
@@ -228,6 +229,8 @@
           <HealthTabContent {severityThreshold} />
         {:else if config.tabId === 'sessions'}
           <SessionsTabContent />
+        {:else if config.tabId === 'integrations'}
+          <IntegrationInspector />
         {:else}
           <NotificationPane
             title={config.title}

@@ -177,6 +177,15 @@ const BUILTIN_TABS: TabDescriptor[] = [
     source: 'builtin', group: 'system',
   },
   {
+    // Candidate 2aa — Integration Capability Inspector. category: undefined
+    // because the component subscribes to every category itself (like
+    // bustail) to build a per-source liveness map.
+    id: 'integrations', title: 'links', icon: '⇄',
+    category: undefined, detectedByDefault: true,
+    sections: [...STANDARD_SECTIONS],
+    source: 'builtin', group: 'system',
+  },
+  {
     id: 'llm-activity', title: 'llm', icon: '◆',
     category: 'llm', detectedByDefault: true,
     sections: [...STANDARD_SECTIONS],

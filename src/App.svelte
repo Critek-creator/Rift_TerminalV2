@@ -20,6 +20,7 @@
   import SentinelTabContent from './lib/SentinelTabContent.svelte';
   import SessionsTabContent from './lib/SessionsTabContent.svelte';
   import HealthTabContent from './lib/HealthTabContent.svelte';
+  import IntegrationInspector from './lib/IntegrationInspector.svelte';
   import StatusLine from './lib/StatusLine.svelte';
   import Popout from './lib/Popout.svelte';
   import Tree from './lib/Tree.svelte';
@@ -968,6 +969,8 @@
                 cwd={sm.sessions.find(s => s.id === (sm.active.kind === 'session' ? sm.active.id : 0))?.projectPath ?? null}
                 onDragBack={nm.demoteTab}
               />
+            {:else if nm.promotedTab.id === 'integrations'}
+              <IntegrationInspector onDragBack={nm.demoteTab} />
             {:else}
               <NotificationPane
                 title={nm.promotedTab.title}
