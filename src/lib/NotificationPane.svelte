@@ -23,6 +23,7 @@
   import { popouts } from './popouts.svelte';
   import { envelopeToInjectText } from './eventInject';
   import { injectIntoActiveTerminal } from './terminalInject';
+  import ControlActions from './ControlActions.svelte';
 
   interface Props {
     title: string;
@@ -460,6 +461,9 @@
   </div>
 
   <footer class="state-panel">
+    {#if categoryFilter}
+      <ControlActions target={categoryFilter} />
+    {/if}
     <div class="state-header">PERSISTENT STATE</div>
     <div class="state-body">
       <div class="row k-row"><span class="k">subscribed</span><span class="v">{categoryFilter ?? 'none'}</span></div>

@@ -4,6 +4,7 @@
   import { NOTIF_TAB_MIME } from './dragMime';
   import { llmModels } from './llmModels.svelte';
   import { llmRouting, handleRouteEvent, handleResponseEvent } from './llmRouting.svelte';
+  import ControlActions from './ControlActions.svelte';
 
   interface Props {
     severityThreshold?: SeverityLevel;
@@ -180,6 +181,9 @@
       </div>
     {/each}
   </div>
+
+  <!-- §9 control endpoints declared for this tab (candidate 568) -->
+  <ControlActions target="llm-activity" />
 
   <!-- Grunt-tier savings ledger — local (grunt) vs cloud routing -->
   {#if ledgerTotal > 0}

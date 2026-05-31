@@ -28,6 +28,8 @@
   import IndexGraph from './lib/IndexGraph.svelte';
   import Splitter from './lib/Splitter.svelte';
   import { subscribe, signalBusReady, publish } from './lib/bus';
+  import { actionRegistry } from './lib/actionRegistry.svelte';
+  import { actionProviders } from './lib/actionProviders.svelte';
   import { popouts } from './lib/popouts.svelte';
   import { enrichmentStore } from './lib/enrichmentStore.svelte';
   import type { RiftConfig as RiftConfigType, StatusLineConfig, AlertRule } from './lib/riftConfig';
@@ -317,34 +319,70 @@
   // Subscribes to Category::Status at App level so the StatusLine updates
   // regardless of which tab is active. Same svelte5-async-cleanup-via-sync-
   // shell-iife + cancelled-flag pattern as the SKILL subscription below.
+  // Global env segments — computed from the single project root, app-wide.
+  // Sourced from the BASE status envelope (the one with no session_id).
   let statusDir = $state('');
   let statusGit = $state('');
-  let statusRepo = $state('');
-  let statusModel = $state('');
-  let statusCtx = $state('');
-  let statusSessionUse = $state('');
-  let statusWeek = $state('');
-  let statusSession = $state('');
-  let ccSkill = $state('');
-  let ccEffort = $state('');
-  let statusThinking = $state('');
+  let statusRepoBasename = $state('');
+  let statusSession = $state(''); // session clock — ticked by the 1s timer below
   let statuslineConfig = $state<StatusLineConfig | undefined>(undefined);
 
-  // Immediate status update on focus change — don't wait for the 5s Rust poll.
-  // Updates repo basename instantly so the StatusLine reflects the active pane.
-  // Full tilde-collapsed dir + git status still come from the Rust poll.
-  $effect(() => {
+  // Per-session Claude Code status. Each Rift PTY runs its own CC session whose
+  // statusLine bridge tees to rift-cc-status-<sessionId>.json; status.rs emits
+  // one usage envelope per session carrying `session_id`. We key by that id and
+  // the StatusLine renders the FOCUSED pane's CC data — fixing the prior bug
+  // where one shared temp file meant the status line showed whichever terminal
+  // wrote last ("reads from any and every terminal").
+  interface CcStatus {
+    model?: string;
+    ctx_pct?: number;
+    session_use_pct?: number;
+    week_pct?: number;
+    github_owner?: string;
+    github_repo?: string;
+    skill?: string;
+    effort?: string;
+    thinking?: string;
+  }
+  // Reassigned (not mutated) on each update so the deriveds below recompute.
+  let ccBySession = $state<Record<number, CcStatus>>({});
+
+  const ccFocused = $derived(ccBySession[sm.focusedSessionId]);
+  const statusModel = $derived(ccFocused?.model ?? '');
+  const statusCtx = $derived(ccFocused?.ctx_pct != null ? `${ccFocused.ctx_pct}%` : '');
+  const statusSessionUse = $derived(
+    ccFocused?.session_use_pct != null ? `${ccFocused.session_use_pct}%` : '',
+  );
+  const statusWeek = $derived(ccFocused?.week_pct != null ? `${ccFocused.week_pct}%` : '');
+  const statusThinking = $derived(ccFocused?.thinking ?? '');
+  const ccSkill = $derived(ccFocused?.skill ?? '');
+  const ccEffort = $derived(ccFocused?.effort ?? '');
+
+  // REPO precedence: focused session's CC-sourced github owner/name (per-session)
+  // → active pane path basename (instant on focus switch, no poll wait) → global
+  // repo basename from the base envelope.
+  const statusRepo = $derived.by(() => {
+    if (ccFocused?.github_owner && ccFocused?.github_repo) {
+      return `${ccFocused.github_owner}/${ccFocused.github_repo}`;
+    }
     const path = sm.activeProjectPath;
-    if (!path) return;
-    const parts = path.replace(/\\/g, '/').split('/');
-    const name = parts[parts.length - 1];
-    if (name) statusRepo = name;
+    if (path) {
+      const parts = path.replace(/\\/g, '/').split('/');
+      const name = parts[parts.length - 1];
+      if (name) return name;
+    }
+    return statusRepoBasename;
   });
 
-  // Session elapsed timer — persisted to localStorage so reloads don't reset.
+  // Session elapsed timer. Stored in sessionStorage (NOT localStorage) so it
+  // resets to zero on each fresh app launch — a new webview context starts with
+  // empty sessionStorage — while still surviving in-app reloads / Vite HMR,
+  // which keep the same context. localStorage persisted across launches, so the
+  // clock accumulated indefinitely (observed at 86h) instead of tracking the
+  // current session.
   const SESS_START_KEY = 'rift:sessionStartMs';
-  const sessionStartMs = Number(localStorage.getItem(SESS_START_KEY)) || Date.now();
-  localStorage.setItem(SESS_START_KEY, String(sessionStartMs));
+  const sessionStartMs = Number(sessionStorage.getItem(SESS_START_KEY)) || Date.now();
+  sessionStorage.setItem(SESS_START_KEY, String(sessionStartMs));
 
   // Unified 1-second timer — handles session clock, live-border tick,
   // timeline now, and sparkline buffer ticks. Merging avoids two competing
@@ -384,27 +422,36 @@
     void (async () => {
       try {
         const u = await subscribe({ category: 'status' }, (env) => {
-          if (env.kind === 'usage') {
-            const p = env.payload as {
-              dir?: string; git?: string; repo?: string;
-              model?: string; ctx_pct?: number; session_use_pct?: number; week_pct?: number;
-              github_owner?: string; github_repo?: string;
-              skill?: string; effort?: string; thinking?: string;
+          if (env.kind !== 'usage') return;
+          const p = env.payload as {
+            session_id?: number;
+            dir?: string; git?: string; repo?: string;
+            model?: string; ctx_pct?: number; session_use_pct?: number; week_pct?: number;
+            github_owner?: string; github_repo?: string;
+            skill?: string; effort?: string; thinking?: string;
+          };
+          if (p.session_id !== undefined) {
+            // Per-session CC envelope — store under its session id. Reassign the
+            // record (not mutate) so the ccFocused derived recomputes.
+            ccBySession = {
+              ...ccBySession,
+              [p.session_id]: {
+                model: p.model,
+                ctx_pct: p.ctx_pct,
+                session_use_pct: p.session_use_pct,
+                week_pct: p.week_pct,
+                github_owner: p.github_owner,
+                github_repo: p.github_repo,
+                skill: p.skill,
+                effort: p.effort,
+                thinking: p.thinking,
+              },
             };
-            if (p.dir  !== undefined) statusDir  = p.dir;
-            if (p.git  !== undefined) statusGit  = p.git;
-            if (p.github_owner && p.github_repo) {
-              statusRepo = `${p.github_owner}/${p.github_repo}`;
-            } else if (p.repo !== undefined) {
-              statusRepo = p.repo;
-            }
-            if (p.model !== undefined) statusModel = p.model;
-            if (p.ctx_pct !== undefined) statusCtx = `${p.ctx_pct}%`;
-            if (p.session_use_pct !== undefined) statusSessionUse = `${p.session_use_pct}%`;
-            if (p.week_pct !== undefined) statusWeek = `${p.week_pct}%`;
-            if (p.skill !== undefined) ccSkill = p.skill;
-            if (p.effort !== undefined) ccEffort = p.effort;
-            if (p.thinking !== undefined) statusThinking = p.thinking;
+          } else {
+            // Base envelope — global env segments (DIR / GIT / REPO basename).
+            if (p.dir  !== undefined) statusDir = p.dir;
+            if (p.git  !== undefined) statusGit = p.git;
+            if (p.repo !== undefined) statusRepoBasename = p.repo;
           }
         });
         if (cancelled) {
@@ -597,6 +644,11 @@
         console.warn('[App] rift_reset_for_reload failed:', err);
       }
       signalBusReady();
+      // §9 control-endpoint registry + in-process provider (candidate 568).
+      // Start the registry first so the bus replay buffer delivers any
+      // declarations the provider publishes immediately after.
+      void actionRegistry.start();
+      void actionProviders.start();
       const root = await invoke<string>('project_root_get');
       sm.initialProjectRoot = root;
       if (sm.sessions[0] && sm.sessions[0].projectPath === null) {
