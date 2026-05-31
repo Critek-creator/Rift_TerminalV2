@@ -64,6 +64,11 @@ struct ChatRequest {
     /// providers / unconstrained requests.
     #[serde(skip_serializing_if = "Option::is_none")]
     grammar: Option<String>,
+    /// llama.cpp chat-template kwargs (e.g. `{"enable_thinking": false}` to
+    /// disable the reasoning channel on thinking models like gemma/gpt-oss).
+    /// Sourced from `CompletionRequest.provider_options["chat_template_kwargs"]`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    chat_template_kwargs: Option<serde_json::Value>,
 }
 
 #[derive(Serialize)]
@@ -163,6 +168,12 @@ fn build_chat_request(req: &CompletionRequest, model: &str, stream: bool) -> Cha
         .and_then(|g| g.as_str())
         .map(str::to_string);
 
+    let chat_template_kwargs = req
+        .provider_options
+        .as_ref()
+        .and_then(|opts| opts.get("chat_template_kwargs"))
+        .cloned();
+
     ChatRequest {
         model: model.to_string(),
         messages,
@@ -171,6 +182,7 @@ fn build_chat_request(req: &CompletionRequest, model: &str, stream: bool) -> Cha
         stop: req.stop_sequences.clone(),
         stream,
         grammar,
+        chat_template_kwargs,
     }
 }
 

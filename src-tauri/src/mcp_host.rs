@@ -1953,6 +1953,21 @@ async fn tool_llm_prompt(bus: &RiftBus, payload: &Value) -> Result<Value, String
         .and_then(|v| v.as_u64())
         .map(|v| v as u32);
 
+    // Optional thinking control for thinking-capable local models (gemma, gpt-oss).
+    // `enable_thinking: false` disables the reasoning channel (direct answers — no
+    // empty output from budget exhaustion). Threaded via provider_options ->
+    // ChatRequest.chat_template_kwargs (llama.cpp template extension). A raw
+    // `chat_template_kwargs` object, if supplied, takes precedence over the bool.
+    let provider_options: Option<Value> = {
+        let kwargs = payload.get("chat_template_kwargs").cloned().or_else(|| {
+            payload
+                .get("enable_thinking")
+                .and_then(|v| v.as_bool())
+                .map(|b| json!({ "enable_thinking": b }))
+        });
+        kwargs.map(|k| json!({ "chat_template_kwargs": k }))
+    };
+
     let mut current_model_id = decision.model_id.clone();
     let mut fallback_chain = decision.fallback_chain.clone();
     let mut escalated = false;
@@ -1974,7 +1989,7 @@ async fn tool_llm_prompt(bus: &RiftBus, payload: &Value) -> Result<Value, String
             temperature: None,
             stop_sequences: vec![],
             system_prompt: system_prompt.clone(),
-            provider_options: None,
+            provider_options: provider_options.clone(),
         };
 
         match provider.complete(request).await {

@@ -465,6 +465,14 @@ pub fn tool_catalog() -> Vec<ToolSpec> {
                         "minimum": 1,
                         "description": "Max tokens to generate.",
                     },
+                    "enable_thinking": {
+                        "type": "boolean",
+                        "description": "Thinking-capable local models (gemma, gpt-oss) reason in a separate channel before answering. Set false to disable it for direct, fast answers (recommended for extraction/digest/lint tasks — avoids empty output when the token budget is spent thinking). Maps to the llama.cpp chat-template kwarg.",
+                    },
+                    "chat_template_kwargs": {
+                        "type": "object",
+                        "description": "Advanced: raw chat-template kwargs passed to llama.cpp (e.g. {\"enable_thinking\": false}). Takes precedence over enable_thinking.",
+                    },
                 },
                 "required": ["prompt"],
             }),
