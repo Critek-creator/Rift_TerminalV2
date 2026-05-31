@@ -1590,7 +1590,7 @@ fn tool_llm_process_start(app_handle: &AppHandle, payload: &Value) -> Result<Val
         .find(|m| m.id == model_id)
         .ok_or_else(|| format!("llm_process_start: model not found: {model_id}"))?;
 
-    let process_config = match &model.hosting {
+    let mut process_config = match &model.hosting {
         HostingMode::Local { process_config } => process_config.clone(),
         HostingMode::Cloud => {
             return Err(format!(
@@ -1603,6 +1603,11 @@ fn tool_llm_process_start(app_handle: &AppHandle, payload: &Value) -> Result<Val
             ))
         }
     };
+    // Explicit start ⟹ keep it alive. A manually-started server should self-heal
+    // on crash rather than stay dead until the next manual start (the failure mode
+    // behind the observed gpt-oss-20b "instability"). The 3×/60s cap in
+    // check_for_crashes still guards against OOM restart-loops.
+    process_config.auto_restart = true;
 
     let manager: tauri::State<'_, Arc<ProcessManager>> = app_handle
         .try_state()

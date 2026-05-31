@@ -13,7 +13,7 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::process::{Child, Command};
+use std::process::{Child, Command, Stdio};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -54,6 +54,28 @@ fn pid_file_path() -> Result<PathBuf, crate::config::ConfigError> {
     let dirs = directories::ProjectDirs::from("com", "abyssal", "rift")
         .ok_or(crate::config::ConfigError::NoConfigDir)?;
     Ok(dirs.config_dir().join("llm-pids.json"))
+}
+
+/// Per-model log path under `<config_dir>/logs/llama-<model>-<port>.log`.
+/// Captures the llama-server's stdout+stderr so crash causes (CUDA OOM,
+/// asserts) are diagnosable instead of being discarded by `CREATE_NO_WINDOW`.
+fn llm_log_path(model_id: &str, port: u16) -> Result<PathBuf, crate::config::ConfigError> {
+    let dirs = directories::ProjectDirs::from("com", "abyssal", "rift")
+        .ok_or(crate::config::ConfigError::NoConfigDir)?;
+    let safe: String = model_id
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    Ok(dirs
+        .config_dir()
+        .join("logs")
+        .join(format!("llama-{safe}-{port}.log")))
 }
 
 fn load_pid_file() -> PidFile {
@@ -452,6 +474,32 @@ impl ProcessManager {
 
         #[cfg(windows)]
         cmd.creation_flags(CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP);
+
+        // Capture stdout+stderr to a per-model log so a crash's actual cause
+        // (CUDA OOM, llama.cpp assert) is recoverable instead of being silently
+        // discarded by CREATE_NO_WINDOW. Best-effort — the spawn proceeds even
+        // if the log cannot be opened. Append (not truncate) so an auto-restart
+        // after a crash does not erase the crashing run's output.
+        if let Ok(log_path) = llm_log_path(model_id, config.port) {
+            if let Some(parent) = log_path.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            if let Ok(file) = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&log_path)
+            {
+                match file.try_clone() {
+                    Ok(err_handle) => {
+                        cmd.stdout(Stdio::from(file));
+                        cmd.stderr(Stdio::from(err_handle));
+                    }
+                    Err(_) => {
+                        cmd.stderr(Stdio::from(file));
+                    }
+                }
+            }
+        }
 
         let child = cmd
             .spawn()

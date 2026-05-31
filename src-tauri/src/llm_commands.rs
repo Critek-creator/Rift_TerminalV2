@@ -833,10 +833,14 @@ pub async fn llm_model_start(
         .iter()
         .find(|m| m.id == model_id)
         .ok_or_else(|| format!("model not found: {model_id}"))?;
-    let process_config = match &model.hosting {
+    let mut process_config = match &model.hosting {
         HostingMode::Local { process_config } => process_config.clone(),
         _ => return Err(format!("model '{model_id}' is not a local model")),
     };
+    // Explicit start ⟹ keep it alive: self-heal on crash rather than stay dead
+    // until the next manual start. The 3×/60s cap in check_for_crashes still
+    // guards against OOM restart-loops. Mirrors tool_llm_process_start (MCP path).
+    process_config.auto_restart = true;
 
     let pm = pm.inner().clone();
     tokio::task::spawn_blocking(move || pm.start(&model_id, &process_config))
