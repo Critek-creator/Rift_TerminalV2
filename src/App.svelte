@@ -21,6 +21,7 @@
   import SessionsTabContent from './lib/SessionsTabContent.svelte';
   import HealthTabContent from './lib/HealthTabContent.svelte';
   import IntegrationInspector from './lib/IntegrationInspector.svelte';
+  import FeaturePipelineTabContent from './lib/FeaturePipelineTabContent.svelte';
   import StatusLine from './lib/StatusLine.svelte';
   import Popout from './lib/Popout.svelte';
   import Tree from './lib/Tree.svelte';
@@ -988,6 +989,8 @@
               />
             {:else if nm.promotedTab.id === 'integrations'}
               <IntegrationInspector onDragBack={nm.demoteTab} />
+            {:else if nm.promotedTab.id === 'feature-pipeline'}
+              <FeaturePipelineTabContent onDragBack={nm.demoteTab} />
             {:else}
               <NotificationPane
                 title={nm.promotedTab.title}

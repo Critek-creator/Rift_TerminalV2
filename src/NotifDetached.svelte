@@ -16,6 +16,7 @@
   import SessionsTabContent from './lib/SessionsTabContent.svelte';
   import HealthTabContent from './lib/HealthTabContent.svelte';
   import IntegrationInspector from './lib/IntegrationInspector.svelte';
+  import FeaturePipelineTabContent from './lib/FeaturePipelineTabContent.svelte';
   import { signalBusReady, type Category } from './lib/bus';
   import { parseSeverity, type SeverityLevel } from './lib/notifFilter';
 
@@ -231,6 +232,8 @@
           <SessionsTabContent />
         {:else if config.tabId === 'integrations'}
           <IntegrationInspector />
+        {:else if config.tabId === 'feature-pipeline'}
+          <FeaturePipelineTabContent />
         {:else}
           <NotificationPane
             title={config.title}

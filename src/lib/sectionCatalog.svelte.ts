@@ -191,6 +191,15 @@ const BUILTIN_TABS: TabDescriptor[] = [
     sections: [...STANDARD_SECTIONS],
     source: 'builtin', group: 'activity',
   },
+  {
+    // Wave 6c — Feature Pipeline. category: undefined (invoke-based scan of the
+    // local feature-agent idea store, like todo/git). Renders an empty-state
+    // card when the store is absent, so it's safe to show by default.
+    id: 'feature-pipeline', title: 'pipeline', icon: '⬢',
+    category: undefined, detectedByDefault: true,
+    sections: [...STANDARD_SECTIONS],
+    source: 'builtin', group: 'intel',
+  },
 ];
 
 // ---------------------------------------------------------------------------

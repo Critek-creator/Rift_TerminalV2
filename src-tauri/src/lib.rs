@@ -32,6 +32,7 @@ mod index_bridge {
     }
 }
 mod command_history;
+mod feature_pipeline;
 mod file_preview;
 mod health_collector;
 mod integrations;
@@ -2290,6 +2291,7 @@ pub fn run() {
             llm_commands::llm_classifier_register,
             llm_commands::gemini_auth_status,
             llm_commands::gemini_enable_headless,
+            feature_pipeline::feature_pipeline_scan,
         ]))
         .build(tauri::generate_context!())
         .expect("rift: tauri runtime failed to start")
