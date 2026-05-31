@@ -5,6 +5,7 @@
   // separate rows over a shared time axis makes concurrency and overlap
   // visible at a glance. Pure presentation — the parent (AgentsTabContent)
   // owns the agent registry and passes a flattened run list.
+  import { formatDuration } from './formatDuration';
 
   interface AgentRun {
     id: string;
@@ -63,14 +64,6 @@
     }
   }
 
-  function fmtDuration(ms: number): string {
-    if (ms < 1000) return `${Math.max(0, ms)}ms`;
-    if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`;
-    const m = Math.floor(ms / 60_000);
-    const s = Math.round((ms % 60_000) / 1000);
-    return `${m}m${s.toString().padStart(2, '0')}s`;
-  }
-
   function fmtClock(ts: number): string {
     return new Date(ts).toLocaleTimeString(undefined, { hour12: false });
   }
@@ -86,13 +79,13 @@
   <div class="gantt" role="img" aria-label="Timeline of agent runs">
     <div class="gantt-axis">
       <span class="axis-start">{fmtClock(bounds.t0)}</span>
-      <span class="axis-span">{fmtDuration(bounds.t1 - bounds.t0)} span · {runs.length} run{runs.length === 1 ? '' : 's'}</span>
+      <span class="axis-span">{formatDuration(bounds.t1 - bounds.t0)} span · {runs.length} run{runs.length === 1 ? '' : 's'}</span>
       <span class="axis-end">{fmtClock(bounds.t1)}{#if runs.some((r) => r.endTs === null)} (live){/if}</span>
     </div>
     <div class="gantt-rows">
       {#each runs as r (r.id + ':' + r.startedTs)}
         {@const live = r.endTs === null}
-        <div class="gantt-row" title="{r.name} — {r.status} — {fmtDuration(runDuration(r))}">
+        <div class="gantt-row" title="{r.name} — {r.status} — {formatDuration(runDuration(r))}">
           <span class="row-label" style="color: {statusColor(r.status)}">{r.name}</span>
           <div class="row-track">
             <div
@@ -100,7 +93,7 @@
               class:live
               style="{barStyle(r)} background: {statusColor(r.status)};"
             ></div>
-            <span class="row-dur">{fmtDuration(runDuration(r))}</span>
+            <span class="row-dur">{formatDuration(runDuration(r))}</span>
           </div>
         </div>
       {/each}

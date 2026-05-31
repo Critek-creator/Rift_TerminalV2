@@ -77,7 +77,15 @@ function handle(env: Envelope): void {
     }
     case 'action.result': {
       const invId = typeof p.invocation_id === 'string' ? p.invocation_id : null;
-      const actionId = invId ? invocations.get(invId) : (p.action_id as string | undefined);
+      // Prefer correlation by invocation_id. Fall back to a bare action_id only
+      // when that action is actually pending — otherwise a stray or replayed
+      // result envelope could fake a success/failure for an action the user
+      // never invoked.
+      const actionId = invId
+        ? invocations.get(invId)
+        : typeof p.action_id === 'string' && pending[p.action_id] === true
+          ? p.action_id
+          : undefined;
       if (!actionId) return;
       if (invId) invocations.delete(invId);
       const { [actionId]: _drop, ...restPending } = pending;

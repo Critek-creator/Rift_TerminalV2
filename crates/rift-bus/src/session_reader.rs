@@ -12,6 +12,13 @@ pub struct SessionMeta {
     pub size_bytes: u64,
 }
 
+/// Display date from a session id stem. Session ids are date-prefixed
+/// (`YYYY-MM-DD-...`); take the first 10 CHARS (never a byte slice — a
+/// non-ASCII char before offset 10 would panic on a `&stem[..10]` byte slice).
+fn date_from_stem(stem: &str) -> String {
+    stem.chars().take(10).collect()
+}
+
 pub fn list_sessions() -> Result<Vec<SessionMeta>, String> {
     let dir = match sessions_dir() {
         Ok(d) => d,
@@ -43,11 +50,7 @@ pub fn list_sessions() -> Result<Vec<SessionMeta>, String> {
             Err(_) => 0,
         };
 
-        let date = if stem.len() >= 10 {
-            stem[..10].to_string()
-        } else {
-            stem.clone()
-        };
+        let date = date_from_stem(&stem);
 
         sessions.push(SessionMeta {
             id: stem,
@@ -146,11 +149,7 @@ pub fn search_sessions(query: &str, limit: usize) -> Result<Vec<SessionSearchHit
         if hits.len() >= limit {
             break;
         }
-        let date = if stem.len() >= 10 {
-            stem[..10].to_string()
-        } else {
-            stem.clone()
-        };
+        let date = date_from_stem(&stem);
         let file = match std::fs::File::open(&path) {
             Ok(f) => f,
             Err(_) => continue,

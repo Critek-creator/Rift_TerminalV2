@@ -17,10 +17,13 @@ type Injector = (text: string) => void;
 const registry = new Map<number, Injector>();
 let activePaneId: number | null = null;
 
-/** Register a terminal's raw-text paste fn. Call on mount. */
+/** Register a terminal's raw-text paste fn. Call on mount. The newest terminal
+ *  becomes the default active target — a freshly-opened pane is the most likely
+ *  injection target until the user focuses another; the focusin path
+ *  (setActiveInjector) then keeps it tracking the actually-focused terminal. */
 export function registerInjector(paneId: number, inject: Injector): void {
   registry.set(paneId, inject);
-  if (activePaneId === null) activePaneId = paneId;
+  activePaneId = paneId;
 }
 
 /** Remove a terminal's injector. Call on cleanup. */

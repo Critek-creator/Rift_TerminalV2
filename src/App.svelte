@@ -645,10 +645,11 @@
       }
       signalBusReady();
       // §9 control-endpoint registry + in-process provider (candidate 568).
-      // Start the registry first so the bus replay buffer delivers any
-      // declarations the provider publishes immediately after.
-      void actionRegistry.start();
-      void actionProviders.start();
+      // Await the registry's subscribe BEFORE the provider declares, so the
+      // declaration is delivered live (the bus replay buffer is a backstop, not
+      // the primary path). Sequenced so ordering never depends on IPC latency.
+      await actionRegistry.start();
+      await actionProviders.start();
       const root = await invoke<string>('project_root_get');
       sm.initialProjectRoot = root;
       if (sm.sessions[0] && sm.sessions[0].projectPath === null) {

@@ -423,6 +423,10 @@
               toggleRow(rowKey);
             }}
             onkeydown={(ev) => {
+              // Only the row itself toggles — Enter/Space on the child inject
+              // button must not also expand/collapse the row (keydown bubbles
+              // even though the button's click stops propagation).
+              if (ev.target !== ev.currentTarget) return;
               if (ev.key === 'Enter' || ev.key === ' ') {
                 ev.preventDefault();
                 toggleRow(rowKey);

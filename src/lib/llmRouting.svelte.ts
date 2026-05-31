@@ -71,9 +71,12 @@ function hostingOf(modelId: string): 'local' | 'cloud' {
 
 /** The cloud model whose rate stands in for "what you'd have paid". Prefers the
  *  configured default model when it is cloud with a real rate; otherwise the
- *  highest-output-cost configured cloud model (the realistic escalation
- *  target). Returns null when no cloud model carries a price — savings can't be
- *  estimated without one. */
+ *  CHEAPEST priced configured cloud model. Cheapest (not most expensive) is the
+ *  deliberate choice: it makes the savings a conservative lower bound — the
+ *  realistic floor of what the work would have cost on cloud — rather than
+ *  overstating grunt-tier value by pricing against the most expensive model the
+ *  user happens to have configured. Returns null when no cloud model carries a
+ *  price, so savings show as n/a instead of a fabricated figure. */
 function referenceCloudRate(): { modelId: string; input: number; output: number } | null {
   const priced = (c: { cost_per_1m_input: number; cost_per_1m_output: number }) =>
     c.cost_per_1m_input > 0 || c.cost_per_1m_output > 0;
@@ -91,13 +94,13 @@ function referenceCloudRate(): { modelId: string; input: number; output: number 
     (m) => m.hosting.mode === 'cloud' && priced(m.capabilities),
   );
   if (clouds.length === 0) return null;
-  const top = clouds.reduce((a, b) =>
-    b.capabilities.cost_per_1m_output > a.capabilities.cost_per_1m_output ? b : a,
+  const cheapest = clouds.reduce((a, b) =>
+    b.capabilities.cost_per_1m_output < a.capabilities.cost_per_1m_output ? b : a,
   );
   return {
-    modelId: top.id,
-    input: top.capabilities.cost_per_1m_input,
-    output: top.capabilities.cost_per_1m_output,
+    modelId: cheapest.id,
+    input: cheapest.capabilities.cost_per_1m_input,
+    output: cheapest.capabilities.cost_per_1m_output,
   };
 }
 

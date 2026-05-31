@@ -101,11 +101,15 @@
   let searching = $state(false);
   let searchError = $state<string | null>(null);
   let searchTimer: ReturnType<typeof setTimeout> | undefined;
+  // Monotonic search id — only the most-recently-issued query may write results,
+  // so a slow earlier query resolving late can't clobber newer results.
+  let searchSeq = 0;
 
   function onSearchInput(): void {
     if (searchTimer) clearTimeout(searchTimer);
     const q = searchQuery;
     if (!q.trim()) {
+      searchSeq++; // invalidate any in-flight query
       searchHits = [];
       searchError = null;
       searching = false;
@@ -116,17 +120,21 @@
   }
 
   async function runSearch(q: string): Promise<void> {
+    const seq = ++searchSeq;
     try {
-      searchHits = await invoke<SessionSearchHit[]>('search_sessions', {
+      const hits = await invoke<SessionSearchHit[]>('search_sessions', {
         query: q,
         limit: SEARCH_LIMIT,
       });
+      if (seq !== searchSeq) return; // a newer query superseded this one
+      searchHits = hits;
       searchError = null;
     } catch (err) {
+      if (seq !== searchSeq) return;
       searchError = String((err as Error).message ?? err);
       searchHits = [];
     } finally {
-      searching = false;
+      if (seq === searchSeq) searching = false;
     }
   }
 

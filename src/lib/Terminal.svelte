@@ -29,6 +29,7 @@
   import TerminalSearch from './TerminalSearch.svelte';
   import PathTooltip from './PathTooltip.svelte';
   import { popouts } from './popouts.svelte';
+  import { formatDuration } from './formatDuration';
   import { subscribe as busSubscribe, type Envelope } from './bus';
   import { getTerminalSettings, invalidateTerminalSettingsCache } from './terminalConfigCache';
   import { resolveTheme } from './terminalPalettes';
@@ -168,16 +169,6 @@
     return a.slice(r.length + 1);
   }
 
-  /** Format a command duration for the badge: ms under 1s, seconds with one
-   *  decimal under a minute, else `MmSSs`. */
-  function formatCmdDuration(ms: number): string {
-    if (ms < 1000) return `${ms}ms`;
-    if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`;
-    const m = Math.floor(ms / 60_000);
-    const s = Math.round((ms % 60_000) / 1000);
-    return `${m}m${s.toString().padStart(2, '0')}s`;
-  }
-
   /**
    * Render a per-command status badge (exit code + duration) at the current
    * cursor row — the CMD_END boundary. An xterm marker + decoration keeps the
@@ -194,7 +185,7 @@
     const decoration = term.registerDecoration({ marker, x: 0, width: term.cols });
     if (!decoration) return;
     const ok = exitCode === 0;
-    const dur = durationMs != null ? ` · ${formatCmdDuration(durationMs)}` : '';
+    const dur = durationMs != null ? ` · ${formatDuration(durationMs)}` : '';
     const label = `${ok ? '✓' : '✗'} ${exitCode}${dur}`;
     decoration.onRender((el: HTMLElement) => {
       el.style.width = '100%';
