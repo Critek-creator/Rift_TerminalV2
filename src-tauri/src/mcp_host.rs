@@ -426,6 +426,12 @@ async fn dispatch_tool(
             }
             tool_llm_process_stop(app_handle, payload)
         }
+        "llm_model_apply_config" => {
+            if !cfg.allow_mutations {
+                return Err("llm_model_apply_config requires mcp.allow_mutations = true".into());
+            }
+            tool_llm_apply_config(app_handle, payload)
+        }
         other => Err(format!("unknown MCP tool: {other}")),
     }
 }
@@ -1641,6 +1647,57 @@ fn tool_llm_process_stop(app_handle: &AppHandle, payload: &Value) -> Result<Valu
     }))
 }
 
+/// `llm_model_apply_config` — apply a model's persisted config to its running
+/// server, restarting it only if the launch args drifted (the stale-server
+/// fix from Phase 0). Requires `mcp.allow_mutations = true`. Reads the on-disk
+/// config (so the caller must save edits first), then reconciles the running
+/// process. Returns `outcome`: "restarted" | "unchanged" | "not_running".
+fn tool_llm_apply_config(app_handle: &AppHandle, payload: &Value) -> Result<Value, String> {
+    use rift_bus::config::HostingMode;
+    use rift_bus::translators::llm_process::{ApplyOutcome, ProcessManager};
+    use std::sync::Arc;
+
+    let model_id = payload
+        .get("model_id")
+        .and_then(|v| v.as_str())
+        .ok_or("llm_model_apply_config: missing required argument: model_id")?;
+
+    let config = rift_bus::config::load_config().map_err(|e| format!("{e}"))?;
+    let model = config
+        .ensemble
+        .models
+        .iter()
+        .find(|m| m.id == model_id)
+        .ok_or_else(|| format!("llm_model_apply_config: model not found: {model_id}"))?;
+    let process_config = match &model.hosting {
+        HostingMode::Local { process_config } => process_config.clone(),
+        _ => {
+            return Err(format!(
+                "llm_model_apply_config: model '{model_id}' is not a local model"
+            ))
+        }
+    };
+
+    let manager: tauri::State<'_, Arc<ProcessManager>> = app_handle
+        .try_state()
+        .ok_or("llm_model_apply_config: ProcessManager not available (internal error)")?;
+
+    let outcome = manager
+        .apply_config(model_id, &process_config)
+        .map_err(|e| format!("llm_model_apply_config: {e}"))?;
+
+    let outcome_str = match outcome {
+        ApplyOutcome::Restarted => "restarted",
+        ApplyOutcome::Unchanged => "unchanged",
+        ApplyOutcome::NotRunning => "not_running",
+    };
+
+    Ok(json!({
+        "model_id": model_id,
+        "outcome": outcome_str,
+    }))
+}
+
 fn publish_response(bus: &RiftBus, tool: &str, request_id: Value, result: Result<Value, String>) {
     let kind = format!("mcp.response.{tool}");
     let corr_id = request_id.as_str().map(|s| format!("mcp-{s}"));
@@ -1841,6 +1898,16 @@ async fn tool_llm_prompt(bus: &RiftBus, payload: &Value) -> Result<Value, String
 
     let model_id_override = payload.get("model_id").and_then(|v| v.as_str());
 
+    // Dispatch tier (grunt|partner|system) — defaults to "partner". Threaded
+    // into the llm.* bus events so the LLM activity tab can distinguish grunt
+    // (local, free, volume) work from partner-tier calls — the observability
+    // half of tiered dispatch.
+    let tier = payload
+        .get("tier")
+        .and_then(|v| v.as_str())
+        .unwrap_or("partner")
+        .to_string();
+
     let decision = router
         .route(prompt, model_id_override)
         .map_err(|e| format!("{e}"))?;
@@ -1864,6 +1931,7 @@ async fn tool_llm_prompt(bus: &RiftBus, payload: &Value) -> Result<Value, String
         "reason": decision.reason,
         "was_overridden": decision.was_overridden,
         "source": "mcp",
+        "tier": tier,
     });
     bus.publish(route_env);
 
@@ -1921,6 +1989,7 @@ async fn tool_llm_prompt(bus: &RiftBus, payload: &Value) -> Result<Value, String
                     "cost_usd": cost_usd,
                     "escalated": escalated,
                     "source": "mcp",
+                    "tier": tier,
                 });
                 bus.publish(resp_env);
 
@@ -1946,6 +2015,7 @@ async fn tool_llm_prompt(bus: &RiftBus, payload: &Value) -> Result<Value, String
                     "error": err.to_string(),
                     "retryable": retryable,
                     "source": "mcp",
+                    "tier": tier,
                 });
                 bus.publish(err_env);
 

@@ -499,6 +499,20 @@ pub fn tool_catalog() -> Vec<ToolSpec> {
             }),
         },
         ToolSpec {
+            name: "llm_model_apply_config",
+            description: "Apply a local model's saved config to its RUNNING server: if launch args (ctx_size, gpu layers, flash-attn, …) drifted, stop+restart so the change takes effect; else no-op. Fixes the stale-server trap (a running model keeping an old ctx_size after a config edit). Save model edits first — this reads the on-disk config. Returns outcome: restarted | unchanged | not_running. Requires `mcp.allow_mutations = true`.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "model_id": {
+                        "type": "string",
+                        "description": "ID of the local model whose running server should be reconciled with its saved config.",
+                    },
+                },
+                "required": ["model_id"],
+            }),
+        },
+        ToolSpec {
             name: "llm_ensemble",
             description: "Send the same prompt to two models in parallel and optionally run a critique step where model B reviews model A's output. Returns both responses with token/cost metadata plus the critique text.",
             input_schema: json!({

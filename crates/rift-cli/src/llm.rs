@@ -175,6 +175,13 @@ pub enum LlmCmd {
         /// Model id to activate.
         model_id: String,
     },
+    /// Apply a local model's saved config to its running server — restart only
+    /// if launch args (ctx_size, …) drifted. Prints outcome JSON
+    /// (restarted|unchanged|not_running).
+    Apply {
+        /// Local model id to reconcile.
+        model_id: String,
+    },
     /// Health-check a model endpoint (JSON). Omit --model to check the active one.
     Health {
         #[arg(long)]
@@ -247,6 +254,16 @@ async fn dispatch(socket_arg: Option<&str>, cmd: LlmCmd) -> Result<()> {
         LlmCmd::Switch { model_id } => {
             let result =
                 host_call(socket_arg, "llm_switch", json!({ "model_id": model_id })).await?;
+            println!("{result}");
+            Ok(())
+        }
+        LlmCmd::Apply { model_id } => {
+            let result = host_call(
+                socket_arg,
+                "llm_model_apply_config",
+                json!({ "model_id": model_id }),
+            )
+            .await?;
             println!("{result}");
             Ok(())
         }
