@@ -5,7 +5,7 @@
   // fields the generator now emits. Read-only; invoke-based (feature_pipeline_scan)
   // on mount + Refresh. Renders an empty-state card when the store is absent.
 
-  import { onMount } from 'svelte';
+  import { onMount, flushSync } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
   import { NOTIF_TAB_MIME } from './dragMime';
 
@@ -84,13 +84,27 @@
     scanning = true;
     scanError = null;
     try {
-      entries = await invoke<PipelineEntry[]>('feature_pipeline_scan');
-      lastScanTs = Date.now();
+      const result = await invoke<PipelineEntry[]>('feature_pipeline_scan');
+      // flushSync defensively: this assignment + the resulting re-render run in
+      // the async continuation AFTER the await, so any error thrown during the
+      // render (e.g. a Svelte each_key_duplicate from a bad store, as ALL+ALL
+      // once hit when a candidate existed in both candidates/ and graveyard/)
+      // is thrown in the reactive flush microtask, OUTSIDE this try's reach — it
+      // silently wedges the scheduler and tears the pane instead of surfacing.
+      // Forcing the flush here pulls any such error back into this try/catch so
+      // it shows as "scan failed — …" rather than a frozen pane. Batched with the
+      // scanning reset so the whole post-scan state lands in one pass.
+      flushSync(() => {
+        entries = result;
+        lastScanTs = Date.now();
+        scanning = false;
+      });
     } catch (err) {
       scanError = String(err);
       console.error('[FeaturePipeline] feature_pipeline_scan failed', err);
-    } finally {
-      scanning = false;
+      flushSync(() => {
+        scanning = false;
+      });
     }
   }
 
@@ -208,7 +222,7 @@
       {:else if filtered.length === 0}
         <div class="empty">no candidates match the current filters</div>
       {:else}
-        {#each filtered as e (e.id)}
+        {#each filtered as e (e.target + '::' + e.stage + '::' + e.id)}
           {@const open = expandedId === e.id}
           <div class="row" class:row-open={open}>
             <button type="button" class="row-main" onclick={() => toggleExpand(e.id)} title="expand details">
