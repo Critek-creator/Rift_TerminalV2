@@ -160,15 +160,23 @@ struct PtyRegistryInner {
 pub(crate) struct PtyRegistry(Arc<PtyRegistryInner>);
 
 impl PtyRegistry {
-    fn insert(&self, control: PtyControl) -> u32 {
-        let id = self.0.next_id.fetch_add(1, Ordering::SeqCst);
+    /// Allocate a fresh session id WITHOUT inserting a control. Used by
+    /// `pty_start` so the id is known before the shell spawns — the id is
+    /// injected into the PTY env as `RIFT_SESSION_ID` (so the CC status bridge
+    /// can tee per-session), then the control is registered via
+    /// [`insert_with_id`]. Ids are monotonic and never reused.
+    fn reserve_id(&self) -> u32 {
+        self.0.next_id.fetch_add(1, Ordering::SeqCst)
+    }
+
+    /// Register a control under a previously [`reserve_id`]-allocated id.
+    fn insert_with_id(&self, id: u32, control: PtyControl) {
         self.0.sessions.lock().insert(id, control);
-        id
     }
 
     /// Store the outer drain task handle alongside the session.
     ///
-    /// Must be called once, after [`insert`], with the handle returned by
+    /// Must be called once, after [`insert_with_id`], with the handle returned by
     /// `tauri::async_runtime::spawn`. Overwrites any existing handle (guards
     /// against double-registration; in practice never occurs because sessions
     /// have unique ids).
@@ -603,6 +611,17 @@ async fn pty_start(
     } else {
         tracing::warn!("pty_start: IPC server not ready yet — RIFT_SOCKET_NAME omitted; hooks from this PTY session won't publish to the bus until next pty_start");
     }
+    // Reserve the session id BEFORE spawn so it can be injected into the PTY
+    // env. The CC status bridge (tools/cc-status-bridge.mjs) reads
+    // $RIFT_SESSION_ID and tees Claude Code's StatusJSON to a per-session temp
+    // file (rift-cc-status-<id>.json) instead of one shared file — this is what
+    // lets the GUI status line render the FOCUSED pane's data rather than
+    // whichever terminal's CC session wrote last. The id equals the value
+    // `pty_start` returns, which the frontend uses as its session id, so the
+    // per-session status envelopes correlate without any extra mapping.
+    let registry = app.state::<PtyRegistry>().inner().clone();
+    let id = registry.reserve_id();
+    opts = opts.with_env("RIFT_SESSION_ID", id.to_string());
     let effective_cwd = match cwd {
         Some(ref p) => dunce::canonicalize(p).map_err(|e| format!("invalid cwd: {e}"))?,
         None => app
@@ -623,8 +642,7 @@ async fn pty_start(
         );
         msg
     })?;
-    let registry = app.state::<PtyRegistry>().inner().clone();
-    let id = registry.insert(control);
+    registry.insert_with_id(id, control);
     // Register a fresh CommandBuffer for this session (commands translator).
     app.state::<CommandBufferRegistry>().insert(id);
 
@@ -678,6 +696,9 @@ async fn pty_start(
         };
         // Track last-published lane so we only emit bus events on transitions.
         let mut last_lane = Lane::Sys;
+        // Wall-clock start of the in-flight command (set on CMD_START), used to
+        // measure duration for the `command.completed` badge event on CMD_END.
+        let mut cmd_start_at: Option<Instant> = None;
         let lane_bus = drain_bus.clone();
 
         // L2: Subscribe to Hook + Aegis bus events for direct lane injection.
@@ -704,10 +725,28 @@ async fn pty_start(
                             // consumers); no ANSI bytes sent to terminal
                             // (Approach D — stop fighting shell SGR).
                             if cls.take_cmd_start_flag() {
+                                cmd_start_at = Some(Instant::now());
                                 if let Some(pid) = l3_root_pid {
                                     if is_claude_descendant(pid) {
                                         cls.inject_event(SentinelEvent::ClaudeStart);
                                     }
+                                }
+                            }
+                            // On CMD_END, publish command.completed with exit
+                            // code + measured duration so the terminal can draw
+                            // a per-command status badge at the boundary row.
+                            if let Some(exit_code) = cls.take_cmd_end() {
+                                let duration_ms =
+                                    cmd_start_at.take().map(|t| t.elapsed().as_millis() as u64);
+                                if let Some(ref bus) = lane_bus {
+                                    let mut cenv =
+                                        Envelope::new(Category::Pty, "command.completed");
+                                    cenv.payload = json!({
+                                        "session_id": id,
+                                        "exit_code": exit_code,
+                                        "duration_ms": duration_ms,
+                                    });
+                                    bus.publish(cenv);
                                 }
                             }
                             // Publish lane.changed on transitions so the
@@ -873,6 +912,12 @@ fn pty_kill(
     state.remove(id);
     // Clean up the command buffer for this session.
     cmd_bufs.remove(id);
+    // Best-effort removal of this session's CC status temp file (written by
+    // the cc-status-bridge under $RIFT_SESSION_ID). Without this, every pane
+    // ever opened leaves a permanent rift-cc-status-<id>.json in $TEMP. The
+    // 30 s staleness guard in the status translator already prevents a closed
+    // session's data from being displayed, so this is hygiene, not correctness.
+    let _ = std::fs::remove_file(std::env::temp_dir().join(format!("rift-cc-status-{id}.json")));
     Ok(())
 }
 

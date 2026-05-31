@@ -168,6 +168,47 @@
     return a.slice(r.length + 1);
   }
 
+  /** Format a command duration for the badge: ms under 1s, seconds with one
+   *  decimal under a minute, else `MmSSs`. */
+  function formatCmdDuration(ms: number): string {
+    if (ms < 1000) return `${ms}ms`;
+    if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`;
+    const m = Math.floor(ms / 60_000);
+    const s = Math.round((ms % 60_000) / 1000);
+    return `${m}m${s.toString().padStart(2, '0')}s`;
+  }
+
+  /**
+   * Render a per-command status badge (exit code + duration) at the current
+   * cursor row — the CMD_END boundary. An xterm marker + decoration keeps the
+   * badge anchored to that scrollback line across reflow/scroll/resize, and the
+   * decoration is auto-disposed when the line ages out of the scrollback
+   * buffer (and on `term.dispose`). Forcing the element to full container
+   * width in `onRender` keeps the badge pinned to the right margin even after
+   * the terminal is resized narrower than it was at command time.
+   */
+  function addCommandBadge(exitCode: number, durationMs: number | null): void {
+    if (!term) return;
+    const marker = term.registerMarker(0);
+    if (!marker) return;
+    const decoration = term.registerDecoration({ marker, x: 0, width: term.cols });
+    if (!decoration) return;
+    const ok = exitCode === 0;
+    const dur = durationMs != null ? ` · ${formatCmdDuration(durationMs)}` : '';
+    const label = `${ok ? '✓' : '✗'} ${exitCode}${dur}`;
+    decoration.onRender((el: HTMLElement) => {
+      el.style.width = '100%';
+      el.style.left = '0';
+      el.classList.add('cmd-badge-row');
+      if (!el.querySelector('.cmd-badge')) {
+        const badge = document.createElement('span');
+        badge.className = 'cmd-badge' + (ok ? ' ok' : ' err');
+        badge.textContent = label;
+        el.appendChild(badge);
+      }
+    });
+  }
+
   function onTermDragOver(e: DragEvent): void {
     // Only claim the drop when the payload is ours — lets other drag sources pass through.
     const types = e.dataTransfer?.types;
@@ -763,6 +804,13 @@
         );
       }),
       busSubscribe({ category: 'pty' }, (env: Envelope) => {
+        if (env.kind === 'command.completed') {
+          const c = env.payload as { session_id?: number; exit_code?: number; duration_ms?: number | null } | null;
+          if (!c || typeof c.exit_code !== 'number') return;
+          if (c.session_id !== undefined && c.session_id !== sessionId) return;
+          addCommandBadge(c.exit_code, c.duration_ms ?? null);
+          return;
+        }
         if (env.kind !== 'lane.changed') return;
         const p = env.payload as { lane?: string; session_id?: number } | null;
         if (!p?.lane) return;
@@ -842,5 +890,37 @@
   /* Phase 6.6 — subtle amber inset glow while a tree-path drag hovers */
   .terminal-host.drag-hover {
     box-shadow: inset 0 0 0 2px var(--amber-bright);
+  }
+
+  /* Per-command status badge (exit code + duration) rendered as an xterm
+     decoration at the CMD_END boundary row. Decoration elements live in
+     xterm's overlay container, outside this component's scoped styles —
+     hence :global. The row box is forced full-width in onRender; the badge
+     pins to the right margin and never intercepts pointer events so text
+     selection underneath is unaffected. */
+  :global(.cmd-badge-row) {
+    pointer-events: none;
+  }
+  :global(.cmd-badge) {
+    position: absolute;
+    right: 6px;
+    top: 0;
+    font-family: var(--font-family);
+    font-size: 0.78em;
+    line-height: 1.35;
+    padding: 0 5px;
+    border-radius: var(--radius-sm, 3px);
+    white-space: nowrap;
+    background: rgba(0, 0, 0, 0.55);
+    border: 1px solid transparent;
+    font-variant-numeric: tabular-nums;
+  }
+  :global(.cmd-badge.ok) {
+    color: var(--term-green);
+    border-color: rgba(79, 232, 85, 0.40);
+  }
+  :global(.cmd-badge.err) {
+    color: var(--term-red);
+    border-color: rgba(255, 72, 72, 0.50);
   }
 </style>

@@ -119,6 +119,12 @@ pub struct LaneClassifier {
     /// `transform()` / `feed()` call. The host reads this to trigger
     /// process-name detection (sampled once per command).
     cmd_start_fired: bool,
+    /// Exit code of a CMD_END processed by the last `transform()` / `feed()`
+    /// call, or `None`. The host reads this (via [`take_cmd_end`]) to publish a
+    /// `command.completed` envelope carrying exit code + duration so the
+    /// terminal can render a per-command status badge. Symmetric to
+    /// `cmd_start_fired`.
+    cmd_end_exit: Option<i32>,
 }
 
 /// OSC 6973 prefix: ESC ] 6 9 7 3 ;
@@ -135,6 +141,7 @@ impl LaneClassifier {
             total_bytes: 0,
             partial_osc: None,
             cmd_start_fired: false,
+            cmd_end_exit: None,
         }
     }
 
@@ -151,6 +158,14 @@ impl LaneClassifier {
         v
     }
 
+    /// Returns and clears the exit code of a CMD_END processed by the last
+    /// `transform()` / `feed()` call. `Some(code)` means a command just
+    /// finished; the drain task uses this to publish a `command.completed`
+    /// envelope (exit code + measured duration) for the per-command badge.
+    pub fn take_cmd_end(&mut self) -> Option<i32> {
+        self.cmd_end_exit.take()
+    }
+
     /// Feed a chunk of PTY output bytes. Returns any lane transitions that
     /// occurred within this chunk. The `byte_offset` in each `LaneChange` is
     /// relative to the start of the session (not this chunk).
@@ -161,6 +176,7 @@ impl LaneClassifier {
     /// (they just won't render anything).
     pub fn feed(&mut self, chunk: &[u8]) -> Vec<LaneChange> {
         self.cmd_start_fired = false;
+        self.cmd_end_exit = None;
         let mut changes = Vec::new();
         let mut i = 0;
 
@@ -244,6 +260,7 @@ impl LaneClassifier {
             SentinelEvent::PromptEnd => Lane::UserInput,
             SentinelEvent::CmdStart => Lane::Ok, // default to OK until CMD_END provides exit code
             SentinelEvent::CmdEnd { exit_code } => {
+                self.cmd_end_exit = Some(exit_code);
                 if exit_code == 0 {
                     Lane::Ok
                 } else {
@@ -314,6 +331,7 @@ impl LaneClassifier {
     /// manage their own colors without interference.
     pub fn transform(&mut self, chunk: &[u8]) -> Vec<u8> {
         self.cmd_start_fired = false;
+        self.cmd_end_exit = None;
         let mut out = Vec::with_capacity(chunk.len());
         let mut i = 0;
 
@@ -629,6 +647,22 @@ mod tests {
         assert_eq!(changes.len(), 1); // UserInput→Ok on CMD_START
         assert_eq!(changes[0].lane, Lane::Ok);
         assert_eq!(c.current_lane(), Lane::Ok);
+    }
+
+    #[test]
+    fn take_cmd_end_reports_exit_and_clears() {
+        let mut c = LaneClassifier::new();
+        c.feed(b"\x1b]6973;PROMPT_END\x07");
+        // No CMD_END processed yet.
+        assert_eq!(c.take_cmd_end(), None);
+        // CMD_START then CMD_END (non-zero) in one production-path transform.
+        c.transform(b"\x1b]6973;CMD_START\x07boom\x1b]6973;CMD_END;exit=2\x07");
+        assert_eq!(c.take_cmd_end(), Some(2));
+        // take_cmd_end clears — a second read is None.
+        assert_eq!(c.take_cmd_end(), None);
+        // A transform with no CMD_END leaves it None.
+        c.transform(b"plain output\n");
+        assert_eq!(c.take_cmd_end(), None);
     }
 
     #[test]
