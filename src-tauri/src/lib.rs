@@ -1442,6 +1442,19 @@ async fn load_session(session_id: String) -> Result<Vec<serde_json::Value>, Stri
         .map_err(|e| format!("load_session: task join error: {e}"))?
 }
 
+/// Full-text search across all persisted session `.jsonl` logs.
+/// `limit` caps total hits (default 200) so a broad query stays bounded.
+#[tauri::command]
+async fn search_sessions(
+    query: String,
+    limit: Option<usize>,
+) -> Result<Vec<rift_bus::session_reader::SessionSearchHit>, String> {
+    let cap = limit.unwrap_or(200);
+    tokio::task::spawn_blocking(move || rift_bus::session_reader::search_sessions(&query, cap))
+        .await
+        .map_err(|e| format!("search_sessions: task join error: {e}"))?
+}
+
 /// Async with `spawn_blocking` — reads and diffs two session files.
 #[tauri::command]
 async fn compare_sessions(
@@ -2307,6 +2320,7 @@ pub fn run() {
             mcp_token_regenerate,
             list_sessions,
             load_session,
+            search_sessions,
             compare_sessions,
             index_bridge::index_list_nodes,
             index_bridge::index_search_nodes,

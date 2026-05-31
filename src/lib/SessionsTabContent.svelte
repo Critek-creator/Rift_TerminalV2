@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, onDestroy } from 'svelte';
+  import { onMount, onDestroy, tick } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
   import { NOTIF_TAB_MIME } from './dragMime';
   import SessionCompare from './SessionCompare.svelte';
@@ -80,6 +80,69 @@
       const row = replayLogBody?.querySelector<HTMLElement>(`[data-event-idx="${idx}"]`);
       row?.scrollIntoView({ behavior: 'smooth', block: 'center' });
     });
+  }
+
+  // -- Global session search (candidate a1f) ---------------------------------
+  // Full-text query across every persisted .jsonl log via the search_sessions
+  // command. A hit carries the event index so a click loads that session and
+  // seeks the replay log straight to the matched event.
+  interface SessionSearchHit {
+    session_id: string;
+    date: string;
+    event_idx: number;
+    ts: number | null;
+    category: string | null;
+    kind: string | null;
+    snippet: string;
+  }
+  const SEARCH_LIMIT = 200;
+  let searchQuery = $state('');
+  let searchHits = $state<SessionSearchHit[]>([]);
+  let searching = $state(false);
+  let searchError = $state<string | null>(null);
+  let searchTimer: ReturnType<typeof setTimeout> | undefined;
+
+  function onSearchInput(): void {
+    if (searchTimer) clearTimeout(searchTimer);
+    const q = searchQuery;
+    if (!q.trim()) {
+      searchHits = [];
+      searchError = null;
+      searching = false;
+      return;
+    }
+    searching = true;
+    searchTimer = setTimeout(() => runSearch(q), 220);
+  }
+
+  async function runSearch(q: string): Promise<void> {
+    try {
+      searchHits = await invoke<SessionSearchHit[]>('search_sessions', {
+        query: q,
+        limit: SEARCH_LIMIT,
+      });
+      searchError = null;
+    } catch (err) {
+      searchError = String((err as Error).message ?? err);
+      searchHits = [];
+    } finally {
+      searching = false;
+    }
+  }
+
+  function clearSearch(): void {
+    if (searchTimer) clearTimeout(searchTimer);
+    searchQuery = '';
+    searchHits = [];
+    searchError = null;
+    searching = false;
+  }
+
+  async function openHit(hit: SessionSearchHit): Promise<void> {
+    if (viewMode !== 'list') return;
+    await selectSession(hit.session_id);
+    await tick(); // let the replay log mount before seeking
+    seekToEvent(hit.event_idx);
   }
 
   /** Comparison state */
@@ -236,6 +299,7 @@
 
   onDestroy(() => {
     if (seekTimer) clearTimeout(seekTimer);
+    if (searchTimer) clearTimeout(searchTimer);
   });
 </script>
 
@@ -314,16 +378,68 @@
       </div>
     {/if}
 
+    {#if !isSelectingMode}
+      {@const trimmedQuery = searchQuery.trim()}
+      <div class="session-search">
+        <span class="search-icon" aria-hidden="true">&#x2315;</span>
+        <input
+          class="search-input"
+          type="text"
+          placeholder="Search all sessions — commands, errors, kinds, payloads…"
+          bind:value={searchQuery}
+          oninput={onSearchInput}
+          aria-label="Search across all persisted sessions"
+        />
+        {#if searching}
+          <span class="search-status">searching…</span>
+        {:else if trimmedQuery}
+          <span class="search-status">{searchHits.length}{searchHits.length === SEARCH_LIMIT ? '+' : ''} hit{searchHits.length === 1 ? '' : 's'}</span>
+        {/if}
+        {#if trimmedQuery}
+          <button type="button" class="ctl-btn" onclick={clearSearch}>clear</button>
+        {/if}
+      </div>
+    {/if}
+
     <div class="log">
       <div class="log-header">
         {#if isSelectingMode}
           {viewMode === 'select-baseline' ? 'SELECT BASELINE' : 'SELECT COMPARISON'}
+        {:else if searchQuery.trim()}
+          SEARCH RESULTS
         {:else}
           SAVED SESSIONS
         {/if}
       </div>
-      <div class="log-body" aria-busy={loading}>
-        {#if loading && sessions.length === 0}
+      <div class="log-body" aria-busy={loading || searching}>
+        {#if !isSelectingMode && searchQuery.trim()}
+          {#if searchError}
+            <div class="empty-card">
+              <div class="empty-title">Search failed</div>
+              <div class="empty-desc">{searchError}</div>
+            </div>
+          {:else if searching && searchHits.length === 0}
+            <div class="empty-card">
+              <div class="empty-title">Searching…</div>
+              <div class="empty-desc">Scanning persisted session logs.</div>
+            </div>
+          {:else if searchHits.length === 0}
+            <div class="empty-card">
+              <div class="empty-title">No matches</div>
+              <div class="empty-desc">Nothing in the persisted session logs matches &ldquo;{searchQuery.trim()}&rdquo;.</div>
+            </div>
+          {:else}
+            {#each searchHits as hit, hi (hit.session_id + ':' + hit.event_idx + ':' + hi)}
+              <button type="button" class="hit-row" onclick={() => openHit(hit)} title="Open session {hit.session_id} at this event">
+                <span class="hit-date">{hit.date}</span>
+                {#if hit.kind}
+                  <span class="hit-kind" style="color: {catColor(hit.category ?? '')}">{hit.kind}</span>
+                {/if}
+                <span class="hit-snippet">{hit.snippet}</span>
+              </button>
+            {/each}
+          {/if}
+        {:else if loading && sessions.length === 0}
           <div class="empty-card">
             <div class="empty-title">Loading...</div>
             <div class="empty-desc">Scanning session log directory.</div>
@@ -761,4 +877,81 @@
   }
   .log-body .payload-expanded::-webkit-scrollbar { width: 5px; }
   .log-body .payload-expanded::-webkit-scrollbar-thumb { background: var(--amber-faint); }
+
+  /* Global session search (candidate a1f) */
+  .session-search {
+    display: flex;
+    align-items: center;
+    gap: var(--space-8);
+    padding: var(--space-xs) var(--space-sm);
+    border-bottom: 1px solid var(--border-subtle);
+  }
+  .session-search .search-icon {
+    color: var(--amber-faint);
+    font-size: var(--text-sm);
+    flex-shrink: 0;
+  }
+  .search-input {
+    flex: 1;
+    min-width: 0;
+    background: rgba(212, 137, 10, 0.05);
+    border: 1px solid var(--amber-faint);
+    border-radius: var(--radius-sm);
+    color: var(--term-white);
+    font-family: inherit;
+    font-size: var(--text-xs);
+    padding: var(--space-xs) var(--space-sm);
+    transition: border-color var(--duration-base) ease-out, background var(--duration-base) ease-out;
+  }
+  .search-input::placeholder { color: var(--amber-faint); }
+  .search-input:focus {
+    outline: none;
+    border-color: var(--amber-bright);
+    background: rgba(212, 137, 10, 0.09);
+  }
+  .search-status {
+    color: var(--amber-faint);
+    font-size: var(--text-2xs);
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .hit-row {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-md);
+    width: 100%;
+    padding: var(--space-xs) var(--space-sm);
+    background: transparent;
+    border: none;
+    border-left: 2px solid transparent;
+    color: inherit;
+    font-family: inherit;
+    font-size: var(--text-xs);
+    text-align: left;
+    cursor: pointer;
+    transition: background var(--duration-base) ease-out, border-color var(--duration-base) ease-out;
+  }
+  .hit-row:hover {
+    background: rgba(212, 137, 10, 0.07);
+    border-left-color: var(--amber-primary);
+  }
+  .hit-row:focus-visible { outline: 1px solid var(--amber-bright); outline-offset: -1px; }
+  .hit-date {
+    color: var(--amber-faint);
+    font-variant-numeric: tabular-nums;
+    flex-shrink: 0;
+  }
+  .hit-kind {
+    font-weight: 600;
+    flex-shrink: 0;
+    white-space: nowrap;
+  }
+  .hit-snippet {
+    color: var(--amber-dim);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+    font-family: var(--font-family);
+  }
 </style>
