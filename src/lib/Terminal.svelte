@@ -28,6 +28,7 @@
   import LaneGutter from './LaneGutter.svelte';
   import TerminalSearch from './TerminalSearch.svelte';
   import PathTooltip from './PathTooltip.svelte';
+  import { popouts } from './popouts.svelte';
   import { subscribe as busSubscribe, type Envelope } from './bus';
   import { getTerminalSettings, invalidateTerminalSettingsCache } from './terminalConfigCache';
   import { resolveTheme } from './terminalPalettes';
@@ -145,6 +146,26 @@
     if (!term || !text) return;
     term.paste(text + ' ');
     term.focus();
+  }
+
+  /**
+   * Map a terminal-detected ABSOLUTE path to a project-RELATIVE one the
+   * in-cockpit Viewer (CodeMirror) can open. `fs_read_text` rejects absolute
+   * paths and confines reads to the project root, so click-to-edit only
+   * applies to files inside the active project. Returns null for the root
+   * itself or any path outside it (slash-normalized, case-insensitive to suit
+   * Windows). The returned relative path preserves the original casing.
+   */
+  function toProjectRelative(abs: string, root: string | null): string | null {
+    if (!root) return null;
+    const norm = (s: string) => s.replace(/\\/g, '/').replace(/\/+$/, '');
+    const a = norm(abs);
+    const r = norm(root);
+    const aCmp = a.toLowerCase();
+    const rCmp = r.toLowerCase();
+    if (aCmp === rCmp) return null;
+    if (!aCmp.startsWith(rCmp + '/')) return null;
+    return a.slice(r.length + 1);
   }
 
   function onTermDragOver(e: DragEvent): void {
@@ -299,7 +320,16 @@
             text: filePath,
             range: { start: { x: startX, y: bufferLineNumber }, end: { x: endX, y: bufferLineNumber } },
             activate(_event: MouseEvent, _text: string) {
-              invoke('file_preview', { path: filePath }).catch(() => {});
+              // Click-to-edit (§11 editor scope): open project files in the
+              // in-cockpit CodeMirror Viewer. The Viewer is project-scoped, so
+              // relativize first; paths outside the project keep the prior
+              // (harmless) preview-fetch fallback rather than a dead click.
+              const rel = toProjectRelative(filePath, projectPath);
+              if (rel) {
+                popouts.summon({ content: { kind: 'viewer', path: rel } });
+              } else {
+                invoke('file_preview', { path: filePath }).catch(() => {});
+              }
             },
             hover(e: MouseEvent, _text: string) {
               tooltipX = e.clientX + 12;
