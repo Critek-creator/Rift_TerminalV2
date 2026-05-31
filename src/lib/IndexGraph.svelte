@@ -252,9 +252,6 @@
 
   const totalCount = $derived(activeNodes.length);
   const totalEdgeCount = $derived(activeEdges.length);
-  const activeCategoryCount = $derived(
-    CATEGORY_ORDER.filter((k) => (kindCounts[k] ?? 0) > 0).length
-  );
 
   const hoveredConnections = $derived.by<Set<string>>(() => {
     if (!hoveredId) return new Set();
@@ -481,23 +478,13 @@
   {#if viewMode === 'content'}
     <IndexContentBrowser />
   {:else}
-    <!-- Stats strip -->
-    <div class="stats-strip">
-      <div class="stat-block">
-        <span class="stat-value">{totalCount}</span>
-        <span class="stat-label">VAULTS</span>
-      </div>
-      <div class="stat-divider"></div>
-      <div class="stat-block">
-        <span class="stat-value">{totalEdgeCount}</span>
-        <span class="stat-label">LINKS</span>
-      </div>
-      <div class="stat-divider"></div>
-      <div class="stat-block">
-        <span class="stat-value">{activeCategoryCount}</span>
-        <span class="stat-label">KINDS</span>
-      </div>
-    </div>
+    <!-- Quiet summary line — demoted from the old loud 3-number stat strip.
+         The vault total is already in the header count and the per-kind
+         breakdown is the chip row below, so those numbers were redundant and
+         stealing the focal point. Only the figure not shown elsewhere (links)
+         needs a home; it leads a single muted line that doesn't compete with
+         the actionable RECENT / PROJECTS lists. -->
+    <div class="vault-summary">{totalCount} vaults · {totalEdgeCount} links</div>
 
     <!-- Kind filter chips -->
     {#if activeNodes.length > 0 || walkComplete}
@@ -771,39 +758,17 @@
   }
 
   /* ========== Stats Strip ========== */
-  .stats-strip {
-    display: flex;
-    align-items: stretch;
+  /* Quiet one-line summary — replaces the loud 18px stat triple. Muted and
+     small so it informs without competing for the focal point. */
+  .vault-summary {
     flex-shrink: 0;
+    padding: var(--space-xs) var(--space-12);
+    font-size: var(--text-2xs);
+    letter-spacing: 0.06em;
+    color: var(--amber-faint);
+    font-variant-numeric: tabular-nums;
     background: var(--bg-surface);
     box-shadow: var(--sep-depth);
-  }
-  .stat-block {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    padding: var(--space-8) var(--space-md);
-  }
-  .stat-divider {
-    width: 1px;
-    background: var(--border-subtle);
-    align-self: stretch;
-    margin: var(--space-sm) 0;
-  }
-  .stat-value {
-    font-size: 18px;
-    font-weight: 800;
-    color: var(--amber-bright);
-    text-shadow: 0 0 12px rgba(255, 200, 64, 0.3);
-    line-height: 1;
-  }
-  .stat-label {
-    font-size: var(--text-2xs);
-    font-weight: 700;
-    letter-spacing: 0.16em;
-    color: var(--amber-faint);
-    margin-top: 2px;
   }
 
   /* ========== Kind filter chips ========== */
@@ -883,62 +848,73 @@
     font-size: var(--text-xs);
     text-shadow: var(--glow-amber);
   }
+  /* Vertical list — was a horizontal scroller (awkward in a narrow column;
+     you couldn't see all recents at once). Now each recent is a full-width
+     one-line row, scannable top-to-bottom and consistent with the vault rows
+     below it. */
   .recents-scroll {
     display: flex;
-    gap: var(--space-8);
-    padding: var(--space-8) var(--space-12);
-    overflow-x: auto;
-    scrollbar-width: thin;
-    scrollbar-color: var(--amber-faint) transparent;
+    flex-direction: column;
+    gap: 1px;
+    padding: var(--space-xs) var(--space-8);
     background: linear-gradient(to bottom, rgba(255, 200, 64, 0.05), transparent);
   }
-  .recents-scroll::-webkit-scrollbar { height: 4px; }
-  .recents-scroll::-webkit-scrollbar-thumb { background: var(--amber-faint); }
 
   .recent-card {
-    flex-shrink: 0;
     display: flex;
-    min-width: 100px;
-    max-width: 140px;
-    border: 1px solid var(--border-subtle);
-    background: var(--bg-elevated);
+    width: 100%;
+    min-width: 0;
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm);
+    background: transparent;
     font-family: inherit;
     cursor: pointer;
-    transition: all var(--duration-med);
+    transition: background var(--duration-base), border-color var(--duration-base);
     overflow: hidden;
+    text-align: left;
   }
   .recent-card:hover {
-    border-color: var(--amber-dim);
+    border-color: var(--border-subtle);
     background: var(--bg-hover);
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
   }
   .recent-card:focus-visible {
     outline: 1px solid var(--amber-warm);
     outline-offset: 1px;
   }
   .recent-card.selected {
-    border-color: var(--amber-bright);
-    box-shadow: 0 0 8px rgba(255, 200, 64, 0.2);
+    border-color: var(--amber-dim);
+    background: var(--bg-elevated);
   }
-  .rc-accent { width: 3px; flex-shrink: 0; }
+  .rc-accent { width: 2px; flex-shrink: 0; border-radius: var(--radius-sm); }
   .rc-content {
-    padding: var(--space-sm) var(--space-8);
+    flex: 1;
+    padding: 3px var(--space-8);
     display: flex;
-    flex-direction: column;
-    gap: 2px;
+    flex-direction: row;
+    align-items: baseline;
+    gap: var(--space-8);
     min-width: 0;
   }
-  .rc-top { display: flex; align-items: center; gap: var(--space-xs); }
+  .rc-top { display: flex; align-items: baseline; gap: var(--space-xs); flex-shrink: 0; }
   .rc-glyph { font-size: var(--text-xs); }
   .rc-id { font-size: var(--text-xs); font-weight: 700; color: var(--amber-primary); }
   .rc-name {
+    flex: 1;
     font-size: var(--text-2xs);
     color: var(--amber-dim);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    min-width: 0;
   }
-  .rc-age { font-size: var(--text-2xs); color: var(--amber-faint); font-style: italic; }
+  .rc-age {
+    flex-shrink: 0;
+    margin-left: auto;
+    font-size: var(--text-2xs);
+    color: var(--amber-faint);
+    font-style: italic;
+    font-variant-numeric: tabular-nums;
+  }
 
   /* ========== Scrollable body ========== */
   .browser-body {

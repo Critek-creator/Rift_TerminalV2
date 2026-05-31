@@ -852,6 +852,19 @@
           ondblclick={() => handleNodeDblClick(item.node)}
           style="cursor: pointer;"
         >
+          <!-- Full-width row hover band — gives the SVG tree the same
+               "row lights up on hover" feel as the INDEX list rows so the two
+               sidebar halves share one interaction language, without flattening
+               the node-link graph. Translucent so connector edges still read
+               through; pointer-events:none so empty row space never intercepts
+               node clicks (hover is driven by the node/label). -->
+          <rect
+            class="row-band"
+            x="0"
+            y={item.y - ROW_H / 2}
+            width={SVG_WIDTH}
+            height={ROW_H}
+          />
           {#if item.node.isDir}
             <!-- Directory: rounded rectangle.
                  Collapsed dirs use aggregateGlow for drop-shadow;
@@ -1004,6 +1017,18 @@
   :global(.tree-node:focus-visible) {
     outline: 1px solid var(--amber-warm);
     outline-offset: -1px;
+  }
+
+  /* Row hover band — matches the INDEX list-row hover language. Translucent
+     warm tint (not opaque bg-hover) so connector edges stay visible through
+     it; pointer-events:none keeps clicks landing on the node, not the band. */
+  :global(.tree-node .row-band) {
+    fill: transparent;
+    pointer-events: none;
+    transition: fill var(--duration-base) var(--ease-out);
+  }
+  :global(.tree-node:hover .row-band) {
+    fill: rgba(255, 168, 38, 0.07);
   }
 
   /* Node shapes */

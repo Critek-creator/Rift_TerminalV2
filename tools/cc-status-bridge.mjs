@@ -31,7 +31,36 @@ if (!input.trim()) {
   process.exit(0);
 }
 
-// Parse new fields for enrichment
+// Tee to temp file for Rift's status translator. This is the ONLY thing Rift
+// reads — its GUI status line (StatusLine.svelte ← status.rs ← this file) is
+// fully independent of whatever we print to stdout below.
+try {
+  writeFileSync(STATUS_FILE, input);
+} catch {
+  // Non-fatal — Rift just won't get CC data this tick
+}
+
+// ── Rift-aware rendering ────────────────────────────────────────────────────
+// When this command runs inside a Rift PTY, Rift injects $RIFT_SOCKET_NAME
+// (src-tauri/src/lib.rs — pty_start). Inside Rift, the GUI status line already
+// renders all of this data, so printing an in-terminal status bar here just
+// duplicates it. We stay SILENT (tee-only) so Rift owns the single status line,
+// while CC stays fully installed and the data keeps flowing to the GUI.
+//
+// Outside Rift (a plain terminal CC session), $RIFT_SOCKET_NAME is absent and
+// we fall through to the normal ccstatusline rendering below — so CC users who
+// run elsewhere keep their in-terminal status bar unchanged.
+//
+// To force one behaviour regardless of host: set RIFT_STATUSLINE=silent (always
+// tee-only) or RIFT_STATUSLINE=render (always render the in-terminal bar).
+const mode = process.env.RIFT_STATUSLINE;
+const insideRift = process.env.RIFT_SOCKET_NAME !== undefined;
+const silent = mode === "silent" || (mode !== "render" && insideRift);
+if (silent) {
+  process.exit(0);
+}
+
+// Parse new fields for enrichment (only needed for the in-terminal rendering).
 let effortLevel = "";
 let thinkingEnabled = null;
 try {
@@ -39,13 +68,6 @@ try {
   effortLevel = parsed?.effort?.level || "";
   thinkingEnabled = parsed?.thinking?.enabled ?? null;
 } catch { /* best-effort */ }
-
-// Tee to temp file for Rift's status translator
-try {
-  writeFileSync(STATUS_FILE, input);
-} catch {
-  // Non-fatal — Rift just won't get CC data this tick
-}
 
 // Forward to ccstatusline for CC's own status bar rendering.
 // Try bunx first (faster), fall back to npx.

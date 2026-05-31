@@ -1,17 +1,30 @@
 <script lang="ts">
-  // TerminalGrid.svelte — recursive split-pane layout renderer.
+  // TerminalGrid.svelte — flat, geometry-solving split-pane renderer.
   //
-  // Walks a SplitNode tree and renders:
-  //   leaf  → <Terminal> wrapped in a focus-click div
-  //   split → two recursive <TerminalGrid> children separated by an inline
-  //           splitter bar. Ratio is owned locally (float 0-1) and stored to
-  //           localStorage so pane sizes survive reloads.
+  // ── Why this is flat, not recursive ──────────────────────────────────────
+  // The previous version rendered the SplitNode tree recursively: a leaf
+  // rendered <Terminal> inside an `{#if node.type === 'terminal'}` branch, and
+  // a split rendered two recursive <TerminalGrid> children in the `{:else}`.
+  // When a pane was split, its node flipped from leaf → branch, so that
+  // TerminalGrid instance switched `{#if}` → `{:else}` and Svelte DESTROYED the
+  // running <Terminal> (→ pty_kill, session lost) and mounted fresh shells.
+  // PTY lifetime was bound to a DOM position in a tree that restructures on
+  // every split — the root cause of "split kills my session".
   //
-  // No backend changes are required — each leaf spawns its own PTY via
-  // Terminal.svelte's onMount → pty_start. The grid is purely a layout concern.
+  // This version decouples component identity from tree structure:
+  //   • A pure solver walks the SplitNode tree and produces, per leaf, an
+  //     absolute rect (in %) and, per split, a draggable splitter bar.
+  //   • All <Terminal>s render in ONE flat `{#each leaves (leaf.id)}` list,
+  //     keyed by pane id. Splitting only ADDS a new keyed entry; existing
+  //     terminals keep their identity and are merely repositioned via CSS.
+  //     Nothing remounts → the running session (process AND scrollback) is
+  //     untouched. Terminal's ResizeObserver refits when its slot resizes.
+  //
+  // Ratios live in a local reactive map keyed by a structure-stable signature
+  // (min leaf id of each child subtree), seeded from the SplitNode default and
+  // persisted to localStorage so pane sizes survive reloads.
 
   import Terminal from './Terminal.svelte';
-  import TerminalGrid from './TerminalGrid.svelte';
   import type { SplitNode } from './splitTypes';
 
   interface Props {
@@ -39,98 +52,162 @@
   }: Props = $props();
 
   // -------------------------------------------------------------------------
-  // Inline splitter state for branch nodes.
-  // Ratio lives here (not in the SplitNode) so mutations don't trigger full
-  // tree re-evaluation in App.svelte. Each branch instance persists its own
-  // ratio to localStorage using a stable key derived from the children's ids.
-  // On first render the ratio from the SplitNode is used as the default.
+  // Geometry solver — pure walk of the SplitNode tree.
   // -------------------------------------------------------------------------
 
-  // svelte-ignore state_referenced_locally
-  let ratio = $state(node.type !== 'terminal' ? node.ratio : 0.5);
+  interface Rect { x: number; y: number; w: number; h: number } // percentages
+  interface LeafRect extends Rect { id: number }
+  interface Bar {
+    sig: string;
+    orientation: 'vertical' | 'horizontal';
+    pos: number;      // boundary position in % (x for vertical, y for horizontal)
+    ratio: number;    // resolved ratio (for aria + keyboard)
+    region: Rect;     // the region this bar divides, in %
+  }
 
-  // Drag state for the inline splitter bar.
-  let dragging = $state(false);
-  let splitterEl: HTMLDivElement | undefined = $state(undefined);
-  let containerEl: HTMLDivElement | undefined = $state(undefined);
-  let startCoord = 0;
-  let startRatio = 0;
+  /** Structure-stable signature for a split's ratio: the min leaf id of each
+   *  child subtree. Stable across ratio changes and across splitting WITHIN a
+   *  child (min id only ever stays or shrinks as the original leaf is kept). */
+  function minLeaf(n: SplitNode): number {
+    return n.type === 'terminal'
+      ? n.id
+      : Math.min(minLeaf(n.children[0]), minLeaf(n.children[1]));
+  }
 
-  // Storage key — stable as long as the leaf ids under this split don't
-  // change (they don't; each leaf gets a monotonically increasing id).
-  const storageKey = $derived(
-    node.type !== 'terminal'
-      ? `rift.split.ratio.${node.children[0].type === 'terminal' ? node.children[0].id : 'x'}_${node.children[1].type === 'terminal' ? node.children[1].id : 'y'}`
-      : ''
-  );
+  function solve(
+    n: SplitNode,
+    rect: Rect,
+    rmap: Record<string, number>,
+    leaves: LeafRect[],
+    bars: Bar[],
+  ): void {
+    if (n.type === 'terminal') {
+      leaves.push({ id: n.id, ...rect });
+      return;
+    }
+    const sig = `${minLeaf(n.children[0])}_${minLeaf(n.children[1])}`;
+    const r = rmap[sig] ?? n.ratio ?? 0.5;
+    if (n.type === 'vsplit') {
+      const leftW = rect.w * r;
+      bars.push({ sig, orientation: 'vertical', pos: rect.x + leftW, ratio: r, region: rect });
+      solve(n.children[0], { x: rect.x, y: rect.y, w: leftW, h: rect.h }, rmap, leaves, bars);
+      solve(n.children[1], { x: rect.x + leftW, y: rect.y, w: rect.w - leftW, h: rect.h }, rmap, leaves, bars);
+    } else {
+      const topH = rect.h * r;
+      bars.push({ sig, orientation: 'horizontal', pos: rect.y + topH, ratio: r, region: rect });
+      solve(n.children[0], { x: rect.x, y: rect.y, w: rect.w, h: topH }, rmap, leaves, bars);
+      solve(n.children[1], { x: rect.x, y: rect.y + topH, w: rect.w, h: rect.h - topH }, rmap, leaves, bars);
+    }
+  }
 
-  // Restore persisted ratio on mount when this is a split node.
+  // Live ratio overrides (drag + persisted). Keyed by split signature.
+  let ratios = $state<Record<string, number>>({});
+
+  const solved = $derived.by(() => {
+    const leaves: LeafRect[] = [];
+    const bars: Bar[] = [];
+    solve(node, { x: 0, y: 0, w: 100, h: 100 }, ratios, leaves, bars);
+    return { leaves, bars };
+  });
+
+  // Seed each splitter ratio from localStorage exactly once. `seededSigs` is
+  // plain (non-reactive) bookkeeping: the effect re-runs whenever `solved.bars`
+  // changes (every drag re-solves), but each sig is probed only once, so there
+  // is no per-mousemove localStorage churn and no reactive loop.
+  const seededSigs = new Set<string>();
   $effect(() => {
-    if (node.type === 'terminal' || !storageKey) return;
-    try {
-      const saved = localStorage.getItem(storageKey);
-      if (saved !== null) {
-        const parsed = parseFloat(saved);
-        if (!Number.isNaN(parsed) && parsed > 0.05 && parsed < 0.95) {
-          ratio = parsed;
+    for (const b of solved.bars) {
+      if (seededSigs.has(b.sig)) continue;
+      seededSigs.add(b.sig);
+      try {
+        const saved = localStorage.getItem(`rift.split.ratio.${b.sig}`);
+        if (saved !== null) {
+          const p = parseFloat(saved);
+          if (!Number.isNaN(p) && p > 0.05 && p < 0.95) {
+            ratios = { ...ratios, [b.sig]: p };
+          }
         }
-      }
-    } catch {
-      // localStorage unavailable — use node.ratio default.
+      } catch { /* localStorage unavailable */ }
     }
   });
 
+  function persistRatio(sig: string): void {
+    try {
+      const v = ratios[sig];
+      if (v !== undefined) localStorage.setItem(`rift.split.ratio.${sig}`, String(v));
+    } catch { /* quota / private mode */ }
+  }
+
   // -------------------------------------------------------------------------
-  // Inline splitter drag logic.
-  // Uses pointer capture so the drag works even when the mouse leaves the bar.
+  // Splitter drag — maps pointer movement to the ratio of the divided region.
   // -------------------------------------------------------------------------
 
-  function onSplitterPointerDown(e: PointerEvent): void {
-    if (e.button !== 0 || node.type === 'terminal' || !containerEl || !splitterEl) return;
+  let containerEl: HTMLDivElement | undefined = $state(undefined);
+  let draggingSig = $state<string | null>(null);
+
+  function onSplitterPointerDown(e: PointerEvent, bar: Bar): void {
+    if (e.button !== 0 || !containerEl) return;
     e.preventDefault();
-    dragging = true;
-    splitterEl.setPointerCapture(e.pointerId);
-
-    const rect = containerEl.getBoundingClientRect();
-    const extent = node.type === 'vsplit' ? rect.width : rect.height;
-    startCoord = node.type === 'vsplit' ? e.clientX : e.clientY;
-    startRatio = ratio;
+    const target = e.currentTarget as HTMLElement;
+    target.setPointerCapture(e.pointerId);
+    draggingSig = bar.sig;
 
     function onMove(ev: PointerEvent): void {
-      if (!dragging) return;
-      const coord = node.type === 'vsplit' ? ev.clientX : ev.clientY;
-      const delta = coord - startCoord;
-      const rectNow = containerEl!.getBoundingClientRect();
-      const extentNow = node.type === 'vsplit' ? rectNow.width : rectNow.height;
-      const newRatio = startRatio + delta / (extentNow > 0 ? extentNow : extent);
-      ratio = Math.max(0.1, Math.min(0.9, newRatio));
+      if (!containerEl) return;
+      const cr = containerEl.getBoundingClientRect();
+      let newRatio: number;
+      if (bar.orientation === 'vertical') {
+        const start = cr.left + (bar.region.x / 100) * cr.width;
+        const extent = (bar.region.w / 100) * cr.width;
+        newRatio = extent > 0 ? (ev.clientX - start) / extent : 0.5;
+      } else {
+        const start = cr.top + (bar.region.y / 100) * cr.height;
+        const extent = (bar.region.h / 100) * cr.height;
+        newRatio = extent > 0 ? (ev.clientY - start) / extent : 0.5;
+      }
+      ratios = { ...ratios, [bar.sig]: Math.max(0.1, Math.min(0.9, newRatio)) };
     }
 
     function onUp(ev: PointerEvent): void {
-      dragging = false;
+      draggingSig = null;
       document.removeEventListener('pointermove', onMove);
       document.removeEventListener('pointerup', onUp);
-      if (splitterEl?.hasPointerCapture(ev.pointerId)) {
-        splitterEl.releasePointerCapture(ev.pointerId);
-      }
-      try {
-        if (storageKey) localStorage.setItem(storageKey, String(ratio));
-      } catch { /* quota / private mode */ }
+      if (target.hasPointerCapture(ev.pointerId)) target.releasePointerCapture(ev.pointerId);
+      persistRatio(bar.sig);
     }
 
     document.addEventListener('pointermove', onMove);
     document.addEventListener('pointerup', onUp);
   }
 
-  function onSplitterDblClick(): void {
-    ratio = 0.5;
-    try {
-      if (storageKey) localStorage.setItem(storageKey, '0.5');
-    } catch { /* quota / private mode */ }
+  function resetRatio(sig: string): void {
+    ratios = { ...ratios, [sig]: 0.5 };
+    persistRatio(sig);
+  }
+
+  function onSplitterKeydown(ev: KeyboardEvent, bar: Bar): void {
+    const step = ev.shiftKey ? 0.1 : 0.02;
+    const cur = ratios[bar.sig] ?? bar.ratio;
+    let next = cur;
+    if (bar.orientation === 'vertical') {
+      if (ev.key === 'ArrowLeft') { ev.preventDefault(); next = cur - step; }
+      else if (ev.key === 'ArrowRight') { ev.preventDefault(); next = cur + step; }
+    } else {
+      if (ev.key === 'ArrowUp') { ev.preventDefault(); next = cur - step; }
+      else if (ev.key === 'ArrowDown') { ev.preventDefault(); next = cur + step; }
+    }
+    if (ev.key === 'Home') { ev.preventDefault(); next = 0.1; }
+    if (ev.key === 'End') { ev.preventDefault(); next = 0.9; }
+    if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); resetRatio(bar.sig); return; }
+    next = Math.max(0.1, Math.min(0.9, next));
+    if (next !== cur) {
+      ratios = { ...ratios, [bar.sig]: next };
+      persistRatio(bar.sig);
+    }
   }
 
   // -------------------------------------------------------------------------
-  // Focus handling — clicking anywhere in a terminal pane focuses it.
+  // Focus — clicking anywhere in a pane focuses it.
   // -------------------------------------------------------------------------
 
   function handleFocusClick(id: number): void {
@@ -139,115 +216,90 @@
   }
 </script>
 
-{#if node.type === 'terminal'}
-  <!-- svelte-ignore a11y_no_noninteractive_tabindex a11y_no_noninteractive_element_interactions -->
-  <div
-    class="pane-leaf"
-    class:focused={focusedId === node.id}
-    role="group"
-    tabindex="0"
-    aria-label="Terminal pane"
-    onclick={() => handleFocusClick(node.id)}
-    onkeydown={(ev) => {
-      if ((ev.key === 'Enter' || ev.key === ' ') && ev.target === ev.currentTarget) {
-        ev.preventDefault();
-        handleFocusClick(node.id);
-      }
-    }}
-  >
-    <div class="pane-toolbar">
-      <button type="button"
-        class="pane-tool-btn"
-        title="Split horizontal (top/bottom) — Ctrl+Shift+E"
-        onclick={(e) => { e.stopPropagation(); onSplit(node.id, 'hsplit'); }}
-      >⬓</button>
-      <button type="button"
-        class="pane-tool-btn"
-        title="Split vertical (left/right) — Ctrl+Shift+D"
-        onclick={(e) => { e.stopPropagation(); onSplit(node.id, 'vsplit'); }}
-      >⬒</button>
-      <button type="button"
-        class="pane-tool-btn pane-tool-close"
-        title="Close pane — Ctrl+Shift+W"
-        aria-label="Close pane"
-        onclick={(e) => { e.stopPropagation(); onClose(node.id); }}
-      >✕</button>
-    </div>
-    <Terminal visible={true} {projectPath} onPtyExited={() => onPtyExited?.(node.id)} />
-  </div>
-{:else}
-  <!-- Branch: two children separated by a draggable bar -->
-  <div
-    bind:this={containerEl}
-    class="pane-split pane-{node.type}"
-  >
+<div class="grid-root" bind:this={containerEl}>
+  <!-- All terminals render in one flat keyed list. Keying by pane id is the
+       load-bearing fix: a given pane's <Terminal> instance persists across
+       every split/close/resize, so its PTY is never killed and respawned. -->
+  {#each solved.leaves as leaf (leaf.id)}
+    <!-- svelte-ignore a11y_no_noninteractive_tabindex a11y_no_noninteractive_element_interactions -->
     <div
-      class="pane-child"
-      style="flex: {ratio} 1 0%; min-{node.type === 'vsplit' ? 'width' : 'height'}: 0;"
+      class="pane-leaf"
+      class:focused={focusedId === leaf.id}
+      style="left: {leaf.x}%; top: {leaf.y}%; width: {leaf.w}%; height: {leaf.h}%;"
+      role="group"
+      tabindex="0"
+      aria-label="Terminal pane"
+      onclick={() => handleFocusClick(leaf.id)}
+      onkeydown={(ev) => {
+        if ((ev.key === 'Enter' || ev.key === ' ') && ev.target === ev.currentTarget) {
+          ev.preventDefault();
+          handleFocusClick(leaf.id);
+        }
+      }}
     >
-      <TerminalGrid
-        node={node.children[0]}
-        {projectPath}
-        bind:focusedId
-        {onSplit}
-        {onClose}
-        {onFocus}
-        {onPtyExited}
-      />
+      <div class="pane-toolbar">
+        <button type="button"
+          class="pane-tool-btn"
+          title="Split horizontal (top/bottom) — Ctrl+Shift+E"
+          onclick={(e) => { e.stopPropagation(); onSplit(leaf.id, 'hsplit'); }}
+        >⬓</button>
+        <button type="button"
+          class="pane-tool-btn"
+          title="Split vertical (left/right) — Ctrl+Shift+D"
+          onclick={(e) => { e.stopPropagation(); onSplit(leaf.id, 'vsplit'); }}
+        >⬒</button>
+        <button type="button"
+          class="pane-tool-btn pane-tool-close"
+          title="Close pane — Ctrl+Shift+W"
+          aria-label="Close pane"
+          onclick={(e) => { e.stopPropagation(); onClose(leaf.id); }}
+        >✕</button>
+      </div>
+      <Terminal visible={true} {projectPath} onPtyExited={() => onPtyExited?.(leaf.id)} />
     </div>
+  {/each}
 
+  <!-- Splitter bars — positioned on each split boundary. Keyed by signature so
+       they're stable across ratio changes; re-created only on structural change
+       (never disturbing the terminals). -->
+  {#each solved.bars as bar (bar.sig)}
     <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
     <div
-      bind:this={splitterEl}
-      class="pane-splitter pane-splitter-{node.type === 'vsplit' ? 'vertical' : 'horizontal'}"
-      class:dragging
+      class="pane-splitter pane-splitter-{bar.orientation}"
+      class:dragging={draggingSig === bar.sig}
+      style={bar.orientation === 'vertical'
+        ? `left: ${bar.pos}%; top: ${bar.region.y}%; height: ${bar.region.h}%;`
+        : `top: ${bar.pos}%; left: ${bar.region.x}%; width: ${bar.region.w}%;`}
       role="separator"
-      aria-orientation={node.type === 'vsplit' ? 'vertical' : 'horizontal'}
-      aria-valuenow={Math.round(ratio * 100)}
+      aria-orientation={bar.orientation}
+      aria-valuenow={Math.round(bar.ratio * 100)}
       aria-valuemin={10}
       aria-valuemax={90}
-      aria-label="{node.type === 'vsplit' ? 'Vertical' : 'Horizontal'} split — arrow keys to resize, double-click to reset"
+      aria-label="{bar.orientation === 'vertical' ? 'Vertical' : 'Horizontal'} split — arrow keys to resize, double-click to reset"
       tabindex="0"
-      onpointerdown={onSplitterPointerDown}
-      ondblclick={onSplitterDblClick}
-      onkeydown={(ev) => {
-        const step = ev.shiftKey ? 0.1 : 0.02;
-        if (node.type === 'vsplit') {
-          if (ev.key === 'ArrowLeft') { ev.preventDefault(); ratio = Math.max(0.1, ratio - step); }
-          else if (ev.key === 'ArrowRight') { ev.preventDefault(); ratio = Math.min(0.9, ratio + step); }
-        } else {
-          if (ev.key === 'ArrowUp') { ev.preventDefault(); ratio = Math.max(0.1, ratio - step); }
-          else if (ev.key === 'ArrowDown') { ev.preventDefault(); ratio = Math.min(0.9, ratio + step); }
-        }
-        if (ev.key === 'Home') { ev.preventDefault(); ratio = 0.1; }
-        if (ev.key === 'End') { ev.preventDefault(); ratio = 0.9; }
-        if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); onSplitterDblClick(); }
-        try { if (storageKey) localStorage.setItem(storageKey, String(ratio)); } catch { /* quota */ }
-      }}
+      onpointerdown={(e) => onSplitterPointerDown(e, bar)}
+      ondblclick={() => resetRatio(bar.sig)}
+      onkeydown={(ev) => onSplitterKeydown(ev, bar)}
     ></div>
-
-    <div
-      class="pane-child"
-      style="flex: {1 - ratio} 1 0%; min-{node.type === 'vsplit' ? 'width' : 'height'}: 0;"
-    >
-      <TerminalGrid
-        node={node.children[1]}
-        {projectPath}
-        bind:focusedId
-        {onSplit}
-        {onClose}
-        {onFocus}
-        {onPtyExited}
-      />
-    </div>
-  </div>
-{/if}
+  {/each}
+</div>
 
 <style>
-  /* Leaf pane — wraps a single Terminal. Takes all available space in its
-     flex slot. The amber border flickers on when this pane is focused. */
-  .pane-leaf {
+  /* Positioning context for the absolutely-placed panes + splitters. */
+  .grid-root {
+    position: relative;
     flex: 1;
+    width: 100%;
+    height: 100%;
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  /* Leaf pane — absolutely positioned to its solved rect. The amber border
+     flickers on when this pane is focused. */
+  .pane-leaf {
+    position: absolute;
     display: flex;
     flex-direction: column;
     min-width: 0;
@@ -258,48 +310,19 @@
     transition: border-color var(--duration-fast);
     box-sizing: border-box;
   }
-
   .pane-leaf.focused {
     border-color: rgba(255, 168, 38, 0.55);
   }
 
-  /* Branch pane — flex container for two children + splitter bar. */
-  .pane-split {
-    flex: 1;
-    display: flex;
-    min-width: 0;
-    min-height: 0;
-    overflow: hidden;
-  }
-
-  /* vsplit: children side by side (left | right) */
-  .pane-vsplit {
-    flex-direction: row;
-  }
-
-  /* hsplit: children stacked (top / bottom) */
-  .pane-hsplit {
-    flex-direction: column;
-  }
-
-  /* Each child fills its ratio slice. flex set inline. */
-  .pane-child {
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-  }
-
-  /* Inline splitter bar — 4px, amber-tinted on hover/drag. */
+  /* Splitter bar — absolutely positioned, centered on the boundary line. */
   .pane-splitter {
-    flex-shrink: 0;
+    position: absolute;
     background: var(--border-subtle, #2a2520);
     transition: background var(--duration-base);
     user-select: none;
     -webkit-user-select: none;
-    position: relative;
     z-index: 2;
   }
-
   .pane-splitter:hover,
   .pane-splitter.dragging {
     background: rgba(255, 200, 64, 0.4); /* --amber-bright at 0.4 */
@@ -309,19 +332,16 @@
     outline-offset: -1px;
     background: rgba(255, 200, 64, 0.2);
   }
-
   .pane-splitter-vertical {
     width: 4px;
-    height: 100%;
     cursor: col-resize;
+    transform: translateX(-50%);
   }
-
   .pane-splitter-horizontal {
     height: 4px;
-    width: 100%;
     cursor: row-resize;
+    transform: translateY(-50%);
   }
-
   /* Extended hit area without changing visual size. */
   .pane-splitter::before {
     content: '';
@@ -348,9 +368,6 @@
   .pane-leaf.focused > .pane-toolbar {
     opacity: 1;
     pointer-events: auto;
-  }
-  .pane-leaf {
-    position: relative;
   }
   .pane-tool-btn {
     width: 22px;

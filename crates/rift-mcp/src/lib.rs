@@ -217,10 +217,27 @@ async fn dispatch_with_retry(
         return resp;
     }
 
-    // Bridge is broken — clear cache and retry once.
-    eprintln!("rift-mcp: bridge error, reconnecting...");
+    // The cached bridge is suspect — drop it unconditionally so the NEXT call
+    // reconnects fresh, whether or not we resend this one. This is what turns
+    // "one transient failure" into "recovered" instead of "broken forever".
     *cached.lock().await = None;
 
+    // Only auto-RESEND side-effect-free tools. A mutating tool (pty_input,
+    // simulate_*, fs_write, …) or arbitrary `js_eval` may already have been
+    // applied on a slow-but-alive host, so a blind resend could double-apply.
+    // Non-safe tools surface the error; the cache is already cleared so the
+    // user's next call reconnects cleanly.
+    let tool_name = req
+        .params
+        .as_ref()
+        .and_then(|p| p.get("name"))
+        .and_then(|n| n.as_str())
+        .unwrap_or("");
+    if !is_retry_safe(tool_name) {
+        return resp;
+    }
+
+    eprintln!("rift-mcp: bridge error on '{tool_name}', reconnecting + retrying...");
     let bridge = match get_or_connect(cached, cfg, stdout, ready).await {
         Ok(b) => b,
         Err(e) => {
@@ -235,6 +252,31 @@ async fn dispatch_with_retry(
 
     eprintln!("rift-mcp: reconnected");
     handle_tools_call(&bridge, id, req.params.unwrap_or(Value::Null)).await
+}
+
+/// Tools that are side-effect-free and therefore safe to auto-resend after a
+/// reconnect. Anything not listed (mutations, synthesized input, arbitrary
+/// `js_eval`) is reconnected but NOT auto-resubmitted, so a request that may
+/// still have been in flight on a slow-but-alive host is never double-applied.
+fn is_retry_safe(tool: &str) -> bool {
+    matches!(
+        tool,
+        "screenshot"
+            | "dom_snapshot"
+            | "git_status"
+            | "fs_read"
+            | "fs_tree"
+            | "bus_history"
+            | "pty_list"
+            | "pty_read"
+            | "notif_tabs"
+            | "todo_scan"
+            | "rift_diagnose"
+            | "llm_models"
+            | "llm_health"
+            | "cockpit_state"
+            | "aegis_state"
+    )
 }
 
 /// Check whether a response indicates the host bridge is broken.

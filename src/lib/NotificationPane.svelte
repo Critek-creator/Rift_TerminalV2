@@ -358,11 +358,19 @@
     flex-direction: column;
     min-height: 0;
     min-width: 0;
-    background: var(--bg-base);
+    /* Matte panel fill + grain, consistent with the cockpit sidebar. */
+    background-color: var(--bg-panel);
+    background-image: var(--grain);
     color: var(--amber-primary);
     font-family: var(--font-family);
     font-size: var(--text-base);
     gap: 1px;
+    transition: box-shadow var(--duration-med) var(--ease-out);
+  }
+  /* Active-panel amber edge glow — the focused pane lights up so the eye
+     lands on the surface you're actually working in. */
+  .pane:focus-within {
+    box-shadow: var(--glow-active-inset);
   }
 
   /* Per-accent border tints — tag accent semantics from §10.1 */

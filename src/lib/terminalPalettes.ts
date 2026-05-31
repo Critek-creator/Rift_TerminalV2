@@ -44,12 +44,12 @@ export const PALETTES: TerminalPalette[] = [
   {
     id: 'amber',
     label: 'Amber Classic',
-    description: 'Warm amber on matte black — the original CRT',
+    description: 'Warm amber on vantablack — the original CRT',
     theme: {
-      background: '#080806',
+      background: '#000000',
       foreground: '#FFA826',
       cursor: '#FFC840',
-      cursorAccent: '#080806',
+      cursorAccent: '#000000',
       selectionBackground: 'rgba(255, 168, 38, 0.30)',
       black: '#3A3530',
       red: '#FF4848',

@@ -306,9 +306,12 @@
 <style>
   .tabbar {
     height: 40px;
-    background: var(--bg-surface);
+    background-color: var(--bg-surface);
+    background-image: var(--grain);
     border-bottom: 1px solid var(--border-active);
-    box-shadow: 0 1px 6px rgba(0, 0, 0, 0.4);
+    /* Recessed well — an inset shadow along the floor of the bar makes the
+       raised tabs read as protruding keys rather than flat rectangles. */
+    box-shadow: inset 0 -6px 10px -6px rgba(0, 0, 0, 0.5), 0 1px 6px rgba(0, 0, 0, 0.4);
     display: flex;
     align-items: stretch;
     flex-shrink: 0;
@@ -336,7 +339,10 @@
     border: 1px solid var(--border-subtle);
     border-bottom: none;
     border-radius: var(--space-xs) var(--space-xs) 0 0;
-    background: var(--bg-elevated);
+    /* Inactive tabs read as raised matte keys: a faint top-lit gradient gives
+       them dimension, and bg-elevated sits a tier above the recessed bar. */
+    background-color: var(--bg-elevated);
+    background-image: linear-gradient(to bottom, rgba(255, 200, 64, 0.05), transparent 58%);
     color: var(--amber-warm);
     font-family: inherit;
     font-size: var(--text-base);
@@ -367,10 +373,13 @@
   }
   .tab.active {
     color: var(--amber-bright);
-    background: var(--bg-base);
-    border-color: var(--border-active);
-    box-shadow: inset 0 2px 8px rgba(255, 200, 64, 0.06),
-                0 -1px 4px rgba(0, 0, 0, 0.3);
+    /* The active tab opens into the vantablack terminal beneath it — same
+       pure black, amber-framed, so it reads as the one tab "pulled forward"
+       to reveal its content rather than just another shaded rectangle. */
+    background: var(--term-bg);
+    border-color: var(--amber-faint);
+    box-shadow: inset 0 1px 0 rgba(255, 200, 64, 0.12),
+                0 -2px 6px rgba(0, 0, 0, 0.4);
     text-shadow: var(--glow-amber-strong);
     z-index: 1;
   }
@@ -388,7 +397,9 @@
     position: absolute;
     left: 0; right: 0; bottom: -1px;
     height: 2px;
-    background: var(--bg-base);
+    /* Bridge the tab into the terminal void below — paints over the tabbar's
+       bottom border so the active tab and the terminal read as one surface. */
+    background: var(--term-bg);
     pointer-events: none;
   }
   /* U-06: dead PTY tab indicator */

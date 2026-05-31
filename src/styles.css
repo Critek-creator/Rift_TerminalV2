@@ -7,13 +7,36 @@
    ABYSSAL ARTS BRAND PALETTE — synced with rift-v2-mockup.html
    ========================================================= */
 :root {
-  --bg-base:       #080806;
-  --bg-surface:    #0F0F0D;
-  --bg-elevated:   #14140F;
-  --bg-hover:      #1a1a14;
-  --bg-panel:      #0c0c0a;
-  --border-subtle: #2a2418;
-  --border-active: #4a3818;
+  /* ---------------------------------------------------------------
+     2026-05-30 vantablack redesign — terminal/chrome decoupling.
+
+     Before: --bg-base was BOTH the terminal background and every panel
+     background, and Terminal.svelte hijacked it at runtime to match the
+     xterm palette. Panels were therefore chained to the terminal colour
+     and every "surface" lived in an ~18-value luminance band → sections
+     blurred together (user report).
+
+     Now: the terminal owns --term-bg (vantablack, set from the active
+     palette at runtime). The chrome owns its own warm-graphite matte
+     ladder below, with perceptible ~+10-22 luminance steps so panels,
+     headers and cards read as distinct layers above the black void.
+     --------------------------------------------------------------- */
+  --term-bg:       #000000;   /* terminal surface — vantablack (palette-driven at runtime) */
+
+  --bg-base:       #0b0a08;   /* app canvas — gutters / shell behind chrome */
+  --bg-panel:      #131009;   /* primary matte panel fill — sidebar, cockpit-right */
+  --bg-surface:    #16130d;   /* content surface within panels — wells, list rows, bars */
+  --bg-elevated:   #1f1b12;   /* raised — headers, cards, buttons, badges */
+  --bg-hover:      #2a241a;   /* hover / active row */
+  --border-subtle: #3a301d;   /* visible warm edge (was #2a2418 — invisible on dark) */
+  --border-active: #534222;   /* brighter warm edge (was #4a3818) */
+
+  /* Matte film-grain overlay — layered OVER panel/chrome backgrounds only.
+     Warm-tinted fractal noise at ~5% peak alpha; reads as a fine matte
+     tooth up close, invisible as "noise" at a glance. The terminal paints
+     an opaque vantablack canvas over its area, so grain never touches the
+     void — that contrast (matte furniture vs black glass) is the point. */
+  --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.82' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='matrix' values='0 0 0 0 1  0 0 0 0 0.8  0 0 0 0 0.45  0 0 0 0.05 0'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23g)'/%3E%3C/svg%3E");
 
   /* Phase 8.7g — amber palette lifted in two passes. Pass 1 (8.7g.1) was
      "+15-25%"; user reported terminal/tabs/topbar still too dim. Pass 2
@@ -54,6 +77,10 @@
   --model-server:  #6ABFBF;   /* teal — not term-cyan */
   --model-custom:  #B89CD9;   /* lavender — not term-purple */
   --model-offline: rgba(168, 120, 48, 0.3);
+
+  /* Active-panel edge glow — applied on :focus-within to the panel the user
+     is working in (a hairline amber inner border + a soft inner bloom). */
+  --glow-active-inset: inset 0 0 0 1px rgba(255, 168, 38, 0.32), inset 0 0 16px rgba(255, 168, 38, 0.07);
 
   /* Brightened glows to match the lifted amber palette. */
   --glow-amber:        0 0 8px rgba(255, 168, 38, 0.55);
@@ -279,6 +306,18 @@ body::after {
     var(--bg-base);
   display: flex;
   flex-direction: column;
+}
+
+/* =========================================================
+   MATTE SURFACE — warm-graphite panel fill + film grain.
+   Apply to any chrome panel that should read as matte furniture
+   above the vantablack terminal. Uses background-color + background-image
+   (not the `background` shorthand) so a component can override the fill
+   colour with its own background-color while keeping the grain layer.
+   ========================================================= */
+.matte-surface {
+  background-color: var(--bg-panel);
+  background-image: var(--grain);
 }
 
 /* =========================================================

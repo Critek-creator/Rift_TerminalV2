@@ -122,13 +122,13 @@
 <style>
   .titlebar {
     height: var(--control-lg);
-    /* Subtle two-stop gradient: slightly lighter warm tone at the very top fades
-       into the flat bg-elevated — gives the bar a thin "lit edge" without flash. */
-    background: linear-gradient(
-      to bottom,
-      color-mix(in srgb, var(--bg-elevated) 85%, var(--amber-dim) 15%) 0%,
-      var(--bg-elevated) 55%
-    );
+    /* Matte elevated bar: a thin warm "lit edge" gradient at the top, the
+       film-grain texture, then the elevated fill — consistent with the
+       cockpit panels so all chrome reads as one matte material. */
+    background-color: var(--bg-elevated);
+    background-image:
+      linear-gradient(to bottom, rgba(255, 200, 64, 0.07) 0%, transparent 55%),
+      var(--grain);
     box-shadow: var(--sep-glow);
     display: flex;
     align-items: center;

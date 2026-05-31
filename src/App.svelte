@@ -1009,7 +1009,7 @@
         <div class="graph-pane" style="flex: 0 0 {graphHeightPct}%;">
           <div class="pane-header">
             <span>INDEX</span>
-            <span class="meta">vault graph · live</span>
+            <span class="meta">vault index · live</span>
           </div>
           <div class="graph-body">
             <IndexGraph />
@@ -1115,7 +1115,10 @@
     display: flex;
     flex-direction: row;
     min-height: 0;
-    background: var(--bg-base);
+    /* Vantablack seam — the gutter/splitter between the terminal and the
+       cockpit sidebar sits on the same black void as the terminal, so the
+       matte sidebar reads as furniture set against pure black glass. */
+    background: var(--term-bg);
     position: relative;
     overflow: hidden;
   }
@@ -1152,9 +1155,16 @@
     min-height: 0;
     min-width: 0;
     overflow: hidden;
-    border-left: none;
+    /* Matte panel + grain, separated from the vantablack terminal by a
+       visible warm border (not just an inset shadow). */
+    border-left: 1px solid var(--border-active);
     box-shadow: var(--depth-inset);
-    background: var(--bg-base);
+    background-color: var(--bg-panel);
+    background-image: var(--grain);
+    transition: box-shadow var(--duration-med) var(--ease-out);
+  }
+  .promoted-pane:focus-within {
+    box-shadow: var(--depth-inset), var(--glow-active-inset);
   }
 
   /* Right half — graph + tree stacked column (Phase 8.4).
@@ -1163,7 +1173,11 @@
   .cockpit-right {
     display: flex;
     flex-direction: column;
-    background: var(--bg-panel);
+    /* Matte sidebar fill + grain. A warm left border draws the hard seam
+       between the vantablack terminal and the chrome. */
+    background-color: var(--bg-panel);
+    background-image: var(--grain);
+    border-left: 1px solid var(--border-active);
     min-width: 0;
   }
 
@@ -1172,9 +1186,16 @@
     flex-direction: column;
     min-height: 0;
     overflow: hidden;
-    background: var(--bg-base);
+    /* Transparent — shares the cockpit-right matte fill + grain as one
+       continuous surface. The amber divider below separates it from the tree. */
+    background: transparent;
     border-bottom: 2px solid var(--amber-faint);
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+    transition: box-shadow var(--duration-med) var(--ease-out);
+  }
+  /* Active-panel amber glow — INDEX lights up when you're working in it. */
+  .graph-pane:focus-within {
+    box-shadow: var(--glow-active-inset), 0 2px 8px rgba(0, 0, 0, 0.5);
   }
 
   /* Graph body — fills the remaining height below graph pane-header.
@@ -1200,13 +1221,24 @@
     flex-direction: column;
     min-height: 0;
     overflow: hidden;
-    background: var(--bg-base);
+    /* Transparent — shares the cockpit-right matte fill + grain. */
+    background: transparent;
+    transition: box-shadow var(--duration-med) var(--ease-out);
+  }
+  /* Active-panel amber glow — FILE TREE lights up when focused. */
+  .tree-pane:focus-within {
+    box-shadow: var(--glow-active-inset);
   }
 
   .pane-header {
     height: var(--space-2xl);
     padding: 0 var(--space-14);
-    background: rgba(255, 168, 38, 0.05);
+    /* Raised header — elevated matte tier + grain + a faint amber lit edge,
+       so the header sits clearly above the panel fill below it. */
+    background-color: var(--bg-elevated);
+    background-image:
+      linear-gradient(180deg, rgba(255, 200, 64, 0.06), rgba(255, 200, 64, 0.015)),
+      var(--grain);
     border-bottom: 1px solid var(--amber-faint);
     box-shadow: 0 1px 6px rgba(0, 0, 0, 0.5);
     display: flex;

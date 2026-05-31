@@ -50,15 +50,35 @@ fn discovery_path_display() -> String {
         .unwrap_or_else(|_| "<config dir unavailable>".to_string())
 }
 
-/// Default per-call timeout if none provided.
+/// Timeout for the handshake exchange during connect.
 const DEFAULT_CALL_TIMEOUT: Duration = Duration::from_secs(10);
 
-/// Shorter timeout used when the bridge has been idle, so stale pipes are
-/// detected in 3s instead of 10s.
-const IDLE_CALL_TIMEOUT: Duration = Duration::from_secs(3);
-
-/// Threshold: if no successful call in this window, use the shorter timeout.
-const IDLE_THRESHOLD: Duration = Duration::from_secs(30);
+/// Per-tool call timeout.
+///
+/// The bridge timeout MUST exceed the time the host needs to do the work, or
+/// the bridge gives up while the host is still legitimately processing — which
+/// then trips a spurious reconnect + re-submit. The previous design used a 3s
+/// timeout for the first call after a 30s idle gap, which was SHORTER than the
+/// host's own 10s `js_eval` timeout (`mcp_host.rs`) and far shorter than a
+/// multi-MB `screenshot` capture+encode under the serializing INSPECTION_LOCK.
+/// That mismatch was the root cause of the chronic "timed out waiting for
+/// mcp.response.*" failures — not a dead pipe.
+///
+/// Genuinely dead/stale connections are still caught quickly via send (`Ipc`)
+/// and reader (`Disconnected`) errors, which fire immediately rather than
+/// waiting out these ceilings.
+fn timeout_for(tool: &str) -> Duration {
+    match tool {
+        // Heavy webview inspection: capture/encode + large payload transfer.
+        "screenshot" | "dom_snapshot" => Duration::from_secs(30),
+        // Arbitrary webview eval — host caps it at 10s internally; give margin.
+        "js_eval" => Duration::from_secs(20),
+        // Synthesized input — webview round-trip plus settle.
+        "simulate_click" | "simulate_drag" => Duration::from_secs(15),
+        // Everything else resolves in well under a second.
+        _ => Duration::from_secs(10),
+    }
+}
 
 /// Notification broadcast channel capacity. Bursty bus traffic can push past
 /// this — the router task surfaces a `Lagged` notification (see
@@ -118,11 +138,6 @@ pub struct HostBridge {
     writer: Mutex<IpcWriter>,
     pending: PendingMap,
     notify_tx: broadcast::Sender<Envelope>,
-    /// Per-call timeout. Configurable later if needed.
-    call_timeout: Duration,
-    /// Tracks when the last successful call completed. Used to detect idle
-    /// periods and apply a shorter timeout for faster stale-pipe recovery.
-    last_success: Mutex<tokio::time::Instant>,
 }
 
 impl HostBridge {
@@ -202,8 +217,6 @@ impl HostBridge {
             writer: Mutex::new(writer),
             pending,
             notify_tx,
-            call_timeout: DEFAULT_CALL_TIMEOUT,
-            last_success: Mutex::new(tokio::time::Instant::now()),
         })
     }
 
@@ -249,13 +262,9 @@ impl HostBridge {
             return Err(BridgeError::Ipc(e));
         }
 
-        // Use shorter timeout when idle to detect stale pipes faster.
-        let elapsed = self.last_success.lock().await.elapsed();
-        let effective_timeout = if elapsed > IDLE_THRESHOLD {
-            IDLE_CALL_TIMEOUT
-        } else {
-            self.call_timeout
-        };
+        // Per-tool timeout — generous enough that a slow-but-healthy host op
+        // completes rather than tripping a spurious reconnect (see timeout_for).
+        let effective_timeout = timeout_for(tool);
 
         let response = match timeout(effective_timeout, resp_rx).await {
             Ok(Ok(env)) => env,
@@ -281,7 +290,6 @@ impl HostBridge {
             .and_then(|v| v.as_bool())
             .ok_or_else(|| BridgeError::Malformed("missing 'ok' field".into()))?;
         if ok {
-            *self.last_success.lock().await = tokio::time::Instant::now();
             response
                 .payload
                 .get("result")

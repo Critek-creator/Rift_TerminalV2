@@ -166,8 +166,9 @@
 <style>
   .statusline {
     flex-shrink: 0;
-    background: var(--bg-surface);
-    border-top: 1px solid var(--border-subtle);
+    background-color: var(--bg-surface);
+    background-image: var(--grain);
+    border-top: 1px solid var(--border-active);
     font-size: var(--text-sm);
     line-height: 1;
     user-select: none;

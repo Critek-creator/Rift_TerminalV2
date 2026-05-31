@@ -182,9 +182,12 @@
     lanesEnabled = settings.lanesEnabled;
 
     const initTheme = resolveTheme(settings.colorPalette, settings.customPalette);
-    // Sync CSS --bg-base to palette background so container gaps match.
+    // Sync CSS --term-bg to the palette background so the terminal host and any
+    // gaps around the xterm canvas match the active theme. Decoupled from
+    // --bg-base (2026-05-30) — chrome panels carry their own warm-graphite
+    // ladder and must NOT follow the terminal to vantablack.
     if (initTheme.background) {
-      document.documentElement.style.setProperty('--bg-base', initTheme.background);
+      document.documentElement.style.setProperty('--term-bg', initTheme.background);
     }
     term = new XTerm({
       fontFamily: '"JetBrains Mono", monospace',
@@ -609,9 +612,10 @@
       term.options.lineHeight = fresh.lineHeight;
       term.options.scrollback = fresh.scrollback;
       lanesEnabled = fresh.lanesEnabled;
-      // Sync CSS --bg-base so container/shell backgrounds match the palette.
+      // Sync CSS --term-bg so the terminal host matches the palette (chrome
+      // keeps its own ladder — see onMount note).
       if (theme.background) {
-        document.documentElement.style.setProperty('--bg-base', theme.background);
+        document.documentElement.style.setProperty('--term-bg', theme.background);
       }
       try { fit?.fit(); } catch { /* best-effort */ }
       term.refresh(0, term.rows - 1);
@@ -628,14 +632,14 @@
         const previewTheme = resolveTheme(id, settings.customPalette);
         term.options.theme = previewTheme;
         if (previewTheme.background) {
-          document.documentElement.style.setProperty('--bg-base', previewTheme.background);
+          document.documentElement.style.setProperty('--term-bg', previewTheme.background);
         }
         term.refresh(0, term.rows - 1);
       } else if (savedPaletteId) {
         const restoredTheme = resolveTheme(savedPaletteId, settings.customPalette);
         term.options.theme = restoredTheme;
         if (restoredTheme.background) {
-          document.documentElement.style.setProperty('--bg-base', restoredTheme.background);
+          document.documentElement.style.setProperty('--term-bg', restoredTheme.background);
         }
         term.refresh(0, term.rows - 1);
         savedPaletteId = null;
@@ -733,7 +737,7 @@
   .terminal-host {
     position: relative;
     flex: 1;
-    background: var(--bg-base);
+    background: var(--term-bg);
     padding: var(--space-8);
     overflow: hidden;
     min-height: 0;
