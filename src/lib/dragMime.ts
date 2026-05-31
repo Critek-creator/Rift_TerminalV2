@@ -38,3 +38,14 @@ export interface RiftVaultDropDetail {
  * write this MIME or the drop handler silently rejects the gesture.
  */
 export const NOTIF_TAB_MIME = 'application/x-rift-notif-tab';
+
+/**
+ * MIME marker for notification-event → terminal injection drags.
+ * Producer: NotificationPane event-row inject control (HTML element, so HTML5
+ * drag works — unlike the SVG vault case). Consumer: Terminal.svelte drop
+ * target. The data value is the already-derived inject text (see
+ * `eventInject.ts` `envelopeToInjectText`) — a single editable line, NEVER
+ * a path to quote. Terminal pastes it verbatim (no path-quoting) + a trailing
+ * space, so it lands as editable prompt text and is never auto-executed.
+ */
+export const RIFT_EVENT_MIME = 'application/x-rift-event';

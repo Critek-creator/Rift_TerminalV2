@@ -22,7 +22,8 @@
   }
   import '@xterm/xterm/css/xterm.css';
   import { deferredFit } from './terminal-fit-timing';
-  import { TREE_PATH_MIME, RIFT_VAULT_DROP_EVENT, type RiftVaultDropDetail } from './dragMime';
+  import { TREE_PATH_MIME, RIFT_VAULT_DROP_EVENT, RIFT_EVENT_MIME, type RiftVaultDropDetail } from './dragMime';
+  import { registerInjector, unregisterInjector, setActiveInjector } from './terminalInject';
   import { laneFormatGated } from './laneFormat';
   import LaneGutter from './LaneGutter.svelte';
   import TerminalSearch from './TerminalSearch.svelte';
@@ -133,11 +134,25 @@
     term.paste(quotePath(path) + ' ');
   }
 
+  /**
+   * Insert raw text at the cursor without path-quoting (used for notification
+   * event injection — commands / error messages, not file paths). Trailing
+   * space keeps it editable; never appends a newline, so it is never
+   * auto-executed. Bracketed-paste mode (xterm `paste`) further guards against
+   * embedded control sequences executing.
+   */
+  function pasteTextIntoTerminal(text: string): void {
+    if (!term || !text) return;
+    term.paste(text + ' ');
+    term.focus();
+  }
+
   function onTermDragOver(e: DragEvent): void {
     // Only claim the drop when the payload is ours — lets other drag sources pass through.
-    if (!e.dataTransfer?.types.includes(TREE_PATH_MIME)) return;
+    const types = e.dataTransfer?.types;
+    if (!types || (!types.includes(TREE_PATH_MIME) && !types.includes(RIFT_EVENT_MIME))) return;
     e.preventDefault();
-    e.dataTransfer.dropEffect = 'copy';
+    e.dataTransfer!.dropEffect = 'copy';
     dragHover = true;
   }
 
@@ -147,10 +162,27 @@
 
   function onTermDrop(e: DragEvent): void {
     dragHover = false;
+    // Notification-event injection takes the raw-text path; tree paths are quoted.
+    const eventText = e.dataTransfer?.getData(RIFT_EVENT_MIME);
+    if (eventText) {
+      e.preventDefault();
+      pasteTextIntoTerminal(eventText);
+      return;
+    }
     const path = e.dataTransfer?.getData(TREE_PATH_MIME);
     if (!path) return;
     e.preventDefault();
     pasteIntoTerminal(path);
+  }
+
+  /**
+   * Stable key for the active-terminal inject registry (single terminal = -1).
+   * `paneId` is fixed for a given Terminal instance — the grid keys each
+   * pane's component by id — so reading it at call time is equivalent to a
+   * captured value, without the rune "initial value" caveat.
+   */
+  function injectRegistryKey(): number {
+    return paneId ?? -1;
   }
 
   /**
@@ -166,6 +198,11 @@
     const detail = (e as CustomEvent<RiftVaultDropDetail>).detail;
     if (!detail?.path) return;
     pasteIntoTerminal(detail.path);
+  }
+
+  /** Mark this terminal as the active injection target on focus. */
+  function onTermFocusIn(): void {
+    setActiveInjector(injectRegistryKey());
   }
 
   const encoder = new TextEncoder();
@@ -617,6 +654,13 @@
     // Phase 8.7 — vault-drop event listener (manual gesture from IndexGraph).
     host.addEventListener(RIFT_VAULT_DROP_EVENT, onTermVaultDrop);
 
+    // Notification-event injection: register this terminal's raw-text paste so
+    // a click-to-inject from a notification tab targets the active terminal,
+    // and mark this terminal active whenever its xterm textarea gains focus
+    // (focusin bubbles from the textarea through the host).
+    registerInjector(injectRegistryKey(), pasteTextIntoTerminal);
+    host.addEventListener('focusin', onTermFocusIn);
+
     // Live settings application — re-read all terminal settings when config
     // changes and apply them to the running xterm instance immediately.
     const onConfigChanged = async () => {
@@ -723,6 +767,8 @@
     if (resizeRaf !== undefined) cancelAnimationFrame(resizeRaf);
     resizeObs?.disconnect();
     host?.removeEventListener(RIFT_VAULT_DROP_EVENT, onTermVaultDrop);
+    host?.removeEventListener('focusin', onTermFocusIn);
+    unregisterInjector(injectRegistryKey());
     search?.dispose();
     fit?.dispose();
     term?.dispose();

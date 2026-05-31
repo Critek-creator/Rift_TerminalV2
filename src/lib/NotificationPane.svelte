@@ -17,10 +17,12 @@
 
   import { onMount, onDestroy } from 'svelte';
   import { subscribe, type Category, type Envelope } from './bus';
-  import { NOTIF_TAB_MIME } from './dragMime';
+  import { NOTIF_TAB_MIME, RIFT_EVENT_MIME } from './dragMime';
   import { shouldShow, kindToSeverity, type SeverityLevel } from './notifFilter';
   import { clusterEvents, type EventCluster, type SourceLocation } from './errorClustering';
   import { popouts } from './popouts.svelte';
+  import { envelopeToInjectText } from './eventInject';
+  import { injectIntoActiveTerminal } from './terminalInject';
 
   interface Props {
     title: string;
@@ -121,6 +123,7 @@
   onDestroy(() => {
     mounted = false;
     if (tickTimer) clearInterval(tickTimer);
+    if (injectFlashTimer) clearTimeout(injectFlashTimer);
     unsubscribe?.().catch(() => {});
   });
 
@@ -156,6 +159,31 @@
    *  shifts. Rows toggle on click; expanded rows render full pre-wrapped
    *  payload + are user-selectable for copy-paste. */
   let expandedRows = $state<Set<string>>(new Set());
+
+  // -- Notification-event → terminal injection (drag-or-click) ---------------
+  // Each event row carries one affordance that is BOTH draggable (drop onto a
+  // terminal-host) and clickable (inject into the active terminal). A brief
+  // glyph swap (⤓ → ✓ / ✗) confirms the click path landed.
+  let injectFlash = $state<{ key: string; ok: boolean } | null>(null);
+  let injectFlashTimer: ReturnType<typeof setTimeout> | null = null;
+
+  function flashInject(key: string, ok: boolean): void {
+    injectFlash = { key, ok };
+    if (injectFlashTimer) clearTimeout(injectFlashTimer);
+    injectFlashTimer = setTimeout(() => { injectFlash = null; }, 1100);
+  }
+
+  function injectEvent(env: Envelope, key: string): void {
+    const ok = injectIntoActiveTerminal(envelopeToInjectText(env));
+    flashInject(key, ok);
+  }
+
+  function onInjectDragStart(ev: DragEvent, env: Envelope): void {
+    ev.stopPropagation();
+    if (!ev.dataTransfer) return;
+    ev.dataTransfer.setData(RIFT_EVENT_MIME, envelopeToInjectText(env));
+    ev.dataTransfer.effectAllowed = 'copy';
+  }
 
   function toggleRow(key: string): void {
     const next = new Set(expandedRows);
@@ -358,9 +386,21 @@
               <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
               <div class="cluster-instances" onclick={(ev) => ev.stopPropagation()} onkeydown={(ev) => ev.stopPropagation()} role="list">
                 {#each c.instances.slice().reverse() as inst, j (inst.ts + ':' + j)}
+                  {@const instKey = 'c:' + c.key + ':' + inst.ts + ':' + j}
                   <div class="cluster-inst" role="listitem">
                     <span class="ts">{formatTs(inst.ts)}</span>
                     <span class="inst-payload">{formatPayload(inst.payload)}</span>
+                    <button
+                      type="button"
+                      class="inject-btn"
+                      class:ok={injectFlash?.key === instKey && injectFlash?.ok}
+                      class:miss={injectFlash?.key === instKey && injectFlash && !injectFlash.ok}
+                      draggable={true}
+                      onclick={(ev) => { ev.stopPropagation(); injectEvent(inst, instKey); }}
+                      ondragstart={(ev) => onInjectDragStart(ev, inst)}
+                      title="Drag to a terminal, or click to inject into the active terminal"
+                      aria-label="Inject this event into the terminal"
+                    >{injectFlash?.key === instKey ? (injectFlash.ok ? '✓' : '✗') : '⤓'}</button>
                   </div>
                 {/each}
               </div>
@@ -393,6 +433,17 @@
             <span class="caret" style="color: {severityColor(e.kind)}">{isExpanded ? '▼' : '▶'}</span>
             <span class="ts">{formatTs(e.ts)}</span>
             <span class="kind" style="color: {kindColor(e.kind)}">{e.kind}</span>
+            <button
+              type="button"
+              class="inject-btn"
+              class:ok={injectFlash?.key === rowKey && injectFlash?.ok}
+              class:miss={injectFlash?.key === rowKey && injectFlash && !injectFlash.ok}
+              draggable={true}
+              onclick={(ev) => { ev.stopPropagation(); injectEvent(e, rowKey); }}
+              ondragstart={(ev) => onInjectDragStart(ev, e)}
+              title="Drag to a terminal, or click to inject into the active terminal"
+              aria-label="Inject this event into the terminal"
+            >{injectFlash?.key === rowKey ? (injectFlash.ok ? '✓' : '✗') : '⤓'}</button>
             {#if isExpanded}
               <!-- svelte-ignore a11y_no_noninteractive_element_interactions — stopPropagation prevents parent row toggle during text selection -->
               <pre
@@ -624,6 +675,7 @@
   .log-body::-webkit-scrollbar-thumb { background: var(--amber-faint); border-radius: var(--radius-sm); }
   .log-body::-webkit-scrollbar-thumb:hover { background: var(--amber-dim); }
   .log-body .row {
+    position: relative;
     display: grid;
     grid-template-columns: 14px 70px 140px minmax(0, 1fr);
     gap: var(--space-md);
@@ -803,11 +855,61 @@
     cursor: default;
   }
   .cluster-inst {
+    position: relative;
     display: grid;
     grid-template-columns: 70px minmax(0, 1fr);
     gap: var(--space-md);
     font-size: var(--text-2xs);
     align-items: baseline;
+  }
+
+  /* Drag-or-click inject affordance — hover-revealed, right-aligned, out of
+     grid flow so it never disturbs the row's column layout. */
+  .inject-btn {
+    position: absolute;
+    right: 6px;
+    top: 3px;
+    width: 18px;
+    height: 18px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    background: rgba(212, 137, 10, 0.10);
+    border: 1px solid var(--amber-faint);
+    border-radius: var(--radius-sm);
+    color: var(--amber-bright);
+    font-family: var(--font-family);
+    font-size: var(--text-xs);
+    line-height: 1;
+    cursor: grab;
+    opacity: 0;
+    transition: opacity var(--duration-base), color var(--duration-base),
+      border-color var(--duration-base), background var(--duration-base);
+  }
+  .log-body .row:hover .inject-btn,
+  .cluster-inst:hover .inject-btn,
+  .inject-btn:focus-visible {
+    opacity: 1;
+  }
+  .inject-btn:hover {
+    background: rgba(212, 137, 10, 0.20);
+    border-color: var(--amber-bright);
+  }
+  .inject-btn:active { cursor: grabbing; }
+  .inject-btn:focus-visible { outline: 1px solid var(--amber-bright); outline-offset: 1px; }
+  /* Flash states after a click-inject — stay visible regardless of hover. */
+  .inject-btn.ok {
+    opacity: 1;
+    color: var(--term-green);
+    border-color: var(--term-green);
+    background: rgba(79, 232, 85, 0.15);
+  }
+  .inject-btn.miss {
+    opacity: 1;
+    color: var(--term-red);
+    border-color: var(--term-red);
+    background: rgba(255, 72, 72, 0.15);
   }
   .cluster-inst .ts { color: var(--amber-faint); font-variant-numeric: tabular-nums; }
   .cluster-inst .inst-payload {
