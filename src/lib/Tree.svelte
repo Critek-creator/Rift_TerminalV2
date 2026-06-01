@@ -383,6 +383,62 @@
 
   const svgHeight = $derived(layout.length * ROW_H + PADDING_BOTTOM);
 
+  // --- Keyboard navigation (WAI-ARIA tree pattern) -------------------------
+  // SVG <g> treeitems can't reliably hold DOM focus in WebView2 (same gotcha
+  // as the SVG drag bug), so the <svg> owns focus (tabindex=0) and we track the
+  // active row index here, surfacing it via aria-activedescendant + a visual
+  // focus band. Purely additive over the existing mouse interaction — arrow
+  // keys move the active row, Right/Left expand/collapse, Enter/Space activate.
+  let kbdIndex = $state(0);
+  const kbdActive = $derived(layout.length ? Math.min(kbdIndex, layout.length - 1) : -1);
+  const kbdActiveId = $derived(kbdActive >= 0 ? `tree-node-${kbdActive}` : undefined);
+
+  /** Nearest preceding row at a shallower indent (smaller x) = the parent. */
+  function kbdParentIndex(i: number): number {
+    const x = layout[i].x;
+    for (let j = i - 1; j >= 0; j--) {
+      if (layout[j].x < x) return j;
+    }
+    return -1;
+  }
+
+  function onTreeKeydown(e: KeyboardEvent): void {
+    const n = layout.length;
+    if (n === 0) return;
+    const i = kbdActive;
+    const item = layout[i];
+    switch (e.key) {
+      case 'ArrowDown': e.preventDefault(); kbdIndex = Math.min(n - 1, i + 1); break;
+      case 'ArrowUp':   e.preventDefault(); kbdIndex = Math.max(0, i - 1); break;
+      case 'Home':      e.preventDefault(); kbdIndex = 0; break;
+      case 'End':       e.preventDefault(); kbdIndex = n - 1; break;
+      case 'ArrowRight':
+        e.preventDefault();
+        if (item.node.isDir) {
+          if (collapsedDirs.has(item.node.path)) toggleCollapse(item.node.path); // expand
+          else if (i + 1 < n) kbdIndex = i + 1;                                   // into first child
+        }
+        break;
+      case 'ArrowLeft': {
+        e.preventDefault();
+        if (item.node.isDir && !collapsedDirs.has(item.node.path)) {
+          toggleCollapse(item.node.path);          // collapse open dir
+        } else {
+          const p = kbdParentIndex(i);             // jump to parent row
+          if (p !== -1) kbdIndex = p;
+        }
+        break;
+      }
+      case 'Enter':
+      case ' ':
+        e.preventDefault();
+        handleNodeClick(item.node);
+        break;
+      default:
+        return;
+    }
+  }
+
   const derivedNodeCount = $derived.by(() => {
     if (!treeRoot) return 0;
     function count(n: TreeNode): number {
@@ -667,6 +723,9 @@
    * operational signal demands it.
    */
   function handleNodeClick(node: TreeNode): void {
+    // Keep keyboard navigation in sync with mouse selection.
+    const idx = layout.findIndex((it) => it.node.path === node.path);
+    if (idx !== -1) kbdIndex = idx;
     if (node.isDir) {
       toggleCollapse(node.path);
       return;
@@ -826,7 +885,10 @@
       viewBox="0 0 {SVG_WIDTH} {svgHeight}"
       style="height: {svgHeight}px;"
       role="tree"
-      aria-label="filesystem tree"
+      aria-label="filesystem tree (arrow keys to navigate)"
+      tabindex="0"
+      aria-activedescendant={kbdActiveId}
+      onkeydown={onTreeKeydown}
     >
       <!-- Edges — rendered below nodes so nodes paint on top -->
       {#each layout as item (item.node.path + '_edge')}
@@ -841,7 +903,7 @@
       {/each}
 
       <!-- Nodes (design calls D, F, G) -->
-      {#each layout as item (item.node.path)}
+      {#each layout as item, i (item.node.path)}
         {@const isCollapsedDir = item.node.isDir && collapsedDirs.has(item.node.path)}
         {@const sc = item.aggregateState ?? stateClass(item.node.path)}
         {@const glow = isCollapsedDir
@@ -861,8 +923,10 @@
         -->
         <g
           class="tree-node"
+          class:kbd-active={i === kbdActive}
+          id="tree-node-{i}"
           role="treeitem"
-          aria-selected="false"
+          aria-selected={i === kbdActive}
           tabindex="-1"
           aria-expanded={item.node.isDir ? !collapsedDirs.has(item.node.path) : undefined}
           aria-label={item.node.name}
@@ -1064,6 +1128,13 @@
   }
   :global(.tree-node:hover .row-band) {
     fill: rgba(255, 168, 38, 0.07);
+  }
+  /* Keyboard-active row (aria-activedescendant) — stronger than hover + an
+     amber edge so the focused row reads clearly when navigating by arrows. */
+  :global(.tree-node.kbd-active .row-band) {
+    fill: var(--bg-amber-selected);
+    stroke: var(--amber-dim);
+    stroke-width: 1;
   }
 
   /* Node shapes */
