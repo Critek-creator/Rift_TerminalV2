@@ -620,6 +620,13 @@ async fn pty_start(
     // envelopes correlate with no extra mapping.
     if let Some(sid) = session_id {
         opts = opts.with_env("RIFT_SESSION_ID", sid.to_string());
+        // Clear any stale per-session status file left by a PREVIOUS app run
+        // (pane ids restart at 0 each launch, so the same filename is reused).
+        // The status translator has no staleness guard, so without this a fresh
+        // pane could briefly show the prior run's data until Claude Code writes
+        // its first status. Best-effort; absence is the normal case.
+        let _ =
+            std::fs::remove_file(std::env::temp_dir().join(format!("rift-cc-status-{sid}.json")));
     }
     let effective_cwd = match cwd {
         Some(ref p) => dunce::canonicalize(p).map_err(|e| format!("invalid cwd: {e}"))?,

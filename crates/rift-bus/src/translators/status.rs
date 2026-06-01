@@ -253,21 +253,20 @@ fn read_cc_status_sessions_in(dir: &Path) -> Vec<(u32, CcStatus)> {
     out
 }
 
-/// Read and parse a single CC StatusJSON file at `path`. Returns `None` if the
-/// file is missing, unreadable, older than 30 seconds, or unparseable.
+/// Read and parse a single CC StatusJSON file at `path`. Returns `None` only if
+/// the file is missing, unreadable, or unparseable.
+///
+/// NO staleness guard: a per-session file is always attributable to its own pane
+/// (the `<id>` in `rift-cc-status-<id>.json` is the pane id). Claude Code only
+/// rewrites the file when that session is active, so an idle focused terminal's
+/// file goes "old" within seconds — but it still holds THAT terminal's last-known
+/// status, which is exactly what the status line should show. Blanking it (the
+/// old 30 s guard, correct only for the prior single-shared-file design) was the
+/// "status line goes empty on idle terminals" bug. Cross-run staleness (a pane id
+/// reused by a later app launch) is handled at spawn: `pty_start` deletes any
+/// pre-existing `rift-cc-status-<paneId>.json` so a fresh pane never shows a
+/// previous run's data.
 fn read_cc_status_from(path: &Path) -> Option<CcStatus> {
-    let metadata = std::fs::metadata(path).ok()?;
-
-    // Staleness guard — ignore files older than 30 seconds.
-    let age = metadata
-        .modified()
-        .ok()?
-        .elapsed()
-        .unwrap_or(Duration::from_secs(999));
-    if age > Duration::from_secs(30) {
-        return None;
-    }
-
     let content = std::fs::read_to_string(path).ok()?;
     let v: serde_json::Value = serde_json::from_str(&content).ok()?;
 
@@ -676,11 +675,13 @@ mod tests {
         assert_eq!(cc.ctx_pct, Some(25), "250/1000 → 25%");
     }
 
-    // T7 — stale_file_is_skipped
-    // The 30s staleness guard drops a per-session file whose mtime is old, so a
-    // closed/idle session's lingering temp file never surfaces stale data.
+    // T7 — old_file_is_still_read
+    // There is NO staleness guard: an idle terminal's old per-session file still
+    // holds THAT terminal's last-known status and must be shown (blanking it on
+    // age was the "status line empties on idle terminals" bug). Cross-run stale
+    // files are cleared at spawn by pty_start, not by an age check here.
     #[test]
-    fn stale_file_is_skipped() {
+    fn old_file_is_still_read() {
         use std::fs::{File, OpenOptions};
         use std::io::Write;
         use std::time::{Duration, SystemTime};
@@ -691,9 +692,10 @@ mod tests {
         let f = p.join("rift-cc-status-3.json");
         {
             let mut file = File::create(&f).expect("create");
-            file.write_all(br#"{"model":"stale"}"#).expect("write");
+            file.write_all(br#"{"model":"claude-opus-4-8"}"#)
+                .expect("write");
         }
-        // Backdate mtime well past the 30s staleness window (std, no extra dep).
+        // Backdate mtime far into the past — used to be skipped, now must read.
         let old = SystemTime::UNIX_EPOCH + Duration::from_secs(1_000);
         OpenOptions::new()
             .write(true)
@@ -703,7 +705,9 @@ mod tests {
             .expect("set mtime");
 
         let sessions = read_cc_status_sessions_in(p);
-        assert!(sessions.is_empty(), "stale file must be skipped");
+        assert_eq!(sessions.len(), 1, "old per-session file must still be read");
+        assert_eq!(sessions[0].0, 3);
+        assert_eq!(sessions[0].1.model.as_deref(), Some("claude-opus-4-8"));
     }
 
     // T2 — git_degrades_on_non_git_dir
