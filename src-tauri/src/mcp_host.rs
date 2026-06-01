@@ -829,25 +829,34 @@ async fn tool_js_eval(app_handle: &AppHandle, payload: &Value) -> Result<Value, 
         .and_then(|v| v.as_str())
         .ok_or_else(|| "js_eval: missing required 'code' argument".to_owned())?;
 
-    // eval_js wraps {js} in `(async function() { {js} })()`, so the code
-    // runs as a function body. Bare expressions don't return a value from a
-    // function body — only explicit `return` does. Auto-return the last
-    // expression so callers get "last expression value" semantics without
-    // needing to write `return` manually.
-    let trimmed = code.trim();
-    let wrapper = if trimmed.contains("return ") || trimmed.contains("return\n") {
-        trimmed.to_string()
-    } else if let Some(last_sep) = trimmed.rfind([';', '\n']) {
-        let (head, tail) = trimmed.split_at(last_sep + 1);
-        let tail = tail.trim();
-        if tail.is_empty() {
-            trimmed.to_string()
-        } else {
-            format!("{head} return {tail}")
-        }
-    } else {
-        format!("return ({trimmed})")
-    };
+    // eval_js wraps {js} in `(async function() { {js} })()`, so whatever we
+    // pass must `return` the value the caller wants. Rather than parse JS in
+    // Rust to locate the "last expression" — the old heuristic silently dropped
+    // the value whenever the code ended in `;`/newline, and a nested `return`
+    // in a callback disabled it entirely — hand the raw code to `eval` and
+    // return its COMPLETION VALUE, the same "last expression wins" semantics a
+    // browser console gives. `eval("const x=1; x;")` is `1`, so declarations,
+    // trailing semicolons and nested returns all just work; `await` resolves the
+    // value when the final expression is a Promise (e.g. an async IIFE).
+    //
+    // Indirect `(0,eval)` runs in global scope, so user code can't see our
+    // wrapper locals and its `let`/`const` don't leak. If the caller wrote a
+    // top-level `return` (the old contract) eval throws "Illegal return
+    // statement"; we catch that one case and re-run the code as a function body
+    // so `return X` keeps working. Top-level `await` is unsupported — wrap async
+    // work in `(async () => { ... })()`.
+    let code_literal =
+        serde_json::to_string(code).map_err(|e| format!("js_eval: failed to encode code: {e}"))?;
+    let wrapper = format!(
+        r#"const __c = {code_literal};
+try {{ return await (0, eval)(__c); }}
+catch (__e) {{
+  if (__e instanceof SyntaxError && /return/i.test(__e.message)) {{
+    return await (0, eval)('(async function(){{' + __c + '\n}})()');
+  }}
+  throw __e;
+}}"#
+    );
 
     let result = eval_js(app_handle, window, &wrapper).await?;
     Ok(json!({ "window": window, "result": result }))
