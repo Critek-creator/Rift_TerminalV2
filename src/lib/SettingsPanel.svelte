@@ -758,11 +758,13 @@
   });
 </script>
 
-<div class="settings"
-     onkeydown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); done(); } }}
-     role="dialog"
-     tabindex="-1"
->
+<!-- This panel always renders inside Popout.svelte's card, which IS the
+     role="dialog" aria-modal="true" container and already owns focus-into-open,
+     Tab/Shift+Tab focus-trapping, and window-level Escape-to-dismiss. A second
+     role="dialog" + tabindex + Escape handler here was a redundant
+     dialog-within-a-dialog (confuses assistive tech) and a competing focus
+     boundary — removed so Popout is the single, complete dialog. -->
+<div class="settings">
   <!-- svelte-ignore a11y_interactive_supports_focus -->
   <!-- WAI-ARIA tabs pattern: focus rolls across the tabs (roving tabindex),
        the tablist itself stays out of the tab sequence. -->
