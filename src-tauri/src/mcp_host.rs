@@ -812,9 +812,36 @@ async fn tool_screenshot(app_handle: &AppHandle, payload: &Value) -> Result<Valu
             .map_err(|e| format!("capture task panicked: {e}"))?
             .map_err(|e| format!("capture failed: {e}"))?;
 
-    use base64::Engine;
-    let b64 = base64::engine::general_purpose::STANDARD.encode(&png_bytes);
-    Ok(json!({ "window": window_label, "png_base64": b64 }))
+    // Write the PNG to a stable temp path (one file per window) and return the
+    // path rather than a multi-megabyte base64 blob — a 1.4 MB base64 string
+    // overflowed the MCP result token budget, forcing callers to decode-to-file
+    // by hand. INSPECTION_LOCK serializes inspection tools, so the fixed
+    // per-window filename has no write race. Callers Read the path to view it.
+    let (width, height) = png_dimensions(&png_bytes).unwrap_or((0, 0));
+    let path = std::env::temp_dir().join(format!("rift-screenshot-{window_label}.png"));
+    std::fs::write(&path, &png_bytes)
+        .map_err(|e| format!("failed to write screenshot to {}: {e}", path.display()))?;
+
+    Ok(json!({
+        "window": window_label,
+        "path": path.to_string_lossy(),
+        "bytes": png_bytes.len(),
+        "width": width,
+        "height": height,
+    }))
+}
+
+/// Parse width/height from a PNG's IHDR chunk: 8-byte signature, then a
+/// length+type header, then IHDR data — width and height as big-endian u32 at
+/// byte offsets 16 and 20. Returns None if the buffer isn't a PNG.
+#[cfg(windows)]
+fn png_dimensions(bytes: &[u8]) -> Option<(u32, u32)> {
+    if bytes.len() < 24 || &bytes[0..8] != b"\x89PNG\r\n\x1a\n" {
+        return None;
+    }
+    let width = u32::from_be_bytes([bytes[16], bytes[17], bytes[18], bytes[19]]);
+    let height = u32::from_be_bytes([bytes[20], bytes[21], bytes[22], bytes[23]]);
+    Some((width, height))
 }
 
 #[cfg(not(windows))]

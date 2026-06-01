@@ -163,7 +163,7 @@ pub fn tool_catalog() -> Vec<ToolSpec> {
         },
         ToolSpec {
             name: "screenshot",
-            description: "Capture the named Rift webview window as a base64-encoded PNG. Requires `mcp.allow_inspection = true` in config.",
+            description: "Capture the named Rift webview window to a PNG file and return its path (plus width, height, byte size). Read the returned path to view the image — the PNG is written to a stable temp file per window, not returned inline, so it never overflows the result budget. Requires `mcp.allow_inspection = true` in config.",
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -188,7 +188,7 @@ pub fn tool_catalog() -> Vec<ToolSpec> {
                     },
                     "code": {
                         "type": "string",
-                        "description": "JavaScript code to evaluate. The last expression's value is returned as JSON.",
+                        "description": "JavaScript to evaluate. The last expression's value is returned (browser-console completion-value semantics — `const x = 1; x` returns 1; trailing semicolons and nested returns are fine). For async work, end with an IIFE that returns a Promise, e.g. `(async () => { return await foo(); })()` — top-level `await` is not supported.",
                     },
                 },
                 "required": ["code"],
