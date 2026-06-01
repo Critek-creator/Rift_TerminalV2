@@ -149,7 +149,7 @@ pub fn tool_catalog() -> Vec<ToolSpec> {
         // ----- Phase C — Tier 2 inspection tools (D-014 §3, default-off) -----
         ToolSpec {
             name: "dom_snapshot",
-            description: "Return the full HTML of the named Rift webview window. Requires `mcp.allow_inspection = true` in config.",
+            description: "Return the full HTML of the named Rift webview window. Small snapshots come back inline ({inline:true, html}); large ones are written to a temp file ({inline:false, path, bytes}) — Read the path — so a big DOM never overflows the result budget. Requires `mcp.allow_inspection = true` in config.",
             input_schema: json!({
                 "type": "object",
                 "properties": {

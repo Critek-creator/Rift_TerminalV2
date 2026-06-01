@@ -788,7 +788,26 @@ async fn tool_dom_snapshot(app_handle: &AppHandle, payload: &Value) -> Result<Va
         "return document.documentElement.outerHTML;",
     )
     .await?;
-    Ok(json!({ "window": window, "html": html }))
+
+    // Same overflow guard as `screenshot`: a large DOM serialized inline blows
+    // the MCP result token budget. Return the HTML inline when it's small,
+    // otherwise spill it to a stable per-window temp file and return the path
+    // (callers Read it). The `inline` flag lets callers branch deterministically.
+    const INLINE_MAX: usize = 30_000;
+    let html_str = html.as_str().unwrap_or_default();
+    if html_str.len() <= INLINE_MAX {
+        Ok(json!({ "window": window, "inline": true, "html": html_str }))
+    } else {
+        let path = std::env::temp_dir().join(format!("rift-dom-{window}.html"));
+        std::fs::write(&path, html_str)
+            .map_err(|e| format!("failed to write DOM snapshot to {}: {e}", path.display()))?;
+        Ok(json!({
+            "window": window,
+            "inline": false,
+            "path": path.to_string_lossy(),
+            "bytes": html_str.len(),
+        }))
+    }
 }
 
 #[cfg(windows)]
