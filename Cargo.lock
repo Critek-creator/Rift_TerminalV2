@@ -3153,7 +3153,7 @@ dependencies = [
 
 [[package]]
 name = "rift-aegis"
-version = "1.2.1"
+version = "1.3.0"
 dependencies = [
  "directories",
  "notify",
@@ -3166,7 +3166,7 @@ dependencies = [
 
 [[package]]
 name = "rift-app"
-version = "1.2.1"
+version = "1.3.0"
 dependencies = [
  "base64 0.22.1",
  "directories",
@@ -3198,7 +3198,7 @@ dependencies = [
 
 [[package]]
 name = "rift-bus"
-version = "1.2.1"
+version = "1.3.0"
 dependencies = [
  "async-trait",
  "directories",
@@ -3224,7 +3224,7 @@ dependencies = [
 
 [[package]]
 name = "rift-cli"
-version = "1.2.1"
+version = "1.3.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -3235,7 +3235,7 @@ dependencies = [
 
 [[package]]
 name = "rift-core"
-version = "1.2.1"
+version = "1.3.0"
 dependencies = [
  "parking_lot",
  "portable-pty",
@@ -3247,7 +3247,7 @@ dependencies = [
 
 [[package]]
 name = "rift-mcp"
-version = "1.2.1"
+version = "1.3.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -3261,7 +3261,7 @@ dependencies = [
 
 [[package]]
 name = "rift-router"
-version = "1.2.1"
+version = "1.3.0"
 dependencies = [
  "rift-bus",
  "serde",

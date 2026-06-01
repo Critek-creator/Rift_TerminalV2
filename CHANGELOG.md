@@ -6,6 +6,28 @@ loosely [Keep a Changelog](https://keepachangelog.com/), the project follows
 
 ---
 
+## [1.3.0] — 2026-06-01
+
+### Added
+
+- **Filesystem tree keyboard navigation** — the GUI tree is now a full WAI-ARIA tree: ↑/↓ move the active row, Home/End jump to ends, → expands a collapsed directory or descends to the first child, ← collapses or jumps to the parent, Enter/Space open/toggle. The active row is exposed via `aria-activedescendant` (SVG `<g>` nodes can't hold DOM focus in WebView2) with a visual focus band.
+- **Live-region announcements** — Git fetch/pull/push results and the Sessions count are now `aria-live` regions so screen readers announce them.
+
+### Fixed
+
+- **Local model start/stop failures are surfaced** — ModelCard caught Start/Stop errors to the console only; they now show inline, so a failed local-server start on a busy GPU no longer just makes the spinner vanish.
+- **Settings integration toggles** — the Aegis/Index toggles bypassed the safe save path (unawaited write, no cache broadcast, no rollback on failure); they now match the other settings handlers.
+- **Splitter listener leak** — destroying a splitter mid-drag (e.g. collapsing the cockpit while dragging) orphaned document pointer listeners; they're now cleaned up on destroy.
+- **Profile picker concurrency** — load/save/delete guard against concurrent invokes from rapid clicks.
+- **Redundant nested dialog** — the settings panel carried its own `role="dialog"` inside the Popout dialog (a dialog-within-a-dialog); removed so Popout is the single, complete modal.
+
+### Changed
+
+- **MCP `js_eval` returns the last expression's value** — completion-value semantics like a browser console (`const x = 1; x` → `1`; trailing semicolons and nested returns just work); async work returns from an IIFE. Removes the old `return`/stash-and-read-back workarounds.
+- **MCP `screenshot` writes a PNG file and returns its path** (plus width/height/bytes) instead of a multi-megabyte base64 blob that overflowed the result budget.
+- **MCP `dom_snapshot` spills large DOMs to a temp file** (inline when small) for the same reason.
+- **Design tokens** — added a red/error tint family (`--bg-red-*`, `--border-red-*`) and swept inline `rgba(255, 72, 72, …)` background/border usages onto it.
+
 ## [1.2.1] — 2026-05-30
 
 ### Fixed
