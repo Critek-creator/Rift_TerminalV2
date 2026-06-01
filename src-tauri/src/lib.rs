@@ -1037,6 +1037,33 @@ fn terminal_mounted(ready: State<'_, TerminalReady>) {
     ready.0.notify_one();
 }
 
+/// Reveal the main window in a known-good state, overriding any stale
+/// WebView2/EBWebView-restored minimized or off-screen geometry. Idempotent —
+/// `show()`/`unminimize()` on an already-visible window are no-ops, so it is
+/// safe to call from BOTH the frontend-ready command and the fallback timer
+/// (whichever fires first wins; the other is harmless).
+fn reveal_main_window(app: &AppHandle) {
+    if let Some(win) = app.get_webview_window("main") {
+        let _ = win.unminimize();
+        let _ = win.center();
+        let _ = win.show();
+        let _ = win.set_focus();
+    }
+}
+
+/// Frontend-ready signal — the root app (`App.svelte`) has mounted and the
+/// webview has rendered, so it is now safe to reveal the main window. The
+/// window starts hidden (`visible: false` in tauri.conf) specifically so it
+/// never flashes blank or restores minimized while WebView2 is still
+/// initializing; this is the FAST path that shows it the moment the UI is
+/// ready. A setup-hook fallback timer reveals it regardless if this never
+/// fires (e.g. a frontend that fails to load), so the window can never get
+/// stuck permanently hidden.
+#[tauri::command]
+fn main_window_ready(app: AppHandle) {
+    reveal_main_window(&app);
+}
+
 /// Re-walk the Abyssal Index vault directory and re-publish all `vault.update`
 /// + `walk.complete` envelopes. Called by IndexGraph.svelte on mount to handle
 /// the case where boot-walk events have been evicted from the replay ring
@@ -2358,15 +2385,25 @@ pub fn run() {
                 }
             }
 
-            // Force-center and unminimize the main window to override stale
-            // WebView2 cached state. EBWebView persists window geometry AND
-            // minimized/maximized state across runs — a previous minimized
-            // session restores as minimized even after show().
-            if let Some(main_win) = app.get_webview_window("main") {
-                let _ = main_win.unminimize();
-                let _ = main_win.center();
-                let _ = main_win.show();
-                let _ = main_win.set_focus();
+            // The main window starts hidden (`visible: false` in tauri.conf) so
+            // it never flashes blank or restores a stale minimized/off-screen
+            // state while WebView2 is still initializing — the root cause of the
+            // recurring "launches minimized / blank webview" bug. It is normally
+            // revealed by the `main_window_ready` command the frontend invokes
+            // once rendered (App.svelte onMount) — the fast, known-good path that
+            // also unminimizes + re-centers, overriding any EBWebView-persisted
+            // bad geometry.
+            //
+            // FALLBACK: if the frontend never signals ready (failed JS load,
+            // broken webview), reveal the window anyway after a short delay so it
+            // can never get stuck permanently hidden. reveal_main_window is
+            // idempotent, so a double-reveal alongside the ready command is safe.
+            {
+                let reveal_app = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    tokio::time::sleep(std::time::Duration::from_millis(3000)).await;
+                    reveal_main_window(&reveal_app);
+                });
             }
 
             Ok(())
@@ -2383,6 +2420,7 @@ pub fn run() {
             bus_publish,
             rift_reset_for_reload,
             terminal_mounted,
+            main_window_ready,
             vault_rescan,
             fs_tree,
             fs_read_text,

@@ -656,6 +656,13 @@
   });
 
   onMount(() => {
+    // Reveal the main window now that the app has mounted + rendered. The
+    // window starts hidden (tauri.conf `visible: false`) to avoid the
+    // blank/minimized-flash race during WebView2 init; this is the fast path
+    // that shows it the instant the UI is ready. Fire-and-forget — a backend
+    // fallback timer reveals it regardless if this never lands.
+    invoke('main_window_ready').catch(() => {});
+
     // JS crash log — capture unhandled errors for beta issue reporting.
     const CRASH_KEY = 'rift:crash_log';
     const MAX_CRASHES = 10;
