@@ -926,6 +926,20 @@ impl ProcessManager {
         self.processes.lock().keys().cloned().collect()
     }
 
+    /// Model IDs whose process is currently ALIVE (PID responsive), not just
+    /// present in the managed map. Unlike [`running_models`](Self::running_models)
+    /// this filters by liveness, so a crashed-but-not-yet-reaped entry is
+    /// excluded. Used to seed router availability so auto-routing never targets
+    /// a stopped llama-server (the connection-fail cascade). One lock acquire.
+    pub fn live_models(&self) -> Vec<String> {
+        let procs = self.processes.lock();
+        procs
+            .iter()
+            .filter(|(_, p)| is_process_alive(p.child.id()))
+            .map(|(id, _)| id.clone())
+            .collect()
+    }
+
     /// Check all managed processes for crashes and publish events. Crashed
     /// processes are dropped from the map; those whose config has
     /// `auto_restart` are re-spawned, bounded by [`MAX_RESTART_ATTEMPTS`] per

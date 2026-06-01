@@ -7,7 +7,7 @@
 
 use std::collections::HashSet;
 
-use rift_bus::config::{EnsembleConfig, ModelConfig, RoutingProfile};
+use rift_bus::config::{EnsembleConfig, HostingMode, ModelConfig, RoutingProfile};
 
 pub mod classifier;
 pub mod profiles;
@@ -54,6 +54,39 @@ impl RouterService {
 
     pub fn is_available(&self, model_id: &str) -> bool {
         !self.unavailable.contains(model_id)
+    }
+
+    /// Seed availability from the set of LOCAL models whose llama-server is
+    /// currently running. Local models NOT in `running_ids` are marked
+    /// unavailable so auto-routing and fallback chains never select a stopped
+    /// server (the connection-fail cascade); local models that ARE running are
+    /// marked available. Cloud and Remote models have no Rift-managed process,
+    /// so they are always left available (never marked down by this sync).
+    ///
+    /// Explicit `@tag` / override routes bypass the availability filter (see
+    /// [`route_with_hint`](Self::route_with_hint)), so a deliberate swap to a
+    /// not-yet-loaded model still resolves — the caller is expected to load it
+    /// first (load → call). This only constrains AUTO routing to what is
+    /// actually serving, which is the fix for routing to stopped servers on a
+    /// one-resident-at-a-time (VRAM-bound) host.
+    pub fn sync_local_availability(&mut self, running_ids: &[String]) {
+        let running: HashSet<&str> = running_ids.iter().map(String::as_str).collect();
+        // Snapshot (id, is_up) first — can't borrow self.config.models while
+        // mutating self.unavailable in the loop.
+        let updates: Vec<(String, bool)> = self
+            .config
+            .models
+            .iter()
+            .filter(|m| matches!(m.hosting, HostingMode::Local { .. }))
+            .map(|m| (m.id.clone(), running.contains(m.id.as_str())))
+            .collect();
+        for (id, is_up) in updates {
+            if is_up {
+                self.mark_available(&id);
+            } else {
+                self.mark_unavailable(&id);
+            }
+        }
     }
 
     /// Whether `model_id` is the configured task classifier. The classifier is
@@ -489,5 +522,28 @@ mod tests {
         let svc = RouterService::new(cfg);
         let decision = svc.route("hello world", None).unwrap();
         assert_eq!(decision.model_id, "cloud-test");
+    }
+
+    #[test]
+    fn sync_local_availability_avoids_stopped_local_keeps_cloud() {
+        let mut cfg = test_config();
+        cfg.active_profile = RoutingProfile::CostOptimized;
+        let mut svc = RouterService::new(cfg);
+
+        // Nothing running → the LOCAL model is marked unavailable, but the
+        // CLOUD model stays available (no Rift-managed process). Auto-routing
+        // must skip the stopped local server and land on cloud — this is the
+        // fix for the connection-fail cascade.
+        svc.sync_local_availability(&[]);
+        assert!(!svc.is_available("local-test"));
+        assert!(svc.is_available("cloud-test"));
+        let decision = svc.route("hello world", None).unwrap();
+        assert_eq!(decision.model_id, "cloud-test");
+
+        // Once the local server is reported running, it becomes available
+        // again — sync is idempotent and reversible.
+        svc.sync_local_availability(&["local-test".to_string()]);
+        assert!(svc.is_available("local-test"));
+        assert!(svc.is_available("cloud-test"));
     }
 }

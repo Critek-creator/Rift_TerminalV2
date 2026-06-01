@@ -296,11 +296,14 @@ pub async fn llm_key_delete(model_id: String) -> Result<(), String> {
 #[tauri::command]
 pub async fn llm_complete(
     bus: State<'_, RiftBus>,
+    pm: State<'_, std::sync::Arc<ProcessManager>>,
     model_id: Option<String>,
     prompt: String,
 ) -> Result<LlmCompleteResult, String> {
     let config = load_config().map_err(|e| format!("config load error: {e}"))?;
     let mut router = RouterService::new(config.ensemble.clone());
+    // Resident-aware routing — skip stopped local servers (see RouterService).
+    router.sync_local_availability(&pm.live_models());
 
     // Route the prompt (handles @model tags, profile logic, availability)
     let decision = router
@@ -419,12 +422,15 @@ pub async fn llm_complete(
 #[tauri::command]
 pub async fn llm_stream(
     bus: State<'_, RiftBus>,
+    pm: State<'_, std::sync::Arc<ProcessManager>>,
     model_id: Option<String>,
     prompt: String,
     on_chunk: Channel<LlmStreamEvent>,
 ) -> Result<LlmCompleteResult, String> {
     let config = load_config().map_err(|e| format!("config load error: {e}"))?;
-    let router = RouterService::new(config.ensemble.clone());
+    let mut router = RouterService::new(config.ensemble.clone());
+    // Resident-aware routing — skip stopped local servers (see RouterService).
+    router.sync_local_availability(&pm.live_models());
 
     // Route the prompt (handles @model tags, profile logic, availability).
     let decision = router
@@ -546,6 +552,7 @@ pub async fn llm_stream(
 #[tauri::command]
 pub async fn llm_ensemble(
     bus: State<'_, RiftBus>,
+    pm: State<'_, std::sync::Arc<ProcessManager>>,
     model_ids: Option<Vec<String>>,
     prompt: String,
     critique: Option<bool>,
@@ -553,7 +560,9 @@ pub async fn llm_ensemble(
     on_chunk_b: Channel<LlmStreamEvent>,
 ) -> Result<EnsembleResult, String> {
     let config = load_config().map_err(|e| format!("config load error: {e}"))?;
-    let router = RouterService::new(config.ensemble.clone());
+    let mut router = RouterService::new(config.ensemble.clone());
+    // Resident-aware routing — skip stopped local servers (see RouterService).
+    router.sync_local_availability(&pm.live_models());
 
     let parsed = rift_router::parse_model_tag(&prompt);
     let clean_prompt = parsed.clean_prompt;

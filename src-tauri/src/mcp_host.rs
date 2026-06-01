@@ -411,7 +411,7 @@ async fn dispatch_tool(
         "llm_models" => tool_llm_models(),
         "llm_switch" => tool_llm_switch(bus, payload),
         "llm_health" => tool_llm_health(payload).await,
-        "llm_prompt" => tool_llm_prompt(bus, payload).await,
+        "llm_prompt" => tool_llm_prompt(bus, app_handle, payload).await,
         "llm_ensemble" => tool_llm_ensemble(bus, payload).await,
         // Process management — local llama-server lifecycle
         "llm_process_start" => {
@@ -1890,7 +1890,11 @@ async fn tool_llm_health(payload: &Value) -> Result<Value, String> {
 ///
 /// Phase 2: Uses RouterService for model selection. Supports @model tags,
 /// auto-routing profiles, and escalation on retryable failures.
-async fn tool_llm_prompt(bus: &RiftBus, payload: &Value) -> Result<Value, String> {
+async fn tool_llm_prompt(
+    bus: &RiftBus,
+    app_handle: &AppHandle,
+    payload: &Value,
+) -> Result<Value, String> {
     use rift_bus::translators::llm::{CompletionRequest, LlmProvider, Message, Role};
 
     let prompt = payload
@@ -1900,6 +1904,17 @@ async fn tool_llm_prompt(bus: &RiftBus, payload: &Value) -> Result<Value, String
 
     let config = rift_bus::config::load_config().map_err(|e| format!("{e}"))?;
     let mut router = rift_router::RouterService::new(config.ensemble.clone());
+
+    // Resident-aware routing: tell the router which LOCAL servers are actually
+    // running so auto-routing (and fallback chains) never target a stopped
+    // llama-server — the connection-fail cascade on a one-resident-at-a-time
+    // (VRAM-bound) host. Best-effort: if the ProcessManager isn't available we
+    // route as before. Explicit @tag/model_id overrides bypass this filter.
+    if let Some(pm) =
+        app_handle.try_state::<Arc<rift_bus::translators::llm_process::ProcessManager>>()
+    {
+        router.sync_local_availability(&pm.live_models());
+    }
 
     let model_id_override = payload.get("model_id").and_then(|v| v.as_str());
 
