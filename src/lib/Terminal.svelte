@@ -597,6 +597,12 @@
           rows: startRows,
           cols: startCols,
           cwd: projectPath ?? undefined,
+          // Pass the pane id as the session identity. The backend injects it as
+          // $RIFT_SESSION_ID so the CC status bridge tees per-session and the
+          // GUI status line tracks the FOCUSED pane (sessionManager keys focus
+          // by this same pane id). Distinct from the returned PTY registry id,
+          // which is the I/O handle used for pty_write/resize/kill.
+          sessionId: paneId,
         });
         alive = true;
 

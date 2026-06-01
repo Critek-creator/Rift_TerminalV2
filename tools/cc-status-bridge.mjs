@@ -18,7 +18,17 @@ import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-const STATUS_FILE = join(tmpdir(), "rift-cc-status.json");
+// Rift injects $RIFT_SESSION_ID (= the PTY registry id) per terminal session
+// (src-tauri/src/lib.rs — pty_start). Tee to a PER-SESSION file so each Rift
+// terminal's Claude Code status is independent — the status translator reads
+// all of them and the GUI status line renders the FOCUSED pane's data. Without
+// this, every CC session clobbered one shared file and the status line showed
+// whichever terminal wrote last. Outside Rift (no id), fall back to the shared
+// path so a plain CC session still works.
+const SESSION_ID = process.env.RIFT_SESSION_ID;
+const STATUS_FILE = SESSION_ID
+  ? join(tmpdir(), `rift-cc-status-${SESSION_ID}.json`)
+  : join(tmpdir(), "rift-cc-status.json");
 
 const chunks = [];
 process.stdin.setEncoding("utf8");
@@ -54,7 +64,8 @@ try {
 // To force one behaviour regardless of host: set RIFT_STATUSLINE=silent (always
 // tee-only) or RIFT_STATUSLINE=render (always render the in-terminal bar).
 const mode = process.env.RIFT_STATUSLINE;
-const insideRift = process.env.RIFT_SOCKET_NAME !== undefined;
+const insideRift =
+  process.env.RIFT_SOCKET_NAME !== undefined || SESSION_ID !== undefined;
 const silent = mode === "silent" || (mode !== "render" && insideRift);
 if (silent) {
   process.exit(0);

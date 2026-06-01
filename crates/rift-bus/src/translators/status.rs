@@ -136,15 +136,29 @@ pub fn publish_status_snapshot(bus: &RiftBus, project_root: &Path) {
     let git = compute_git(project_root);
     let repo = compute_repo(root_ref);
 
-    let mut payload = json!({
+    // Base envelope — global env segments (DIR / GIT / REPO), computed from the
+    // single project root. Carries NO `session_id`. Always published so these
+    // segments stay live even when zero Claude Code sessions are running.
+    let mut base = Envelope::new(Category::Status, "usage");
+    base.payload = json!({
         "dir":  dir,
         "git":  git,
         "repo": repo,
         "ts":   ts,
     });
+    bus.publish(base);
 
-    // Merge CC StatusJSON data (model, context, usage) when available.
-    if let Some(cc) = read_cc_status() {
+    // Per-session CC envelopes — one per fresh rift-cc-status-<id>.json. The
+    // bridge (tools/cc-status-bridge.mjs) tees each Rift PTY's Claude Code
+    // StatusJSON to its own file keyed by $RIFT_SESSION_ID (== the PTY registry
+    // id the frontend holds). Publishing per session — each carrying its
+    // `session_id` — lets the GUI render the FOCUSED pane's MODEL / CTX% /
+    // SKILL / etc. instead of whichever session wrote a single shared file last.
+    for (session_id, cc) in read_cc_status_sessions() {
+        let mut payload = json!({
+            "session_id": session_id,
+            "ts":         ts,
+        });
         let map = payload.as_object_mut().expect("just built");
         if let Some(m) = cc.model {
             map.insert("model".into(), json!(m));
@@ -173,11 +187,11 @@ pub fn publish_status_snapshot(bus: &RiftBus, project_root: &Path) {
         if let Some(v) = cc.effort {
             map.insert("effort".into(), json!(v));
         }
-    }
 
-    let mut env = Envelope::new(Category::Status, "usage");
-    env.payload = payload;
-    bus.publish(env);
+        let mut env = Envelope::new(Category::Status, "usage");
+        env.payload = payload;
+        bus.publish(env);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -197,11 +211,52 @@ struct CcStatus {
     effort: Option<String>,
 }
 
-/// Read and parse `$TEMP/rift-cc-status.json`. Returns `None` if the file
-/// is missing, unreadable, older than 30 seconds, or unparseable.
-fn read_cc_status() -> Option<CcStatus> {
-    let path = std::env::temp_dir().join("rift-cc-status.json");
-    let metadata = std::fs::metadata(&path).ok()?;
+/// Scan `$TEMP` for per-session `rift-cc-status-<id>.json` files and return the
+/// `(session_id, CcStatus)` pairs for every file that is fresh (≤30 s old) and
+/// parseable. The numeric `<id>` is the PTY registry id injected as
+/// `RIFT_SESSION_ID` (see `cc-status-bridge.mjs` + `pty_start`). Stale, missing,
+/// or unparseable files are skipped silently — a closed session whose temp file
+/// lingers past the staleness window simply drops out.
+///
+/// The legacy shared `rift-cc-status.json` (no `-<id>` segment) is intentionally
+/// NOT matched here — it is only written by Claude Code sessions running outside
+/// Rift, which render their own in-terminal status bar and have no GUI session.
+fn read_cc_status_sessions() -> Vec<(u32, CcStatus)> {
+    read_cc_status_sessions_in(&std::env::temp_dir())
+}
+
+/// Directory-injectable core of [`read_cc_status_sessions`] — split out so tests
+/// can point it at a controlled temp dir instead of the process-wide `$TEMP`.
+fn read_cc_status_sessions_in(dir: &Path) -> Vec<(u32, CcStatus)> {
+    let mut out = Vec::new();
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return out;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        // Match exactly `rift-cc-status-<id>.json`. The legacy shared file
+        // `rift-cc-status.json` has no `-` after `status`, so it does not match.
+        let Some(rest) = name.strip_prefix("rift-cc-status-") else {
+            continue;
+        };
+        let Some(id_str) = rest.strip_suffix(".json") else {
+            continue;
+        };
+        let Ok(session_id) = id_str.parse::<u32>() else {
+            continue;
+        };
+        if let Some(cc) = read_cc_status_from(&entry.path()) {
+            out.push((session_id, cc));
+        }
+    }
+    out
+}
+
+/// Read and parse a single CC StatusJSON file at `path`. Returns `None` if the
+/// file is missing, unreadable, older than 30 seconds, or unparseable.
+fn read_cc_status_from(path: &Path) -> Option<CcStatus> {
+    let metadata = std::fs::metadata(path).ok()?;
 
     // Staleness guard — ignore files older than 30 seconds.
     let age = metadata
@@ -213,7 +268,7 @@ fn read_cc_status() -> Option<CcStatus> {
         return None;
     }
 
-    let content = std::fs::read_to_string(&path).ok()?;
+    let content = std::fs::read_to_string(path).ok()?;
     let v: serde_json::Value = serde_json::from_str(&content).ok()?;
 
     // model — string or { id, display_name }
@@ -548,7 +603,10 @@ mod tests {
     use crate::{RiftBus, SubscribeFilter};
 
     // T1 — status_envelope_shape
-    // Verify Category, kind, and payload field presence for a usage envelope.
+    // Verify Category, kind, and payload field presence for the BASE envelope.
+    // The base envelope (DIR/GIT/REPO, no session_id) is always published first;
+    // the real `$TEMP` may also contain live per-session rift-cc-status-<id>.json
+    // files, so we assert on snapshot[0] and len >= 1 rather than len == 1.
     #[test]
     fn status_envelope_shape() {
         use tempfile::tempdir;
@@ -560,13 +618,13 @@ mod tests {
         publish_status_snapshot(&bus, &root);
 
         let (snapshot, _sub) = bus.subscribe(SubscribeFilter::All);
-        assert_eq!(snapshot.len(), 1, "expected exactly one envelope");
+        assert!(!snapshot.is_empty(), "expected at least the base envelope");
 
         let env = &snapshot[0];
         assert_eq!(env.category, Category::Status, "category must be Status");
         assert_eq!(env.kind, "usage", "kind must be 'usage'");
 
-        // All three fields must be present (even if em-dash).
+        // Base envelope carries the global env segments and no session id.
         assert!(
             env.payload.get("dir").is_some(),
             "payload must contain 'dir'"
@@ -580,6 +638,72 @@ mod tests {
             "payload must contain 'repo'"
         );
         assert!(env.payload.get("ts").is_some(), "payload must contain 'ts'");
+        assert!(
+            env.payload.get("session_id").is_none(),
+            "base envelope must NOT carry a session_id"
+        );
+    }
+
+    // T6 — per_session_scan_keys_by_id
+    // read_cc_status_sessions_in parses the <id> from rift-cc-status-<id>.json,
+    // reads fresh files, and ignores the legacy shared file + non-numeric ids.
+    #[test]
+    fn per_session_scan_keys_by_id() {
+        use std::fs::write;
+        use tempfile::tempdir;
+
+        let dir = tempdir().expect("tempdir");
+        let p = dir.path();
+
+        // Fresh per-session file for session 7 with a model field.
+        write(
+            p.join("rift-cc-status-7.json"),
+            r#"{"model":"claude-opus-4-8","context_window":{"context_window_size":1000,"current_usage":250}}"#,
+        )
+        .expect("write 7");
+        // Legacy shared file — must be ignored (no -<id> segment).
+        write(p.join("rift-cc-status.json"), r#"{"model":"ignored"}"#).expect("write legacy");
+        // Non-numeric id — must be skipped.
+        write(p.join("rift-cc-status-abc.json"), r#"{"model":"nope"}"#).expect("write abc");
+        // Unrelated file — must be skipped.
+        write(p.join("something-else.json"), r#"{"model":"nope"}"#).expect("write other");
+
+        let sessions = read_cc_status_sessions_in(p);
+        assert_eq!(sessions.len(), 1, "exactly one valid per-session file");
+        let (id, cc) = &sessions[0];
+        assert_eq!(*id, 7, "session id parsed from filename");
+        assert_eq!(cc.model.as_deref(), Some("claude-opus-4-8"));
+        assert_eq!(cc.ctx_pct, Some(25), "250/1000 → 25%");
+    }
+
+    // T7 — stale_file_is_skipped
+    // The 30s staleness guard drops a per-session file whose mtime is old, so a
+    // closed/idle session's lingering temp file never surfaces stale data.
+    #[test]
+    fn stale_file_is_skipped() {
+        use std::fs::{File, OpenOptions};
+        use std::io::Write;
+        use std::time::{Duration, SystemTime};
+        use tempfile::tempdir;
+
+        let dir = tempdir().expect("tempdir");
+        let p = dir.path();
+        let f = p.join("rift-cc-status-3.json");
+        {
+            let mut file = File::create(&f).expect("create");
+            file.write_all(br#"{"model":"stale"}"#).expect("write");
+        }
+        // Backdate mtime well past the 30s staleness window (std, no extra dep).
+        let old = SystemTime::UNIX_EPOCH + Duration::from_secs(1_000);
+        OpenOptions::new()
+            .write(true)
+            .open(&f)
+            .expect("open")
+            .set_modified(old)
+            .expect("set mtime");
+
+        let sessions = read_cc_status_sessions_in(p);
+        assert!(sessions.is_empty(), "stale file must be skipped");
     }
 
     // T2 — git_degrades_on_non_git_dir
