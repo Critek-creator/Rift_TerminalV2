@@ -309,6 +309,90 @@ fn build_cli_args(config: &LlamaServerConfig) -> Vec<String> {
 }
 
 // ---------------------------------------------------------------------------
+// VRAM footprint estimation
+// ---------------------------------------------------------------------------
+
+/// Bytes-per-element of a KV cache quant, scaled ×100 so fractional widths
+/// (q8_0 ≈ 1.06 B, q4_0 ≈ 0.56 B) stay in integer math. Unknown → f16.
+fn cache_type_bytes_x100(flag: &str) -> u64 {
+    match flag {
+        "f32" => 400,
+        "f16" | "bf16" => 200,
+        "q8_0" => 106,
+        "q5_0" | "q5_1" => 69,
+        "q4_0" | "q4_1" | "iq4_nl" => 56,
+        _ => 200,
+    }
+}
+
+/// Estimate the GPU VRAM (MiB) a model will occupy once started with `config`.
+///
+/// Two terms:
+/// - **weights** ≈ the GGUF file size on disk (full-offload assumption; with
+///   partial offload or `--cpu-moe` the real GPU share is smaller, so this
+///   over-estimates — the safe direction for an OOM guard).
+/// - **KV cache** = n_layers · n_head_kv · head_dim · ctx · (k+v bytes), read
+///   from the GGUF architecture header. This is the term that scales with
+///   `ctx_size`. Sliding-window / MoE models allocate less than this in
+///   practice, so the estimate runs high there too — again the safe direction.
+///
+/// Plus a fixed CUDA-context overhead. Best-effort: an unreadable file or GGUF
+/// header degrades to weights-only (+ a flat KV fraction).
+fn estimate_vram_mb(config: &LlamaServerConfig) -> u64 {
+    const MIB: u64 = 1024 * 1024;
+    let path = config.model_path.as_path();
+    let weights_mb = std::fs::metadata(path).map(|m| m.len() / MIB).unwrap_or(0);
+
+    let kv_mb = match super::gguf::inspect(path) {
+        Ok(meta) => {
+            let n_layers = meta.n_layers.unwrap_or(0) as u64;
+            let n_head_u32 = meta.n_head.unwrap_or(0);
+            let n_head = n_head_u32 as u64;
+            let n_head_kv = meta.n_head_kv.unwrap_or(n_head_u32).max(1) as u64;
+            let n_embd = meta.n_embd.unwrap_or(0) as u64;
+            if n_layers > 0 && n_head > 0 && n_embd > 0 {
+                let head_dim = n_embd / n_head;
+                let ctx = config.ctx_size as u64;
+                let bk = cache_type_bytes_x100(config.cache_type_k.as_flag());
+                let bv = cache_type_bytes_x100(config.cache_type_v.as_flag());
+                // K and V tensors: per token, per layer, n_head_kv · head_dim
+                // elements each. Scaled ×100 widths divided back out at the end.
+                let elems = n_layers
+                    .saturating_mul(n_head_kv)
+                    .saturating_mul(head_dim)
+                    .saturating_mul(ctx);
+                elems.saturating_mul(bk + bv) / 100 / MIB
+            } else {
+                // Header present but missing the dims we need — rough fraction.
+                weights_mb / 8
+            }
+        }
+        Err(_) => weights_mb / 8,
+    };
+
+    weights_mb + kv_mb + VRAM_CUDA_OVERHEAD_MB
+}
+
+/// Real free VRAM on the primary GPU via `nvidia-smi`, in MiB. `None` when the
+/// tool is absent or errors (non-NVIDIA hosts), signalling the fallback budget.
+fn query_gpu_free_mb() -> Option<u64> {
+    let mut cmd = Command::new("nvidia-smi");
+    cmd.args(["--query-gpu=memory.free", "--format=csv,noheader,nounits"]);
+    #[cfg(windows)]
+    cmd.creation_flags(CREATE_NO_WINDOW);
+    let out = cmd.output().ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .next()?
+        .trim()
+        .parse::<u64>()
+        .ok()
+}
+
+// ---------------------------------------------------------------------------
 // Managed process entry
 // ---------------------------------------------------------------------------
 
@@ -344,6 +428,38 @@ const MAX_RESTART_ATTEMPTS: u32 = 3;
 
 /// Sliding window over which [`MAX_RESTART_ATTEMPTS`] is counted.
 const RESTART_WINDOW: Duration = Duration::from_secs(60);
+
+// ---------------------------------------------------------------------------
+// VRAM admission guard
+// ---------------------------------------------------------------------------
+//
+// A 16 GB card holds exactly one large local model at a time; manually
+// enabling a second while the first is still resident OOMs llama-server at
+// load. The guard (see [`ProcessManager::enforce_vram_budget`]) measures real
+// free VRAM, estimates the incoming model's footprint, and evicts the largest
+// co-resident managed model(s) until it fits — erring toward eviction, never
+// refusing.
+
+/// Master switch for the VRAM admission guard. On by default; flip to disable
+/// the evict-to-fit behavior (e.g. once a second GPU makes co-residence safe).
+const VRAM_GUARD_ENABLED: bool = true;
+
+/// Safety margin kept free above the incoming model's estimate, in MiB.
+const VRAM_HEADROOM_MB: u64 = 512;
+
+/// Assumed usable VRAM (MiB) when `nvidia-smi` can't be queried (non-NVIDIA, or
+/// the tool is absent). The guard then budgets against estimated resident
+/// footprints instead of measured free memory.
+const VRAM_FALLBACK_BUDGET_MB: u64 = 15360;
+
+/// Fixed driver/CUDA-context allocation beyond weights + KV, in MiB.
+const VRAM_CUDA_OVERHEAD_MB: u64 = 400;
+
+/// Upper bound on evictions per start, so a mis-estimate can't loop forever.
+const VRAM_MAX_EVICTIONS: u32 = 6;
+
+/// Pause after a stop so the driver reclaims the freed VRAM before re-measuring.
+const VRAM_SETTLE: Duration = Duration::from_millis(700);
 
 /// Per-model auto-restart bookkeeping. Tracks how many restarts have happened
 /// in the current window so a crash-looping model is capped instead of being
@@ -456,8 +572,22 @@ impl ProcessManager {
         model_id: &str,
         config: &LlamaServerConfig,
     ) -> Result<u32, super::llm::LlmError> {
+        // Fast pre-check, lock released immediately — skip the VRAM guard (and
+        // its nvidia-smi probe) for an already-running model.
+        if self.processes.lock().contains_key(model_id) {
+            return Err(super::llm::LlmError::Internal {
+                message: format!("model {model_id} already running"),
+            });
+        }
+
+        // Admission control: evict co-resident models if this start would not
+        // fit in VRAM. Runs WITHOUT the process lock held (it may call stop()).
+        self.enforce_vram_budget(model_id, config);
+
         let mut procs = self.processes.lock();
 
+        // Re-check under the lock: another start could have raced in during the
+        // guard's lock-free window above.
         if procs.contains_key(model_id) {
             return Err(super::llm::LlmError::Internal {
                 message: format!("model {model_id} already running"),
@@ -556,6 +686,86 @@ impl ProcessManager {
         );
 
         Ok(pid)
+    }
+
+    /// VRAM admission control, run before a start. Ensures enough GPU memory is
+    /// free for `config` by evicting the largest *other* managed model(s) until
+    /// it fits — or until nothing else is managed. Prefers real `nvidia-smi`
+    /// free VRAM; falls back to a fixed budget minus estimated resident
+    /// footprints when `nvidia-smi` is unavailable.
+    ///
+    /// Never refuses: the worst case clears every co-resident and lets
+    /// llama-server try, matching the operating model "enable one, evict the
+    /// others unless they're certain to both fit." Acquires/releases the process
+    /// lock internally (it calls [`stop`](Self::stop)), so callers must NOT hold
+    /// it.
+    fn enforce_vram_budget(&self, model_id: &str, config: &LlamaServerConfig) {
+        if !VRAM_GUARD_ENABLED {
+            return;
+        }
+        let need = estimate_vram_mb(config);
+
+        for _ in 0..VRAM_MAX_EVICTIONS {
+            let free = self.available_vram_mb(model_id);
+            if need + VRAM_HEADROOM_MB <= free {
+                return; // fits as-is — co-residence is safe
+            }
+
+            // Evict the largest other managed resident and re-measure.
+            let victim = {
+                let procs = self.processes.lock();
+                procs
+                    .values()
+                    .filter(|p| p.model_id != model_id)
+                    .max_by_key(|p| estimate_vram_mb(&p.config))
+                    .map(|p| p.model_id.clone())
+            };
+
+            match victim {
+                Some(v) => {
+                    tracing::warn!(
+                        model = %model_id,
+                        evicting = %v,
+                        need_mb = need,
+                        free_mb = free,
+                        "vram guard: evicting co-resident model to make room"
+                    );
+                    publish_process_event(
+                        &self.bus,
+                        "llm.process.evicted",
+                        &v,
+                        0,
+                        0,
+                        Some(format!(
+                            "evicted to free VRAM for {model_id} (need ~{need} MiB, free ~{free} MiB)"
+                        )),
+                    );
+                    if self.stop(&v).is_err() {
+                        return; // can't evict — proceed best-effort
+                    }
+                    std::thread::sleep(VRAM_SETTLE);
+                }
+                None => return, // nothing left to evict — proceed best-effort
+            }
+        }
+    }
+
+    /// Free VRAM (MiB) available for a new start. Real `nvidia-smi` free when
+    /// available; otherwise [`VRAM_FALLBACK_BUDGET_MB`] minus the estimated
+    /// footprint of currently-managed residents (excluding `exclude_id`).
+    fn available_vram_mb(&self, exclude_id: &str) -> u64 {
+        if let Some(free) = query_gpu_free_mb() {
+            return free;
+        }
+        let used: u64 = {
+            let procs = self.processes.lock();
+            procs
+                .values()
+                .filter(|p| p.model_id != exclude_id)
+                .map(|p| estimate_vram_mb(&p.config))
+                .sum()
+        };
+        VRAM_FALLBACK_BUDGET_MB.saturating_sub(used)
     }
 
     /// Stop a running local llama-server process.
@@ -899,6 +1109,42 @@ pub async fn spawn_health_monitor(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cache_type_bytes_known_and_unknown() {
+        assert_eq!(cache_type_bytes_x100("f16"), 200);
+        assert_eq!(cache_type_bytes_x100("bf16"), 200);
+        assert_eq!(cache_type_bytes_x100("f32"), 400);
+        assert_eq!(cache_type_bytes_x100("q8_0"), 106);
+        assert_eq!(cache_type_bytes_x100("q4_0"), 56);
+        assert_eq!(cache_type_bytes_x100("iq4_nl"), 56);
+        // Unknown flag falls back to f16 width, never zero.
+        assert_eq!(cache_type_bytes_x100("mystery"), 200);
+    }
+
+    #[test]
+    fn estimate_vram_missing_file_is_overhead_only() {
+        // No weights readable, no GGUF header → just the fixed CUDA overhead.
+        let config = LlamaServerConfig {
+            model_path: PathBuf::from("/nonexistent/model-does-not-exist.gguf"),
+            flash_attention: true,
+            ctx_size: 32768,
+            cache_type_k: crate::config::KvCacheType::Q8_0,
+            cache_type_v: crate::config::KvCacheType::Q8_0,
+            n_gpu_layers: 99,
+            cpu_moe: false,
+            n_cpu_moe: None,
+            cache_ram: None,
+            threads: None,
+            parallel: 1,
+            port: 8086,
+            cuda_visible_devices: None,
+            auto_start: false,
+            auto_restart: false,
+            extra_flags: vec![],
+        };
+        assert_eq!(estimate_vram_mb(&config), VRAM_CUDA_OVERHEAD_MB);
+    }
 
     #[test]
     fn build_cli_args_basic() {
