@@ -533,7 +533,7 @@
     padding: var(--space-xs) var(--space-12);
     font-size: var(--text-xs);
     color: var(--term-red);
-    background: rgba(255, 72, 72, 0.08);
+    background: var(--bg-red-notice);
     border-top: 1px solid rgba(255, 72, 72, 0.2);
   }
 

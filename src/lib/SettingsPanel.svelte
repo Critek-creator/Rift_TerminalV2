@@ -2202,7 +2202,7 @@
   }
   .banner-inline.fail {
     border-color: var(--term-red);
-    background: rgba(255, 72, 72, 0.06);
+    background: var(--bg-red-tint);
     color: var(--term-red);
   }
 
@@ -2467,7 +2467,7 @@
     justify-content: center;
     background: transparent;
     color: var(--term-red);
-    border: 1px solid rgba(255, 72, 72, 0.25);
+    border: 1px solid var(--border-red-tint);
     border-radius: var(--radius-md);
     font-size: var(--text-sm);
     width: 24px;
@@ -2478,7 +2478,7 @@
     flex-shrink: 0;
   }
   .btn-danger-sm:hover {
-    background: rgba(255, 72, 72, 0.12);
+    background: var(--bg-red-tint-hover);
     border-color: rgba(255, 72, 72, 0.5);
   }
 

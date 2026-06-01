@@ -307,7 +307,7 @@
     font-size: var(--text-xs);
     color: var(--term-red);
     text-align: center;
-    background: rgba(255, 72, 72, 0.08);
+    background: var(--bg-red-notice);
     border-bottom: 1px solid rgba(255, 72, 72, 0.2);
   }
 

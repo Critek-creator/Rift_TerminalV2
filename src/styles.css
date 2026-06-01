@@ -188,6 +188,16 @@
   --bg-blue-tint-hover:  rgba(108, 182, 255, 0.20);
   --border-blue-tint:    rgba(108, 182, 255, 0.30);
 
+  /* Red / error tint family — mirrors the amber & blue tint tokens so the
+     error semantic is as consistent as the others. Values match the dominant
+     raw rgba(255,72,72,…) clusters that grew inline before these tokens
+     existed (swept 2026-06-01); identical values, so no visual change. */
+  --bg-red-tint:         rgba(255, 72, 72, 0.06);   /* subtle error fill */
+  --bg-red-notice:       rgba(255, 72, 72, 0.08);   /* notice / badge error fill */
+  --bg-red-tint-hover:   rgba(255, 72, 72, 0.12);   /* hover / active error fill */
+  --border-red-tint:     rgba(255, 72, 72, 0.25);   /* error edge */
+  --border-red-strong:   rgba(255, 72, 72, 0.40);   /* strong error edge */
+
   /* Domain colors (Index content browser) */
   --domain-theories:  #a78bfa;
   --domain-projects:  #fbbf24;
@@ -528,7 +538,7 @@ button:focus-visible,
 .rift-btn--danger:hover {
   color: var(--term-red);
   border-color: var(--term-red);
-  background: rgba(255, 72, 72, 0.08);
+  background: var(--bg-red-notice);
 }
 .rift-btn--sm {
   padding: 2px var(--space-8);
@@ -676,8 +686,8 @@ button:focus-visible,
 }
 .rift-badge--error {
   color: var(--term-red);
-  border-color: rgba(255, 72, 72, 0.4);
-  background: rgba(255, 72, 72, 0.08);
+  border-color: var(--border-red-strong);
+  background: var(--bg-red-notice);
 }
 
 /* GUI TREE CHROME — vocabulary defined in Tree.svelte :global scoped styles.

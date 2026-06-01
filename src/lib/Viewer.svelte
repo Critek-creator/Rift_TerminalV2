@@ -620,7 +620,7 @@
   .viewer-btn-cancel:hover {
     border-color: var(--term-red);
     color: var(--term-red);
-    background: rgba(255, 72, 72, 0.06);
+    background: var(--bg-red-tint);
   }
 
   /* Content body */
@@ -739,7 +739,7 @@
     margin-top: var(--space-xs);
   }
   .viewer-btn-retry:hover {
-    background: rgba(255, 72, 72, 0.12);
+    background: var(--bg-red-tint-hover);
     box-shadow: 0 0 4px rgba(255, 72, 72, 0.15);
   }
 </style>

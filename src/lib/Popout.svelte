@@ -391,7 +391,7 @@
   }
   .card-close:hover {
     color: var(--term-red);
-    background: rgba(255, 72, 72, 0.12);
+    background: var(--bg-red-tint-hover);
   }
   .card-close:focus-visible {
     outline: 1px solid var(--amber-warm);

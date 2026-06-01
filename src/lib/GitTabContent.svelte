@@ -301,22 +301,26 @@
         disabled={actionRunning !== null}
         title="stage all + commit"
       >{commitOpen ? 'cancel' : 'commit'}</button>
-      {#if lastActionResult}
-        <span class="action-banner" class:fail={lastActionFailed}>
-          {lastActionLabel}: {lastActionFailed ? 'failed' : 'ok'}
-          {#if lastActionResult.stderr.trim() || lastActionResult.stdout.trim()}
-            <span class="action-detail">
-              {(lastActionResult.stderr.trim() || lastActionResult.stdout.trim()).slice(0, 160)}
-            </span>
-          {/if}
-          <button
-            type="button"
-            class="banner-close"
-            onclick={() => { lastActionResult = null; lastActionFailed = false; }}
-            aria-label="dismiss"
-          >×</button>
-        </span>
-      {/if}
+      <!-- Persistent live region: exists in the DOM before the banner content
+           populates so screen readers announce fetch/pull/push results. -->
+      <span class="action-status-region" role="status" aria-live="polite" aria-atomic="true">
+        {#if lastActionResult}
+          <span class="action-banner" class:fail={lastActionFailed}>
+            {lastActionLabel}: {lastActionFailed ? 'failed' : 'ok'}
+            {#if lastActionResult.stderr.trim() || lastActionResult.stdout.trim()}
+              <span class="action-detail">
+                {(lastActionResult.stderr.trim() || lastActionResult.stdout.trim()).slice(0, 160)}
+              </span>
+            {/if}
+            <button
+              type="button"
+              class="banner-close"
+              onclick={() => { lastActionResult = null; lastActionFailed = false; }}
+              aria-label="dismiss"
+            >×</button>
+          </span>
+        {/if}
+      </span>
     </div>
 
     {#if commitOpen}
@@ -369,7 +373,7 @@
     <div class="log-header">FILES · click to open</div>
     <div class="log-body" aria-busy={!snapshot && !error}>
       {#if error}
-        <div class="empty error">{error}</div>
+        <div class="empty error" role="alert">{error}</div>
       {:else if !snapshot}
         <div class="empty">loading…</div>
       {:else if snapshot.not_a_repo}
@@ -570,6 +574,11 @@
     background: var(--bg-elevated);
     flex-wrap: wrap;
   }
+  .action-status-region {
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+  }
   .action-banner {
     display: inline-flex;
     align-items: center;
@@ -581,7 +590,6 @@
     letter-spacing: 0.06em;
     text-transform: uppercase;
     font-weight: 700;
-    margin-left: auto;
     max-width: 60%;
   }
   .action-banner.fail {

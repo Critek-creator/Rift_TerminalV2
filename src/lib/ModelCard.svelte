@@ -1041,7 +1041,7 @@
   }
   .card-action-btn.off {
     color: var(--term-red);
-    border-color: rgba(255, 72, 72, 0.4);
+    border-color: var(--border-red-strong);
   }
 
   .collapse-btn {
@@ -1167,8 +1167,8 @@
   .card-action-error {
     margin: var(--space-8) var(--space-12) 0;
     padding: var(--space-xs) var(--space-8);
-    background: rgba(255, 72, 72, 0.08);
-    border: 1px solid rgba(255, 72, 72, 0.4);
+    background: var(--bg-red-notice);
+    border: 1px solid var(--border-red-strong);
     border-radius: var(--radius-sm);
     color: var(--term-red);
     font-size: var(--text-2xs, 9px);
@@ -1491,7 +1491,7 @@
   }
   .remove-btn {
     background: none;
-    border: 1px solid rgba(255, 72, 72, 0.25);
+    border: 1px solid var(--border-red-tint);
     border-radius: var(--radius-md);
     color: var(--term-red);
     font-family: var(--font-family);
@@ -1505,7 +1505,7 @@
                 border-color var(--duration-base) var(--ease-out);
   }
   .remove-btn:hover {
-    background: rgba(255, 72, 72, 0.08);
+    background: var(--bg-red-notice);
     border-color: rgba(255, 72, 72, 0.5);
   }
   .remove-btn.confirm {

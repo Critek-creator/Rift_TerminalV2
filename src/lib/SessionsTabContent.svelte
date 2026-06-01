@@ -335,7 +335,7 @@
   {/if}
 
   {#if error}
-    <div class="error-state">&#x26A0; {error}</div>
+    <div class="error-state" role="alert">&#x26A0; {error}</div>
   {/if}
 
   {#if viewMode === 'compare' && baselineId && compareId}
@@ -351,7 +351,7 @@
     <!-- Session list view -->
     <header class="status">
       <span class="title"><span class="icon">&#x23F1;</span>SESSIONS</span>
-      <span class="state">
+      <span class="state" role="status" aria-live="polite">
         {#if isSelectingMode}
           {viewMode === 'select-baseline' ? 'select baseline session' : 'select comparison session'}
         {:else}
@@ -647,7 +647,7 @@
     padding: var(--space-12) var(--space-lg);
     font-size: var(--type-body-size);
     letter-spacing: var(--type-body-spacing);
-    background: rgba(255, 72, 72, 0.06);
+    background: var(--bg-red-tint);
     box-shadow: var(--sep-depth);
   }
 

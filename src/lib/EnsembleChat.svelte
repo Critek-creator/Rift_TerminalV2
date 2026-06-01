@@ -582,7 +582,7 @@
   }
 
   .pane.pane-error {
-    border: 1px solid rgba(255, 72, 72, 0.4);
+    border: 1px solid var(--border-red-strong);
   }
 
   .split-divider {
@@ -665,7 +665,7 @@
     margin-top: var(--space-8);
     font-size: var(--text-sm);
     color: var(--term-red);
-    background: rgba(255, 72, 72, 0.06);
+    background: var(--bg-red-tint);
     padding: var(--space-sm) var(--space-8);
     border-radius: var(--radius-md);
     border-left: 2px solid var(--term-red);
@@ -865,7 +865,7 @@
     padding: var(--space-xs) var(--space-12);
     font-size: var(--text-xs);
     color: var(--term-red);
-    background: rgba(255, 72, 72, 0.08);
+    background: var(--bg-red-notice);
     border-top: 1px solid rgba(255, 72, 72, 0.2);
     flex-shrink: 0;
   }

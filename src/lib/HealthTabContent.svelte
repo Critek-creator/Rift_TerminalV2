@@ -617,7 +617,7 @@
     padding: var(--space-12) var(--space-lg);
     font-size: var(--type-body-size);
     letter-spacing: var(--type-body-spacing);
-    background: rgba(255, 72, 72, 0.06);
+    background: var(--bg-red-tint);
     box-shadow: var(--sep-depth);
   }
 

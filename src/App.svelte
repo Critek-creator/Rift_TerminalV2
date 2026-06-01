@@ -1553,6 +1553,6 @@
     color: var(--term-red, #ff4848);
   }
   .close-confirm-actions .rift-btn.danger:hover {
-    background: rgba(255, 72, 72, 0.12);
+    background: var(--bg-red-tint-hover);
   }
 </style>
