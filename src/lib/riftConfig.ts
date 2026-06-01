@@ -85,6 +85,10 @@ export interface StatusLineConfig {
   show_session_use: boolean;
   show_week: boolean;
   show_cost: boolean;
+  /** Per-pane foreground-process CPU% segment (optional; defaults on). */
+  show_cpu?: boolean;
+  /** Per-pane foreground-process RSS segment (optional; defaults on). */
+  show_ram?: boolean;
   color_overrides: Record<string, string>;
 }
 

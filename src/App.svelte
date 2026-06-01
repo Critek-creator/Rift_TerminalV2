@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
+  import { getPtyId } from './lib/terminalInject';
   import { listen } from '@tauri-apps/api/event';
   import { getCurrentWindow, PhysicalPosition, PhysicalSize } from '@tauri-apps/api/window';
   import { check, type Update } from '@tauri-apps/plugin-updater';
@@ -29,6 +30,7 @@
   import Splitter from './lib/Splitter.svelte';
   import { subscribe, signalBusReady, publish } from './lib/bus';
   import { actionRegistry } from './lib/actionRegistry.svelte';
+  import { enrichmentRegistry } from './lib/enrichmentRegistry.svelte';
   import { actionProviders } from './lib/actionProviders.svelte';
   import { popouts } from './lib/popouts.svelte';
   import { enrichmentStore } from './lib/enrichmentStore.svelte';
@@ -336,6 +338,33 @@
   let statusSession = $state(''); // session clock — ticked by the 1s timer below
   let statuslineConfig = $state<StatusLineConfig | undefined>(undefined);
 
+  // Per-pane process-tree resource sample (StatusLine CPU/RAM). Sampled at 1Hz
+  // for the FOCUSED pane via `sample_pane_resources`; null = unavailable
+  // (no PTY started, or sampling failed) → segments hide.
+  interface PaneResources {
+    cpu_pct: number;
+    rss_kb: number;
+    foreground_cmd: string;
+    pid_count: number;
+  }
+  let paneResources = $state<PaneResources | null>(null);
+  // Plain (non-reactive) guard so overlapping 1Hz invokes don't pile up.
+  let resourceSampleInFlight = false;
+
+  function formatRam(kb: number): string {
+    if (kb <= 0) return '';
+    const mb = kb / 1024;
+    if (mb >= 1024) return `${(mb / 1024).toFixed(1)} GB`;
+    return `${Math.round(mb)} MB`;
+  }
+
+  const statusCpu = $derived(
+    paneResources && paneResources.pid_count > 0
+      ? `${paneResources.cpu_pct.toFixed(1)}%`
+      : '',
+  );
+  const statusRam = $derived(paneResources ? formatRam(paneResources.rss_kb) : '');
+
   // Per-session Claude Code status. Each Rift PTY runs its own CC session whose
   // statusLine bridge tees to rift-cc-status-<sessionId>.json; status.rs emits
   // one usage envelope per session carrying `session_id`. We key by that id and
@@ -418,6 +447,19 @@
 
       // Sparkline buffer ticks — always cheap (just shifts a fixed-size ring).
       for (const buf of alertBuffers.values()) buf.tick();
+
+      // Per-pane resource sample for the focused pane's StatusLine CPU/RAM.
+      // Guarded so a slow sample never lets overlapping invokes pile up.
+      const ptyId = getPtyId(sm.focusedSessionId);
+      if (ptyId === undefined) {
+        paneResources = null;
+      } else if (!resourceSampleInFlight) {
+        resourceSampleInFlight = true;
+        invoke<PaneResources>('sample_pane_resources', { ptyId })
+          .then((snap) => { paneResources = snap; })
+          .catch(() => { paneResources = null; })
+          .finally(() => { resourceSampleInFlight = false; });
+      }
     };
     tick();
     const timer = setInterval(tick, 1000);
@@ -569,10 +611,13 @@
     };
   });
 
-  // Phase 8.6.1 — Category::Index enrichment subscription.
-  // Populates enrichmentStore so Tree.svelte (8.6.2) can join enrichment data
-  // onto fs_path nodes. Same svelte5-async-cleanup-via-sync-shell-iife +
-  // cancelled-flag pattern as the status and skill_loaded subscriptions above.
+  // Category::Index lifecycle subscription (vault.update + walk.complete).
+  // Enrichment ATTACH now flows through the generic enrichmentRegistry
+  // (Category::System, kind="enrichment.attach") which the vault-walker
+  // dogfoods — see enrichmentRegistry.svelte.ts. This subscription keeps the
+  // Index-specific deletion + load-complete signals. Same
+  // svelte5-async-cleanup-via-sync-shell-iife + cancelled-flag pattern as the
+  // status and skill_loaded subscriptions above.
   $effect(() => {
     let cancelled = false;
     let unsub: (() => Promise<void>) | undefined;
@@ -580,20 +625,12 @@
     void (async () => {
       try {
         const u = await subscribe({ category: 'index' }, (env) => {
-          if (env.kind === 'enrichment') {
-            const p = env.payload as {
-              fs_path: string;
-              vault_id: string;
-              vault_kind: string;
-              tags: string[];
-            };
-            enrichmentStore.ingest(p);
-          } else if (env.kind === 'vault.update') {
+          if (env.kind === 'vault.update') {
             const p = env.payload as { change_kind: string; vault_id: string };
             if (p.change_kind === 'deleted') {
               enrichmentStore.removeByVaultId(p.vault_id);
             }
-            // Other change_kinds (e.g. "updated") are no-ops in 8.6.1;
+            // Other change_kinds (e.g. "updated") are no-ops here;
             // consumed by other surfaces in later phases.
           } else if (env.kind === 'walk.complete') {
             enrichmentStore.loaded = true;
@@ -659,6 +696,10 @@
       // the primary path). Sequenced so ordering never depends on IPC latency.
       await actionRegistry.start();
       await actionProviders.start();
+      // §9 data-enrichment registry (class 3) — generic enrichment.attach
+      // channel the vault-walker now dogfoods. Started before the walker can
+      // emit so attaches are delivered live (replay buffer as backstop).
+      await enrichmentRegistry.start();
       const root = await invoke<string>('project_root_get');
       sm.initialProjectRoot = root;
       if (sm.sessions[0] && sm.sessions[0].projectPath === null) {
@@ -1139,6 +1180,8 @@
     effort={aegisEffort || ccEffort || '—'}
     sessionUse={statusSessionUse || '—'}
     week={statusWeek || '—'}
+    cpu={statusCpu}
+    ram={statusRam}
     visibility={statuslineConfig}
     onmodelswap={() => { paletteInitialQuery = 'model'; paletteOpen = true; }}
   />

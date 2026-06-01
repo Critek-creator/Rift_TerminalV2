@@ -108,6 +108,13 @@ pub use translators::index::IndexEnrichmentPayload;
 /// Re-export [`VaultChangeKind`] so callers can write `rift_bus::VaultChangeKind`.
 pub use translators::index::VaultChangeKind;
 
+/// Generic §9 class-3 enrichment registry — publish functions + payloads so any
+/// integration (not just the Index vault-walker) can enrich filesystem nodes.
+pub use translators::enrichment::{
+    publish_enrichment_attach, publish_enrichment_declare, publish_enrichment_revoke,
+    EnrichmentAttachPayload, EnrichmentDeclarePayload,
+};
+
 // ---------------------------------------------------------------------------
 // Status translator re-exports (D-012 unblocked slice — DIR/GIT/REPO)
 // ---------------------------------------------------------------------------

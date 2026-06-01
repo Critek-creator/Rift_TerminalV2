@@ -30,6 +30,7 @@ tracing = { workspace = true }
 parking_lot = { workspace = true }
 uuid = { version = "1", features = ["v4"] }
 once_cell = "1"
+sysinfo = { workspace = true }
 rift-bus = { path = "../crates/rift-bus" }
 rift-core = { path = "../crates/rift-core" }
 rift-router = { path = "../crates/rift-router" }

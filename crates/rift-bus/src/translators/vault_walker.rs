@@ -56,7 +56,8 @@ use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use serde_json::json;
 use tokio::time::interval;
 
-use crate::translators::index::{publish_index_enrichment, VaultChangeKind};
+use crate::translators::enrichment::{publish_enrichment_attach, publish_enrichment_declare};
+use crate::translators::index::VaultChangeKind;
 use crate::{Category, Envelope, RiftBus};
 
 // ---------------------------------------------------------------------------
@@ -65,6 +66,9 @@ use crate::{Category, Envelope, RiftBus};
 
 static FIRST_MATCH_LOGGED: AtomicBool = AtomicBool::new(false);
 static FIRST_NONMATCH_LOGGED: AtomicBool = AtomicBool::new(false);
+/// Guards the one-time `enrichment.declare` for the Index provider — the
+/// vault-walker dogfoods the generic §9 class-3 registry (see `enrichment.rs`).
+static INDEX_DECLARE_SENT: AtomicBool = AtomicBool::new(false);
 
 // ---------------------------------------------------------------------------
 // Frontmatter parsing
@@ -806,7 +810,33 @@ fn maybe_publish_enrichment(
 
         // project_root_norm is already a String; convert to Path for the publish API.
         let project_root_path = PathBuf::from(project_root_norm);
-        publish_index_enrichment(bus, &project_root_path, &meta.id, &meta.vault_type, vec![]);
+        // Dogfood the generic §9 class-3 enrichment registry (enrichment.rs):
+        // declare the Index provider once, then attach per-vault. entry_id =
+        // vault_id keeps each vault a distinct tooltip row exactly as before;
+        // the wire path is now provider-agnostic (Category::System), so a
+        // future git/Aegis translator can enrich the same node identically.
+        if INDEX_DECLARE_SENT
+            .compare_exchange(false, true, Ordering::Relaxed, Ordering::Relaxed)
+            .is_ok()
+        {
+            publish_enrichment_declare(
+                bus,
+                "index",
+                "Abyssal Index",
+                Some("vault metadata enrichment on filesystem nodes"),
+            );
+        }
+        publish_enrichment_attach(
+            bus,
+            "index",
+            &meta.id,
+            &project_root_path,
+            Some(&meta.id),
+            // Tags stay empty (matching the original Index enrichment); the
+            // vault kind travels in `data` and surfaces in the tooltip.
+            vec![],
+            serde_json::json!({ "vault_id": meta.id, "vault_kind": meta.vault_type }),
+        );
     } else {
         // No match — log once.
         if FIRST_NONMATCH_LOGGED
@@ -1757,7 +1787,10 @@ Body text here.
         std::fs::write(vaults_dir.join("p006.md"), &vault_content).unwrap();
 
         let bus = RiftBus::default();
-        let (_, mut sub) = bus.subscribe(SubscribeFilter::Category(Category::Index));
+        // Enrichment now dogfoods the generic class-3 registry (Category::System /
+        // kind="enrichment.attach"); vault.update still rides Category::Index.
+        // Subscribe to All so we capture both.
+        let (_, mut sub) = bus.subscribe(SubscribeFilter::All);
 
         tokio::spawn(spawn_vault_walker(
             bus.clone(),
@@ -1773,25 +1806,44 @@ Body text here.
 
         let enrichments: Vec<_> = envelopes
             .iter()
-            .filter(|e| e.kind == "enrichment")
+            .filter(|e| e.kind == "enrichment.attach")
             .collect();
 
         assert!(
             !enrichments.is_empty(),
-            "expected ≥1 enrichment envelope on repo match; got 0. all kinds: {:?}",
+            "expected ≥1 enrichment.attach envelope on repo match; got 0. all kinds: {:?}",
             envelopes.iter().map(|e| &e.kind).collect::<Vec<_>>(),
         );
+        let attach = enrichments[0];
         assert_eq!(
-            enrichments[0].payload["vault_id"], "p006",
-            "enrichment vault_id must be 'p006'"
+            attach.category,
+            Category::System,
+            "attach rides Category::System"
         );
         assert_eq!(
-            enrichments[0].payload["vault_kind"], "project",
-            "enrichment vault_kind must be 'project'"
+            attach.payload["provider_id"], "index",
+            "dogfooded provider_id must be 'index'"
+        );
+        assert_eq!(
+            attach.payload["entry_id"], "p006",
+            "entry_id must be the vault id 'p006'"
+        );
+        assert_eq!(
+            attach.payload["data"]["vault_id"], "p006",
+            "enrichment data.vault_id must be 'p006'"
+        );
+        assert_eq!(
+            attach.payload["data"]["vault_kind"], "project",
+            "enrichment data.vault_kind must be 'project'"
         );
         // fs_path must contain the canonicalized project root (forward-slash).
-        let fs_path = enrichments[0].payload["fs_path"].as_str().unwrap_or("");
+        let fs_path = attach.payload["fs_path"].as_str().unwrap_or("");
         assert!(!fs_path.is_empty(), "enrichment fs_path must not be empty");
+        // Note: the one-time `enrichment.declare` is gated by a process-global
+        // atomic (INDEX_DECLARE_SENT) shared across the test binary, so its
+        // presence here is non-deterministic under parallel test execution —
+        // the declare-once semantics are validated by the enrichment.rs unit
+        // tests, not asserted here. The attach is the load-bearing path.
     }
 
     // -------------------------------------------------------------------------

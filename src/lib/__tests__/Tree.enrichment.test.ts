@@ -21,22 +21,22 @@ import type { EnrichmentEntry } from '../enrichmentStore.svelte';
 describe('buildEnrichmentTitle', () => {
   it('formats a single entry with no tags as "vault_id (vault_kind)"', () => {
     const entries: EnrichmentEntry[] = [
-      { vault_id: 'p006', vault_kind: 'project', tags: [] },
+      { provider_id: 'index', entry_id: 'p006', vault_id: 'p006', vault_kind: 'project', tags: [] },
     ];
     expect(buildEnrichmentTitle(entries)).toBe('p006 (project)');
   });
 
   it('appends tags joined by ", " when tags are non-empty', () => {
     const entries: EnrichmentEntry[] = [
-      { vault_id: 'pr003', vault_kind: 'practices', tags: ['phase8', 'terminal'] },
+      { provider_id: 'index', entry_id: 'pr003', vault_id: 'pr003', vault_kind: 'practices', tags: ['phase8', 'terminal'] },
     ];
     expect(buildEnrichmentTitle(entries)).toBe('pr003 (practices): phase8, terminal');
   });
 
   it('joins multiple entries with newline and includes all vault_ids', () => {
     const entries: EnrichmentEntry[] = [
-      { vault_id: 'p006',  vault_kind: 'project',   tags: [] },
-      { vault_id: 'pr003', vault_kind: 'practices', tags: ['phase8', 'terminal'] },
+      { provider_id: 'index', entry_id: 'p006',  vault_id: 'p006',  vault_kind: 'project',   tags: [] },
+      { provider_id: 'index', entry_id: 'pr003', vault_id: 'pr003', vault_kind: 'practices', tags: ['phase8', 'terminal'] },
     ];
     const result = buildEnrichmentTitle(entries);
     // Both vault_ids must appear.
@@ -46,6 +46,13 @@ describe('buildEnrichmentTitle', () => {
     expect(result).toContain('\n');
     // Full expected string.
     expect(result).toBe('p006 (project)\npr003 (practices): phase8, terminal');
+  });
+
+  it('renders a non-index provider with a [provider] qualifier and label fallback', () => {
+    const entries: EnrichmentEntry[] = [
+      { provider_id: 'git', entry_id: 'blame', label: 'main@a1b2c3', tags: ['HEAD'] },
+    ];
+    expect(buildEnrichmentTitle(entries)).toBe('main@a1b2c3 [git]: HEAD');
   });
 });
 

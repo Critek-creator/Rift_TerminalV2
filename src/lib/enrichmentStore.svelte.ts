@@ -1,23 +1,40 @@
 /**
- * EnrichmentStore — Phase 8.6.1 frontend store.
+ * EnrichmentStore — frontend store for §9 capability class 3 (data enrichment).
  *
- * Holds §9 capability class 3 (data enrichment) payloads emitted by the
- * vault-walker translator (Category::Index, kind="enrichment"). App.svelte
- * populates via subscription; Tree.svelte reads in 8.6.2.
+ * Originally hard-wired to the Index vault-walker (Category::Index,
+ * kind="enrichment"). Generalized to the provider-agnostic enrichment registry
+ * (Category::System, kind="enrichment.attach") so ANY integration can enrich a
+ * filesystem node — the class-3 analogue of the control-endpoint action
+ * registry. Entries are keyed per (provider_id, entry_id) at an fs_path.
  *
- * Shape is snake_case — bus.ts performs no key transformation; payloads
- * pass through as the raw JSON the Rust side built.
+ * Conflict resolution: per-path, per-(provider_id, entry_id), last-write-wins.
+ * Two providers (or two entries) at the same path coexist as separate rows —
+ * no merge. The Index provider dogfoods this with provider_id="index",
+ * entry_id=<vault_id>, so each vault stays its own row exactly as before.
+ *
+ * Shape is snake_case — bus.ts performs no key transformation; payloads pass
+ * through as the raw JSON the Rust side built.
  */
 
 export interface EnrichmentEntry {
-  vault_id: string;    // e.g. "p006"
-  vault_kind: string;  // "project" | "practices" | "research" | "skill" | "lore" | "agent" | "hook"
-  tags: string[];      // vault-sourced tags; may be empty in v1
+  /** Integration namespace, e.g. "index", "git". */
+  provider_id: string;
+  /** Unique within (provider_id, fs_path) — the dedup slot key. */
+  entry_id: string;
+  /** Display label for the tooltip row (falls back to entry_id). */
+  label?: string;
+  /** Provider-sourced tags; may be empty. */
+  tags: string[];
+  /** Provider-specific opaque bag (Index: { vault_id, vault_kind }). */
+  data?: unknown;
+  // Index-compat conveniences, surfaced when provider_id === "index":
+  vault_id?: string;
+  vault_kind?: string;
 }
 
 export class EnrichmentStore {
   /**
-   * key = fs_path (canonical absolute project-root path, forward-slash-normalized).
+   * key = fs_path (canonical absolute path, forward-slash-normalized).
    * Assign-replace on every mutation so Svelte 5 $derived consumers re-run.
    */
   map = $state(new Map<string, EnrichmentEntry[]>());
@@ -26,55 +43,76 @@ export class EnrichmentStore {
   loaded = $state(false);
 
   /**
-   * Add or replace an enrichment entry. If an entry with the same vault_id
-   * already exists at this fs_path, it is replaced (no duplicates).
-   * Assign-replace pattern mirrors Tree.svelte:104-108 (collapsedDirs precedent).
+   * Add or replace an enrichment entry. An existing entry with the same
+   * (provider_id, entry_id) at this fs_path is replaced (no duplicates).
+   *
+   * Assign-replace with a NEW Map identity: a plain `$state(new Map())` is not
+   * deeply reactive (Map mutations via .set() aren't tracked, and
+   * `this.map = this.map` reassigns the same reference so Svelte sees no
+   * change) — only a fresh identity re-runs $derived consumers (Tree.svelte
+   * enrichment tags).
    */
-  ingest(payload: {
-    fs_path: string;
-    vault_id: string;
-    vault_kind: string;
-    tags: string[];
-  }): void {
-    const { fs_path, vault_id, vault_kind, tags } = payload;
+  ingest(entry: EnrichmentEntry & { fs_path: string }): void {
+    const { fs_path, ...e } = entry;
     const existing = this.map.get(fs_path) ?? [];
-    const filtered = existing.filter((e) => e.vault_id !== vault_id);
-    // Assign-replace with a NEW Map identity. A plain `$state(new Map())` is
-    // not deeply reactive (Map mutations via .set() aren't tracked, and
-    // `this.map = this.map` reassigns the same reference so Svelte sees no
-    // change) — only a fresh identity re-runs $derived consumers (Tree.svelte
-    // enrichment tags). removeByVaultId() uses the same pattern.
+    const filtered = existing.filter(
+      (x) => !(x.provider_id === e.provider_id && x.entry_id === e.entry_id),
+    );
     const next = new Map(this.map);
-    next.set(fs_path, [...filtered, { vault_id, vault_kind, tags }]);
+    next.set(fs_path, [...filtered, e]);
     this.map = next;
   }
 
   /**
-   * Drop all entries (across every fs_path) where entry.vault_id === vault_id.
-   * Called when walker emits vault.update kind=deleted.
-   * Empty arrays are pruned — after removal the key is absent, so get() returns
-   * undefined (consistent contract for callers).
+   * Remove a provider's entries. When `entry_id` is given, only that slot is
+   * removed across all paths; otherwise every entry for the provider is dropped
+   * (e.g. on integration shutdown). Empty arrays are pruned, so get() returns
+   * undefined afterward.
    */
-  removeByVaultId(vault_id: string): void {
+  removeByProvider(provider_id: string, entry_id?: string): void {
     const next = new Map<string, EnrichmentEntry[]>();
     for (const [fs_path, entries] of this.map) {
-      const kept = entries.filter((e) => e.vault_id !== vault_id);
-      if (kept.length > 0) {
-        next.set(fs_path, kept);
-      }
-      // empty arrays → key pruned; get() returns undefined
+      const kept = entries.filter((e) => {
+        const isTarget =
+          e.provider_id === provider_id &&
+          (entry_id === undefined || e.entry_id === entry_id);
+        return !isTarget;
+      });
+      if (kept.length > 0) next.set(fs_path, kept);
     }
     this.map = next;
   }
 
   /**
+   * Remove a provider's entries at a single fs_path (the targeted
+   * `enrichment.revoke` with a non-null fs_path). Empty arrays are pruned.
+   */
+  removeByProviderAtPath(provider_id: string, fs_path: string): void {
+    const entries = this.map.get(fs_path);
+    if (!entries) return;
+    const kept = entries.filter((e) => e.provider_id !== provider_id);
+    const next = new Map(this.map);
+    if (kept.length > 0) next.set(fs_path, kept);
+    else next.delete(fs_path);
+    this.map = next;
+  }
+
+  /**
+   * Backward-compat: drop the Index provider's entry for `vault_id`.
+   * Maps onto the generic removeByProvider path.
+   */
+  removeByVaultId(vault_id: string): void {
+    this.removeByProvider('index', vault_id);
+  }
+
+  /**
    * Read entries for an fs_path, or undefined if none exist.
-   * Used by Tree.svelte $derived lookups in 8.6.2.
+   * Used by Tree.svelte $derived lookups.
    */
   get(fs_path: string): EnrichmentEntry[] | undefined {
     return this.map.get(fs_path);
   }
 }
 
-/** Singleton instance — App.svelte populates via subscription, Tree.svelte reads. */
+/** Singleton — populated via subscription, read by Tree.svelte. */
 export const enrichmentStore = new EnrichmentStore();

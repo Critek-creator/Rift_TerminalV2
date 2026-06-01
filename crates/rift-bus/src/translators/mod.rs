@@ -7,6 +7,7 @@
 
 pub mod agent;
 pub mod commands;
+pub mod enrichment;
 pub mod errors;
 pub mod fs;
 pub mod gguf;

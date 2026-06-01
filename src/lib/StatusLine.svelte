@@ -38,6 +38,10 @@
     repo?: string;
     sessionUse?: string;
     week?: string;
+    /** Focused pane's foreground-process-tree CPU%, e.g. "12.3%". Blank = unavailable. */
+    cpu?: string;
+    /** Focused pane's foreground-process-tree resident memory, e.g. "184 MB". Blank = unavailable. */
+    ram?: string;
     visibility?: StatusLineConfig;
     /** Open the command palette pre-filtered to model switching (hot-swap). */
     onmodelswap?: () => void;
@@ -55,6 +59,8 @@
     repo = '—',
     sessionUse = '—',
     week = '—',
+    cpu = '',
+    ram = '',
     visibility,
     onmodelswap,
   }: Props = $props();
@@ -71,6 +77,8 @@
     repo: visibility?.show_repo ?? true,
     sessionUse: visibility?.show_session_use ?? true,
     week: visibility?.show_week ?? true,
+    cpu: visibility?.show_cpu ?? true,
+    ram: visibility?.show_ram ?? true,
     cost: visibility?.show_cost ?? true,
   });
 
@@ -149,6 +157,16 @@
     {#if show.effort}
       <div class="seg effort" style:background={override('effort')}>
         <span class="label">EFFORT</span><span class="value">{effort}</span>
+      </div>
+    {/if}
+    {#if show.cpu && cpu}
+      <div class="seg cpu" style:background={override('cpu')}>
+        <span class="label">CPU</span><span class="value">{cpu}</span>
+      </div>
+    {/if}
+    {#if show.ram && ram}
+      <div class="seg ram" style:background={override('ram')}>
+        <span class="label">RAM</span><span class="value">{ram}</span>
       </div>
     {/if}
     {#if show.cost && llmRouting.sessionCostUsd > 0}
@@ -249,6 +267,8 @@
   .ctx         { background: var(--status-blue-mid); }
   .session-use { background: var(--status-blue-bright); }
   .week        { background: var(--status-blue-dim); }
+  .cpu         { background: var(--status-blue-mid); }
+  .ram         { background: var(--status-blue-dim); }
 
   /* AMBER family — Aegis state */
   .skill  { background: var(--amber-primary); }

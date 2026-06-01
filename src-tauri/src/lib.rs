@@ -39,6 +39,7 @@ mod integrations;
 mod mcp_host;
 mod notif_window;
 mod profiles;
+mod resource_monitor;
 mod todo_scan;
 
 // Rift Terminal v2 — Tauri host crate.
@@ -1642,6 +1643,78 @@ fn project_root_get(project_root: State<'_, ProjectRoot>) -> String {
     project_root.get().to_string_lossy().into_owned()
 }
 
+/// Sample CPU% + RSS of a terminal pane's foreground process tree.
+///
+/// `pty_id` is the registry id returned by `pty_start`. Resolves the pane's
+/// root shell PID via [`PtyRegistry`], then samples the whole descendant tree
+/// off the async runtime (syscall-bound work goes on `spawn_blocking`).
+#[tauri::command]
+async fn sample_pane_resources(
+    state: State<'_, PtyRegistry>,
+    pty_id: u32,
+) -> Result<resource_monitor::PaneResourceSnapshot, String> {
+    let root_pid = state
+        .get(pty_id)
+        .and_then(|ctl| ctl.child_pid())
+        .ok_or_else(|| {
+            format!("sample_pane_resources: session {pty_id} not found or pid unavailable")
+        })?;
+    tokio::task::spawn_blocking(move || resource_monitor::sample_resources_for_tree(root_pid))
+        .await
+        .map_err(|e| format!("sample_pane_resources: task join error: {e}"))
+}
+
+/// Reveal a project-relative path in the OS file manager.
+///
+/// For a file, opens its containing directory; for a directory, opens it. Uses
+/// `explorer` / `open` / `xdg-open` per platform — same `std::process::Command`
+/// pattern as `open_in_os_editor`, no shell plugin required.
+#[tauri::command]
+async fn fs_reveal(path: String, project_root: State<'_, ProjectRoot>) -> Result<(), String> {
+    let root = project_root.get();
+    // Validate the path stays within the project root — rejects absolute paths
+    // and `..` traversal, and canonicalizes (so a non-existent path errors).
+    // Same discipline as fs_read_text / read_text; fs_reveal is IPC-callable, so
+    // this is the path-traversal guard, not just UI-trust.
+    let abs =
+        rift_bus::validate_project_path(&root, &path).map_err(|e| format!("fs_reveal: {e}"))?;
+    let target = if abs.is_file() {
+        abs.parent().map(|p| p.to_path_buf()).unwrap_or(abs)
+    } else {
+        abs
+    };
+    let target_str = target.to_string_lossy().into_owned();
+    tokio::task::spawn_blocking(move || -> Result<(), String> {
+        #[cfg(target_os = "windows")]
+        {
+            use std::os::windows::process::CommandExt;
+            const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+            std::process::Command::new("explorer")
+                .arg(&target_str)
+                .creation_flags(CREATE_NO_WINDOW)
+                .spawn()
+                .map_err(|e| format!("fs_reveal: explorer spawn failed: {e}"))?;
+        }
+        #[cfg(target_os = "macos")]
+        {
+            std::process::Command::new("open")
+                .arg(&target_str)
+                .spawn()
+                .map_err(|e| format!("fs_reveal: open spawn failed: {e}"))?;
+        }
+        #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+        {
+            std::process::Command::new("xdg-open")
+                .arg(&target_str)
+                .spawn()
+                .map_err(|e| format!("fs_reveal: xdg-open spawn failed: {e}"))?;
+        }
+        Ok(())
+    })
+    .await
+    .map_err(|e| format!("fs_reveal: task join error: {e}"))?
+}
+
 /// Sequence (Design F):
 ///  1. Canonicalize `path` via `dunce` (pr003 gotcha).
 ///  2. Verify it is a directory.
@@ -2318,6 +2391,8 @@ pub fn run() {
             config_save,
             project_root_get,
             project_swap,
+            sample_pane_resources,
+            fs_reveal,
             cockpit_window::cockpit_detach,
             cockpit_window::cockpit_reattach,
             cockpit_window::cockpit_status,

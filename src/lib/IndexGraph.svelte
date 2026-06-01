@@ -263,7 +263,11 @@
     if (!treePath) return new Set();
     const entries = enrichmentStore.get(treePath);
     if (!entries) return new Set();
-    return new Set(entries.map((e) => e.vault_id));
+    // vault_id is present only for Index-provider entries; others (e.g. git)
+    // carry no vault id and are excluded from vault-id cross-highlighting.
+    return new Set(
+      entries.map((e) => e.vault_id).filter((id): id is string => id !== undefined),
+    );
   });
 
   // ---------------------------------------------------------------------------

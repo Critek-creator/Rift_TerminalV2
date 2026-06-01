@@ -23,7 +23,13 @@
   import '@xterm/xterm/css/xterm.css';
   import { deferredFit } from './terminal-fit-timing';
   import { TREE_PATH_MIME, RIFT_VAULT_DROP_EVENT, RIFT_EVENT_MIME, type RiftVaultDropDetail } from './dragMime';
-  import { registerInjector, unregisterInjector, setActiveInjector } from './terminalInject';
+  import {
+    registerInjector,
+    unregisterInjector,
+    setActiveInjector,
+    registerPtyId,
+    unregisterPtyId,
+  } from './terminalInject';
   import { laneFormatGated } from './laneFormat';
   import LaneGutter from './LaneGutter.svelte';
   import TerminalSearch from './TerminalSearch.svelte';
@@ -606,6 +612,12 @@
         });
         alive = true;
 
+        // Surface the PTY registry id so App.svelte can sample this pane's
+        // process-tree resources for the StatusLine CPU/RAM segments.
+        if (paneId !== undefined && sessionId !== null) {
+          registerPtyId(paneId, sessionId);
+        }
+
         // Flush buffered chunks that arrived before sessionId was known
         for (const buffered of chunkBuffer) {
           if (buffered.id === sessionId) {
@@ -844,6 +856,7 @@
     host?.removeEventListener(RIFT_VAULT_DROP_EVENT, onTermVaultDrop);
     host?.removeEventListener('focusin', onTermFocusIn);
     unregisterInjector(injectRegistryKey());
+    unregisterPtyId(injectRegistryKey());
     search?.dispose();
     fit?.dispose();
     term?.dispose();

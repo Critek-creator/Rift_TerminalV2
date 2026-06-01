@@ -40,6 +40,34 @@ export function setActiveInjector(paneId: number): void {
   if (registry.has(paneId)) activePaneId = paneId;
 }
 
+// ---------------------------------------------------------------------------
+// Pane → PTY-registry-id map.
+//
+// Each Terminal owns a PTY whose *registry id* (returned by `pty_start`) is the
+// handle the host needs to resolve the pane's root shell PID. The frontend pane
+// id and the registry id differ, and the registry id lives only inside each
+// Terminal instance — this map surfaces it so App.svelte can sample the focused
+// pane's process-tree resources (StatusLine CPU/RAM) without threading it
+// through the session manager.
+// ---------------------------------------------------------------------------
+
+const ptyIdByPane = new Map<number, number>();
+
+/** Record a pane's PTY registry id (call after `pty_start` resolves). */
+export function registerPtyId(paneId: number, ptyId: number): void {
+  ptyIdByPane.set(paneId, ptyId);
+}
+
+/** Drop a pane's PTY registry id (call on cleanup). */
+export function unregisterPtyId(paneId: number): void {
+  ptyIdByPane.delete(paneId);
+}
+
+/** Resolve a pane's PTY registry id, or undefined if not yet started. */
+export function getPtyId(paneId: number): number | undefined {
+  return ptyIdByPane.get(paneId);
+}
+
 /**
  * Inject text into the active terminal. Returns false if no terminal is
  * registered (e.g. the cockpit is detached with no terminal in this window),

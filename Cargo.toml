@@ -46,6 +46,7 @@ futures-util = "0.3"
 reqwest = { version = "0.12", features = ["json", "stream"] }
 windows-sys = { version = "0.59" }
 keyring = { version = "3", features = ["sync-secret-service", "windows-native"] }
+sysinfo = { version = "0.39", default-features = false, features = ["system"] }
 
 [profile.release]
 codegen-units = 1

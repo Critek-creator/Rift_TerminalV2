@@ -24,7 +24,15 @@ const DIR_W  = 10;
 export function buildEnrichmentTitle(entries: EnrichmentEntry[]): string {
   return entries
     .map((e) => {
-      const base = `${e.vault_id} (${e.vault_kind})`;
+      // Index entries keep the original "<vault_id> (<vault_kind>)" form; other
+      // providers fall back to label/entry_id with a "[provider]" qualifier.
+      const name = e.label ?? e.vault_id ?? e.entry_id;
+      const qualifier = e.vault_kind
+        ? `(${e.vault_kind})`
+        : e.provider_id !== 'index'
+          ? `[${e.provider_id}]`
+          : '';
+      const base = qualifier ? `${name} ${qualifier}` : name;
       return e.tags.length > 0 ? `${base}: ${e.tags.join(', ')}` : base;
     })
     .join('\n');

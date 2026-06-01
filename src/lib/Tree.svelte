@@ -42,8 +42,9 @@
   import { subscribe, type Envelope } from './bus';
   import { treeActivity, type ActivityState } from './treeActivity.svelte';
   import { popouts } from './popouts.svelte';
-  import { enrichmentStore } from './enrichmentStore.svelte';
+  import { enrichmentStore, type EnrichmentEntry } from './enrichmentStore.svelte';
   import { buildEnrichmentTitle, dotX } from './enrichmentUtils';
+  import TreeContextMenu from './TreeContextMenu.svelte';
   import { RIFT_VAULT_DROP_EVENT, type RiftVaultDropDetail } from './dragMime';
   import { fileColor } from './fileColors';
   import { crossRefHighlight } from './crossRefHighlight.svelte';
@@ -690,6 +691,25 @@
     /* no-op — see comment above */
   }
 
+  // Right-click context menu for tree nodes (inject / open / cd / copy / reveal).
+  let contextMenu = $state<{
+    node: TreeNode;
+    x: number;
+    y: number;
+    enrichments: EnrichmentEntry[] | undefined;
+  } | null>(null);
+
+  function handleNodeContextMenu(e: MouseEvent, node: TreeNode): void {
+    e.preventDefault(); // suppress the native WebView2 menu (scoped to the node)
+    e.stopPropagation(); // don't let it reach the menu's window-level closer
+    contextMenu = {
+      node,
+      x: e.clientX,
+      y: e.clientY,
+      enrichments: enrichmentStore.get(node.path),
+    };
+  }
+
   /** L-shaped edge: vertical drop then horizontal run to child node. */
   function edgePath(px: number, py: number, cx: number, cy: number): string {
     // Elbow at (px, cy) — vertical segment down then horizontal to child.
@@ -850,6 +870,7 @@
           onclick={() => handleNodeClick(item.node)}
           onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleNodeClick(item.node); } }}
           ondblclick={() => handleNodeDblClick(item.node)}
+          oncontextmenu={(e) => handleNodeContextMenu(e, item.node)}
           style="cursor: pointer;"
         >
           <!-- Full-width row hover band — gives the SVG tree the same
@@ -957,10 +978,14 @@
                   style="overflow: visible;"
                 >
                   <div class="enrichment-tooltip" xmlns="http://www.w3.org/1999/xhtml">
-                    {#each enrichments as entry (entry.vault_id)}
+                    {#each enrichments as entry (entry.provider_id + ':' + entry.entry_id)}
                       <div class="enrichment-tooltip-row">
-                        <span class="et-vault-id">{entry.vault_id}</span>
-                        <span class="et-vault-kind"> ({entry.vault_kind})</span>
+                        <span class="et-vault-id">{entry.label ?? entry.vault_id ?? entry.entry_id}</span>
+                        {#if entry.vault_kind}
+                          <span class="et-vault-kind"> ({entry.vault_kind})</span>
+                        {:else if entry.provider_id !== 'index'}
+                          <span class="et-vault-kind"> [{entry.provider_id}]</span>
+                        {/if}
                         {#if entry.tags.length > 0}
                           <div class="et-tags">{entry.tags.join(', ')}</div>
                         {/if}
@@ -992,6 +1017,16 @@
       <span class="tree-drag-ghost-glyph">↗</span>
       <span class="tree-drag-ghost-label">{treeGhostLabel}</span>
     </div>
+  {/if}
+
+  {#if contextMenu}
+    <TreeContextMenu
+      node={contextMenu.node}
+      x={contextMenu.x}
+      y={contextMenu.y}
+      enrichments={contextMenu.enrichments}
+      onClose={() => { contextMenu = null; }}
+    />
   {/if}
 </div>
 
