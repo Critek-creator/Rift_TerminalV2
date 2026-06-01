@@ -333,12 +333,19 @@
 
   // Start = hot-swap activate: stops other running local servers (frees VRAM
   // on a single GPU), starts this one, and makes it the active route.
+  // Failures are surfaced to the card UI (not just console) — on a single-GPU
+  // box a failed start (VRAM OOM, port bind, stale server) is common and the
+  // user must see why the spinner stopped.
+  let actionError = $state<string | null>(null);
+
   async function handleStart() {
     busy = true;
+    actionError = null;
     try {
       await llmModels.activateModel(model.id);
     } catch (e) {
       console.error('[ModelCard] start failed', e);
+      actionError = `Start failed: ${e instanceof Error ? e.message : String(e)}`;
     } finally {
       busy = false;
     }
@@ -346,10 +353,12 @@
 
   async function handleStop() {
     busy = true;
+    actionError = null;
     try {
       await llmModels.stopModel(model.id);
     } catch (e) {
       console.error('[ModelCard] stop failed', e);
+      actionError = `Stop failed: ${e instanceof Error ? e.message : String(e)}`;
     } finally {
       busy = false;
     }
@@ -438,6 +447,10 @@
       {/if}
     </div>
   </div>
+
+  {#if actionError}
+    <div class="card-action-error" role="alert">{actionError}</div>
+  {/if}
 
   <!-- ─── Core settings (always visible) ─────────────────── -->
   <div class="card-body">
@@ -1149,6 +1162,17 @@
   }
   .header-actions {
     flex-shrink: 0;
+  }
+  /* Inline failure surface for start/stop — mirrors .rift-badge--error tints. */
+  .card-action-error {
+    margin: var(--space-8) var(--space-12) 0;
+    padding: var(--space-xs) var(--space-8);
+    background: rgba(255, 72, 72, 0.08);
+    border: 1px solid rgba(255, 72, 72, 0.4);
+    border-radius: var(--radius-sm);
+    color: var(--term-red);
+    font-size: var(--text-2xs, 9px);
+    letter-spacing: 0.03em;
   }
   .card-action-btn {
     background: var(--bg-elevated);

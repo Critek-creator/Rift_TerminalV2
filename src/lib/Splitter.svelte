@@ -15,7 +15,7 @@
   // gesture, clamps min/max, persists on drag-end. Parent is responsible for applying
   // the size to a sibling's flex-basis (or equivalent) inline style.
 
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
 
   interface Props {
     direction: 'horizontal' | 'vertical';
@@ -68,6 +68,15 @@
       // localStorage may be inaccessible (private browsing / quota); silent fallback
       // to the parent-provided default.
     }
+  });
+
+  // Safety net: if the component is destroyed mid-drag (e.g. the cockpit
+  // collapses via Ctrl+B while dragging), onPointerUp never fires and the
+  // document listeners would outlive the component on a dead closure. Remove
+  // them on destroy — removeEventListener is a no-op if they were never added.
+  onDestroy(() => {
+    document.removeEventListener('pointermove', onPointerMove);
+    document.removeEventListener('pointerup', onPointerUp);
   });
 
   function onPointerDown(e: PointerEvent): void {

@@ -16,6 +16,9 @@
   let profiles = $state<ProfileEntry[]>([]);
   let open = $state(false);
   let saving = $state(false);
+  // Guards profile_load/_save/_delete against concurrent invokes
+  // (rapid double-click, or load-while-deleting).
+  let mutating = $state(false);
   let saveInput = $state('');
   let focusedIndex = $state(-1);
   let triggerEl: HTMLButtonElement = $state(undefined!);
@@ -55,12 +58,16 @@
   }
 
   async function selectProfile(name: string) {
+    if (mutating) return;
+    mutating = true;
     try {
       await invoke('profile_load', { name });
     } catch (err) {
       console.warn('profile_load failed:', err);
       showError('Failed to load profile');
       return;
+    } finally {
+      mutating = false;
     }
     close();
   }
@@ -72,7 +79,8 @@
 
   async function confirmSave() {
     const name = saveInput.trim();
-    if (!name) return;
+    if (!name || mutating) return;
+    mutating = true;
     try {
       const state = { tabs: [], cockpit_visible: true, cockpit_panels: [], notification_filters: { default_threshold: null, per_tab: {} } };
       await invoke('profile_save', { name, state, projectFilter: null });
@@ -80,6 +88,8 @@
       console.warn('profile_save failed:', err);
       showError('Failed to save profile');
       return;
+    } finally {
+      mutating = false;
     }
     close();
     loadProfiles();
@@ -87,12 +97,16 @@
 
   async function deleteProfile(name: string, e: MouseEvent) {
     e.stopPropagation();
+    if (mutating) return;
+    mutating = true;
     try {
       await invoke('profile_delete', { name });
       profiles = profiles.filter((p) => p.name !== name);
     } catch (err) {
       console.warn('profile_delete failed:', err);
       showError('Failed to delete profile');
+    } finally {
+      mutating = false;
     }
   }
 
@@ -192,6 +206,7 @@
           <button type="button"
             class="item-delete"
             onclick={(e) => deleteProfile(profile.name, e)}
+            disabled={mutating}
             aria-label="Delete profile {profile.name}"
             title="Delete profile"
           >×</button>

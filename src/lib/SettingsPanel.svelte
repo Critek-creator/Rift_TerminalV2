@@ -376,6 +376,24 @@
     window.dispatchEvent(new CustomEvent('rift:config-changed'));
   }
 
+  async function onToggleIntegration(value: boolean, key: 'aegis_enabled' | 'index_enabled') {
+    if (!config) return;
+    const prev = config.integrations[key];
+    const next: RiftConfig = {
+      ...config,
+      integrations: { ...config.integrations, [key]: value },
+    };
+    config = next; // optimistic — checkbox reflects immediately
+    try {
+      await invoke('config_save', { cfg: next });
+      broadcastConfigChanged();
+    } catch (e) {
+      console.error('[SettingsPanel] integration toggle save failed', e);
+      // Roll back the optimistic UI so the checkbox matches persisted state.
+      if (config) config = { ...config, integrations: { ...config.integrations, [key]: prev } };
+    }
+  }
+
   async function onToggleMcp(value: boolean, key: keyof McpConfig) {
     if (!config) return;
     savingMcp = true;
@@ -1022,12 +1040,7 @@
               type="checkbox"
               checked={config.integrations.aegis_enabled}
               disabled={!status.aegis.installed}
-              onchange={(e) => {
-                if (config) {
-                  config.integrations.aegis_enabled = e.currentTarget.checked;
-                  invoke('config_save', { cfg: config });
-                }
-              }}
+              onchange={(e) => onToggleIntegration(e.currentTarget.checked, 'aegis_enabled')}
             />
             <span class="rift-switch-track"></span>
           </label>
@@ -1050,12 +1063,7 @@
               type="checkbox"
               checked={config.integrations.index_enabled}
               disabled={!status.index.installed}
-              onchange={(e) => {
-                if (config) {
-                  config.integrations.index_enabled = e.currentTarget.checked;
-                  invoke('config_save', { cfg: config });
-                }
-              }}
+              onchange={(e) => onToggleIntegration(e.currentTarget.checked, 'index_enabled')}
             />
             <span class="rift-switch-track"></span>
           </label>
