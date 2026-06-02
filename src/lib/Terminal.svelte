@@ -294,7 +294,8 @@
       fontSize: settings.fontSize,
       lineHeight: settings.lineHeight,
       scrollback: settings.scrollback,
-      cursorBlink: true,
+      cursorBlink: settings.cursorBlink,
+      cursorStyle: settings.cursorStyle,
       theme: initTheme,
     });
     fit = new FitAddon();
@@ -756,6 +757,8 @@
       }
       term.options.lineHeight = fresh.lineHeight;
       term.options.scrollback = fresh.scrollback;
+      term.options.cursorStyle = fresh.cursorStyle;
+      term.options.cursorBlink = fresh.cursorBlink;
       lanesEnabled = fresh.lanesEnabled;
       // Sync CSS --term-bg so the terminal host matches the palette (chrome
       // keeps its own ladder — see onMount note).
