@@ -1038,14 +1038,20 @@ fn terminal_mounted(ready: State<'_, TerminalReady>) {
 }
 
 /// Reveal the main window in a known-good state, overriding any stale
-/// WebView2/EBWebView-restored minimized or off-screen geometry. Idempotent —
+/// WebView2/EBWebView-restored minimized geometry. Idempotent —
 /// `show()`/`unminimize()` on an already-visible window are no-ops, so it is
 /// safe to call from BOTH the frontend-ready command and the fallback timer
 /// (whichever fires first wins; the other is harmless).
+///
+/// Deliberately does NOT `center()`: the frontend fast path restores the saved
+/// window position+size while the window is still hidden and only then invokes
+/// this, so re-centering here would yank the window back to center and produce
+/// a visible center→saved-position jump on launch. The fallback timer (which
+/// runs only when the frontend never signals ready) centers explicitly before
+/// calling this, since no saved-position restore will have run in that case.
 fn reveal_main_window(app: &AppHandle) {
     if let Some(win) = app.get_webview_window("main") {
         let _ = win.unminimize();
-        let _ = win.center();
         let _ = win.show();
         let _ = win.set_focus();
     }
@@ -1501,6 +1507,39 @@ async fn compare_sessions(
     })
     .await
     .map_err(|e| format!("compare_sessions: task join error: {e}"))?
+}
+
+/// Persist a terminal snapshot for the current launch (Stage 2 restart-safe
+/// sessions). The frontend serializes each pane's xterm buffer via
+/// `@xterm/addon-serialize` and hands the panes here; we write them next to the
+/// launch's `.jsonl` audit log (keyed off the same session id). Returns the id.
+#[tauri::command]
+async fn session_snapshot_write(panes: Vec<rift_bus::PaneSnapshot>) -> Result<String, String> {
+    tokio::task::spawn_blocking(move || rift_bus::write_snapshot(panes))
+        .await
+        .map_err(|e| format!("session_snapshot_write: task join error: {e}"))?
+}
+
+/// The most recent restorable snapshot from a *prior* launch, gated on
+/// `session.restore_on_startup`. `Ok(None)` when restore is off or nothing
+/// qualifies. Called once on boot to re-hydrate the terminal (scrollback + cwd
+/// + the compaction digest) before a fresh shell spawns.
+#[tauri::command]
+async fn session_snapshot_latest(
+    cached_config: State<'_, CachedConfig>,
+) -> Result<Option<rift_bus::RestorePayload>, String> {
+    let session_cfg = cached_config.get().session;
+    tokio::task::spawn_blocking(move || rift_bus::latest_snapshot(&session_cfg))
+        .await
+        .map_err(|e| format!("session_snapshot_latest: task join error: {e}"))?
+}
+
+/// Delete a consumed snapshot so it does not restore again on the next boot.
+#[tauri::command]
+async fn session_snapshot_clear(session_id: String) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || rift_bus::clear_snapshot(&session_id))
+        .await
+        .map_err(|e| format!("session_snapshot_clear: task join error: {e}"))?
 }
 
 /// Shared helper: resolve `~/<rel_path>` and open it in the OS default editor.
@@ -2414,19 +2453,29 @@ pub fn run() {
             // state while WebView2 is still initializing — the root cause of the
             // recurring "launches minimized / blank webview" bug. It is normally
             // revealed by the `main_window_ready` command the frontend invokes
-            // once rendered (App.svelte onMount) — the fast, known-good path that
-            // also unminimizes + re-centers, overriding any EBWebView-persisted
-            // bad geometry.
+            // (App.svelte onMount) AFTER it has restored the saved window
+            // position+size while still hidden — so the window appears exactly
+            // once at its final geometry (no center→saved-position jump).
             //
             // FALLBACK: if the frontend never signals ready (failed JS load,
             // broken webview), reveal the window anyway after a short delay so it
-            // can never get stuck permanently hidden. reveal_main_window is
-            // idempotent, so a double-reveal alongside the ready command is safe.
+            // can never get stuck permanently hidden. This MUST be a true no-op on
+            // a normal launch: the frontend already positioned + showed the window
+            // by now, so we only act if it is STILL HIDDEN. Centering/revealing an
+            // already-visible window here would yank a correctly-placed window back
+            // to center (~3s in) and redraw its border — the exact re-center +
+            // border flicker this guard prevents. Center first only in the genuine
+            // fallback, since no frontend position-restore will have run in that case.
             {
                 let reveal_app = app.handle().clone();
                 tauri::async_runtime::spawn(async move {
                     tokio::time::sleep(std::time::Duration::from_millis(3000)).await;
-                    reveal_main_window(&reveal_app);
+                    if let Some(win) = reveal_app.get_webview_window("main") {
+                        if !win.is_visible().unwrap_or(false) {
+                            let _ = win.center();
+                            reveal_main_window(&reveal_app);
+                        }
+                    }
                 });
             }
 
@@ -2476,6 +2525,9 @@ pub fn run() {
             load_session,
             search_sessions,
             compare_sessions,
+            session_snapshot_write,
+            session_snapshot_latest,
+            session_snapshot_clear,
             index_bridge::index_list_nodes,
             index_bridge::index_search_nodes,
             index_bridge::index_get_node,

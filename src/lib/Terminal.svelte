@@ -5,6 +5,7 @@
   import { Terminal as XTerm } from '@xterm/xterm';
   import { FitAddon } from '@xterm/addon-fit';
   import { SearchAddon } from '@xterm/addon-search';
+  import { SerializeAddon } from '@xterm/addon-serialize';
   import { WebglAddon } from '@xterm/addon-webgl';
   import { LigaturesAddon } from '@xterm/addon-ligatures';
 
@@ -43,6 +44,15 @@
   import { resolveTheme } from './terminalPalettes';
   import { LaneTintManager } from './laneTint';
   import { sessionManager } from './sessionManager.svelte';
+  import {
+    getRestorePayload,
+    claimRestore,
+    clearSnapshot,
+    writeSnapshot,
+    getSnapshotConfig,
+    setActivePane,
+    isActivePane,
+  } from './sessionRestore';
 
   type PtyExited = { id: number; code: number };
 
@@ -67,6 +77,11 @@
   let term: XTerm | undefined = $state(undefined);
   let fit: FitAddon | undefined;
   let search = $state<SearchAddon | undefined>(undefined);
+  let serializeAddon: SerializeAddon | undefined;
+  let snapshotTimer: ReturnType<typeof setInterval> | undefined;
+  /** cwd this pane is effectively in — the restored cwd if we re-hydrated from
+   *  a snapshot, else the project path. Used as the snapshot's recorded cwd. */
+  let effectiveCwd: string | null = null;
   let webgl: WebglAddon | undefined;
   let ligatures: LigaturesAddon | undefined;
   let searchOpen = $state(false);
@@ -266,6 +281,36 @@
   /** Mark this terminal as the active injection target on focus. */
   function onTermFocusIn(): void {
     setActiveInjector(injectRegistryKey());
+    // Stage 2: the focused pane is the one whose buffer we snapshot (so
+    // multiple panes don't clobber the single snapshot file). Stays set to the
+    // last-focused pane until another takes focus.
+    if (paneId !== undefined) setActivePane(paneId);
+  }
+
+  /** Human-readable age of a snapshot for the restore divider. */
+  function relativeAge(savedMs: number): string {
+    const delta = Date.now() - savedMs;
+    return delta < 1000 ? 'moments ago' : `${formatDuration(delta)} ago`;
+  }
+
+  /** Serialize the live buffer + cwd and persist it for restart-safe restore.
+   *  Best-effort, focused-pane-only — see [`sessionRestore`]. */
+  function captureSnapshot(): void {
+    if (!term || !serializeAddon || sessionId === null || !alive) return;
+    if (!isActivePane(paneId)) return;
+    try {
+      const serialized = serializeAddon.serialize({ scrollback: 2000 });
+      writeSnapshot({
+        pane_id: paneId ?? 0,
+        serialized,
+        cwd: effectiveCwd ?? projectPath ?? '',
+        rows: term.rows,
+        cols: term.cols,
+        project_root: projectPath ?? null,
+      });
+    } catch {
+      /* serialize/persist is best-effort — never disrupt the live terminal */
+    }
   }
 
   const encoder = new TextEncoder();
@@ -308,6 +353,9 @@
     term.loadAddon(fit);
     search = new SearchAddon();
     term.loadAddon(search);
+    // Stage 2: serializer used to snapshot the buffer for restart-safe restore.
+    serializeAddon = new SerializeAddon();
+    term.loadAddon(serializeAddon);
 
     // CRITICAL: await fonts.ready BEFORE term.open(host).
     //
@@ -653,11 +701,41 @@
         term.resize(startCols, startRows);
       }
 
+      // Stage 2 restart-safe restore: if a prior-launch snapshot exists and
+      // this pane wins the one-shot claim, re-hydrate the scrollback + cwd
+      // (and surface the compaction digest) BEFORE the fresh shell prompt, so
+      // the restored history sits above it. The dead shell can't return; its
+      // context can. Best-effort — never block a fresh shell on restore.
+      let restoreCwd: string | undefined;
+      try {
+        const payload = await getRestorePayload();
+        if (payload && payload.panes.length > 0 && claimRestore()) {
+          const snap = payload.panes[0];
+          if (snap.serialized) term.write(snap.serialized);
+          term.write('\r\n');
+          term.writeln(
+            laneFormatGated(
+              'SYS',
+              `─── restored from ${relativeAge(payload.saved_ms)} · fresh shell ───`,
+              lanesEnabled,
+            ),
+          );
+          if (payload.digest) {
+            term.writeln(laneFormatGated('SYS', `↻ Last session: ${payload.digest}`, lanesEnabled));
+          }
+          if (snap.cwd) restoreCwd = snap.cwd;
+          clearSnapshot(payload.session_id);
+        }
+      } catch {
+        /* restore is best-effort */
+      }
+      effectiveCwd = restoreCwd ?? projectPath ?? null;
+
       try {
         sessionId = await invoke<number>('pty_start', {
           rows: startRows,
           cols: startCols,
-          cwd: projectPath ?? undefined,
+          cwd: restoreCwd ?? projectPath ?? undefined,
           // Pass the pane id as the session identity. The backend injects it as
           // $RIFT_SESSION_ID so the CC status bridge tees per-session and the
           // GUI status line tracks the FOCUSED pane (sessionManager keys focus
@@ -694,6 +772,15 @@
 
     await startPty();
     requestAnimationFrame(refitAndResize);
+
+    // Stage 2: periodic buffer snapshot so a Rift restart can re-hydrate this
+    // pane. Only the focused pane actually writes (see captureSnapshot), so
+    // many panes don't clobber the single snapshot file. Gated on the same
+    // opt-in flag that enables restore — no point snapshotting if never read.
+    void getSnapshotConfig().then((snapCfg) => {
+      if (!snapCfg.restoreEnabled || snapCfg.intervalSeconds <= 0) return;
+      snapshotTimer = setInterval(captureSnapshot, snapCfg.intervalSeconds * 1000);
+    });
 
     // One-shot launch command for this pane (e.g. Gemini "sign in" opens a tab
     // that auto-runs `gemini`). Sent after a short delay so the shell prompt is
@@ -895,6 +982,11 @@
 
   onDestroy(() => {
     laneMounted = false;
+    // Stage 2: one last snapshot before teardown (best-effort), then stop the
+    // periodic timer. Periodic capture is the real safety net — a hard window
+    // close may not flush this, but at most one interval of scrollback is lost.
+    captureSnapshot();
+    if (snapshotTimer) clearInterval(snapshotTimer);
     if (sessionId !== null && alive) {
       invoke('pty_kill', { id: sessionId }).catch(() => {});
     }
@@ -915,6 +1007,7 @@
     ligatures?.dispose();
     webgl?.dispose();
     search?.dispose();
+    serializeAddon?.dispose();
     fit?.dispose();
     term?.dispose();
     delete window.__RIFT_TERM__;

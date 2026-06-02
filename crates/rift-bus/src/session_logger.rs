@@ -52,7 +52,12 @@ fn days_to_ymd(days: i64) -> (i32, u32, u32) {
     (y as i32, m, d)
 }
 
-/// Delete session `.jsonl` files older than `retention_days`.
+/// Delete session files older than `retention_days`.
+///
+/// Reaps all three per-launch artifacts that share the `YYYY-MM-DD_HH-MM-SS`
+/// id: the `.jsonl` audit log, the `.summary.json` compaction digest, and the
+/// `.snapshot.json` VT snapshot. Reaping only `.jsonl` (the prior behavior)
+/// orphaned the sidecars, which then accumulated forever.
 ///
 /// Runs once at startup (sync I/O is fine for a bounded one-shot scan).
 /// On per-file errors, logs a warning and continues.
@@ -72,18 +77,24 @@ fn cleanup_old_sessions(sessions_dir: &Path, retention_days: u32) {
 
     for entry in entries.flatten() {
         let path = entry.path();
-        if path.extension().and_then(|e| e.to_str()) != Some("jsonl") {
-            continue;
-        }
-        let stem = match path.file_stem().and_then(|s| s.to_str()) {
-            Some(s) => s,
+        // Match any per-launch session artifact, not just the `.jsonl`. Keying
+        // off the file NAME (not `file_stem`, which keeps `.summary`/`.snapshot`
+        // for double-extension sidecars) keeps the date offset uniform.
+        let name = match path.file_name().and_then(|n| n.to_str()) {
+            Some(n) => n,
             None => continue,
         };
-        // Parse date from the first 10 chars: YYYY-MM-DD
-        if stem.len() < 10 {
+        let is_session_artifact = name.ends_with(".jsonl")
+            || name.ends_with(".summary.json")
+            || name.ends_with(".snapshot.json");
+        if !is_session_artifact {
             continue;
         }
-        let date_part = &stem[..10];
+        // Parse date from the first 10 chars: YYYY-MM-DD (leading id segment).
+        if name.len() < 10 {
+            continue;
+        }
+        let date_part = &name[..10];
         let parts: Vec<&str> = date_part.split('-').collect();
         if parts.len() != 3 {
             continue;
@@ -369,6 +380,29 @@ mod tests {
         cleanup_old_sessions(dir.path(), 1);
         assert!(!dir.path().join("2020-01-01_00-00-00.jsonl").exists());
         assert!(dir.path().join("2099-12-31_23-59-59.jsonl").exists());
+    }
+
+    #[test]
+    fn cleanup_reaps_summary_and_snapshot_sidecars() {
+        let dir = tempfile::tempdir().unwrap();
+        // An old launch's full artifact set — all three must be reaped.
+        for ext in ["jsonl", "summary.json", "snapshot.json"] {
+            std::fs::write(dir.path().join(format!("2020-01-01_00-00-00.{ext}")), "{}").unwrap();
+        }
+        // A fresh launch's sidecars must survive.
+        std::fs::write(dir.path().join("2099-12-31_23-59-59.summary.json"), "{}").unwrap();
+        std::fs::write(dir.path().join("2099-12-31_23-59-59.snapshot.json"), "{}").unwrap();
+        cleanup_old_sessions(dir.path(), 1);
+        assert!(!dir.path().join("2020-01-01_00-00-00.summary.json").exists());
+        assert!(!dir
+            .path()
+            .join("2020-01-01_00-00-00.snapshot.json")
+            .exists());
+        assert!(dir.path().join("2099-12-31_23-59-59.summary.json").exists());
+        assert!(dir
+            .path()
+            .join("2099-12-31_23-59-59.snapshot.json")
+            .exists());
     }
 
     #[test]
