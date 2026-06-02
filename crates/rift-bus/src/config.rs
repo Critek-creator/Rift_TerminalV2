@@ -739,6 +739,33 @@ pub struct TerminalConfig {
     /// `red`, etc.); values are CSS hex color strings. Ignored when
     /// `color_palette` is not `"custom"`.
     pub custom_palette: std::collections::HashMap<String, String>,
+    /// Cursor shape, mapped to the xterm.js `cursorStyle` option
+    /// (`block` / `bar` / `underline`). Defaults to [`CursorStyle::Block`].
+    pub cursor_style: CursorStyle,
+    /// Whether the cursor blinks, mapped to the xterm.js `cursorBlink` option.
+    /// Defaults to `true`.
+    pub cursor_blink: bool,
+}
+
+/// Terminal cursor shape — maps to the xterm.js `cursorStyle` option.
+///
+/// `#[non_exhaustive]` + `#[serde(other)] Unknown` mirrors [`ShellPref`]: a
+/// newer-version config naming a shape this build doesn't recognize degrades
+/// to `Unknown` (rendered as `Block`) instead of failing to parse.
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum CursorStyle {
+    /// Full block cursor (default).
+    #[default]
+    Block,
+    /// Vertical bar / I-beam cursor.
+    Bar,
+    /// Underline cursor.
+    Underline,
+    /// Forward-compat catch-all. Treated as `Block` at render time.
+    #[serde(other)]
+    Unknown,
 }
 
 /// Default CSS font-family stack.
@@ -755,6 +782,8 @@ impl Default for TerminalConfig {
             lanes_enabled: true,
             color_palette: "amber".to_string(),
             custom_palette: std::collections::HashMap::new(),
+            cursor_style: CursorStyle::default(),
+            cursor_blink: true,
         }
     }
 }

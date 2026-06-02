@@ -41,7 +41,13 @@ export interface TerminalConfig {
   lanes_enabled: boolean;
   color_palette: string;
   custom_palette: Record<string, string>;
+  cursor_style: CursorStyle;
+  cursor_blink: boolean;
 }
+
+/** Mirror of the Rust CursorStyle enum (xterm cursorStyle). `unknown` is the
+ *  forward-compat catch-all and is treated as `block` at render time. */
+export type CursorStyle = 'block' | 'bar' | 'underline' | 'unknown';
 
 export type ShellPref =
   | { kind: 'auto' }

@@ -164,6 +164,8 @@
   let termScrollback = $state(1000);
   let termLanesEnabled = $state(true);
   let termColorPalette = $state('amber');
+  let termCursorStyle = $state<'block' | 'bar' | 'underline'>('block');
+  let termCursorBlink = $state(true);
   let customColors = $state<Record<string, string>>({});
   let customEditorOpen = $state(false);
 
@@ -497,6 +499,8 @@
       || termLanesEnabled !== config.terminal.lanes_enabled
       || termColorPalette !== (config.terminal.color_palette ?? 'amber')
       || JSON.stringify(customColors) !== JSON.stringify(config.terminal.custom_palette ?? {})
+      || termCursorStyle !== (config.terminal.cursor_style ?? 'block')
+      || termCursorBlink !== (config.terminal.cursor_blink ?? true)
     )
   );
 
@@ -530,6 +534,10 @@
     termScrollback = c.terminal.scrollback;
     termLanesEnabled = c.terminal.lanes_enabled;
     termColorPalette = c.terminal.color_palette ?? 'amber';
+    termCursorStyle = (['block', 'bar', 'underline'].includes(c.terminal.cursor_style)
+      ? c.terminal.cursor_style
+      : 'block') as 'block' | 'bar' | 'underline';
+    termCursorBlink = c.terminal.cursor_blink ?? true;
     customColors = c.terminal.custom_palette ?? {};
     if (termColorPalette === 'custom' && Object.keys(customColors).length === 0) {
       customColors = getDefaultCustomColors();
@@ -625,6 +633,8 @@
     const prevFontFamily = termFontFamily;
     const prevLineHeight = termLineHeight;
     const prevScrollback = termScrollback;
+    const prevCursorStyle = termCursorStyle;
+    const prevCursorBlink = termCursorBlink;
     const prevLanesEnabled = termLanesEnabled;
     const prevColorPalette = termColorPalette;
     const prevCustomColors = { ...customColors };
@@ -640,6 +650,8 @@
           lanes_enabled: termLanesEnabled,
           color_palette: termColorPalette,
           custom_palette: customColors,
+          cursor_style: termCursorStyle,
+          cursor_blink: termCursorBlink,
         },
       };
       await invoke('config_save', { cfg: next });
@@ -659,6 +671,8 @@
       termScrollback = prevScrollback;
       termLanesEnabled = prevLanesEnabled;
       termColorPalette = prevColorPalette;
+      termCursorStyle = prevCursorStyle;
+      termCursorBlink = prevCursorBlink;
       customColors = prevCustomColors;
       saveBanner = { section: 'terminal', ok: false, msg: String(err) };
     } finally {
@@ -1336,6 +1350,30 @@
             step="100"
           />
         </label>
+
+        <label class="field">
+          <span class="field-label">cursor style</span>
+          <select
+            class="field-input field-narrow"
+            bind:value={termCursorStyle}
+            disabled={savingTerminal}
+          >
+            <option value="block">block</option>
+            <option value="bar">bar</option>
+            <option value="underline">underline</option>
+          </select>
+        </label>
+
+        <div class="row">
+          <label class="kv-toggle">
+            <input
+              type="checkbox"
+              bind:checked={termCursorBlink}
+              disabled={savingTerminal}
+            />
+            <span>blink cursor</span>
+          </label>
+        </div>
 
         <div class="row">
           <label class="kv-toggle">

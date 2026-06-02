@@ -7,6 +7,8 @@ const TERM_MAX_FONT_SIZE = 48;
 const TERM_DEFAULT_LINE_HEIGHT = 1.55;
 const TERM_DEFAULT_SCROLLBACK = 1000;
 
+export type CursorShape = 'block' | 'bar' | 'underline';
+
 export interface TerminalSettings {
   fontSize: number;
   lineHeight: number;
@@ -14,6 +16,8 @@ export interface TerminalSettings {
   lanesEnabled: boolean;
   colorPalette: string;
   customPalette: Record<string, string>;
+  cursorStyle: CursorShape;
+  cursorBlink: boolean;
 }
 
 const FALLBACK: TerminalSettings = {
@@ -23,6 +27,8 @@ const FALLBACK: TerminalSettings = {
   lanesEnabled: true,
   colorPalette: 'amber',
   customPalette: {},
+  cursorStyle: 'block',
+  cursorBlink: true,
 };
 
 let cached: TerminalSettings | null = null;
@@ -43,6 +49,12 @@ export async function getTerminalSettings(): Promise<TerminalSettings> {
       lanesEnabled: t.lanes_enabled,
       colorPalette: t.color_palette ?? 'amber',
       customPalette: t.custom_palette ?? {},
+      // xterm accepts only block/bar/underline; map the Rust `unknown`
+      // catch-all (and any absent value from older configs) back to block.
+      cursorStyle: (['block', 'bar', 'underline'].includes(t.cursor_style)
+        ? t.cursor_style
+        : 'block') as CursorShape,
+      cursorBlink: t.cursor_blink ?? true,
     };
     return cached;
   } catch {
