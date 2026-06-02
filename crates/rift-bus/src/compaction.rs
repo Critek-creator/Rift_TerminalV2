@@ -164,7 +164,7 @@ fn read_prefix(path: &Path, keep_suffix: usize) -> Option<(String, u64)> {
         let raw_start = text.len() - MAX_PREFIX_CHARS;
         let start = (raw_start..text.len())
             .find(|i| text.is_char_boundary(*i))
-            .unwrap_or_else(|| text.len());
+            .unwrap_or(text.len());
         text = format!("[older prefix truncated]\n{}", &text[start..]);
     }
     Some((text, cut as u64))
