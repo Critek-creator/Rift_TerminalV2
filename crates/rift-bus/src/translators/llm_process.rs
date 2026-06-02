@@ -263,6 +263,14 @@ fn build_cli_args(config: &LlamaServerConfig) -> Vec<String> {
         config.cache_type_v.as_flag().to_string(),
         "--parallel".to_string(),
         config.parallel.to_string(),
+        // `--jinja` activates llama-server's OpenAI-compatible tool-calling layer:
+        // it renders the request's `tools` array into the model's chat template
+        // and auto-applies a lazy GBNF grammar so tool-call JSON is always
+        // syntactically valid. REQUIRED for any tool calling (without it the
+        // `tools` parameter is silently ignored). Also the modern-recommended
+        // templating mode. Behavior note: all launches now use the GGUF's
+        // embedded jinja chat template instead of llama.cpp's legacy built-in.
+        "--jinja".to_string(),
     ];
 
     // A negative n_gpu_layers means "auto": omit the flag so llama-server's
@@ -1185,6 +1193,8 @@ mod tests {
 
         assert!(args.contains(&"--model".to_string()));
         assert!(args.contains(&"/models/test.gguf".to_string()));
+        // `--jinja` must always be present — it activates OpenAI tool calling.
+        assert!(args.contains(&"--jinja".to_string()));
         assert!(args.contains(&"--flash-attn".to_string()));
         // `--flash-attn` must be followed by an explicit value (on/off/auto);
         // the bare flag is rejected by modern llama-server.

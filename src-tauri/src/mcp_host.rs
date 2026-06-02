@@ -438,6 +438,11 @@ async fn dispatch_tool(
         "llm_health" => tool_llm_health(payload).await,
         "llm_prompt" => tool_llm_prompt(bus, app_handle, payload).await,
         "llm_ensemble" => tool_llm_ensemble(bus, payload).await,
+        // Single forced tool call by a local model (Path C spike). Reuses the
+        // full dispatch context to run ONE read-only tool through dispatch_tool.
+        "llm_tool_call" => {
+            run_local_tool_call(bus, cfg, project_root, pty_registry, app_handle, payload).await
+        }
         // Process management — local llama-server lifecycle
         "llm_process_start" => {
             if !cfg.allow_mutations {
@@ -1964,6 +1969,293 @@ async fn tool_llm_health(payload: &Value) -> Result<Value, String> {
     }
 
     Ok(json!({ "results": results }))
+}
+
+/// Read-only tools surfaced to the local model in [`run_local_tool_call`].
+///
+/// Deliberately excludes ALL mutating tools (fs_write, git_action, pty_input,
+/// bus_publish, rift_config_set, simulate_*), the heavy inspection tools, and
+/// every `llm_*` tool. The last exclusion is the recursion guard — the local
+/// agent must never be able to call itself or another model. The spike's safety
+/// claim rests on this allowlist + the post-call name re-check below.
+const LOCAL_TOOL_ALLOWLIST: &[&str] = &[
+    "fs_read",
+    "fs_tree",
+    "todo_scan",
+    "git_status",
+    "bus_history",
+];
+
+/// Build the OpenAI `tools` array for the curated read-only subset.
+fn local_tool_schemas() -> Value {
+    json!([
+        {
+            "type": "function",
+            "function": {
+                "name": "fs_read",
+                "description": "Read a UTF-8 text file from the project, relative to the project root.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "path": { "type": "string", "description": "Project-relative file path, e.g. \"src/lib.rs\"." }
+                    },
+                    "required": ["path"]
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "fs_tree",
+                "description": "List the project file tree (honors ignore globs).",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "max_depth": { "type": "integer", "description": "Max directory depth (default 6).", "minimum": 1, "maximum": 64 }
+                    }
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "todo_scan",
+                "description": "Scan project source for TODO / FIXME / XXX markers.",
+                "parameters": { "type": "object", "properties": {} }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "git_status",
+                "description": "Current git branch, staged/unstaged changes, and recent commits.",
+                "parameters": { "type": "object", "properties": {} }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "bus_history",
+                "description": "Replay recent Rift event-bus envelopes (errors, hooks, commands, fs, mcp, etc.).",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "category": { "type": "string", "description": "Optional category filter (pty, hook, agent, fs, index, aegis, status, system, mcp)." },
+                        "limit": { "type": "integer", "description": "Max envelopes (default 100, max 1000).", "minimum": 1, "maximum": 1000 }
+                    }
+                }
+            }
+        }
+    ])
+}
+
+/// `llm_tool_call` — single forced tool call by a LOCAL model (spike, Path C).
+///
+/// Offers the local model a curated READ-ONLY tool subset, runs ONE tool call
+/// through [`dispatch_tool`], then inlines the result into a follow-up turn so
+/// the model answers the original prompt. Bounded to one tool execution — this
+/// function is the permanent home of the (currently length-1) agentic loop; the
+/// multi-step loop, human-confirm gate, and mutating tools are later phases.
+///
+/// Safety:
+/// - Only LOCAL/Remote (llama-server-backed) models with `supports_tool_use`
+///   are accepted (basic gate; Step 4 hardens with auto-swap).
+/// - The offered subset excludes every `llm_*` tool (recursion guard), and the
+///   returned tool name is re-checked against [`LOCAL_TOOL_ALLOWLIST`] before
+///   dispatch — a hallucinated mutating-tool name can never execute.
+///
+/// Runtime verification pends the Step 6 reliability probe against a live
+/// tool-capable llama-server (`--jinja`). This step delivers a compiling,
+/// clippy-clean executor; it is UNVERIFIED at runtime until then.
+async fn run_local_tool_call(
+    bus: &RiftBus,
+    cfg: &McpConfig,
+    project_root: &Path,
+    pty_registry: &PtyRegistry,
+    app_handle: &AppHandle,
+    payload: &Value,
+) -> Result<Value, String> {
+    use rift_bus::config::HostingMode;
+    use rift_bus::translators::llm::{CompletionRequest, LlmProvider, Message, Role};
+
+    let prompt = payload
+        .get("prompt")
+        .and_then(|v| v.as_str())
+        .ok_or("llm_tool_call: missing required argument: prompt")?;
+    let model_id_override = payload.get("model_id").and_then(|v| v.as_str());
+
+    let config = rift_bus::config::load_config().map_err(|e| format!("{e}"))?;
+    let mut router = rift_router::RouterService::new(config.ensemble.clone());
+    if let Some(pm) =
+        app_handle.try_state::<Arc<rift_bus::translators::llm_process::ProcessManager>>()
+    {
+        router.sync_local_availability(&pm.live_models());
+    }
+
+    let decision = router
+        .route(prompt, model_id_override)
+        .map_err(|e| format!("{e}"))?;
+    let model = router
+        .find_model(&decision.model_id)
+        .map_err(|e| format!("{e}"))?
+        .clone();
+
+    // Capability gate (basic — Step 4 hardens with auto-swap). Tool calling only
+    // works for llama-server-backed models with a tool-calling chat template.
+    if matches!(model.hosting, HostingMode::Cloud) {
+        return Err(format!(
+            "llm_tool_call: model '{}' is a cloud model; the spike supports local/remote llama-server tool calling only.",
+            model.id
+        ));
+    }
+    if !model.capabilities.supports_tool_use {
+        return Err(format!(
+            "llm_tool_call: model '{}' does not advertise tool-use support. Switch to a tool-capable local model (e.g. qwen2.5-coder-14b).",
+            model.id
+        ));
+    }
+
+    let provider: Box<dyn LlmProvider> = crate::llm_commands::create_provider(&model)?;
+
+    // Reasoning models (gpt-oss-20b, qwen3) emit tool calls into their thinking
+    // channel unless it's disabled — the calls then never reach `tool_calls` and
+    // the loop sees a plain text turn. Default thinking OFF for the tool-selection
+    // turn; `enable_thinking: true` in the payload overrides (e.g. for probing).
+    let enable_thinking = payload
+        .get("enable_thinking")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let thinking_kwargs = json!({ "enable_thinking": enable_thinking });
+
+    // --- Turn 1: offer the read-only tools; let the model pick one ----------
+    let req1 = CompletionRequest {
+        messages: vec![Message {
+            role: Role::User,
+            content: prompt.to_string(),
+        }],
+        max_tokens: None,
+        temperature: None,
+        stop_sequences: vec![],
+        system_prompt: Some(
+            "You may call ONE read-only tool to gather information, then answer. \
+             Prefer a tool when the question is about this project's files, TODOs, \
+             git state, or recent activity. Otherwise answer directly."
+                .to_string(),
+        ),
+        provider_options: Some(json!({
+            "tools": local_tool_schemas(),
+            "tool_choice": "auto",
+            "chat_template_kwargs": thinking_kwargs.clone(),
+        })),
+    };
+
+    let resp1 = provider.complete(req1).await.map_err(|e| format!("{e}"))?;
+
+    // No tool call → the model answered directly. Return as-is.
+    let call = match resp1.tool_calls.as_ref().and_then(|c| c.first()) {
+        Some(c) => c.clone(),
+        None => {
+            return Ok(json!({
+                "answer": resp1.content,
+                "tool_used": Value::Null,
+                "model_id": model.id,
+                "turn1_stop_reason": format!("{:?}", resp1.stop_reason),
+            }));
+        }
+    };
+
+    // Recursion / safety guard: only the curated read-only allowlist may run,
+    // even if the model hallucinated a tool name outside what we offered.
+    if !LOCAL_TOOL_ALLOWLIST.contains(&call.name.as_str()) {
+        return Err(format!(
+            "llm_tool_call: model requested disallowed tool '{}' (allowed: {:?})",
+            call.name, LOCAL_TOOL_ALLOWLIST
+        ));
+    }
+
+    // Observability: announce the call BEFORE running it (mirrors mcp.invoke).
+    let mut call_env = Envelope::new(Category::Llm, "llm.tool.call");
+    call_env.payload = json!({
+        "model_id": model.id,
+        "tool": call.name,
+        "arguments": call.arguments,
+        "source": "mcp",
+        "tier": "grunt",
+    });
+    bus.publish(call_env);
+
+    // Execute the single tool call through the existing in-process dispatch.
+    // `Box::pin` breaks the type-level async-recursion cycle (dispatch_tool ->
+    // run_local_tool_call -> dispatch_tool); the LOCAL_TOOL_ALLOWLIST guard
+    // above already prevents the cycle from ever occurring at runtime.
+    let tool_result = Box::pin(dispatch_tool(
+        bus,
+        cfg,
+        project_root,
+        pty_registry,
+        app_handle,
+        &call.name,
+        &call.arguments,
+    ))
+    .await;
+
+    let (result_value, result_text) = match &tool_result {
+        Ok(v) => (v.clone(), serde_json::to_string(v).unwrap_or_default()),
+        Err(e) => (json!({ "error": e }), format!("(tool error: {e})")),
+    };
+
+    let mut result_env = Envelope::new(Category::Llm, "llm.tool.result");
+    result_env.payload = json!({
+        "model_id": model.id,
+        "tool": call.name,
+        "ok": tool_result.is_ok(),
+        "source": "mcp",
+        "tier": "grunt",
+    });
+    bus.publish(result_env);
+
+    // --- Turn 2: inline the result as plain text, ask for the answer --------
+    // The single-call spike inlines the tool result rather than using structured
+    // Role::Tool messages; that refactor lands with the multi-step loop phase.
+    let req2 = CompletionRequest {
+        messages: vec![
+            Message {
+                role: Role::User,
+                content: prompt.to_string(),
+            },
+            Message {
+                role: Role::Assistant,
+                content: format!("I'll use the {} tool to find out.", call.name),
+            },
+            Message {
+                role: Role::User,
+                content: format!(
+                    "Result of `{}`:\n{}\n\nUsing this, answer concisely: {}",
+                    call.name, result_text, prompt
+                ),
+            },
+        ],
+        max_tokens: None,
+        temperature: None,
+        stop_sequences: vec![],
+        system_prompt: None,
+        // No tools on the summarizing turn; keep thinking disabled so reasoning
+        // models don't spend their token budget thinking and return empty.
+        provider_options: Some(json!({ "chat_template_kwargs": thinking_kwargs })),
+    };
+
+    let resp2 = provider.complete(req2).await.map_err(|e| format!("{e}"))?;
+
+    Ok(json!({
+        "answer": resp2.content,
+        "tool_used": {
+            "tool": call.name,
+            "arguments": call.arguments,
+            "result": result_value,
+        },
+        "model_id": model.id,
+        "turn1_stop_reason": format!("{:?}", resp1.stop_reason),
+    }))
 }
 
 /// `llm_prompt` — send a prompt through the router and return the response.

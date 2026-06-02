@@ -27,6 +27,12 @@
 #   reqwest::              — HTTP client (preemptive; no dep today)
 #   claude_(api|code|sdk|cli)::  — future Claude API direct calls
 #   mcp_(client|server|core)::   — future MCP SDK direct calls
+#   rmcp::                 — official MCP Rust SDK (modelcontextprotocol/rust-sdk).
+#                            The real crate is `rmcp`, which the mcp_* pattern
+#                            above does NOT match — a latent gap. When an MCP
+#                            *client* lands it MUST live in
+#                            crates/rift-bus/src/translators/mcp_client.rs
+#                            (already covered by the translators/ allowlist).
 #
 # INLINE #[cfg(test)] BLOCKS: this script does NOT distinguish inline test
 # blocks from production code inside the same .rs file. If a production file
@@ -55,6 +61,7 @@ FORBIDDEN_PATTERNS=(
     'reqwest::'
     'claude_(api|code|sdk|cli)::'
     'mcp_(client|server|core)::'
+    'rmcp::'
 )
 
 # ---------------------------------------------------------------------------
@@ -75,6 +82,7 @@ FORBIDDEN PATTERNS
   reqwest::                   — HTTP client
   claude_(api|code|sdk|cli):: — Claude API / SDK direct calls
   mcp_(client|server|core)::  — MCP SDK direct calls
+  rmcp::                      — official MCP Rust SDK (real crate name)
 
 ALLOWLIST (patterns PERMITTED in these paths)
   crates/rift-bus/src/translators/**/*.rs  — the translator boundary itself

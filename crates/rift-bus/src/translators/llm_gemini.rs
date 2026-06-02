@@ -341,6 +341,7 @@ impl LlmProvider for GeminiProvider {
                 .unwrap_or_else(|| self.model_identifier.clone()),
             stop_reason: map_finish_reason(&finish),
             latency_ms,
+            tool_calls: None,
         })
     }
 

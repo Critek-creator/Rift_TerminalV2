@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 use super::llm::Message;
 use super::llm::{
     CompletionRequest, CompletionResponse, CompletionStream, LlmError, LlmProvider, ProviderStatus,
-    Role, StopReason, StreamChunk,
+    Role, StopReason, StreamChunk, ToolCall,
 };
 
 /// A provider backed by a llama-server (or any OpenAI-compatible) endpoint.
@@ -69,6 +69,16 @@ struct ChatRequest {
     /// Sourced from `CompletionRequest.provider_options["chat_template_kwargs"]`.
     #[serde(skip_serializing_if = "Option::is_none")]
     chat_template_kwargs: Option<serde_json::Value>,
+    /// OpenAI `tools` array. llama-server only honors this when launched with
+    /// `--jinja` (the server then renders the schema into the chat template
+    /// and auto-applies a lazy GBNF grammar that guarantees syntactically
+    /// valid tool-call JSON). Sourced from `provider_options["tools"]`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tools: Option<serde_json::Value>,
+    /// OpenAI `tool_choice` (`"auto"` | `"required"` | `"none"` | object).
+    /// Sourced from `provider_options["tool_choice"]`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tool_choice: Option<serde_json::Value>,
 }
 
 #[derive(Serialize)]
@@ -93,6 +103,43 @@ struct ChatChoice {
 #[derive(Deserialize)]
 struct ChatChoiceMessage {
     content: Option<String>,
+    #[serde(default)]
+    tool_calls: Option<Vec<ChatToolCall>>,
+}
+
+/// One OpenAI `tool_calls[]` entry as returned by llama-server (`--jinja`).
+#[derive(Deserialize)]
+struct ChatToolCall {
+    #[serde(default)]
+    id: Option<String>,
+    function: ChatToolCallFunction,
+}
+
+#[derive(Deserialize)]
+struct ChatToolCallFunction {
+    name: String,
+    /// Per the OpenAI spec this is a JSON-encoded *string*; some servers emit
+    /// a bare object instead. [`ChatToolCall::to_tool_call`] handles both.
+    arguments: serde_json::Value,
+}
+
+impl ChatToolCall {
+    /// Normalize a wire tool-call into the shared [`ToolCall`] shape, parsing
+    /// the OpenAI string-encoded `arguments` into a JSON object. `idx` provides
+    /// a synthetic id when the server omits one.
+    fn to_tool_call(&self, idx: usize) -> ToolCall {
+        let arguments = match &self.function.arguments {
+            serde_json::Value::String(s) => {
+                serde_json::from_str(s).unwrap_or_else(|_| serde_json::Value::String(s.clone()))
+            }
+            other => other.clone(),
+        };
+        ToolCall {
+            id: self.id.clone().unwrap_or_else(|| format!("call_{idx}")),
+            name: self.function.name.clone(),
+            arguments,
+        }
+    }
 }
 
 #[derive(Deserialize)]
@@ -139,6 +186,7 @@ fn map_finish_reason(reason: &Option<String>) -> StopReason {
         Some("stop") | Some("end_turn") => StopReason::EndTurn,
         Some("length") | Some("max_tokens") => StopReason::MaxTokens,
         Some("stop_sequence") => StopReason::StopSequence,
+        Some("tool_calls") => StopReason::ToolUse,
         _ => StopReason::EndTurn,
     }
 }
@@ -174,6 +222,20 @@ fn build_chat_request(req: &CompletionRequest, model: &str, stream: bool) -> Cha
         .and_then(|opts| opts.get("chat_template_kwargs"))
         .cloned();
 
+    // Tool calling (passed through provider_options — a single-provider
+    // capability today, so it stays out of the shared CompletionRequest).
+    let tools = req
+        .provider_options
+        .as_ref()
+        .and_then(|opts| opts.get("tools"))
+        .cloned();
+
+    let tool_choice = req
+        .provider_options
+        .as_ref()
+        .and_then(|opts| opts.get("tool_choice"))
+        .cloned();
+
     ChatRequest {
         model: model.to_string(),
         messages,
@@ -183,6 +245,8 @@ fn build_chat_request(req: &CompletionRequest, model: &str, stream: bool) -> Cha
         stream,
         grammar,
         chat_template_kwargs,
+        tools,
+        tool_choice,
     }
 }
 
@@ -371,23 +435,45 @@ impl LlmProvider for LlamaServerProvider {
                 message: "empty choices array".to_string(),
             })?;
 
-        let content = choice
-            .message
-            .as_ref()
-            .and_then(|m| m.content.clone())
-            .unwrap_or_default();
+        let message = choice.message.as_ref();
+        let content = message.and_then(|m| m.content.clone()).unwrap_or_default();
+
+        // Normalize any tool calls the model emitted. `None` (not empty Vec)
+        // when the model produced a plain text turn.
+        let tool_calls: Option<Vec<ToolCall>> = message
+            .and_then(|m| m.tool_calls.as_ref())
+            .map(|calls| {
+                calls
+                    .iter()
+                    .enumerate()
+                    .map(|(i, c)| c.to_tool_call(i))
+                    .collect::<Vec<_>>()
+            })
+            .filter(|v| !v.is_empty());
+
+        // Some models/servers report finish_reason="stop" even while emitting
+        // tool calls (feasibility note on Qwen3/Gemma parsers). Treat any
+        // present tool calls as ToolUse so the executor loop detects them.
+        let stop_reason = if tool_calls.is_some() {
+            StopReason::ToolUse
+        } else {
+            map_finish_reason(&choice.finish_reason)
+        };
 
         let usage = chat_resp.usage.as_ref();
+        let tokens_in = usage.and_then(|u| u.prompt_tokens).unwrap_or(0);
+        let tokens_out = usage.and_then(|u| u.completion_tokens).unwrap_or(0);
 
         Ok(CompletionResponse {
             content,
-            tokens_in: usage.and_then(|u| u.prompt_tokens).unwrap_or(0),
-            tokens_out: usage.and_then(|u| u.completion_tokens).unwrap_or(0),
+            tokens_in,
+            tokens_out,
             model_used: chat_resp
                 .model
                 .unwrap_or_else(|| self.model_identifier.clone()),
-            stop_reason: map_finish_reason(&choice.finish_reason),
+            stop_reason,
             latency_ms,
+            tool_calls,
         })
     }
 
@@ -540,6 +626,101 @@ mod tests {
     }
 
     #[test]
+    fn build_chat_request_forwards_tools() {
+        let req = CompletionRequest {
+            messages: vec![Message {
+                role: Role::User,
+                content: "list files".to_string(),
+            }],
+            max_tokens: None,
+            temperature: None,
+            stop_sequences: vec![],
+            system_prompt: None,
+            provider_options: Some(serde_json::json!({
+                "tools": [{
+                    "type": "function",
+                    "function": {
+                        "name": "fs_read",
+                        "description": "read a file",
+                        "parameters": { "type": "object" }
+                    }
+                }],
+                "tool_choice": "auto"
+            })),
+        };
+        let chat = build_chat_request(&req, "m", false);
+        let body = serde_json::to_value(&chat).unwrap();
+        assert_eq!(body["tools"][0]["function"]["name"], "fs_read");
+        assert_eq!(body["tool_choice"], "auto");
+        // Absent when not requested — wire body stays clean for plain calls.
+        let plain = build_chat_request(
+            &CompletionRequest {
+                messages: vec![Message {
+                    role: Role::User,
+                    content: "hi".to_string(),
+                }],
+                max_tokens: None,
+                temperature: None,
+                stop_sequences: vec![],
+                system_prompt: None,
+                provider_options: None,
+            },
+            "m",
+            false,
+        );
+        let plain_body = serde_json::to_value(&plain).unwrap();
+        assert!(plain_body.get("tools").is_none());
+        assert!(plain_body.get("tool_choice").is_none());
+    }
+
+    #[test]
+    fn chat_response_with_tool_calls_parses() {
+        // OpenAI/llama-server shape: arguments is a JSON-encoded STRING.
+        let json = r#"{
+            "choices": [{
+                "message": {
+                    "tool_calls": [{
+                        "id": "call_0",
+                        "type": "function",
+                        "function": { "name": "fs_read", "arguments": "{\"path\":\"a.rs\"}" }
+                    }]
+                },
+                "finish_reason": "tool_calls"
+            }],
+            "model": "local"
+        }"#;
+        let resp: ChatResponse = serde_json::from_str(json).expect("parse");
+        let choice = resp.choices.first().expect("choice");
+        let calls = choice
+            .message
+            .as_ref()
+            .and_then(|m| m.tool_calls.as_ref())
+            .expect("tool_calls");
+        assert_eq!(calls.len(), 1);
+        let tc = calls[0].to_tool_call(0);
+        assert_eq!(tc.name, "fs_read");
+        assert_eq!(tc.id, "call_0");
+        // The string-encoded arguments were parsed into a real object.
+        assert_eq!(tc.arguments["path"], "a.rs");
+        assert_eq!(
+            map_finish_reason(&choice.finish_reason),
+            StopReason::ToolUse
+        );
+    }
+
+    #[test]
+    fn tool_call_arguments_object_form_also_parses() {
+        // Some servers emit arguments as a bare object instead of a string.
+        let call: ChatToolCall = serde_json::from_str(
+            r#"{ "id": "c1", "function": { "name": "git_status", "arguments": { "x": 1 } } }"#,
+        )
+        .expect("parse");
+        let tc = call.to_tool_call(2);
+        assert_eq!(tc.arguments["x"], 1);
+        assert_eq!(tc.id, "c1");
+    }
+
+    #[test]
     fn map_finish_reason_variants() {
         assert_eq!(
             map_finish_reason(&Some("stop".to_string())),
@@ -552,6 +733,10 @@ mod tests {
         assert_eq!(
             map_finish_reason(&Some("stop_sequence".to_string())),
             StopReason::StopSequence
+        );
+        assert_eq!(
+            map_finish_reason(&Some("tool_calls".to_string())),
+            StopReason::ToolUse
         );
         assert_eq!(map_finish_reason(&None), StopReason::EndTurn);
     }

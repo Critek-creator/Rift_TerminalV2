@@ -1,4 +1,4 @@
-//! Tool catalog — Phase A (4) + Phase B (6) + Phase C (3) + Phase D (7) + diagnostic (2) + LLM router (5) + process mgmt (2) + session (1) = 31 tools (count reflects all additions after initial Phase A–D).
+//! Tool catalog — Phase A (4) + Phase B (6) + Phase C (3) + Phase D (7) + diagnostic (2) + LLM router (6) + process mgmt (2) + session (1) = 32 tools (count reflects all additions after initial Phase A–D; LLM router gained llm_tool_call — the Path C single-tool-call spike).
 //!
 //! Each tool's `inputSchema` is a JSON Schema object understood by MCP
 //! clients. Per-tool semantics live host-side in `src-tauri/src/mcp_host.rs`;
@@ -29,7 +29,7 @@ pub struct ToolSpec {
     pub input_schema: Value,
 }
 
-/// Full tool catalog (31 tools — D-014 §3 Tier 1 + Tier 2 + Tier 3 + diagnostic + LLM router + process mgmt + session).
+/// Full tool catalog (32 tools — D-014 §3 Tier 1 + Tier 2 + Tier 3 + diagnostic + LLM router + process mgmt + session).
 pub fn tool_catalog() -> Vec<ToolSpec> {
     vec![
         ToolSpec {
@@ -549,6 +549,28 @@ pub fn tool_catalog() -> Vec<ToolSpec> {
                     "critique": {
                         "type": "boolean",
                         "description": "If true, after both models respond, model B critiques model A's output. Default false.",
+                    },
+                },
+                "required": ["prompt"],
+            }),
+        },
+        ToolSpec {
+            name: "llm_tool_call",
+            description: "Have a LOCAL model perform a single read-only tool call to answer a question about this project, then summarize the result. The model is offered a curated read-only subset (fs_read, fs_tree, todo_scan, git_status, bus_history), picks at most one, Rift runs it in-process, and the model answers from the result. Bounded to ONE tool call (single-call spike). Local/remote tool-capable models only — not cloud.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "prompt": {
+                        "type": "string",
+                        "description": "The question/task for the local model to answer, optionally using one read-only tool.",
+                    },
+                    "model_id": {
+                        "type": "string",
+                        "description": "Optional model ID override (e.g. \"qwen2.5-coder-14b\", \"gpt-oss-20b\", \"omnicoder-9b\"). If omitted, the router picks (default gpt-oss-20b).",
+                    },
+                    "enable_thinking": {
+                        "type": "boolean",
+                        "description": "Default false. Reasoning models (gpt-oss, qwen3) bury tool calls in their thinking channel unless disabled; set true only to probe reasoning-on behavior.",
                     },
                 },
                 "required": ["prompt"],
