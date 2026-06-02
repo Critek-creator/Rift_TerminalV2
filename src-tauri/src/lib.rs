@@ -2297,6 +2297,51 @@ pub fn run() {
                     });
                 }
 
+                // Idle session compaction — digests the older session prefix
+                // into a sidecar summary on bus idle (opt-in via
+                // session.idle_compact_after_minutes; 0 = off). The summarizer
+                // is resolved lazily per cycle to the currently-serving LOCAL
+                // model: free + private (session logs never leave the machine —
+                // no cloud fallback) and resident-aware (uses the loaded model,
+                // so no VRAM evict/cold-load). Skips the cycle if no local model
+                // is serving.
+                {
+                    let compaction_bus = app.state::<RiftBus>().inner().clone();
+                    let compaction_cfg = cfg.session.clone();
+                    let compaction_shutdown = app.state::<ShutdownNotify>().handle();
+                    let compaction_pm = pm.clone();
+                    let summarizer: rift_bus::compaction::SummarizerFactory =
+                        std::sync::Arc::new(move || {
+                            let config = rift_bus::config::load_config().ok()?;
+                            let mut router =
+                                rift_router::RouterService::new(config.ensemble.clone());
+                            router.sync_local_availability(&compaction_pm.live_models());
+                            let model = config
+                                .ensemble
+                                .models
+                                .iter()
+                                .find(|m| {
+                                    m.enabled
+                                        && matches!(
+                                            m.hosting,
+                                            rift_bus::config::HostingMode::Local { .. }
+                                        )
+                                        && router.is_available(&m.id)
+                                })?
+                                .clone();
+                            llm_commands::create_provider(&model).ok()
+                        });
+                    tauri::async_runtime::spawn(async move {
+                        rift_bus::spawn_compaction(
+                            compaction_bus,
+                            compaction_cfg,
+                            compaction_shutdown,
+                            summarizer,
+                        )
+                        .await;
+                    });
+                }
+
                 if cfg.ensemble.enabled {
                     let pm_auto = pm.clone();
                     let auto_models: Vec<_> = cfg

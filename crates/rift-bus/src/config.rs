@@ -302,6 +302,16 @@ pub struct SessionConfig {
     /// Stop writing to the current session file once it exceeds this size.
     /// The file is capped, not rotated — the next launch gets a fresh file.
     pub max_file_size_mb: u32,
+    /// Idle-compaction trigger: minutes of bus inactivity before the older
+    /// prefix of the active session log is summarized into a sidecar.
+    /// `0` (default) disables compaction — opt-in, mirroring the rest of this
+    /// struct's conservative defaults. Recommended: `15` (≈ the 5-min/1-hr
+    /// prompt-cache TTL window, so stale context is digested before it expires
+    /// unused). See `compaction.rs`.
+    pub idle_compact_after_minutes: u32,
+    /// Number of most-recent envelopes kept verbatim (NOT summarized) when
+    /// compaction fires. Only the older prefix beyond this suffix is digested.
+    pub keep_suffix_events: usize,
 }
 
 impl Default for SessionConfig {
@@ -310,6 +320,8 @@ impl Default for SessionConfig {
             enabled: true,
             retention_days: 7,
             max_file_size_mb: 100,
+            idle_compact_after_minutes: 0,
+            keep_suffix_events: 100,
         }
     }
 }

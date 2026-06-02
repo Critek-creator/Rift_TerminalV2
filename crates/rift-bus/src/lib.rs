@@ -7,6 +7,7 @@
 // Future: translator-module registry.
 
 pub mod bus;
+pub mod compaction;
 pub mod config;
 pub mod correlation;
 pub mod envelope;
@@ -216,6 +217,16 @@ pub use translators::lane::prepare_lane_prelude;
 /// });
 /// ```
 pub use session_logger::spawn_session_logger;
+
+/// Run the idle session-compaction watcher (digests the older session prefix
+/// into a sidecar summary on bus idle). `async fn` — wrap in
+/// `tauri::async_runtime::spawn`, injecting an app-built summarizer provider:
+/// ```ignore
+/// tauri::async_runtime::spawn(async move {
+///     rift_bus::spawn_compaction(bus, cfg, shutdown, provider).await;
+/// });
+/// ```
+pub use compaction::spawn_compaction;
 
 /// Re-export [`SessionConfig`] so callers can write `rift_bus::SessionConfig`.
 pub use config::SessionConfig;
