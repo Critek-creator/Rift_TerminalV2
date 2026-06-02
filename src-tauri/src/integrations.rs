@@ -62,7 +62,18 @@ pub fn integration_detect(cached: tauri::State<'_, crate::CachedConfig>) -> Inte
 }
 
 fn check_node() -> (bool, Option<String>) {
-    match Command::new("node").arg("--version").output() {
+    let mut cmd = Command::new("node");
+    cmd.arg("--version");
+    // Windows: suppress the console-window flash this background check would
+    // otherwise pop. Mirrors the CREATE_NO_WINDOW guard on the other spawn
+    // sites (git_status.rs, health_collector.rs, lib.rs, status.rs).
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+    match cmd.output() {
         Ok(output) if output.status.success() => {
             let version = String::from_utf8_lossy(&output.stdout).trim().to_string();
             (true, Some(version))
