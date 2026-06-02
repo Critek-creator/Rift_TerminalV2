@@ -40,6 +40,7 @@
   import { evaluateRule, triggerAction } from './lib/alertRules';
   import { CorrelationIndex } from './lib/correlationIndex';
   import CommandPalette from './lib/CommandPalette.svelte';
+  import SlashLauncher from './lib/SlashLauncher.svelte';
   import ShortcutOverlay from './lib/ShortcutOverlay.svelte';
   import WelcomeOverlay from './lib/WelcomeOverlay.svelte';
   import CommandIntelligencePanel from './lib/CommandIntelligencePanel.svelte';
@@ -107,6 +108,7 @@
   // ----- command palette -----
   let paletteOpen = $state(false);
   let paletteInitialQuery = $state('');
+  let slashOpen = $state(false);
 
   // ----- shortcut overlay -----
   let shortcutsOpen = $state(false);
@@ -878,6 +880,13 @@
         paletteOpen = true;
         return;
       }
+      // Ctrl+Shift+P — slash-launcher (Rift actions / Claude commands / run in
+      // terminal). Distinct from Ctrl+K (the fuzzy command palette).
+      if (e.ctrlKey && e.shiftKey && (e.key === 'P' || e.key === 'p')) {
+        e.preventDefault();
+        slashOpen = !slashOpen;
+        return;
+      }
       // Ctrl+Shift+K — drop a session marker (candidate 49d). Ctrl+M is
       // Carriage Return in a terminal, so the candidate's suggested Ctrl+M
       // would shadow Enter; Ctrl+Shift+K is terminal-safe. The marker is a
@@ -1211,6 +1220,14 @@
       onclose={() => { paletteOpen = false; paletteInitialQuery = ''; }}
       onActivateNotif={nm.activateNotif}
       initialQuery={paletteInitialQuery}
+    />
+  {/if}
+
+  {#if slashOpen}
+    <SlashLauncher
+      onclose={() => { slashOpen = false; }}
+      onNewTab={sm.addSession}
+      onToggleCockpit={toggleCockpit}
     />
   {/if}
 

@@ -7,6 +7,7 @@ export interface Keybinding {
 export const keybindings: Keybinding[] = [
   // Navigation
   { key: 'Ctrl+K', description: 'Command palette', category: 'navigation' },
+  { key: 'Ctrl+Shift+P', description: 'Slash launcher (Rift / Claude commands)', category: 'navigation' },
   { key: 'Ctrl+B', description: 'Toggle cockpit panel', category: 'navigation' },
   { key: 'Ctrl+?', description: 'Keyboard shortcuts', category: 'navigation' },
 
