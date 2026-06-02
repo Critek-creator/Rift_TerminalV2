@@ -1037,17 +1037,85 @@ fn terminal_mounted(ready: State<'_, TerminalReady>) {
     ready.0.notify_one();
 }
 
+/// Snapshot the main window's geometry/visibility and publish it to the bus
+/// (`window.reveal.state`) so the intermittent "launches minimized" bug is
+/// diagnosable from real evidence rather than guesswork. `phase` tags which
+/// point in the reveal sequence the snapshot is from (before / after /
+/// after-deferred-*). Cheap and side-effect-free.
+fn log_window_state(app: &AppHandle, phase: &str) {
+    let Some(win) = app.get_webview_window("main") else {
+        return;
+    };
+    let minimized = win.is_minimized().unwrap_or(false);
+    let visible = win.is_visible().unwrap_or(false);
+    let (px, py) = win.outer_position().map(|p| (p.x, p.y)).unwrap_or((-1, -1));
+    let (w, h) = win
+        .inner_size()
+        .map(|s| (s.width, s.height))
+        .unwrap_or((0, 0));
+    tracing::info!(
+        "window.reveal.state[{phase}] minimized={minimized} visible={visible} pos=({px},{py}) size={w}x{h}"
+    );
+    if let Some(bus) = app.try_state::<RiftBus>() {
+        if let Ok(env) =
+            Envelope::new(Category::System, "window.reveal.state").with_payload(&json!({
+                "phase": phase,
+                "minimized": minimized,
+                "visible": visible,
+                "pos": { "x": px, "y": py },
+                "size": { "w": w, "h": h },
+            }))
+        {
+            bus.inner().publish(env);
+        }
+    }
+}
+
+/// Known-good reveal sequence. Order matters on Windows: `show()` FIRST so the
+/// subsequent `unminimize()` (SW_RESTORE) reliably operates on a visible window
+/// rather than a still-hidden one, then repair a degenerate size (WebView2 can
+/// restore a 0/tiny inner size that `center()` alone won't fix), then center +
+/// focus.
+fn apply_reveal(win: &tauri::WebviewWindow) {
+    let _ = win.show();
+    let _ = win.unminimize();
+    if let Ok(sz) = win.inner_size() {
+        if sz.width < 200 || sz.height < 200 {
+            let _ = win.set_size(tauri::LogicalSize::new(1100.0, 700.0));
+        }
+    }
+    let _ = win.center();
+    let _ = win.set_focus();
+}
+
 /// Reveal the main window in a known-good state, overriding any stale
-/// WebView2/EBWebView-restored minimized or off-screen geometry. Idempotent —
-/// `show()`/`unminimize()` on an already-visible window are no-ops, so it is
-/// safe to call from BOTH the frontend-ready command and the fallback timer
-/// (whichever fires first wins; the other is harmless).
+/// WebView2/EBWebView-restored minimized or off-screen geometry. Logs the
+/// before/after window state for diagnosis, then schedules a deferred
+/// corrective pass (+250ms) that re-shows/unminimizes IF a late EBWebView/OS
+/// placement re-asserts a minimized/hidden state just after the initial reveal
+/// — but deliberately does NOT re-center or steal focus in that pass, so a
+/// window the user has already touched is never yanked.
 fn reveal_main_window(app: &AppHandle) {
     if let Some(win) = app.get_webview_window("main") {
-        let _ = win.unminimize();
-        let _ = win.center();
-        let _ = win.show();
-        let _ = win.set_focus();
+        log_window_state(app, "before");
+        apply_reveal(&win);
+        log_window_state(app, "after");
+
+        let app2 = app.clone();
+        tauri::async_runtime::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+            if let Some(win) = app2.get_webview_window("main") {
+                let minimized = win.is_minimized().unwrap_or(false);
+                let visible = win.is_visible().unwrap_or(true);
+                if minimized || !visible {
+                    let _ = win.show();
+                    let _ = win.unminimize();
+                    log_window_state(&app2, "after-deferred-corrected");
+                } else {
+                    log_window_state(&app2, "after-deferred-ok");
+                }
+            }
+        });
     }
 }
 
@@ -2558,13 +2626,20 @@ pub fn run() {
             //
             // FALLBACK: if the frontend never signals ready (failed JS load,
             // broken webview), reveal the window anyway after a short delay so it
-            // can never get stuck permanently hidden. reveal_main_window is
-            // idempotent, so a double-reveal alongside the ready command is safe.
+            // can never get stuck permanently hidden. Guarded on `!is_visible` so
+            // that when the fast `main_window_ready` path already revealed it, we
+            // do NOT re-center/re-focus a window the user may already be using.
             {
                 let reveal_app = app.handle().clone();
                 tauri::async_runtime::spawn(async move {
                     tokio::time::sleep(std::time::Duration::from_millis(3000)).await;
-                    reveal_main_window(&reveal_app);
+                    let already_shown = reveal_app
+                        .get_webview_window("main")
+                        .and_then(|w| w.is_visible().ok())
+                        .unwrap_or(false);
+                    if !already_shown {
+                        reveal_main_window(&reveal_app);
+                    }
                 });
             }
 
