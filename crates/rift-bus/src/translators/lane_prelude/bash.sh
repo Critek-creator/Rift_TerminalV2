@@ -21,6 +21,9 @@ _rift_prompt() {
     local _exit=$?
     printf '%s' "${_rift_osc}CMD_END;exit=${_exit}${_rift_bel}"
     printf '%s' "${_rift_osc}PROMPT_START${_rift_bel}"
+    # CWD — current dir at prompt time (Stage 2b live cwd). $PWD is unix-style
+    # on Windows git-bash; restore canonicalizes best-effort, else falls back.
+    printf '%s' "${_rift_osc}CWD;${PWD}${_rift_bel}"
 }
 
 _rift_prompt_end() {

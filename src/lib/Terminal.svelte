@@ -46,12 +46,13 @@
   import { sessionManager } from './sessionManager.svelte';
   import {
     getRestorePayload,
-    claimRestore,
-    clearSnapshot,
-    writeSnapshot,
+    claimPane,
+    registerPaneProvider,
+    unregisterPaneProvider,
     getSnapshotConfig,
     setActivePane,
     isActivePane,
+    type PaneSnapshot,
   } from './sessionRestore';
 
   type PtyExited = { id: number; code: number };
@@ -293,23 +294,34 @@
     return delta < 1000 ? 'moments ago' : `${formatDuration(delta)} ago`;
   }
 
-  /** Serialize the live buffer + cwd and persist it for restart-safe restore.
-   *  Best-effort, focused-pane-only — see [`sessionRestore`]. */
-  function captureSnapshot(): void {
-    if (!term || !serializeAddon || sessionId === null || !alive) return;
-    if (!isActivePane(paneId)) return;
+  /** Build this pane's current snapshot (serialized buffer + live cwd + dims).
+   *  Returns null until the terminal is serializable. Registered as this pane's
+   *  provider so the coordinator can gather the whole active session at once. */
+  function buildPaneSnapshot(): PaneSnapshot | null {
+    if (!term || !serializeAddon) return null;
     try {
-      const serialized = serializeAddon.serialize({ scrollback: 2000 });
-      writeSnapshot({
+      return {
         pane_id: paneId ?? 0,
-        serialized,
+        serialized: serializeAddon.serialize({ scrollback: 2000 }),
         cwd: effectiveCwd ?? projectPath ?? '',
         rows: term.rows,
         cols: term.cols,
         project_root: projectPath ?? null,
-      });
+      };
     } catch {
-      /* serialize/persist is best-effort — never disrupt the live terminal */
+      return null;
+    }
+  }
+
+  /** Drive a full active-session snapshot (all panes + layout) via the
+   *  coordinator. Focused-pane-only so multiple panes don't each fire a write;
+   *  best-effort — never disrupts the live terminal. */
+  function captureSnapshot(): void {
+    if (!isActivePane(paneId)) return;
+    try {
+      sessionManager.captureActiveSession();
+    } catch {
+      /* best-effort */
     }
   }
 
@@ -343,7 +355,8 @@
       fontSize: settings.fontSize,
       lineHeight: settings.lineHeight,
       scrollback: settings.scrollback,
-      cursorBlink: true,
+      cursorBlink: settings.cursorBlink,
+      cursorStyle: settings.cursorStyle,
       theme: initTheme,
       // Required by @xterm/addon-ligatures: registerCharacterJoiner is a
       // proposed xterm API and throws on activate() without this flag.
@@ -356,6 +369,9 @@
     // Stage 2: serializer used to snapshot the buffer for restart-safe restore.
     serializeAddon = new SerializeAddon();
     term.loadAddon(serializeAddon);
+    // Register this pane's snapshot provider so the coordinator can gather the
+    // whole active session (all leaves + layout) in one write.
+    registerPaneProvider(paneId, buildPaneSnapshot);
 
     // CRITICAL: await fonts.ready BEFORE term.open(host).
     //
@@ -701,16 +717,16 @@
         term.resize(startCols, startRows);
       }
 
-      // Stage 2 restart-safe restore: if a prior-launch snapshot exists and
-      // this pane wins the one-shot claim, re-hydrate the scrollback + cwd
+      // Stage 2 restart-safe restore: re-hydrate THIS pane's scrollback + cwd
       // (and surface the compaction digest) BEFORE the fresh shell prompt, so
-      // the restored history sits above it. The dead shell can't return; its
-      // context can. Best-effort — never block a fresh shell on restore.
+      // the restored history sits above it. Each pane matches its own snapshot
+      // by id and restores once (Stage 2b multi-pane). The dead shell can't
+      // return; its context can. Best-effort — never block a fresh shell.
       let restoreCwd: string | undefined;
       try {
         const payload = await getRestorePayload();
-        if (payload && payload.panes.length > 0 && claimRestore()) {
-          const snap = payload.panes[0];
+        const snap = payload?.panes.find((p) => p.pane_id === paneId);
+        if (payload && snap && claimPane(paneId)) {
           if (snap.serialized) term.write(snap.serialized);
           term.write('\r\n');
           term.writeln(
@@ -724,7 +740,6 @@
             term.writeln(laneFormatGated('SYS', `↻ Last session: ${payload.digest}`, lanesEnabled));
           }
           if (snap.cwd) restoreCwd = snap.cwd;
-          clearSnapshot(payload.session_id);
         }
       } catch {
         /* restore is best-effort */
@@ -898,6 +913,8 @@
       }
       term.options.lineHeight = fresh.lineHeight;
       term.options.scrollback = fresh.scrollback;
+      term.options.cursorStyle = fresh.cursorStyle;
+      term.options.cursorBlink = fresh.cursorBlink;
       lanesEnabled = fresh.lanesEnabled;
       // Sync CSS --term-bg so the terminal host matches the palette (chrome
       // keeps its own ladder — see onMount note).
@@ -962,6 +979,16 @@
           addCommandBadge(c.exit_code, c.duration_ms ?? null);
           return;
         }
+        if (env.kind === 'cwd.changed') {
+          // Stage 2b: track the live shell cwd so the next snapshot (and thus
+          // the next restore) lands in the directory the user actually cd'd to,
+          // not the spawn cwd.
+          const w = env.payload as { session_id?: number; cwd?: string } | null;
+          if (!w?.cwd) return;
+          if (w.session_id !== undefined && w.session_id !== sessionId) return;
+          effectiveCwd = w.cwd;
+          return;
+        }
         if (env.kind !== 'lane.changed') return;
         const p = env.payload as { lane?: string; session_id?: number } | null;
         if (!p?.lane) return;
@@ -982,10 +1009,12 @@
 
   onDestroy(() => {
     laneMounted = false;
-    // Stage 2: one last snapshot before teardown (best-effort), then stop the
-    // periodic timer. Periodic capture is the real safety net — a hard window
-    // close may not flush this, but at most one interval of scrollback is lost.
+    // Stage 2: one last full-session snapshot before teardown (best-effort, and
+    // captured while this pane's provider is still registered), then stop the
+    // timer + drop the provider. Periodic capture is the real safety net — a
+    // hard window close may not flush this, but at most one interval is lost.
     captureSnapshot();
+    unregisterPaneProvider(paneId);
     if (snapshotTimer) clearInterval(snapshotTimer);
     if (sessionId !== null && alive) {
       invoke('pty_kill', { id: sessionId }).catch(() => {});

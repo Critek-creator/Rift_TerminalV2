@@ -78,13 +78,25 @@ pub enum SentinelEvent {
     PromptStart,
     PromptEnd,
     CmdStart,
-    CmdEnd { exit_code: i32 },
-    HookStart { name: String },
-    HookEnd { name: String },
+    CmdEnd {
+        exit_code: i32,
+    },
+    HookStart {
+        name: String,
+    },
+    HookEnd {
+        name: String,
+    },
     AegisStart,
     AegisEnd,
     ClaudeStart,
     ClaudeEnd,
+    /// Working directory at prompt time (Stage 2b live cwd). Carries the raw
+    /// path (the sentinel's whole remainder after `CWD;`), so paths with
+    /// embedded `;`/`=` survive. Metadata only — never a lane transition.
+    CwdChanged {
+        path: String,
+    },
 }
 
 /// A lane-change event emitted by the classifier.
@@ -125,6 +137,12 @@ pub struct LaneClassifier {
     /// terminal can render a per-command status badge. Symmetric to
     /// `cmd_start_fired`.
     cmd_end_exit: Option<i32>,
+    /// New working directory from a CWD sentinel processed by the last
+    /// `transform()` / `feed()` call, or `None`. The drain task reads this (via
+    /// [`take_cwd_change`]) to publish a `cwd.changed` envelope so the terminal
+    /// tracks the live cwd for restart-safe restore. Symmetric to
+    /// `cmd_end_exit`.
+    cwd_changed: Option<String>,
 }
 
 /// OSC 6973 prefix: ESC ] 6 9 7 3 ;
@@ -142,6 +160,7 @@ impl LaneClassifier {
             partial_osc: None,
             cmd_start_fired: false,
             cmd_end_exit: None,
+            cwd_changed: None,
         }
     }
 
@@ -164,6 +183,14 @@ impl LaneClassifier {
     /// envelope (exit code + measured duration) for the per-command badge.
     pub fn take_cmd_end(&mut self) -> Option<i32> {
         self.cmd_end_exit.take()
+    }
+
+    /// Returns and clears the cwd from a CWD sentinel processed by the last
+    /// `transform()` / `feed()` call. `Some(path)` means the working directory
+    /// was reported at a prompt; the drain task publishes a `cwd.changed`
+    /// envelope so the frontend can track the live cwd for snapshot restore.
+    pub fn take_cwd_change(&mut self) -> Option<String> {
+        self.cwd_changed.take()
     }
 
     /// Feed a chunk of PTY output bytes. Returns any lane transitions that
@@ -249,6 +276,11 @@ impl LaneClassifier {
     }
 
     fn apply_event(&mut self, event: SentinelEvent) -> Option<LaneChange> {
+        if let SentinelEvent::CwdChanged { path } = &event {
+            // Metadata only — record the live cwd, never a lane transition.
+            self.cwd_changed = Some(path.clone());
+            return None;
+        }
         if matches!(event, SentinelEvent::CmdStart) {
             self.cmd_start_fired = true;
         }
@@ -282,6 +314,9 @@ impl LaneClassifier {
                 Lane::Claude
             }
             SentinelEvent::ClaudeEnd => self.lane_stack.pop().unwrap_or(Lane::Sys),
+            // Handled by the early return above; arm satisfies exhaustiveness
+            // and is a no-op (no lane change) if ever reached.
+            SentinelEvent::CwdChanged { .. } => self.current_lane,
         };
 
         if new_lane != self.current_lane {
@@ -592,6 +627,18 @@ fn parse_sentinel_event(s: &str) -> Option<SentinelEvent> {
         "AEGIS_END" => Some(SentinelEvent::AegisEnd),
         "CLAUDE_START" => Some(SentinelEvent::ClaudeStart),
         "CLAUDE_END" => Some(SentinelEvent::ClaudeEnd),
+        // CWD carries the raw path as its whole remainder (NOT key=value), so a
+        // path containing `;`/`=` survives the splitn(2) above intact.
+        "CWD" => {
+            let path = params.trim();
+            if path.is_empty() {
+                None
+            } else {
+                Some(SentinelEvent::CwdChanged {
+                    path: path.to_string(),
+                })
+            }
+        }
         _ => None,
     }
 }
@@ -625,6 +672,35 @@ mod tests {
         let changes = c.feed(b"hello world\r\nsome output\r\n");
         assert!(changes.is_empty());
         assert_eq!(c.current_lane(), Lane::Sys);
+    }
+
+    #[test]
+    fn cwd_sentinel_is_metadata_only() {
+        let mut c = LaneClassifier::new();
+        // A path with embedded `;` must survive (raw remainder, not key=value).
+        let chunk = b"\x1b]6973;CWD;C:\\proj;weird\x07";
+        let changes = c.feed(chunk);
+        assert!(changes.is_empty(), "CWD must not produce a lane change");
+        assert_eq!(c.current_lane(), Lane::Sys, "lane unchanged by CWD");
+        assert_eq!(c.take_cwd_change().as_deref(), Some("C:\\proj;weird"));
+        // take clears it.
+        assert_eq!(c.take_cwd_change(), None);
+    }
+
+    #[test]
+    fn cwd_sentinel_stripped_from_output() {
+        let mut c = LaneClassifier::new();
+        // The CWD sentinel is consumed; surrounding bytes pass through.
+        let out = c.transform(b"before\x1b]6973;CWD;C:\\work\x07after");
+        assert_eq!(out, b"beforeafter");
+        assert_eq!(c.take_cwd_change().as_deref(), Some("C:\\work"));
+    }
+
+    #[test]
+    fn empty_cwd_sentinel_ignored() {
+        let mut c = LaneClassifier::new();
+        let _ = c.feed(b"\x1b]6973;CWD;\x07");
+        assert_eq!(c.take_cwd_change(), None, "empty CWD payload is ignored");
     }
 
     #[test]

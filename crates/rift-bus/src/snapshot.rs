@@ -56,8 +56,15 @@ pub struct SessionSnapshot {
     pub session_id: String,
     /// Unix epoch milliseconds when the snapshot was written.
     pub saved_ms: u64,
-    /// Per-pane state. MVP writes the active pane; the schema carries many.
+    /// Per-pane state. MVP wrote the active pane; Stage 2b writes every leaf of
+    /// the active session.
     pub panes: Vec<PaneSnapshot>,
+    /// The active session's tiling layout tree (Stage 2b), stored opaquely —
+    /// this is the frontend's `SplitNode` shape (`terminal` leaf | `hsplit`/
+    /// `vsplit` with ratio). Rust never parses it; it round-trips so the boot
+    /// path can rebuild the exact pane tree. `None` = single-pane snapshot.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub layout: Option<serde_json::Value>,
 }
 
 /// What [`latest_snapshot`] returns to the frontend on boot: the prior launch's
@@ -71,6 +78,10 @@ pub struct RestorePayload {
     pub saved_ms: u64,
     /// Per-pane restorable state.
     pub panes: Vec<PaneSnapshot>,
+    /// The active session's tiling layout tree (opaque `SplitNode` JSON), so
+    /// the boot path can rebuild the exact pane tree. `None` = single pane.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub layout: Option<serde_json::Value>,
     /// First-line digest from the matching `<id>.summary.json` (Stage 1), if any.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub digest: Option<String>,
@@ -129,7 +140,11 @@ fn atomic_write(path: &Path, content: &str) -> std::io::Result<()> {
 /// The session id is the newest `.jsonl` stem (the active session log), so the
 /// snapshot links to this launch's audit log + digest. `Err` when there is no
 /// active session log to key off (session logging disabled / not yet created).
-fn write_snapshot_in(dir: &Path, panes: Vec<PaneSnapshot>) -> Result<String, String> {
+fn write_snapshot_in(
+    dir: &Path,
+    panes: Vec<PaneSnapshot>,
+    layout: Option<serde_json::Value>,
+) -> Result<String, String> {
     std::fs::create_dir_all(dir).map_err(|e| format!("create sessions dir: {e}"))?;
     let (session_id, _path) =
         newest_session(dir).ok_or("no active session log to key the snapshot to")?;
@@ -137,6 +152,7 @@ fn write_snapshot_in(dir: &Path, panes: Vec<PaneSnapshot>) -> Result<String, Str
         session_id: session_id.clone(),
         saved_ms: now_ms(),
         panes,
+        layout,
     };
     let json = serde_json::to_string_pretty(&snapshot).map_err(|e| format!("serialize: {e}"))?;
     atomic_write(&snapshot_path(dir, &session_id), &json)
@@ -207,6 +223,7 @@ fn latest_snapshot_in(dir: &Path, cfg: &SessionConfig) -> Result<Option<RestoreP
         session_id: snapshot.session_id,
         saved_ms: snapshot.saved_ms,
         panes: snapshot.panes,
+        layout: snapshot.layout,
         digest,
     }))
 }
@@ -226,9 +243,14 @@ fn dir_or_err() -> Result<PathBuf, String> {
 }
 
 /// Persist a terminal snapshot for the current launch. Returns the session id
-/// the snapshot was written under. See [`write_snapshot_in`].
-pub fn write_snapshot(panes: Vec<PaneSnapshot>) -> Result<String, String> {
-    write_snapshot_in(&dir_or_err()?, panes)
+/// the snapshot was written under. `layout` is the active session's opaque
+/// `SplitNode` tree (Stage 2b), or `None` for a single-pane snapshot. See
+/// [`write_snapshot_in`].
+pub fn write_snapshot(
+    panes: Vec<PaneSnapshot>,
+    layout: Option<serde_json::Value>,
+) -> Result<String, String> {
+    write_snapshot_in(&dir_or_err()?, panes, layout)
 }
 
 /// Most recent restorable snapshot from a *prior* launch, gated on
@@ -271,6 +293,7 @@ mod tests {
             session_id: "2026-06-02_01-00-00".into(),
             saved_ms: 1234,
             panes: vec![pane(0)],
+            layout: None,
         };
         let json = serde_json::to_string(&snap).unwrap();
         let back: SessionSnapshot = serde_json::from_str(&json).unwrap();
@@ -284,7 +307,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         // Even with a valid snapshot present, disabled config yields None.
         std::fs::write(dir.path().join("2020-01-01_00-00-00.jsonl"), "{}\n").unwrap();
-        write_snapshot_in(dir.path(), vec![pane(0)]).unwrap();
+        write_snapshot_in(dir.path(), vec![pane(0)], None).unwrap();
         let got = latest_snapshot_in(dir.path(), &cfg_restore(false)).unwrap();
         assert!(got.is_none());
     }
@@ -295,7 +318,7 @@ mod tests {
         // Only one session exists; its snapshot == the current session, so it
         // must be skipped (never restore a session into itself).
         std::fs::write(dir.path().join("2026-06-02_00-00-00.jsonl"), "{}\n").unwrap();
-        let id = write_snapshot_in(dir.path(), vec![pane(0)]).unwrap();
+        let id = write_snapshot_in(dir.path(), vec![pane(0)], None).unwrap();
         assert_eq!(id, "2026-06-02_00-00-00");
         let got = latest_snapshot_in(dir.path(), &cfg_restore(true)).unwrap();
         assert!(
@@ -314,6 +337,7 @@ mod tests {
             session_id: prior.into(),
             saved_ms: now_ms(),
             panes: vec![pane(7)],
+            layout: Some(serde_json::json!({ "type": "terminal", "id": 7 })),
         };
         std::fs::write(
             snapshot_path(dir.path(), prior),
@@ -331,6 +355,11 @@ mod tests {
         )
         .unwrap();
         // Current launch is a newer .jsonl, so the prior snapshot is restorable.
+        // Sleep so the current log's mtime is unambiguously newest — coarse FS
+        // timestamp resolution can otherwise tie with the prior files written
+        // microseconds earlier (in production the live logger keeps the current
+        // .jsonl genuinely newest, so this only matters for the test).
+        std::thread::sleep(std::time::Duration::from_millis(20));
         std::fs::write(dir.path().join("2026-06-02_00-00-00.jsonl"), "{}\n").unwrap();
 
         let got = latest_snapshot_in(dir.path(), &cfg_restore(true))
@@ -338,6 +367,11 @@ mod tests {
             .expect("prior snapshot should restore");
         assert_eq!(got.session_id, prior);
         assert_eq!(got.panes[0].pane_id, 7);
+        assert_eq!(
+            got.layout,
+            Some(serde_json::json!({ "type": "terminal", "id": 7 })),
+            "opaque layout tree round-trips"
+        );
         let digest = got.digest.expect("digest attached from summary sidecar");
         assert!(digest.contains("cargo test"));
         assert!(!digest.contains('\n'), "digest collapsed to one line");
@@ -347,7 +381,7 @@ mod tests {
     fn clear_removes_snapshot() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("2026-06-02_00-00-00.jsonl"), "{}\n").unwrap();
-        let id = write_snapshot_in(dir.path(), vec![pane(0)]).unwrap();
+        let id = write_snapshot_in(dir.path(), vec![pane(0)], None).unwrap();
         assert!(snapshot_path(dir.path(), &id).exists());
         clear_snapshot_in(dir.path(), &id).unwrap();
         assert!(!snapshot_path(dir.path(), &id).exists());

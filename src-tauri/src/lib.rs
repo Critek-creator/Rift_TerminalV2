@@ -629,14 +629,23 @@ async fn pty_start(
         let _ =
             std::fs::remove_file(std::env::temp_dir().join(format!("rift-cc-status-{sid}.json")));
     }
-    let effective_cwd = match cwd {
-        Some(ref p) => dunce::canonicalize(p).map_err(|e| format!("invalid cwd: {e}"))?,
-        None => app
-            .try_state::<ProjectRoot>()
+    let project_or_cwd = || {
+        app.try_state::<ProjectRoot>()
             .map(|r| r.inner().get())
             .unwrap_or_else(|| {
                 std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."))
-            }),
+            })
+    };
+    let effective_cwd = match cwd {
+        // A restored/explicit cwd that no longer canonicalizes — a deleted dir,
+        // or a unix-style $PWD from a non-pwsh shell on Windows (Stage 2b live
+        // cwd) — must NOT break the shell. Fall back to the project root with a
+        // warning instead of erroring out of pty_start.
+        Some(ref p) => dunce::canonicalize(p).unwrap_or_else(|e| {
+            tracing::warn!("pty_start: cwd {p:?} did not resolve ({e}) — using project root");
+            project_or_cwd()
+        }),
+        None => project_or_cwd(),
     };
     opts = opts.with_cwd(effective_cwd);
     let (mut output, control) = PtySession::spawn_with_options(opts).map_err(|e| {
@@ -755,6 +764,19 @@ async fn pty_start(
                                         "duration_ms": duration_ms,
                                     });
                                     bus.publish(cenv);
+                                }
+                            }
+                            // On a CWD sentinel, publish cwd.changed so the
+                            // frontend tracks the live working directory for
+                            // restart-safe snapshot restore (Stage 2b).
+                            if let Some(cwd) = cls.take_cwd_change() {
+                                if let Some(ref bus) = lane_bus {
+                                    let mut wenv = Envelope::new(Category::Pty, "cwd.changed");
+                                    wenv.payload = json!({
+                                        "session_id": id,
+                                        "cwd": cwd,
+                                    });
+                                    bus.publish(wenv);
                                 }
                             }
                             // Publish lane.changed on transitions so the
@@ -1514,8 +1536,11 @@ async fn compare_sessions(
 /// `@xterm/addon-serialize` and hands the panes here; we write them next to the
 /// launch's `.jsonl` audit log (keyed off the same session id). Returns the id.
 #[tauri::command]
-async fn session_snapshot_write(panes: Vec<rift_bus::PaneSnapshot>) -> Result<String, String> {
-    tokio::task::spawn_blocking(move || rift_bus::write_snapshot(panes))
+async fn session_snapshot_write(
+    panes: Vec<rift_bus::PaneSnapshot>,
+    layout: Option<serde_json::Value>,
+) -> Result<String, String> {
+    tokio::task::spawn_blocking(move || rift_bus::write_snapshot(panes, layout))
         .await
         .map_err(|e| format!("session_snapshot_write: task join error: {e}"))?
 }

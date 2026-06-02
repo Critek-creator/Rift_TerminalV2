@@ -12,6 +12,8 @@ _rift_precmd() {
     local _exit=$?
     printf '%s' "${_rift_osc}CMD_END;exit=${_exit}${_rift_bel}"
     printf '%s' "${_rift_osc}PROMPT_START${_rift_bel}"
+    # CWD — current dir at prompt time (Stage 2b live cwd).
+    printf '%s' "${_rift_osc}CWD;${PWD}${_rift_bel}"
 }
 
 _rift_precmd_end() {
