@@ -77,6 +77,33 @@ pub fn create_provider(
     }
 }
 
+/// Build the summarizer factory used by session compaction (idle watcher +
+/// the `session_compact` MCP tool). Resolves, per call, the currently-serving
+/// LOCAL model — free + private (session logs never leave the machine; no
+/// cloud fallback) and resident-aware (uses the loaded model, no VRAM evict).
+/// Returns `None` when no enabled local model is serving, so compaction skips
+/// rather than reaching for cloud.
+pub fn build_summarizer_factory(
+    pm: std::sync::Arc<ProcessManager>,
+) -> rift_bus::compaction::SummarizerFactory {
+    std::sync::Arc::new(move || {
+        let config = load_config().ok()?;
+        let mut router = RouterService::new(config.ensemble.clone());
+        router.sync_local_availability(&pm.live_models());
+        let model = config
+            .ensemble
+            .models
+            .iter()
+            .find(|m| {
+                m.enabled
+                    && matches!(m.hosting, HostingMode::Local { .. })
+                    && router.is_available(&m.id)
+            })?
+            .clone();
+        create_provider(&model).ok()
+    })
+}
+
 fn compute_cost(model: &rift_bus::config::ModelConfig, tokens_in: u64, tokens_out: u64) -> f64 {
     let cost_in = (tokens_in as f64 / 1_000_000.0) * model.capabilities.cost_per_1m_input;
     let cost_out = (tokens_out as f64 / 1_000_000.0) * model.capabilities.cost_per_1m_output;

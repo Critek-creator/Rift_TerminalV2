@@ -302,6 +302,25 @@ fn handle_handshake(
     }
 }
 
+/// `session_compact` — force a one-shot compaction of the newest session log
+/// (summarize the older prefix → sidecar; audit `.jsonl` untouched). Mutating
+/// (writes the sidecar) → the caller gates it on `allow_mutations`. Uses the
+/// shared summarizer factory (currently-serving local model; `Err` if none).
+async fn tool_session_compact(app_handle: &AppHandle) -> Result<Value, String> {
+    let cfg = rift_bus::config::load_config().map_err(|e| format!("config load: {e}"))?;
+    let pm = app_handle
+        .state::<std::sync::Arc<rift_bus::translators::llm_process::ProcessManager>>()
+        .inner()
+        .clone();
+    let summarizer = crate::llm_commands::build_summarizer_factory(pm);
+    let (id, summary) = rift_bus::compact_now(&cfg.session, &summarizer).await?;
+    Ok(json!({
+        "session_id": id,
+        "summary_chars": summary.len(),
+        "summary": summary,
+    }))
+}
+
 async fn dispatch_tool(
     bus: &RiftBus,
     cfg: &McpConfig,
@@ -368,6 +387,12 @@ async fn dispatch_tool(
                 return Err("bus_publish requires mcp.allow_mutations = true".into());
             }
             tool_bus_publish(bus, payload)
+        }
+        "session_compact" => {
+            if !cfg.allow_mutations {
+                return Err("session_compact requires mcp.allow_mutations = true".into());
+            }
+            tool_session_compact(app_handle).await
         }
         "fs_write" => {
             if !cfg.allow_mutations {

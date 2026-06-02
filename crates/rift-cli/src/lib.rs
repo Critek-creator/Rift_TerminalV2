@@ -11,6 +11,7 @@ use clap::{Parser, Subcommand};
 use rift_bus::{Category, Envelope, IpcClient};
 
 mod llm;
+mod session;
 
 /// Environment variable consulted when `--socket` is omitted. Set by
 /// the running Rift instance when it spawns child shells, so commands
@@ -65,6 +66,13 @@ pub enum Cmd {
     Llm {
         #[command(subcommand)]
         sub: llm::LlmCmd,
+    },
+
+    /// Session management through the running Rift host — e.g. compact the
+    /// active session log on demand.
+    Session {
+        #[command(subcommand)]
+        sub: session::SessionCmd,
     },
 }
 
@@ -156,6 +164,7 @@ pub async fn execute(cli: Cli) -> Result<()> {
             Ok(())
         }
         Cmd::Llm { sub } => llm::run(cli.socket.as_deref(), sub).await,
+        Cmd::Session { sub } => session::run(cli.socket.as_deref(), sub).await,
     }
 }
 

@@ -228,6 +228,10 @@ pub use session_logger::spawn_session_logger;
 /// ```
 pub use compaction::spawn_compaction;
 
+/// On-demand session compaction (the `rift session compact` trigger). Ignores
+/// the idle gate; honors `keep_suffix_events`. See [`compaction::compact_now`].
+pub use compaction::compact_now;
+
 /// Re-export [`SessionConfig`] so callers can write `rift_bus::SessionConfig`.
 pub use config::SessionConfig;
 

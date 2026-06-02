@@ -53,7 +53,7 @@ fn resolve_socket_quiet(arg: Option<&str>) -> Option<String> {
 
 /// One-shot host call: connect → handshake → `mcp.request.{tool}` → await the
 /// matching `mcp.response.{tool}`. Returns the host's `result` value.
-async fn host_call(socket_arg: Option<&str>, tool: &str, args: Value) -> Result<Value> {
+pub(crate) async fn host_call(socket_arg: Option<&str>, tool: &str, args: Value) -> Result<Value> {
     let socket = resolve_socket_quiet(socket_arg)
         .ok_or_else(|| anyhow!("Rift host not running (no socket)"))?;
     let token = rift_bus::load_mcp_token()

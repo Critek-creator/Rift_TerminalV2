@@ -1,4 +1,4 @@
-//! Tool catalog — Phase A (4) + Phase B (6) + Phase C (3) + Phase D (7) + diagnostic (2) + LLM router (5) + process mgmt (2) = 30 tools (count reflects all additions after initial Phase A–D).
+//! Tool catalog — Phase A (4) + Phase B (6) + Phase C (3) + Phase D (7) + diagnostic (2) + LLM router (5) + process mgmt (2) + session (1) = 31 tools (count reflects all additions after initial Phase A–D).
 //!
 //! Each tool's `inputSchema` is a JSON Schema object understood by MCP
 //! clients. Per-tool semantics live host-side in `src-tauri/src/mcp_host.rs`;
@@ -29,7 +29,7 @@ pub struct ToolSpec {
     pub input_schema: Value,
 }
 
-/// Full tool catalog (30 tools — D-014 §3 Tier 1 + Tier 2 + Tier 3 + diagnostic + LLM router + process mgmt).
+/// Full tool catalog (31 tools — D-014 §3 Tier 1 + Tier 2 + Tier 3 + diagnostic + LLM router + process mgmt + session).
 pub fn tool_catalog() -> Vec<ToolSpec> {
     vec![
         ToolSpec {
@@ -253,6 +253,14 @@ pub fn tool_catalog() -> Vec<ToolSpec> {
                     },
                 },
                 "required": ["category", "kind"],
+            }),
+        },
+        ToolSpec {
+            name: "session_compact",
+            description: "Force an on-demand compaction of the active session log: summarize its older prefix into a sidecar `<id>.summary.json` for context re-hydration (the append-only `.jsonl` audit log is left untouched). Works even when idle auto-compaction is off. Returns the session id + summary. Requires `mcp.allow_mutations = true` in config.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {},
             }),
         },
         ToolSpec {

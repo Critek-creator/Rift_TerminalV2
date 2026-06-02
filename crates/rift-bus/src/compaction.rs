@@ -181,6 +181,35 @@ async fn compact_session(
     Some(summary)
 }
 
+/// Shared one-shot core: resolve a summarizer, find the newest session,
+/// compact its prefix. Returns `(session_id, summary)`. `Err` carries a
+/// human-readable reason (no session / no summarizer serving / nothing to
+/// compact / summarize failed) — surfaced to the on-demand caller, logged at
+/// debug for the idle watcher.
+async fn run_once(
+    dir: &Path,
+    cfg: &SessionConfig,
+    summarizer: &SummarizerFactory,
+) -> Result<(String, String), String> {
+    let (id, path) = newest_session(dir).ok_or("no session log found")?;
+    let provider = summarizer().ok_or("no local summarizer model serving")?;
+    let summary = compact_session(dir, &id, &path, cfg, provider.as_ref())
+        .await
+        .ok_or("nothing to compact (session <= keep_suffix_events) or summarize failed")?;
+    Ok((id, summary))
+}
+
+/// On-demand compaction of the newest session, IGNORING the idle/enabled gate
+/// (still honors `keep_suffix_events`). Backs the `rift session compact`
+/// trigger, so a manual compaction works even when auto-compaction is off.
+pub async fn compact_now(
+    cfg: &SessionConfig,
+    summarizer: &SummarizerFactory,
+) -> Result<(String, String), String> {
+    let dir = sessions_dir().map_err(|e| format!("sessions dir: {e}"))?;
+    run_once(&dir, cfg, summarizer).await
+}
+
 /// Run the idle-compaction watcher. Subscribes to the bus; when no envelope
 /// arrives for `idle_compact_after_minutes`, compacts the newest session log
 /// once and publishes a `system` completion envelope, then re-arms on the next
@@ -241,19 +270,8 @@ pub async fn spawn_compaction(
                             continue;
                         }
                         compacted_this_idle = true;
-                        let provider = match summarizer() {
-                            Some(p) => p,
-                            None => {
-                                tracing::warn!(
-                                    "compaction: no summarizer available — skipping this cycle"
-                                );
-                                continue;
-                            }
-                        };
-                        if let Some((id, path)) = newest_session(&dir) {
-                            if let Some(summary) =
-                                compact_session(&dir, &id, &path, &cfg, provider.as_ref()).await
-                            {
+                        match run_once(&dir, &cfg, &summarizer).await {
+                            Ok((id, summary)) => {
                                 let mut env =
                                     Envelope::new(Category::System, "session.compaction.complete");
                                 env.payload = serde_json::json!({
@@ -261,6 +279,9 @@ pub async fn spawn_compaction(
                                     "summary_chars": summary.len(),
                                 });
                                 bus.publish(env);
+                            }
+                            Err(e) => {
+                                tracing::debug!("compaction: idle cycle skipped — {e}");
                             }
                         }
                     }

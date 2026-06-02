@@ -2309,28 +2309,7 @@ pub fn run() {
                     let compaction_bus = app.state::<RiftBus>().inner().clone();
                     let compaction_cfg = cfg.session.clone();
                     let compaction_shutdown = app.state::<ShutdownNotify>().handle();
-                    let compaction_pm = pm.clone();
-                    let summarizer: rift_bus::compaction::SummarizerFactory =
-                        std::sync::Arc::new(move || {
-                            let config = rift_bus::config::load_config().ok()?;
-                            let mut router =
-                                rift_router::RouterService::new(config.ensemble.clone());
-                            router.sync_local_availability(&compaction_pm.live_models());
-                            let model = config
-                                .ensemble
-                                .models
-                                .iter()
-                                .find(|m| {
-                                    m.enabled
-                                        && matches!(
-                                            m.hosting,
-                                            rift_bus::config::HostingMode::Local { .. }
-                                        )
-                                        && router.is_available(&m.id)
-                                })?
-                                .clone();
-                            llm_commands::create_provider(&model).ok()
-                        });
+                    let summarizer = llm_commands::build_summarizer_factory(pm.clone());
                     tauri::async_runtime::spawn(async move {
                         rift_bus::spawn_compaction(
                             compaction_bus,
