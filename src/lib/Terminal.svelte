@@ -5,6 +5,8 @@
   import { Terminal as XTerm } from '@xterm/xterm';
   import { FitAddon } from '@xterm/addon-fit';
   import { SearchAddon } from '@xterm/addon-search';
+  import { WebglAddon } from '@xterm/addon-webgl';
+  import { LigaturesAddon } from '@xterm/addon-ligatures';
 
   /** Local mirror of xterm's non-exported ILink / ILinkProvider interfaces.
    *  Matches @xterm/xterm typings/xterm.d.ts so registerLinkProvider accepts
@@ -65,6 +67,8 @@
   let term: XTerm | undefined = $state(undefined);
   let fit: FitAddon | undefined;
   let search = $state<SearchAddon | undefined>(undefined);
+  let webgl: WebglAddon | undefined;
+  let ligatures: LigaturesAddon | undefined;
   let searchOpen = $state(false);
   let resizeObs: ResizeObserver | undefined;
   let resizeRaf: number | undefined;
@@ -294,8 +298,12 @@
       fontSize: settings.fontSize,
       lineHeight: settings.lineHeight,
       scrollback: settings.scrollback,
-      cursorBlink: true,
+      cursorBlink: settings.cursorBlink,
+      cursorStyle: settings.cursorStyle,
       theme: initTheme,
+      // Required by @xterm/addon-ligatures: registerCharacterJoiner is a
+      // proposed xterm API and throws on activate() without this flag.
+      allowProposedApi: true,
     });
     fit = new FitAddon();
     term.loadAddon(fit);
@@ -332,6 +340,50 @@
 
     term.open(host);
     opened = true;
+
+    // Programming ligatures (JetBrains Mono: → ⇒ != >= === |>). The addon
+    // registers a character joiner synchronously in activate(); its callback
+    // returns a built-in fallback ligature set (Iosevka "calt") whenever real
+    // font data isn't loaded — so ligatures work in a webview without any
+    // system-font access. Loaded BEFORE WebGL so the GPU texture atlas is built
+    // with the ligature font-feature-settings already applied (per
+    // @xterm/addon-ligatures docs — webgl must be activated after ligatures).
+    //
+    // WebView2 hygiene: the addon's lazy font-detection probes
+    // `window.queryLocalFonts()` on first render, but that call HANGS in an
+    // embedded webview (permission-gated, no prompt ever surfaces), leaving a
+    // dangling promise. Rift bundles JetBrains Mono and never needs the Local
+    // Font Access API, so we remove the property to make the addon skip
+    // straight to its fallback set cleanly. This is a cleanup, not the enabler
+    // — the fallback joiner is registered and rendering regardless.
+    try {
+      delete (window as { queryLocalFonts?: () => unknown }).queryLocalFonts;
+      const lig = new LigaturesAddon();
+      term.loadAddon(lig);
+      ligatures = lig;
+    } catch (e) {
+      console.warn('[rift] ligatures unavailable', e);
+    }
+
+    // GPU-accelerated rendering — crisper glyphs on the amber/vantablack
+    // palette + headroom for Rift's high-volume lane-tagged output. Loaded
+    // AFTER ligatures so the texture atlas includes ligature glyphs. Wrapped
+    // because WebGL context creation can fail (no GL, or >~16 live contexts
+    // when many sessions are open) — on failure xterm keeps its DOM renderer.
+    // onContextLoss disposes the addon so a GPU reset/suspend in WebView2
+    // degrades to DOM instead of blanking.
+    try {
+      const gl = new WebglAddon();
+      gl.onContextLoss(() => {
+        gl.dispose();
+        webgl = undefined;
+      });
+      term.loadAddon(gl);
+      webgl = gl;
+    } catch (e) {
+      console.warn('[rift] WebGL renderer unavailable — using DOM renderer', e);
+    }
+
     if (lanesEnabled) {
       tintManager = new LaneTintManager(term);
     }
@@ -591,7 +643,11 @@
       if (ptyStarted || !term) return;
       ptyStarted = true;
 
-      try { fit?.fit(); } catch { /* best-effort */ }
+      // No fit() here: deferredFit() already sized the canvas immediately above
+      // (no layout-changing await in between), so term.rows/cols are current.
+      // A second fit at this point only re-measures the same layout and can
+      // re-trigger a canvas resize, adding a launch flash. The post-start
+      // refitAndResize() rAF below is the one legitimate settle pass.
       const startRows = Math.max(term.rows, 24);
       const startCols = Math.max(term.cols, 80);
       if (term.rows !== startRows || term.cols !== startCols) {
@@ -756,6 +812,8 @@
       }
       term.options.lineHeight = fresh.lineHeight;
       term.options.scrollback = fresh.scrollback;
+      term.options.cursorStyle = fresh.cursorStyle;
+      term.options.cursorBlink = fresh.cursorBlink;
       lanesEnabled = fresh.lanesEnabled;
       // Sync CSS --term-bg so the terminal host matches the palette (chrome
       // keeps its own ladder — see onMount note).
@@ -857,6 +915,8 @@
     host?.removeEventListener('focusin', onTermFocusIn);
     unregisterInjector(injectRegistryKey());
     unregisterPtyId(injectRegistryKey());
+    ligatures?.dispose();
+    webgl?.dispose();
     search?.dispose();
     fit?.dispose();
     term?.dispose();

@@ -76,7 +76,18 @@
 </script>
 
 <header class="titlebar" data-tauri-drag-region>
-  <span class="brand"><span class="glyph">◆</span>RIFT</span>
+  <span class="brand">
+    <svg class="logo" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
+      <!-- Diamond crystal outline -->
+      <path d="M12 1.5 L22.5 12 L12 22.5 L1.5 12 Z" fill="none"
+            stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" />
+      <!-- The rift: a jagged fault line cleaving the crystal -->
+      <path d="M12 1.5 L9 10 L13.5 12.5 L9.5 22.5" fill="none"
+            stroke="currentColor" stroke-width="1.35" stroke-linecap="round"
+            stroke-linejoin="round" />
+    </svg>
+    <span class="wordmark">RIFT</span>
+  </span>
   <span class="spacer" data-tauri-drag-region></span>
   <div class="controls">
     <!-- PROJECT button — opens the project-picker popout (Phase 6.7). -->
@@ -145,11 +156,19 @@
     font-size: var(--text-base);
     letter-spacing: 0.15em;
     text-shadow: var(--glow-amber-strong);
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-sm);
   }
-  .glyph {
+  /* Inline SVG mark — inherits amber via currentColor; drop-shadow mirrors
+     the wordmark's text-shadow glow so logo + RIFT read as one lit material. */
+  .logo {
     color: var(--amber-bright);
-    margin-right: var(--space-sm);
-    text-shadow: var(--glow-amber-strong);
+    flex-shrink: 0;
+    filter: drop-shadow(0 0 4px rgba(255, 168, 38, 0.55));
+  }
+  .wordmark {
+    line-height: 1;
   }
 
   .spacer { flex: 1; height: 100%; }
