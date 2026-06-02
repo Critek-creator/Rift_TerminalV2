@@ -41,9 +41,9 @@ const SUMMARY_MAX_TOKENS: u32 = 512;
 
 const SUMMARIZE_SYSTEM: &str = "You digest a terminal session activity log into a terse \
 context summary for re-hydration after an idle gap. The input is JSONL bus envelopes \
-(commands run, files touched, agents dispatched, errors, status snapshots). Produce a \
-compact plain-text digest of what happened: key commands, files, agents, and any errors \
-or notable state. No preamble, no markdown headers — just the digest.";
+(tool-use hooks, agents dispatched, commands run, files touched, MCP calls, errors). \
+Produce a compact plain-text digest of what happened: key commands, files, agents, tools, \
+and any errors or notable state. No preamble, no markdown headers — just the digest.";
 
 /// Sidecar written next to a session `.jsonl`. Survives process restart so a
 /// re-attaching client (Stage 2) can re-hydrate context without replaying the
@@ -99,10 +99,46 @@ fn newest_session(dir: &Path) -> Option<(String, PathBuf)> {
     newest.map(|(_, id, path)| (id, path))
 }
 
+/// Extract `(category, kind)` from a session `.jsonl` line. Empty strings when
+/// the line doesn't parse or lacks the fields — such lines are treated as
+/// non-noise (kept), so an unrecognized format never silently drops content.
+fn parse_cat_kind(line: &str) -> (String, String) {
+    match serde_json::from_str::<serde_json::Value>(line) {
+        Ok(v) => (
+            v.get("category")
+                .and_then(|x| x.as_str())
+                .unwrap_or("")
+                .to_string(),
+            v.get("kind")
+                .and_then(|x| x.as_str())
+                .unwrap_or("")
+                .to_string(),
+        ),
+        Err(_) => (String::new(), String::new()),
+    }
+}
+
+/// High-volume, zero-re-hydration-value envelopes dropped before summarizing,
+/// so the summarizer sees "what happened" signal rather than scrollback. Tuned
+/// from a real session-log distribution: `status` usage ticks are ~45% of a
+/// typical log; the listed `system` kinds are repetitive UI-state snapshots.
+/// Everything else (hook / agent / mcp / llm / aegis / index, and `pty`
+/// command events) is kept.
+fn is_noise(category: &str, kind: &str) -> bool {
+    match category {
+        "status" => true,
+        "system" => matches!(kind, "cockpit.state" | "notif.tabs" | "health.portfolio"),
+        _ => false,
+    }
+}
+
 /// Read the older prefix (all but the last `keep_suffix` lines) of a session
-/// `.jsonl`. Returns `(prefix_text, line_offset)` or `None` when there is not
-/// enough history to compact. `prefix_text` is capped to [`MAX_PREFIX_CHARS`],
-/// tail-biased (the prefix nearest the suffix is the most relevant context).
+/// `.jsonl`, FILTERED to meaningful envelopes (see [`is_noise`]). Returns
+/// `(prefix_text, line_offset)` or `None` when there is no history — or no
+/// signal — to compact. `line_offset` tracks the ORIGINAL `.jsonl` position
+/// (the retained-suffix boundary is unaffected by filtering). `prefix_text` is
+/// capped to [`MAX_PREFIX_CHARS`], tail-biased (nearest the suffix = most
+/// relevant context).
 fn read_prefix(path: &Path, keep_suffix: usize) -> Option<(String, u64)> {
     let content = std::fs::read_to_string(path).ok()?;
     let lines: Vec<&str> = content.lines().collect();
@@ -110,7 +146,18 @@ fn read_prefix(path: &Path, keep_suffix: usize) -> Option<(String, u64)> {
         return None; // not enough history beyond the retained suffix
     }
     let cut = lines.len() - keep_suffix;
-    let mut text = lines[..cut].join("\n");
+    let kept: Vec<&str> = lines[..cut]
+        .iter()
+        .copied()
+        .filter(|line| {
+            let (category, kind) = parse_cat_kind(line);
+            !is_noise(&category, &kind)
+        })
+        .collect();
+    if kept.is_empty() {
+        return None; // prefix was all noise — nothing worth summarizing
+    }
+    let mut text = kept.join("\n");
     if text.len() > MAX_PREFIX_CHARS {
         // Keep the tail of the prefix; snap to a char boundary to avoid a
         // panic on a multibyte split.
@@ -317,6 +364,33 @@ mod tests {
         assert!(prefix.contains("line0"));
         assert!(prefix.contains("line6"));
         assert!(!prefix.contains("line7")); // line7..9 are the retained suffix
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn read_prefix_drops_noise() {
+        let dir = std::env::temp_dir();
+        let path = dir.join(format!("rift-compaction-test3-{}.jsonl", now_ms()));
+        // keep_suffix=0 → all lines are prefix. 2 status + 1 noisy system kind
+        // (dropped) interleaved with hook/agent signal (kept).
+        let body = [
+            r#"{"category":"status","kind":"usage"}"#,
+            r#"{"category":"hook","kind":"PreToolUse"}"#,
+            r#"{"category":"system","kind":"cockpit.state"}"#,
+            r#"{"category":"status","kind":"usage"}"#,
+            r#"{"category":"agent","kind":"agent.start"}"#,
+        ]
+        .join("\n");
+        std::fs::write(&path, body).unwrap();
+        let (prefix, offset) = read_prefix(&path, 0).unwrap();
+        assert_eq!(offset, 5); // offset tracks ORIGINAL lines, not the filtered count
+        assert!(prefix.contains("PreToolUse"), "hook signal kept");
+        assert!(prefix.contains("agent.start"), "agent signal kept");
+        assert!(!prefix.contains("usage"), "status noise dropped");
+        assert!(
+            !prefix.contains("cockpit.state"),
+            "noisy system kind dropped"
+        );
         let _ = std::fs::remove_file(&path);
     }
 
