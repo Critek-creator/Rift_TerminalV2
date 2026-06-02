@@ -337,6 +337,7 @@ impl LlmProvider for AnthropicProvider {
                 .unwrap_or_else(|| self.model_identifier.clone()),
             stop_reason: map_stop_reason(&msg_resp.stop_reason),
             latency_ms,
+            tool_calls: None,
         })
     }
 

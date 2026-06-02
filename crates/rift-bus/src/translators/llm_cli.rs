@@ -421,6 +421,7 @@ impl LlmProvider for CliProvider {
             model_used: self.model_identifier.clone(),
             stop_reason: StopReason::EndTurn,
             latency_ms: started.elapsed().as_millis() as u64,
+            tool_calls: None,
         })
     }
 
