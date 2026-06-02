@@ -3,6 +3,7 @@
   import { invoke } from '@tauri-apps/api/core';
   import { popouts } from './popouts.svelte';
   import { injectIntoActiveTerminal } from './terminalInject';
+  import { llmModels } from './llmModels.svelte';
 
   interface Props {
     onclose: () => void;
@@ -21,7 +22,7 @@
     description: string | null;
   }
 
-  type Category = 'app' | 'claude' | 'run';
+  type Category = 'freq' | 'app' | 'llm' | 'claude' | 'run';
 
   interface LauncherEntry {
     id: string;
@@ -29,6 +30,8 @@
     sub?: string;
     icon: string;
     category: Category;
+    /** Optional right-aligned tag (e.g. "claude"). Survives freq-wrapping. */
+    badge?: string;
     action: () => void;
   }
 
@@ -157,11 +160,51 @@
       action: () => { onNewTab(); onclose(); } },
     { id: 'app:project', label: 'Switch project', icon: '▦', category: 'app',
       action: () => { popouts.summon({ content: { kind: 'project-picker' } }); onclose(); } },
-    { id: 'app:router', label: 'Router prompt', icon: '◆', category: 'app',
-      action: () => { popouts.summon({ content: { kind: 'llm-chat' }, width: 'min(720px, 85vw)' }); onclose(); } },
     { id: 'app:cockpit', label: 'Toggle cockpit (detach / dock)', icon: '⊞', category: 'app',
       action: () => { onToggleCockpit(); onclose(); } },
   ]);
+
+  // LLM ops — quick access to models + prompt surfaces. Gated on the Ensemble
+  // Router being enabled (otherwise there are no models to reach). Mirrors the
+  // model logic in CommandPalette so behavior stays consistent.
+  const llmEntries = $derived.by((): LauncherEntry[] => {
+    if (!llmModels.enabled) return [];
+    const items: LauncherEntry[] = [
+      { id: 'llm:router', label: 'Router prompt', sub: 'Send a prompt to the active model', icon: '◆', category: 'llm',
+        action: () => { popouts.summon({ content: { kind: 'llm-chat' }, width: 'min(720px, 85vw)' }); onclose(); } },
+      { id: 'llm:ensemble', label: 'Ensemble compare', sub: 'Run one prompt across two models', icon: '⊞', category: 'llm',
+        action: () => { popouts.summon({ content: { kind: 'llm-ensemble' }, width: 'min(1100px, 95vw)' }); onclose(); } },
+    ];
+    for (const m of llmModels.availableModels) {
+      const isActive = llmModels.activeModelId === m.id;
+      const isLocal = m.hosting.mode === 'local';
+      const status = llmModels.processStatus[m.id];
+      const live = status === 'running' || status === 'starting';
+      const name = `${m.short_id || '?'} ${m.display_name || m.model_identifier}`;
+      const icon = status === 'running' ? '●' : status === 'starting' ? '◐' : status === 'error' ? '✕' : '○';
+      // A stopped local model needs its server started; activateModel hot-swaps
+      // (stops other local servers to free VRAM, then starts this one). Cloud or
+      // already-live models just point the router here.
+      const verb = isLocal && !live ? 'Start & activate' : 'Activate';
+      items.push({
+        id: `llm:model:${m.id}`,
+        label: `${verb}: ${name}${isActive ? '  (active)' : ''}`,
+        icon,
+        category: 'llm',
+        action: () => { void llmModels.activateModel(m.id); onclose(); },
+      });
+      if (isLocal && live) {
+        items.push({
+          id: `llm:stop:${m.id}`,
+          label: `Stop: ${name}`,
+          icon: '■',
+          category: 'llm',
+          action: () => { void llmModels.stopModel(m.id); onclose(); },
+        });
+      }
+    }
+    return items;
+  });
 
   const claudeEntries = $derived<LauncherEntry[]>(
     claudeCommands.map((c) => ({
@@ -170,21 +213,71 @@
       sub: c.description ?? undefined,
       icon: c.source === 'skill' ? '✦' : c.source === 'plugin' ? '⧉' : '»',
       category: 'claude',
+      badge: 'claude',
       // No trailing space — the injector adds one (pasteTextIntoTerminal).
       action: () => typeIntoTerminal(`/${c.name}`),
     })),
   );
+
+  // ---------------------------------------------------------------------------
+  // Frequently-used section. Per-entry run counts persist to localStorage; when
+  // the input is empty, the top few most-used commands surface at the top so the
+  // things you reach for are one keystroke away. Run-in-terminal entries are not
+  // counted (their text is dynamic, so a count would be meaningless).
+  // ---------------------------------------------------------------------------
+  const FREQ_KEY = 'rift:slash-launcher-freq';
+
+  function loadFreq(): Record<string, number> {
+    try {
+      return JSON.parse(localStorage.getItem(FREQ_KEY) || '{}') || {};
+    } catch {
+      return {};
+    }
+  }
+
+  // Read once per open — running an entry closes the launcher, so live updates
+  // aren't needed; the next open reflects the new counts.
+  const freqCounts = loadFreq();
+
+  function bumpFreq(id: string): void {
+    if (!id || id.startsWith('run:')) return;
+    try {
+      const c = loadFreq();
+      c[id] = (c[id] || 0) + 1;
+      localStorage.setItem(FREQ_KEY, JSON.stringify(c));
+    } catch {
+      /* localStorage unavailable — frequency just won't persist */
+    }
+  }
+
+  /** Count the run against the underlying entry id (strip any freq: wrapper),
+   *  then perform the action. */
+  function runEntry(entry: LauncherEntry | undefined): void {
+    if (!entry) return;
+    bumpFreq(entry.id.replace(/^freq:/, ''));
+    entry.action();
+  }
 
   // Normalized query — a leading slash is the launcher's sigil, not part of the
   // search term, so `/aeg` matches the `aegis` command.
   const q = $derived(query.trim().replace(/^\//, '').toLowerCase());
 
   const filtered = $derived.by((): LauncherEntry[] => {
-    const all = [...appEntries, ...claudeEntries];
+    const all = [...appEntries, ...llmEntries, ...claudeEntries];
     const matched = q
       ? all.filter((e) => e.label.toLowerCase().includes(q) || (e.sub?.toLowerCase().includes(q) ?? false))
       : all;
-    // Run-in-shell: whatever the user typed (incl. a leading slash) can be sent
+    // Frequently-used: while browsing (empty query) the top-used commands surface
+    // at the top. Wrapped with a freq: id so the {#each} key stays unique vs the
+    // same entry shown again in its own section below.
+    const freq: LauncherEntry[] = q
+      ? []
+      : all
+          .filter((e) => (freqCounts[e.id] || 0) > 0)
+          .sort((a, b) => (freqCounts[b.id] || 0) - (freqCounts[a.id] || 0))
+          .slice(0, 5)
+          .map((e) => ({ ...e, id: `freq:${e.id}`, category: 'freq' as Category }));
+    // Run-in-terminal: whatever the user typed (incl. a leading slash) sent
     // verbatim to the active terminal. Only offered when there's text to run.
     const run: LauncherEntry[] = query.trim()
       ? [{
@@ -195,7 +288,7 @@
           action: () => typeIntoTerminal(query.trim()),
         }]
       : [];
-    return [...matched, ...run];
+    return [...freq, ...matched, ...run];
   });
 
   $effect(() => {
@@ -243,13 +336,15 @@
     }
     if (e.key === 'Enter') {
       e.preventDefault();
-      filtered[selectedIdx]?.action();
+      runEntry(filtered[selectedIdx]);
       return;
     }
   }
 
   function categoryLabel(cat: Category): string {
+    if (cat === 'freq') return 'FREQUENT';
     if (cat === 'app') return 'RIFT';
+    if (cat === 'llm') return 'LLM';
     if (cat === 'claude') return 'CLAUDE COMMANDS';
     if (cat === 'run') return 'TERMINAL';
     return String(cat).toUpperCase();
@@ -287,7 +382,7 @@
       bind:this={inputEl}
       bind:value={query}
       onkeydown={onKeydown}
-      placeholder="/ run a command — Rift actions, Claude commands, or the terminal…"
+      placeholder="/ run a command — Rift actions, LLM models, Claude commands, or the terminal…"
       role="combobox"
       aria-label="Slash command launcher"
       aria-expanded={filtered.length > 0}
@@ -310,8 +405,8 @@
           role="option"
           tabindex="-1"
           aria-selected={i === selectedIdx}
-          onclick={() => entry.action()}
-          onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); entry.action(); } }}
+          onclick={() => runEntry(entry)}
+          onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); runEntry(entry); } }}
           onmouseenter={() => { selectedIdx = i; }}
         >
           <span class="entry-icon">{entry.icon}</span>
@@ -319,8 +414,8 @@
             <span class="entry-label">{entry.label}</span>
             {#if entry.sub}<span class="entry-sub">{entry.sub}</span>{/if}
           </span>
-          {#if entry.category === 'claude'}
-            <span class="entry-badge">claude</span>
+          {#if entry.badge}
+            <span class="entry-badge">{entry.badge}</span>
           {/if}
         </div>
       {/each}
