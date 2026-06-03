@@ -3,6 +3,8 @@
   import { sectionCatalog } from './sectionCatalog.svelte';
   import { popouts } from './popouts.svelte';
   import { llmModels } from './llmModels.svelte';
+  import { notifManager } from './notifState.svelte';
+  import { keybindings } from './keybindings';
 
   interface PaletteEntry {
     id: string;
@@ -43,7 +45,7 @@
       { id: 'act:settings', label: 'Open Settings', icon: '⚙', category: 'action',
         action: () => { popouts.summon({ content: { kind: 'settings' } }); onclose(); } },
       { id: 'act:notif-manager', label: 'Notification Manager', icon: '◫', category: 'action',
-        action: () => { onclose(); } },
+        action: () => { notifManager.openNotifManager(); onclose(); } },
       { id: 'act:llm-chat', label: 'Router Prompt', icon: '◆', category: 'action',
         action: () => { popouts.summon({ content: { kind: 'llm-chat' }, width: 'min(720px, 85vw)' }); onclose(); } },
       { id: 'act:llm-ensemble', label: 'Ensemble Compare', icon: '⊞', category: 'action',
@@ -86,17 +88,17 @@
       }
     }
 
-    items.push(
-      { id: 'key:search', label: 'Ctrl+Shift+F — Search terminal', icon: '⌕', category: 'shortcut' },
-      { id: 'key:zoom-in', label: 'Ctrl+= — Zoom in', icon: '⊕', category: 'shortcut' },
-      { id: 'key:zoom-out', label: 'Ctrl+- — Zoom out', icon: '⊖', category: 'shortcut' },
-      { id: 'key:zoom-reset', label: 'Ctrl+0 — Reset zoom', icon: '⊙', category: 'shortcut' },
-      { id: 'key:cockpit', label: 'Ctrl+B — Toggle cockpit', icon: '⊞', category: 'shortcut' },
-      { id: 'key:new-tab', label: 'Ctrl+Shift+T — New session', icon: '⊕', category: 'shortcut' },
-      { id: 'key:close-tab', label: 'Ctrl+Shift+W — Close session', icon: '⊗', category: 'shortcut' },
-      { id: 'key:copy', label: 'Ctrl+C — Copy (with selection)', icon: '⊡', category: 'shortcut' },
-      { id: 'key:paste', label: 'Ctrl+V — Paste', icon: '⊟', category: 'shortcut' },
-    );
+    // Shortcuts derive from the single `keybindings` source so the palette can
+    // never drift from the ShortcutOverlay. (They used to be hand-listed here —
+    // and had drifted, e.g. a phantom "Ctrl+Shift+T — New session".)
+    for (const kb of keybindings) {
+      items.push({
+        id: `key:${kb.key}`,
+        label: `${kb.key} — ${kb.description}`,
+        icon: '⌨',
+        category: 'shortcut',
+      });
+    }
 
     return items;
   });

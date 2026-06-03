@@ -73,6 +73,16 @@
       width: 'min(680px, 86vw)',
     });
   }
+
+  // Visible entry points for the two otherwise keybind-only command surfaces
+  // (Ctrl+K palette, Ctrl+? shortcuts). App.svelte owns their open state, so we
+  // dispatch window events it listens for — mirrors the rift:show-welcome path.
+  function openCommandPalette(): void {
+    window.dispatchEvent(new CustomEvent('rift:open-palette'));
+  }
+  function openShortcuts(): void {
+    window.dispatchEvent(new CustomEvent('rift:open-shortcuts'));
+  }
 </script>
 
 <header class="titlebar" data-tauri-drag-region>
@@ -90,6 +100,26 @@
   </span>
   <span class="spacer" data-tauri-drag-region></span>
   <div class="controls">
+    <!-- Command palette + shortcuts — surface the two keybind-only command
+         surfaces (Ctrl+K, Ctrl+?) so they're discoverable from the chrome. -->
+    <button
+      type="button"
+      class="btn cmdk"
+      aria-label="open command palette"
+      onclick={openCommandPalette}
+      title="Command palette (Ctrl+K)"
+    >
+      ⌘ K
+    </button>
+    <button
+      type="button"
+      class="btn help"
+      aria-label="keyboard shortcuts"
+      onclick={openShortcuts}
+      title="Keyboard shortcuts (Ctrl+?)"
+    >
+      ?
+    </button>
     <!-- PROJECT button — opens the project-picker popout (Phase 6.7). -->
     <button
       type="button"
@@ -200,7 +230,11 @@
   }
 
   /* ── Action buttons: PROJECT, SETTINGS, DETACH ──────────────────────────── */
-  /* Visual separator before the first action button */
+  /* Visual separator before the first action button cluster */
+  .controls > .btn.cmdk {
+    margin-left: var(--space-sm);
+  }
+  /* Gap between the palette/help cluster and the project/settings cluster */
   .controls > .btn.project {
     margin-left: var(--space-sm);
   }
@@ -209,6 +243,8 @@
     margin-left: var(--space-md);
   }
 
+  .btn.cmdk,
+  .btn.help,
   .btn.project,
   .btn.settings,
   .btn.detach {
@@ -223,6 +259,8 @@
     background: var(--bg-elevated);
     box-shadow: inset 0 -1px 0 transparent;
   }
+  .btn.cmdk:hover,
+  .btn.help:hover,
   .btn.project:hover,
   .btn.settings:hover {
     color: var(--amber-bright);
@@ -231,6 +269,8 @@
     border-color: var(--border-subtle);
     box-shadow: 0 0 4px rgba(255, 168, 38, 0.1);
   }
+  .btn.cmdk:active,
+  .btn.help:active,
   .btn.project:active,
   .btn.settings:active {
     background: rgba(255, 200, 64, 0.12);

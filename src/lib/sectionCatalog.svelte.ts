@@ -106,7 +106,7 @@ const BUILTIN_TABS: TabDescriptor[] = [
   },
   {
     id: 'aegis', title: 'aegis', icon: '◉',
-    category: 'aegis', detectedByDefault: false,
+    category: 'aegis', detectedByDefault: true,
     sections: [...STANDARD_SECTIONS],
     source: 'builtin', group: 'intel',
   },

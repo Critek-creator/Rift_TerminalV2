@@ -10,8 +10,11 @@ export const keybindings: Keybinding[] = [
   { key: 'Ctrl+Shift+P', description: 'Slash launcher (Rift / Claude commands)', category: 'navigation' },
   { key: 'Ctrl+B', description: 'Toggle cockpit panel', category: 'navigation' },
   { key: 'Ctrl+?', description: 'Keyboard shortcuts', category: 'navigation' },
+  { key: 'Ctrl+Shift+M', description: 'Switch model', category: 'navigation' },
+  { key: 'Ctrl+Shift+L', description: 'Ensemble compare', category: 'navigation' },
 
   // Terminal
+  { key: 'Ctrl+T', description: 'New session', category: 'terminal' },
   { key: 'Ctrl+Shift+F', description: 'Search terminal', category: 'terminal' },
   { key: 'Ctrl+Shift+K', description: 'Mark session moment', category: 'terminal' },
   { key: 'Ctrl+=', description: 'Zoom in', category: 'terminal' },
@@ -19,14 +22,13 @@ export const keybindings: Keybinding[] = [
   { key: 'Ctrl+0', description: 'Reset zoom', category: 'terminal' },
   { key: 'Ctrl+Shift+C', description: 'Copy selection', category: 'terminal' },
   { key: 'Ctrl+Shift+V', description: 'Paste', category: 'terminal' },
+  { key: 'Ctrl+Shift+E', description: 'Split pane down', category: 'terminal' },
+  { key: 'Ctrl+Shift+D', description: 'Split pane right', category: 'terminal' },
+  { key: 'Ctrl+Shift+W', description: 'Close pane', category: 'terminal' },
 
   // Editor (Viewer)
   { key: 'Ctrl+E', description: 'Toggle edit mode', category: 'editor' },
   { key: 'Ctrl+S', description: 'Save file', category: 'editor' },
-
-  // Bus Tail
-  { key: 'Ctrl+D', description: 'Bookmark focused event (Bus Tail)', category: 'navigation' },
-  { key: 'Ctrl+Shift+N', description: 'Annotate focused event (Bus Tail)', category: 'navigation' },
 
   // Window
   { key: 'Escape', description: 'Close overlay / dismiss', category: 'window' },

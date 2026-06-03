@@ -169,6 +169,23 @@
   });
 
   // ---------------------------------------------------------------------------
+  // ---------------------------------------------------------------------------
+  // §10.14: '/' shortcut — focus search input when Index pane is active and
+  // focus is NOT already inside a text input/textarea.
+  // ---------------------------------------------------------------------------
+
+  let searchInputEl = $state<HTMLInputElement | null>(null);
+
+  function onPaneKeydown(e: KeyboardEvent) {
+    if (e.key !== '/') return;
+    const tag = (e.target as HTMLElement | null)?.tagName?.toLowerCase();
+    if (tag === 'input' || tag === 'textarea') return;
+    if (!searchInputEl) return;
+    e.preventDefault();
+    searchInputEl.focus();
+  }
+
+  // ---------------------------------------------------------------------------
   // §10.14: vault-root quick link — open ~/.claude/abyssal-index/ in OS
   // file manager. Uses the same pattern as AegisTabContent quick-actions.
   // ---------------------------------------------------------------------------
@@ -207,7 +224,10 @@
   }
 </script>
 
-<section class="pane" data-accent="cyan">
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<!-- Pane-level shortcut scope: `/` focuses the Index search input (see
+     onPaneKeydown). Not an interactive widget — it's a keyboard-shortcut host. -->
+<section class="pane" data-accent="cyan" onkeydown={onPaneKeydown}>
   {#if onDragBack}
     <div
       class="drag-handle"
@@ -270,6 +290,7 @@
         type="text"
         placeholder="filter events…"
         bind:value={searchTerm}
+        bind:this={searchInputEl}
         aria-label="Filter index events"
       />
       <button type="button"

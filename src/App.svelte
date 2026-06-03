@@ -889,6 +889,13 @@
         paletteOpen = !paletteOpen;
         return;
       }
+      // Ctrl+T — open a new session tab. The empty-state hint advertises this;
+      // wire it so the promise is real. !shiftKey keeps Ctrl+Shift+T free.
+      if (e.ctrlKey && !e.shiftKey && (e.key === 't' || e.key === 'T')) {
+        e.preventDefault();
+        sm.addSession();
+        return;
+      }
       if (e.ctrlKey && e.shiftKey && e.key === 'M') {
         e.preventDefault();
         paletteInitialQuery = 'model';
@@ -950,7 +957,13 @@
         }
       }
     };
+    // Visible TitleBar affordances (⌘K / ?) dispatch these so the chrome can
+    // open the palette + shortcuts overlay without prop-threading through it.
+    const onOpenPalette = () => { paletteInitialQuery = ''; paletteOpen = true; };
+    const onOpenShortcuts = () => { shortcutsOpen = true; };
     window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('rift:open-palette', onOpenPalette);
+    window.addEventListener('rift:open-shortcuts', onOpenShortcuts);
 
     return () => {
       unlistenDetached?.();
@@ -959,6 +972,8 @@
       unlistenResized?.();
       window.removeEventListener('rift:config-changed', onConfigChanged);
       window.removeEventListener('rift:show-welcome', showWelcomeGuide);
+      window.removeEventListener('rift:open-palette', onOpenPalette);
+      window.removeEventListener('rift:open-shortcuts', onOpenShortcuts);
       window.removeEventListener('keydown', onKeyDown);
     };
   });

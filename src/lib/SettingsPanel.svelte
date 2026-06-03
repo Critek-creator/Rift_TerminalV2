@@ -32,7 +32,7 @@
 
   let { popoutId }: Props = $props();
 
-  type SettingsTab = 'general' | 'terminal' | 'integrations' | 'index' | 'tree' | 'mcp' | 'statusline' | 'alerts' | 'models';
+  type SettingsTab = 'general' | 'terminal' | 'integrations' | 'tree' | 'mcp' | 'statusline' | 'alerts' | 'models';
   let activeTab = $state<SettingsTab>('general');
 
   const SETTINGS_TABS: { id: SettingsTab; label: string }[] = [
@@ -40,7 +40,6 @@
     { id: 'terminal',     label: 'TERMINAL' },
     { id: 'integrations', label: 'INTEGRATIONS' },
     { id: 'statusline',   label: 'STATUS LINE' },
-    { id: 'index',        label: 'INDEX' },
     { id: 'tree',         label: 'TREE' },
     { id: 'mcp',          label: 'MCP' },
     { id: 'alerts',       label: 'ALERTS' },
@@ -1443,25 +1442,6 @@
               {saveBanner.msg}
             </span>
           {/if}
-        </div>
-      </section>
-    {:else}
-      <div class="hint">loading config…</div>
-    {/if}
-    {/if}
-
-    {#if activeTab === 'index'}
-    <!-- INDEX -->
-    {#if config}
-      <section class="section">
-        <div class="section-label">Index</div>
-        <div class="hint">
-          The index tab streams vault activity events from the Abyssal Index.
-          Graph-view settings (density, labels, sync mode) were removed when
-          the node graph was replaced by the vault browser list.
-        </div>
-        <div class="hint" style="margin-top: 8px; color: var(--amber-dim);">
-          No configurable settings for the vault event stream yet.
         </div>
       </section>
     {:else}
