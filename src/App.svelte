@@ -169,6 +169,17 @@
   // detached cockpit window.
   const MAIN_POS_KEY = 'rift.main.window_pos';
   interface SavedMainPos { x: number; y: number; width: number; height: number; }
+  // Corruption floor for window-geometry restore/persist. The main window's
+  // configured minimum is 720×480 logical (tauri.conf.json), so any saved
+  // PHYSICAL outerSize below 600×400 can only come from a broken launch
+  // (0×0 / tiny outerSize) — never a legitimate resize. Restoring such a value
+  // is the root cause of the "launches as a tiny window" bug (instrumentation
+  // proved Rust reveal hands off a healthy 1650×1050; the frontend setSize
+  // below then shrank it from corrupt localStorage). Reject sub-floor sizes on
+  // BOTH restore and persist so the corruption can neither take hold nor
+  // re-perpetuate. See memory reference_rift_webview_launch_minimized.
+  const MAIN_MIN_W = 600;
+  const MAIN_MIN_H = 400;
 
   // D-013 — Updater plugin frontend wiring (session-start check).
   // On launch we ask plugin-updater to fetch latest.json from the GitHub
@@ -799,10 +810,11 @@
         if (raw) {
           try {
             const pos = JSON.parse(raw) as SavedMainPos;
-            if (
+            const sane =
               typeof pos.x === 'number' && typeof pos.y === 'number' &&
-              typeof pos.width === 'number' && typeof pos.height === 'number'
-            ) {
+              typeof pos.width === 'number' && typeof pos.height === 'number' &&
+              pos.width >= MAIN_MIN_W && pos.height >= MAIN_MIN_H;
+            if (sane) {
               // Off-screen guard: if saved position is beyond visible monitors,
               // center the window instead of restoring to invisible coordinates.
               // screen.availWidth/Height cover the primary monitor; multi-monitor
@@ -818,6 +830,12 @@
                 await appWindow.center();
               }
               await appWindow.setSize(new PhysicalSize(pos.width, pos.height));
+            } else {
+              // Corrupt geometry — most often a sub-floor (tiny / 0×0) size
+              // persisted by an earlier broken launch. Drop it so the healthy
+              // Rust-revealed default stands; the immediate re-save below then
+              // overwrites it with a sane rect (self-healing on this launch).
+              try { localStorage.removeItem(MAIN_POS_KEY); } catch { /* ignore */ }
             }
           } catch {
             try { localStorage.removeItem(MAIN_POS_KEY); } catch { /* ignore */ }
@@ -830,34 +848,31 @@
         await appWindow.show();
         await appWindow.setFocus();
 
+        // Floor-guarded persist: never write a sub-minimum (broken-launch)
+        // rect to localStorage, or it would re-seed the "tiny window" bug on
+        // the next restore. Centralized so all three save sites share the guard.
+        const persistRect = (x: number, y: number, width: number, height: number) => {
+          if (width < MAIN_MIN_W || height < MAIN_MIN_H) return;
+          try {
+            localStorage.setItem(MAIN_POS_KEY, JSON.stringify({ x, y, width, height }));
+          } catch { /* quota / private */ }
+        };
         // Save current rect immediately so a crash before any move/resize
         // still records a reasonable last-known position.
         const [pos0, size0] = await Promise.all([
           appWindow.outerPosition(),
           appWindow.outerSize(),
         ]);
-        try {
-          localStorage.setItem(MAIN_POS_KEY, JSON.stringify({
-            x: pos0.x, y: pos0.y, width: size0.width, height: size0.height,
-          }));
-        } catch { /* quota / private */ }
+        persistRect(pos0.x, pos0.y, size0.width, size0.height);
         // Subscribe to move + resize so subsequent changes persist live.
         unlistenMoved = await appWindow.onMoved(({ payload: pos }) => {
           appWindow.outerSize().then((size) => {
-            try {
-              localStorage.setItem(MAIN_POS_KEY, JSON.stringify({
-                x: pos.x, y: pos.y, width: size.width, height: size.height,
-              }));
-            } catch { /* ignore */ }
+            persistRect(pos.x, pos.y, size.width, size.height);
           }).catch(() => { /* ignore */ });
         });
         unlistenResized = await appWindow.onResized(({ payload: size }) => {
           appWindow.outerPosition().then((pos) => {
-            try {
-              localStorage.setItem(MAIN_POS_KEY, JSON.stringify({
-                x: pos.x, y: pos.y, width: size.width, height: size.height,
-              }));
-            } catch { /* ignore */ }
+            persistRect(pos.x, pos.y, size.width, size.height);
           }).catch(() => { /* ignore */ });
         });
       } catch (err) {
