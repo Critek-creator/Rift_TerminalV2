@@ -48,6 +48,7 @@
   let svgEl = $state<SVGSVGElement | undefined>(undefined);
   let gEl = $state<SVGGElement | undefined>(undefined);
   let wrapEl = $state<HTMLDivElement | undefined>(undefined);
+  let hoveredId = $state<string | null>(null);
 
   // Kind → fill, mirroring the list's kind colors (§10.1 lane palette).
   const KIND_FILL: Record<string, string> = {
@@ -57,6 +58,9 @@
   const fill = (kind: string): string => KIND_FILL[kind] ?? '#d8d4c8';
 
   const BASE_R = 5;
+  // Labels show only for hubs (degree ≥ this) + the hovered/selected node, so
+  // dense clusters don't turn into overlapping text.
+  const HUB_DEG = 4;
   // Node size encodes connectedness — the graph's reason to exist over a list
   // (a hub vault reads big; an isolated one reads small). Capped so one
   // super-connected node can't dominate.
@@ -141,14 +145,21 @@
       .attr('fill', 'var(--amber-faint)')
       .attr('font-size', '9px')
       .attr('font-family', 'var(--font-family)')
-      .attr('pointer-events', 'none');
+      .attr('pointer-events', 'none')
+      .attr('opacity', 0);
 
-    nodeSel.attr('cursor', 'pointer').on('click', (_ev, d) => onSel(d.id));
+    nodeSel
+      .attr('cursor', 'pointer')
+      .on('click', (_ev, d) => onSel(d.id))
+      .on('mouseenter', (_ev, d) => { hoveredId = d.id; })
+      .on('mouseleave', () => { hoveredId = null; });
 
     nodeSel.call(
       d3drag<SVGGElement, SimNode>()
         .on('start', (ev, d) => {
-          if (!ev.active) sim?.alphaTarget(0.2).restart();
+          // Low re-heat: every settled node is pinned (see sim 'end'), so only
+          // THIS node moves — dragging one node no longer drifts the whole graph.
+          if (!ev.active) sim?.alphaTarget(0.05).restart();
           d.fx = d.x;
           d.fy = d.y;
         })
@@ -164,10 +175,19 @@
 
     sim?.stop();
     sim = forceSimulation<SimNode>(simNodes)
-      .force('link', forceLink<SimNode, SimLink>(simLinks).id((d) => d.id).distance(55).strength(0.5))
-      .force('charge', forceManyBody().strength(-190))
+      .force('link', forceLink<SimNode, SimLink>(simLinks).id((d) => d.id).distance(72).strength(0.45))
+      .force('charge', forceManyBody().strength(-260))
       .force('center', forceCenter(width / 2, height / 2))
-      .force('collide', forceCollide<SimNode>().radius((d) => radius(d.deg) + 4))
+      .force('collide', forceCollide<SimNode>().radius((d) => radius(d.deg) + 12))
+      // When the initial layout settles, pin every node where it landed. The
+      // graph then stays put; dragging a node moves only that node (its fx/fy)
+      // and links stretch to follow, instead of the whole graph re-flowing.
+      .on('end', () => {
+        for (const n of simNodes) {
+          n.fx = n.x;
+          n.fy = n.y;
+        }
+      })
       .on('tick', () => {
         linkSel
           .attr('x1', (d) => (d.source as SimNode).x ?? 0)
@@ -198,15 +218,22 @@
     };
   });
 
-  // Selection highlight — reactive to selectedId, independent of the rebuild.
+  // Selection highlight + label visibility — reactive to hover/selection, and
+  // re-applied after a structural rebuild (via graphSig). Labels stay
+  // decluttered: only hubs + the hovered/selected node show text.
   $effect(() => {
+    void graphSig;
     const sel = selectedId;
+    const hv = hoveredId;
     if (!gEl) return;
-    select(gEl)
-      .selectAll<SVGGElement, SimNode>('g.node')
+    const nodeG = select(gEl).selectAll<SVGGElement, SimNode>('g.node');
+    nodeG
       .select('circle')
       .attr('stroke', (d) => (d.id === sel ? 'var(--amber-bright)' : 'none'))
       .attr('stroke-width', (d) => (d.id === sel ? 2 : 0));
+    nodeG
+      .select('text')
+      .attr('opacity', (d) => (d.deg >= HUB_DEG || d.id === sel || d.id === hv ? 1 : 0));
   });
 </script>
 
