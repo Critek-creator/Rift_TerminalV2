@@ -87,6 +87,13 @@
   function override(key: string): string | undefined {
     return visibility?.color_overrides?.[key];
   }
+
+  // Bottom-chrome quick access to Claude /commands — opens the unified command
+  // palette in /-mode (App.svelte listens for this event). The /commands
+  // launcher used to be a hidden Ctrl+Shift+P surface; this makes it visible.
+  function openCommands(): void {
+    window.dispatchEvent(new CustomEvent('rift:open-commands'));
+  }
 </script>
 
 <footer class="statusline" role="status" aria-live="polite" aria-label="Terminal status">
@@ -132,6 +139,13 @@
       </div>
     {/if}
     <div class="seg spacer"></div>
+    <button
+      type="button"
+      class="cmd-btn"
+      onclick={openCommands}
+      title="Claude /commands — quick access (Ctrl+Shift+P)"
+      aria-label="Open Claude commands"
+    >/ commands</button>
   </div>
   <div class="row">
     {#if show.git}
@@ -259,6 +273,34 @@
   .swap-btn:hover { background: rgba(0, 0, 0, 0.22); }
   .swap-btn:focus-visible {
     outline: 2px solid rgba(0, 0, 0, 0.5);
+    outline-offset: 1px;
+  }
+
+  /* /commands quick-access — sits on the statusline ground (not inside a tinted
+     segment), so it reads as an amber chip rather than dark-on-tint. */
+  .cmd-btn {
+    align-self: center;
+    margin-right: var(--space-sm);
+    padding: 1px 8px;
+    font-family: var(--font-family);
+    font-size: var(--text-2xs);
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    color: var(--amber-warm);
+    background: transparent;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background var(--duration-fast) var(--ease-out), color var(--duration-fast) var(--ease-out);
+  }
+  .cmd-btn:hover {
+    color: var(--amber-bright);
+    background: rgba(255, 200, 64, 0.08);
+    border-color: var(--amber-dim);
+  }
+  .cmd-btn:focus-visible {
+    outline: 1px solid var(--amber-warm);
     outline-offset: 1px;
   }
   .thinking { background: var(--status-cyan-dim); }
