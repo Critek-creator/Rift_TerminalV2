@@ -52,7 +52,7 @@ pub struct CommandHistoryStore {
 }
 
 impl CommandHistoryStore {
-    fn ensure_loaded(&self) -> Result<(), String> {
+    pub fn ensure_loaded(&self) -> Result<(), String> {
         if *self.loaded.lock() {
             return Ok(());
         }
@@ -117,6 +117,16 @@ impl CommandHistoryStore {
         }
 
         Ok(())
+    }
+
+    /// Return a snapshot of all loaded records.
+    ///
+    /// Callers must call `ensure_loaded()` before this to guarantee the store
+    /// is populated. Used by `session_timeline` to pre-narrow history records
+    /// to the pane ids seen in a session log without exposing the `Mutex`
+    /// internals.
+    pub fn records_snapshot(&self) -> Vec<CommandRecord> {
+        self.records.lock().clone()
     }
 }
 

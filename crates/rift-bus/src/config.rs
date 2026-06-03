@@ -87,6 +87,10 @@ pub struct RiftConfig {
     /// Session event persistence (bus → .jsonl file on disk).
     /// Enabled by default; 7-day retention; 100 MiB cap per session file.
     pub session: SessionConfig,
+    /// Session-timeline source-selection config (which event sources merge into
+    /// the cross-store session timeline view). CORE sources on by default;
+    /// firehose sources are opt-in.
+    pub timeline: TimelineConfig,
     /// Terminal surface settings (shell preference, font, scrollback, lanes).
     /// Defaults to `Auto` shell discovery (pwsh > powershell > %COMSPEC% > cmd
     /// on Windows, $SHELL > /bin/zsh > /bin/bash > /bin/sh on Unix), 13px
@@ -570,6 +574,55 @@ impl Default for TreeConfig {
         Self {
             heatmap_enabled: false,
             heatmap_window_minutes: 15,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// TimelineConfig — configurable cross-store session timeline (which event
+// sources merge into the "what happened in session X" view). CORE sources on
+// by default; the firehose sources (agents/hooks/fs/llm-cost/mcp) are opt-in.
+// ---------------------------------------------------------------------------
+
+/// Session-timeline source-selection config.
+///
+/// `#[serde(default)]` per the additive-versioning convention — configs
+/// written before this section existed parse without error and fall back to
+/// the CORE-only default set below. Each bool gates one event source that the
+/// `session_timeline` command merges chronologically. Commands + errors are
+/// the CORE essentials (on by default); the rest are opt-in to avoid
+/// firehosing the timeline.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(default)]
+pub struct TimelineConfig {
+    /// CORE — submitted commands (with exit codes + durations joined from
+    /// command_history). On by default.
+    pub show_commands: bool,
+    /// CORE — error/system events (Category::System, kind `system.error*`).
+    /// On by default.
+    pub show_errors: bool,
+    /// OPT-IN — sub-agent dispatch/complete/error (Category::Agent).
+    pub show_agents: bool,
+    /// OPT-IN — Claude Code hook events (Category::Hook).
+    pub show_hooks: bool,
+    /// OPT-IN — filesystem watcher events (Category::Fs).
+    pub show_fs: bool,
+    /// OPT-IN — LLM router cost/usage events (Category::Llm).
+    pub show_llm_cost: bool,
+    /// OPT-IN — MCP tool round-trips (Category::Mcp).
+    pub show_mcp: bool,
+}
+
+impl Default for TimelineConfig {
+    fn default() -> Self {
+        Self {
+            show_commands: true, // CORE
+            show_errors: true,   // CORE
+            show_agents: false,
+            show_hooks: false,
+            show_fs: false,
+            show_llm_cost: false,
+            show_mcp: false,
         }
     }
 }
@@ -1320,6 +1373,10 @@ mod tests {
         // D-020 — TreeConfig defaults round-trip.
         assert!(!back.tree.heatmap_enabled);
         assert_eq!(back.tree.heatmap_window_minutes, 15);
+        // IA Phase 4 — TimelineConfig CORE defaults round-trip.
+        assert!(back.timeline.show_commands);
+        assert!(back.timeline.show_errors);
+        assert!(!back.timeline.show_agents);
     }
 
     // D-018 groundwork — ShellPref Custom variant round-trips through both

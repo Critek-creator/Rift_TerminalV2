@@ -40,6 +40,7 @@ mod mcp_host;
 mod notif_window;
 mod profiles;
 mod resource_monitor;
+mod session_timeline;
 mod todo_scan;
 
 // Rift Terminal v2 — Tauri host crate.
@@ -2776,6 +2777,7 @@ pub fn run() {
             list_sessions,
             load_session,
             search_sessions,
+            session_timeline::session_timeline,
             compare_sessions,
             session_snapshot_write,
             session_snapshot_latest,

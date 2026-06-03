@@ -21,6 +21,7 @@
   import { check, type Update } from '@tauri-apps/plugin-updater';
   import { popouts } from './popouts.svelte';
   import type { RiftConfig, McpConfig, ShellPref, SeverityLevel, StatusLineConfig, AlertRule, AlertAction } from './riftConfig';
+  import { defaultTimelineConfig } from './riftConfig';
   import { newAlertRuleId } from './alertRules';
   import { PALETTES, CUSTOM_PALETTE_KEYS, PALETTE_KEY_LABELS, getDefaultCustomColors } from './terminalPalettes';
   import { llmModels, loadFromConfig as loadLlmFromConfig } from './llmModels.svelte';
@@ -147,7 +148,7 @@
   let savingTerminal = $state(false);
   let savingTree = $state(false);
   let saveBanner = $state<{
-    section: 'fs' | 'index' | 'mcp' | 'terminal' | 'notif' | 'tree' | 'statusline' | 'alerts' | 'models';
+    section: 'fs' | 'index' | 'mcp' | 'terminal' | 'notif' | 'tree' | 'statusline' | 'alerts' | 'models' | 'timeline';
     ok: boolean;
     msg: string;
   } | null>(null);
@@ -256,6 +257,16 @@
     { value: 'tone', label: 'play tone' },
   ];
 
+  // Timeline — IA phase-4 source-selection config.
+  let tlShowCommands = $state(true);
+  let tlShowErrors = $state(true);
+  let tlShowAgents = $state(false);
+  let tlShowHooks = $state(false);
+  let tlShowFs = $state(false);
+  let tlShowLlmCost = $state(false);
+  let tlShowMcp = $state(false);
+  let savingTimeline = $state(false);
+
   // Tree — D-020 heatmap groundwork.
   let treeHeatmapEnabled = $state(false);
   let treeHeatmapWindow = $state(15);
@@ -266,6 +277,19 @@
     { value: 60, label: '1 hour' },
   ];
 
+  const timelineDirty = $derived(
+    config !== null
+    && (
+      tlShowCommands !== (config.timeline?.show_commands ?? true)
+      || tlShowErrors !== (config.timeline?.show_errors ?? true)
+      || tlShowAgents !== (config.timeline?.show_agents ?? false)
+      || tlShowHooks !== (config.timeline?.show_hooks ?? false)
+      || tlShowFs !== (config.timeline?.show_fs ?? false)
+      || tlShowLlmCost !== (config.timeline?.show_llm_cost ?? false)
+      || tlShowMcp !== (config.timeline?.show_mcp ?? false)
+    )
+  );
+
   const treeDirty = $derived(
     config !== null
     && (
@@ -273,6 +297,48 @@
       || treeHeatmapWindow !== (config.tree?.heatmap_window_minutes ?? 15)
     )
   );
+
+  async function saveTimelineConfig() {
+    if (!config) return;
+    savingTimeline = true;
+    saveBanner = null;
+    const prevCommands = tlShowCommands;
+    const prevErrors = tlShowErrors;
+    const prevAgents = tlShowAgents;
+    const prevHooks = tlShowHooks;
+    const prevFs = tlShowFs;
+    const prevLlmCost = tlShowLlmCost;
+    const prevMcp = tlShowMcp;
+    try {
+      const next: RiftConfig = {
+        ...config,
+        timeline: {
+          show_commands: tlShowCommands,
+          show_errors: tlShowErrors,
+          show_agents: tlShowAgents,
+          show_hooks: tlShowHooks,
+          show_fs: tlShowFs,
+          show_llm_cost: tlShowLlmCost,
+          show_mcp: tlShowMcp,
+        },
+      };
+      await invoke('config_save', { cfg: next });
+      config = next;
+      broadcastConfigChanged();
+      saveBanner = { section: 'timeline', ok: true, msg: 'timeline sources saved' };
+    } catch (err) {
+      tlShowCommands = prevCommands;
+      tlShowErrors = prevErrors;
+      tlShowAgents = prevAgents;
+      tlShowHooks = prevHooks;
+      tlShowFs = prevFs;
+      tlShowLlmCost = prevLlmCost;
+      tlShowMcp = prevMcp;
+      saveBanner = { section: 'timeline', ok: false, msg: String(err) };
+    } finally {
+      savingTimeline = false;
+    }
+  }
 
   async function saveTreeConfig() {
     if (!config) return;
@@ -563,6 +629,16 @@
     slShowCtx = sl.show_ctx ?? true;
     slShowSessionUse = sl.show_session_use ?? true;
     slShowWeek = sl.show_week ?? true;
+    // Timeline snapshot — merge config.timeline over CORE defaults so old
+    // configs that pre-date the field degrade to the CORE-only set.
+    const tl = { ...defaultTimelineConfig(), ...c.timeline };
+    tlShowCommands = tl.show_commands;
+    tlShowErrors   = tl.show_errors;
+    tlShowAgents   = tl.show_agents;
+    tlShowHooks    = tl.show_hooks;
+    tlShowFs       = tl.show_fs;
+    tlShowLlmCost  = tl.show_llm_cost;
+    tlShowMcp      = tl.show_mcp;
     // Tree snapshot — defaults for old configs are filled by serde-side
     // #[serde(default)], so c.tree is always present at runtime.
     const tree = c.tree ?? { heatmap_enabled: false, heatmap_window_minutes: 15 };
@@ -1022,6 +1098,62 @@
         {/if}
       </div>
     </section>
+
+    <!-- TIMELINE SOURCES -->
+    {#if config}
+    <section class="section">
+      <div class="section-label">Timeline Sources</div>
+      <div class="hint">
+        which event sources merge into the session timeline. commands + errors
+        are the essentials (CORE); the rest are opt-in to avoid firehosing.
+      </div>
+      <div class="toggle-grid">
+        <label class="kv-toggle">
+          <input type="checkbox" bind:checked={tlShowCommands} disabled={savingTimeline} />
+          <span>COMMANDS · core</span>
+        </label>
+        <label class="kv-toggle">
+          <input type="checkbox" bind:checked={tlShowErrors} disabled={savingTimeline} />
+          <span>ERRORS · core</span>
+        </label>
+        <label class="kv-toggle">
+          <input type="checkbox" bind:checked={tlShowAgents} disabled={savingTimeline} />
+          <span>AGENTS</span>
+        </label>
+        <label class="kv-toggle">
+          <input type="checkbox" bind:checked={tlShowHooks} disabled={savingTimeline} />
+          <span>HOOKS</span>
+        </label>
+        <label class="kv-toggle">
+          <input type="checkbox" bind:checked={tlShowFs} disabled={savingTimeline} />
+          <span>FILESYSTEM</span>
+        </label>
+        <label class="kv-toggle">
+          <input type="checkbox" bind:checked={tlShowLlmCost} disabled={savingTimeline} />
+          <span>LLM COST</span>
+        </label>
+        <label class="kv-toggle">
+          <input type="checkbox" bind:checked={tlShowMcp} disabled={savingTimeline} />
+          <span>MCP</span>
+        </label>
+      </div>
+      <div class="row" style="margin-top: 10px;">
+        <button
+          type="button"
+          class="btn primary"
+          disabled={!timelineDirty || savingTimeline}
+          onclick={saveTimelineConfig}
+        >
+          {savingTimeline ? 'saving…' : 'save timeline sources'}
+        </button>
+        {#if saveBanner && saveBanner.section === 'timeline'}
+          <span class="banner-inline" class:fail={!saveBanner.ok} role="status">
+            {saveBanner.msg}
+          </span>
+        {/if}
+      </div>
+    </section>
+    {/if}
     {/if}
 
     {#if activeTab === 'integrations'}

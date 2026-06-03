@@ -78,6 +78,32 @@ interface TreeConfig {
   heatmap_window_minutes: number;
 }
 
+interface TimelineConfig {
+  show_commands: boolean;
+  show_errors: boolean;
+  show_agents: boolean;
+  show_hooks: boolean;
+  show_fs: boolean;
+  show_llm_cost: boolean;
+  show_mcp: boolean;
+}
+
+/** Returns the CORE-default TimelineConfig — commands + errors ON, all
+ *  opt-in sources OFF.  Used by SettingsPanel to snapshot old configs
+ *  that pre-date the timeline field, and exported so tests can assert the
+ *  defaults without coupling to Svelte component internals. */
+export function defaultTimelineConfig(): TimelineConfig {
+  return {
+    show_commands: true,
+    show_errors:   true,
+    show_agents:   false,
+    show_hooks:    false,
+    show_fs:       false,
+    show_llm_cost: false,
+    show_mcp:      false,
+  };
+}
+
 export interface StatusLineConfig {
   show_dir: boolean;
   show_git: boolean;
@@ -214,6 +240,7 @@ export interface RiftConfig {
   mcp: McpConfig;
   terminal: TerminalConfig;
   session: SessionConfig;
+  timeline: TimelineConfig;
   notif_filters: NotifFilterConfig;
   tree: TreeConfig;
   statusline: StatusLineConfig;
