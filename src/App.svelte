@@ -24,6 +24,7 @@
   import IntegrationInspector from './lib/IntegrationInspector.svelte';
   import FeaturePipelineTabContent from './lib/FeaturePipelineTabContent.svelte';
   import StatusLine from './lib/StatusLine.svelte';
+  import ModeHintBar from './lib/ModeHintBar.svelte';
   import Popout from './lib/Popout.svelte';
   import Tree from './lib/Tree.svelte';
   import IndexGraph from './lib/IndexGraph.svelte';
@@ -375,6 +376,16 @@
       : '',
   );
   const statusRam = $derived(paneResources ? formatRam(paneResources.rss_kb) : '');
+
+  // Phase 2 / N4 — ambient indicators for the ModeHintBar. Reuse the existing
+  // notif unread state (no new bus subscriptions): each indicator lights with a
+  // count when its tab has unacked activity, and dims once promoted (ackUnread
+  // zeroes the count). The mode-hint line's context comes from sm.active.kind.
+  const ambientCount = (id: string): number =>
+    nm.notifs.find((n) => n.id === id)?.unreadCount ?? 0;
+  const errorAmbient = $derived(ambientCount('errors'));
+  const agentAmbient = $derived(ambientCount('agents'));
+  const mcpAmbient = $derived(ambientCount('mcp'));
 
   // Per-session Claude Code status. Each Rift PTY runs its own CC session whose
   // statusLine bridge tees to rift-cc-status-<sessionId>.json; status.rs emits
@@ -1216,6 +1227,18 @@
       </div>
     {/if}
   </main>
+
+  <!-- Phase 2 / N4 — ambient status chrome. Mode-hint line (context keybinds)
+       on the left, agent/error/mcp ambient indicators on the right. Sits as a
+       thin band directly above the two-row StatusLine. -->
+  <ModeHintBar
+    activeKind={sm.active.kind === 'session' ? 'session' : 'empty'}
+    {cockpitCollapsed}
+    errorCount={errorAmbient}
+    agentCount={agentAmbient}
+    mcpCount={mcpAmbient}
+    onPromote={nm.activateNotif}
+  />
 
   <StatusLine
     dir={statusDir || '—'}
