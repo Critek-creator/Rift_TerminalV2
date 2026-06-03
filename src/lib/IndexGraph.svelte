@@ -18,8 +18,9 @@
   import { crossRefHighlight } from './crossRefHighlight.svelte';
   import { enrichmentStore } from './enrichmentStore.svelte';
   import IndexContentBrowser from './IndexContentBrowser.svelte';
+  import IndexGraphCanvas from './IndexGraphCanvas.svelte';
 
-  type ViewMode = 'vaults' | 'content';
+  type ViewMode = 'vaults' | 'graph' | 'content';
   let viewMode = $state<ViewMode>('vaults');
 
   type VaultKind = 'p' | 'pr' | 'r' | 's' | 'lore' | 'agt' | 'h';
@@ -462,6 +463,11 @@
       >VAULTS</button>
       <button type="button"
         class="mode-btn"
+        class:active={viewMode === 'graph'}
+        onclick={() => { viewMode = 'graph'; }}
+      >GRAPH</button>
+      <button type="button"
+        class="mode-btn"
         class:active={viewMode === 'content'}
         onclick={() => { viewMode = 'content'; }}
       >CONTENT</button>
@@ -481,6 +487,13 @@
 
   {#if viewMode === 'content'}
     <IndexContentBrowser />
+  {:else if viewMode === 'graph'}
+    <IndexGraphCanvas
+      nodes={activeNodes}
+      edges={activeEdges}
+      selectedId={selectedId}
+      onSelect={(id) => { selectedId = selectedId === id ? null : id; }}
+    />
   {:else}
     <!-- Quiet summary line — demoted from the old loud 3-number stat strip.
          The vault total is already in the header count and the per-kind
