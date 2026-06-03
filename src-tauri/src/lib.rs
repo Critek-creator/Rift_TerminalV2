@@ -1590,6 +1590,31 @@ async fn search_sessions(
         .map_err(|e| format!("search_sessions: task join error: {e}"))?
 }
 
+/// List metadata for every session that has a compaction sidecar
+/// (`<id>.summary.json`), newest-first by id. Returns an empty vec when no
+/// sidecars exist — never errors on a missing dir. Backs the Sessions panel's
+/// "past summaries" list (audit debt #4: summaries were write-only).
+#[tauri::command]
+async fn list_session_summaries(
+) -> Result<Vec<rift_bus::session_reader::SessionSummaryMeta>, String> {
+    tokio::task::spawn_blocking(rift_bus::session_reader::list_session_summaries)
+        .await
+        .map_err(|e| format!("list_session_summaries: task join error: {e}"))?
+}
+
+/// Fetch the full compaction digest for a specific session by id.
+/// Returns `Ok(None)` when no sidecar exists (session was never compacted or
+/// the sidecar was deleted). A corrupt sidecar also returns `Ok(None)` —
+/// degrades gracefully, never panics. (Audit debt #4.)
+#[tauri::command]
+async fn get_session_summary(
+    session_id: String,
+) -> Result<Option<rift_bus::SessionSummary>, String> {
+    tokio::task::spawn_blocking(move || rift_bus::session_reader::get_session_summary(&session_id))
+        .await
+        .map_err(|e| format!("get_session_summary: task join error: {e}"))?
+}
+
 /// Async with `spawn_blocking` — reads and diffs two session files.
 #[tauri::command]
 async fn compare_sessions(
@@ -2777,6 +2802,8 @@ pub fn run() {
             list_sessions,
             load_session,
             search_sessions,
+            list_session_summaries,
+            get_session_summary,
             session_timeline::session_timeline,
             compare_sessions,
             session_snapshot_write,

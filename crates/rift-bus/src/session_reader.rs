@@ -2,6 +2,7 @@ use std::io::BufRead;
 
 use serde::{Deserialize, Serialize};
 
+use crate::compaction::SessionSummary;
 use crate::config::sessions_dir;
 
 #[derive(Debug, Serialize)]
@@ -227,6 +228,115 @@ pub fn load_session(session_id: &str) -> Result<Vec<serde_json::Value>, String> 
     }
 
     Ok(events)
+}
+
+// ---------------------------------------------------------------------------
+// Compaction-digest query (audit debt #4)
+//
+// The sidecar `<id>.summary.json` written by `compaction::compact_session` is
+// read-only from the user's perspective — the only prior consumer was the
+// startup restore banner (`latest_snapshot`). These helpers expose the
+// summaries as a queryable collection, mirroring the `list_sessions` /
+// `load_session` pattern.
+// ---------------------------------------------------------------------------
+
+/// Slim metadata row for a session that has a compaction sidecar.
+#[derive(Debug, Serialize)]
+pub struct SessionSummaryMeta {
+    /// Session id (same id used by `list_sessions` / `load_session`).
+    pub id: String,
+    /// Date prefix (first 10 chars of the id, e.g. `"2026-06-03"`).
+    pub date: String,
+    /// Unix epoch milliseconds when the summary was written.
+    pub created_ms: u64,
+    /// Number of `.jsonl` lines covered by this summary.
+    pub last_consolidated_offset: u64,
+    /// Character length of the digest text (cheap preview without reading it).
+    pub summary_chars: usize,
+}
+
+/// List every session that has a compaction sidecar (`*.summary.json`),
+/// newest-first by id. Returns an empty vec when the sessions dir is absent
+/// or no sidecars exist — never errors on a missing dir.
+pub fn list_session_summaries() -> Result<Vec<SessionSummaryMeta>, String> {
+    let dir = match sessions_dir() {
+        Ok(d) => d,
+        Err(_) => return Ok(vec![]),
+    };
+
+    let entries = match std::fs::read_dir(&dir) {
+        Ok(e) => e,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(vec![]),
+        Err(e) => return Err(format!("failed to read sessions dir: {e}")),
+    };
+
+    let mut out: Vec<SessionSummaryMeta> = Vec::new();
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        // Match `<id>.summary.json` — two extensions, inner must be "summary".
+        let file_name = match path.file_name().and_then(|n| n.to_str()) {
+            Some(n) => n,
+            None => continue,
+        };
+        if !file_name.ends_with(".summary.json") {
+            continue;
+        }
+        // Strip the `.summary.json` suffix to recover the session id.
+        let id = &file_name[..file_name.len() - ".summary.json".len()];
+        if id.is_empty() {
+            continue;
+        }
+
+        let json = match std::fs::read_to_string(&path) {
+            Ok(s) => s,
+            Err(_) => continue, // unreadable sidecar — skip, never error
+        };
+        let sidecar: SessionSummary = match serde_json::from_str(&json) {
+            Ok(s) => s,
+            Err(_) => continue, // corrupt sidecar — skip, never error
+        };
+
+        out.push(SessionSummaryMeta {
+            date: date_from_stem(id),
+            id: id.to_string(),
+            created_ms: sidecar.created_ms,
+            last_consolidated_offset: sidecar.last_consolidated_offset,
+            summary_chars: sidecar.summary.len(),
+        });
+    }
+
+    // Newest-first (ids are date-prefixed, lexicographic sort is chronological).
+    out.sort_by(|a, b| b.id.cmp(&a.id));
+    Ok(out)
+}
+
+/// Fetch the full [`SessionSummary`] for a specific session by id.
+///
+/// Returns `Ok(None)` when no sidecar exists for the id (session was never
+/// compacted or the sidecar was deleted). Returns `Err` only for real I/O
+/// failures (unreadable file, permission error). A corrupt sidecar that fails
+/// JSON parsing is treated as `Ok(None)` — degraded gracefully, never panics.
+pub fn get_session_summary(session_id: &str) -> Result<Option<SessionSummary>, String> {
+    let dir = sessions_dir().map_err(|e| format!("sessions dir: {e}"))?;
+    let path = dir.join(format!("{session_id}.summary.json"));
+
+    if !path.exists() {
+        return Ok(None);
+    }
+
+    let json = std::fs::read_to_string(&path)
+        .map_err(|e| format!("failed to read summary for {session_id}: {e}"))?;
+
+    match serde_json::from_str::<SessionSummary>(&json) {
+        Ok(s) => Ok(Some(s)),
+        Err(e) => {
+            tracing::warn!(
+                "session_reader: corrupt summary sidecar for {session_id}: {e} — returning None"
+            );
+            Ok(None) // corrupt but not a hard error — degrade gracefully
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -742,5 +852,139 @@ mod tests {
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].source, "command");
         assert_eq!(entries[0].ts, 500);
+    }
+
+    // ---------------------------------------------------------------------------
+    // Compaction-digest query tests (audit debt #4)
+    // All tests use in-memory temp dirs — no real sessions dir required.
+    // ---------------------------------------------------------------------------
+
+    /// Write a `.summary.json` sidecar into `dir` and return the session id.
+    fn write_test_summary(dir: &std::path::Path, id: &str, text: &str, offset: u64) -> String {
+        let sidecar = crate::compaction::SessionSummary {
+            summary: text.to_string(),
+            last_consolidated_offset: offset,
+            created_ms: 999,
+        };
+        let json = serde_json::to_string(&sidecar).unwrap();
+        std::fs::write(dir.join(format!("{id}.summary.json")), json).unwrap();
+        id.to_string()
+    }
+
+    /// Parse list_session_summaries directly from a temp dir, bypassing the
+    /// real sessions_dir() (which requires a configured app data dir).
+    fn list_summaries_from_dir(
+        dir: &std::path::Path,
+    ) -> Vec<crate::session_reader::SessionSummaryMeta> {
+        let entries = std::fs::read_dir(dir).unwrap();
+        let mut out: Vec<crate::session_reader::SessionSummaryMeta> = Vec::new();
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let file_name = match path.file_name().and_then(|n| n.to_str()) {
+                Some(n) => n.to_string(),
+                None => continue,
+            };
+            if !file_name.ends_with(".summary.json") {
+                continue;
+            }
+            let id = &file_name[..file_name.len() - ".summary.json".len()];
+            if id.is_empty() {
+                continue;
+            }
+            let json = match std::fs::read_to_string(&path) {
+                Ok(s) => s,
+                Err(_) => continue,
+            };
+            let sidecar: crate::compaction::SessionSummary = match serde_json::from_str(&json) {
+                Ok(s) => s,
+                Err(_) => continue,
+            };
+            out.push(crate::session_reader::SessionSummaryMeta {
+                date: super::date_from_stem(id),
+                id: id.to_string(),
+                created_ms: sidecar.created_ms,
+                last_consolidated_offset: sidecar.last_consolidated_offset,
+                summary_chars: sidecar.summary.len(),
+            });
+        }
+        out.sort_by(|a, b| b.id.cmp(&a.id));
+        out
+    }
+
+    /// Parse get_session_summary from a temp dir.
+    fn get_summary_from_dir(
+        dir: &std::path::Path,
+        session_id: &str,
+    ) -> Option<crate::compaction::SessionSummary> {
+        let path = dir.join(format!("{session_id}.summary.json"));
+        if !path.exists() {
+            return None;
+        }
+        let json = std::fs::read_to_string(&path).ok()?;
+        serde_json::from_str(&json).ok()
+    }
+
+    // (e) list_session_summaries returns empty when no sidecars exist.
+    #[test]
+    fn list_summaries_empty_when_no_sidecars() {
+        let dir = tempfile::tempdir().unwrap();
+        // Write only a .jsonl — no .summary.json.
+        std::fs::write(dir.path().join("2026-06-01-abc.jsonl"), "").unwrap();
+        let metas = list_summaries_from_dir(dir.path());
+        assert!(metas.is_empty(), "no sidecar → empty list");
+    }
+
+    // (f) list_session_summaries surfaces only .summary.json files.
+    #[test]
+    fn list_summaries_finds_sidecars() {
+        let dir = tempfile::tempdir().unwrap();
+        write_test_summary(dir.path(), "2026-06-01-aaa", "first digest", 10);
+        write_test_summary(dir.path(), "2026-06-03-bbb", "second digest", 20);
+        // Also write a .jsonl — must not appear in the summary list.
+        std::fs::write(dir.path().join("2026-06-02-ccc.jsonl"), "").unwrap();
+
+        let metas = list_summaries_from_dir(dir.path());
+        assert_eq!(metas.len(), 2, "only the two .summary.json files");
+        // Newest-first by id.
+        assert_eq!(metas[0].id, "2026-06-03-bbb");
+        assert_eq!(metas[1].id, "2026-06-01-aaa");
+        assert_eq!(metas[0].last_consolidated_offset, 20);
+        assert_eq!(metas[1].summary_chars, "first digest".len());
+    }
+
+    // (g) get_session_summary returns None for a missing sidecar (no panic).
+    #[test]
+    fn get_summary_none_for_missing_sidecar() {
+        let dir = tempfile::tempdir().unwrap();
+        let result = get_summary_from_dir(dir.path(), "nonexistent-session");
+        assert!(result.is_none(), "absent sidecar → Ok(None)");
+    }
+
+    // (h) get_session_summary round-trips the full SessionSummary.
+    #[test]
+    fn get_summary_round_trips() {
+        let dir = tempfile::tempdir().unwrap();
+        let id = write_test_summary(dir.path(), "2026-06-03-test", "ran cargo test", 42);
+        let sidecar = get_summary_from_dir(dir.path(), &id).expect("sidecar should be present");
+        assert_eq!(sidecar.summary, "ran cargo test");
+        assert_eq!(sidecar.last_consolidated_offset, 42);
+        assert_eq!(sidecar.created_ms, 999);
+    }
+
+    // (i) A corrupt .summary.json is skipped in list and returns None in get.
+    #[test]
+    fn corrupt_sidecar_degrades_gracefully() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("2026-06-03-corrupt.summary.json"),
+            "NOT VALID JSON {{{",
+        )
+        .unwrap();
+        // list: corrupt file is silently skipped.
+        let metas = list_summaries_from_dir(dir.path());
+        assert!(metas.is_empty(), "corrupt sidecar skipped in list");
+        // get: corrupt parses to None (the real fn returns Ok(None)).
+        let s = get_summary_from_dir(dir.path(), "2026-06-03-corrupt");
+        assert!(s.is_none(), "corrupt sidecar → None");
     }
 }

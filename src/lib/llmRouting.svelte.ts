@@ -363,3 +363,46 @@ export const llmRouting = {
     return `${(count / 1_000_000).toFixed(2)}M`;
   },
 };
+
+// ---------------------------------------------------------------------------
+// Profile analytics capture
+// ---------------------------------------------------------------------------
+
+/** Serialise the current ledger to a JSON string suitable for embedding in a
+ *  WorkspaceProfileState.analytics_snapshot field.  Returns null if
+ *  serialisation fails (e.g. circular ref — shouldn't happen but never throw).
+ *
+ *  This is deliberately a point-in-time snapshot: the caller (profile save
+ *  path) captures it once and passes it to `profile_save`.  It is NOT a live
+ *  binding, so it does not reactively update after capture.
+ *
+ *  RESTORE semantics are DESIGN-DEFERRED — this function only handles the
+ *  CAPTURE side.  Profile load may surface the blob for display/opt-in restore
+ *  once the UX design is settled.
+ */
+export function getLedgerSnapshot(): string | null {
+  try {
+    const payload: PersistedLedger = {
+      sessionCostUsd,
+      requestCount,
+      totalTokensIn,
+      totalTokensOut,
+      lastRoute,
+      recentRoutes,
+      costByModel,
+      escalationCount,
+      localRequests,
+      cloudRequests,
+      localTokensIn,
+      localTokensOut,
+      cloudTokensIn,
+      cloudTokensOut,
+      cloudSpendUsd,
+      savingsUsd,
+      savingsRefModelId,
+    };
+    return JSON.stringify(payload);
+  } catch {
+    return null;
+  }
+}

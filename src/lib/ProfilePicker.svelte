@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
+  import { getLedgerSnapshot } from './llmRouting.svelte';
 
   interface Props {
     activeProfile?: string | null;
@@ -82,7 +83,21 @@
     if (!name || mutating) return;
     mutating = true;
     try {
-      const state = { tabs: [], cockpit_visible: true, cockpit_panels: [], notification_filters: { default_threshold: null, per_tab: {} } };
+      // Capture the LLM routing ledger at save time so the profile carries
+      // session cost/routing context.  getLedgerSnapshot() returns null on
+      // serialisation failure — the backend field is Option<String> so null
+      // round-trips cleanly.
+      // NOTE: restore semantics are DESIGN-DEFERRED; the snapshot is captured
+      // and persisted but is not applied back to the live ledger on load until
+      // the UX design for that flow is settled (see profiles.rs doc comment).
+      const analyticsSnapshot = getLedgerSnapshot();
+      const state = {
+        tabs: [],
+        cockpit_visible: true,
+        cockpit_panels: [],
+        notification_filters: { default_threshold: null, per_tab: {} },
+        analytics_snapshot: analyticsSnapshot,
+      };
       await invoke('profile_save', { name, state, projectFilter: null });
     } catch (err) {
       console.warn('profile_save failed:', err);

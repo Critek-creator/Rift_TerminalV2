@@ -77,6 +77,20 @@ pub struct WorkspaceProfileState {
     pub cockpit_panels: Vec<String>,
     #[serde(default)]
     pub notification_filters: ProfileNotifFilters,
+    /// Opaque JSON blob capturing a snapshot of the LLM routing ledger at save
+    /// time (session cost, token counts, routing history, etc.).  The field is
+    /// intentionally `Option<String>` so:
+    ///   – old profiles serialised before this field existed parse without
+    ///     error (`serde(default)` materialises `None`).
+    ///   – a `null` / absent value never panics on load.
+    ///   – the backend does NOT interpret or validate the contents; that is the
+    ///     frontend's responsibility.
+    /// Restore semantics are DESIGN-DEFERRED — loading a workspace should not
+    /// automatically overwrite the live session ledger without explicit user
+    /// opt-in.  The field is read back by the frontend `profile_load` response
+    /// so it CAN act on it when the design is settled.
+    #[serde(default)]
+    pub analytics_snapshot: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -204,4 +218,102 @@ pub async fn profile_delete(
     })
     .await
     .map_err(|e| format!("profile_delete: join error: {e}"))?
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_state(analytics: Option<&str>) -> WorkspaceProfileState {
+        WorkspaceProfileState {
+            tabs: vec![ProfileTabState {
+                label: "main".to_string(),
+                cwd: Some("/tmp".to_string()),
+                splits: vec![],
+            }],
+            cockpit_visible: true,
+            cockpit_panels: vec!["tree".to_string()],
+            notification_filters: ProfileNotifFilters {
+                default_threshold: Some("info".to_string()),
+                per_tab: std::collections::HashMap::new(),
+            },
+            analytics_snapshot: analytics.map(|s| s.to_string()),
+        }
+    }
+
+    /// Round-trip: WorkspaceProfileState → TOML → WorkspaceProfileState preserves
+    /// the analytics_snapshot field (present case).
+    #[test]
+    fn analytics_snapshot_round_trips_through_toml_present() {
+        let blob = r#"{"sessionCostUsd":0.042,"requestCount":7}"#;
+        let state = make_state(Some(blob));
+
+        let profile = WorkspaceProfile {
+            name: "test".to_string(),
+            project_filter: None,
+            state,
+        };
+        let file = ProfilesFile {
+            profiles: vec![profile],
+        };
+
+        let serialised = toml::to_string_pretty(&file).expect("serialise ok");
+        let restored: ProfilesFile = toml::from_str(&serialised).expect("deserialise ok");
+
+        let restored_state = &restored.profiles[0].state;
+        assert_eq!(
+            restored_state.analytics_snapshot.as_deref(),
+            Some(blob),
+            "analytics_snapshot should survive a TOML round-trip"
+        );
+    }
+
+    /// Round-trip: when analytics_snapshot is None the field is absent in TOML
+    /// and parses back as None without error.
+    #[test]
+    fn analytics_snapshot_round_trips_through_toml_absent() {
+        let state = make_state(None);
+        let profile = WorkspaceProfile {
+            name: "no-analytics".to_string(),
+            project_filter: None,
+            state,
+        };
+        let file = ProfilesFile {
+            profiles: vec![profile],
+        };
+
+        let serialised = toml::to_string_pretty(&file).expect("serialise ok");
+        let restored: ProfilesFile = toml::from_str(&serialised).expect("deserialise ok");
+
+        assert_eq!(
+            restored.profiles[0].state.analytics_snapshot, None,
+            "absent analytics_snapshot should round-trip as None"
+        );
+    }
+
+    /// Backward-compat: a TOML blob that pre-dates the analytics_snapshot field
+    /// (i.e. it is absent from the serialised form) should parse without error
+    /// and yield None for the field.
+    #[test]
+    fn analytics_snapshot_missing_from_old_toml_parses_as_none() {
+        let old_toml = r#"
+[[profiles]]
+name = "legacy"
+
+[profiles.state]
+cockpit_visible = false
+cockpit_panels = []
+
+[profiles.state.notification_filters]
+"#;
+        let file: ProfilesFile = toml::from_str(old_toml).expect("old TOML should parse");
+        assert_eq!(
+            file.profiles[0].state.analytics_snapshot, None,
+            "old TOML without analytics_snapshot should yield None"
+        );
+    }
 }

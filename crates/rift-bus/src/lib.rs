@@ -233,6 +233,21 @@ pub use compaction::spawn_compaction;
 /// the idle gate; honors `keep_suffix_events`. See [`compaction::compact_now`].
 pub use compaction::compact_now;
 
+/// Re-export [`SessionSummary`] so callers can write `rift_bus::SessionSummary`.
+pub use compaction::SessionSummary;
+
+/// List metadata for every session that has a compaction sidecar (`*.summary.json`),
+/// newest-first. Backs the `list_session_summaries` Tauri command.
+pub use session_reader::list_session_summaries;
+
+/// Fetch the full [`SessionSummary`] for a session by id.
+/// Returns `Ok(None)` when no sidecar exists (never compacted or deleted).
+/// Backs the `get_session_summary` Tauri command.
+pub use session_reader::get_session_summary;
+
+/// Slim metadata row for a session that has a compaction sidecar.
+pub use session_reader::SessionSummaryMeta;
+
 /// Re-export [`SessionConfig`] so callers can write `rift_bus::SessionConfig`.
 pub use config::SessionConfig;
 

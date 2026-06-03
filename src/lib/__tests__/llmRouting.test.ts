@@ -7,6 +7,7 @@ import {
   flushPersist,
   initFromStorage,
   STORAGE_KEY,
+  getLedgerSnapshot,
 } from '../llmRouting.svelte';
 
 describe('llmRouting store', () => {
@@ -198,6 +199,78 @@ describe('llmRouting store', () => {
 
       resetSession();
       expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
+    });
+  });
+
+  describe('getLedgerSnapshot — profile analytics capture', () => {
+    it('returns a valid JSON string containing current ledger fields', () => {
+      handleRouteEvent({ model_id: 'sonnet', task_type: 'chat', profile: 'balanced', reason: 'default', was_overridden: false });
+      handleResponseEvent({ model_id: 'sonnet', tokens_in: 500, tokens_out: 200, cost_usd: 0.025 });
+
+      const snap = getLedgerSnapshot();
+      expect(snap).not.toBeNull();
+      expect(typeof snap).toBe('string');
+
+      const parsed = JSON.parse(snap!);
+      expect(parsed.sessionCostUsd).toBeCloseTo(0.025);
+      expect(parsed.requestCount).toBe(1);
+      expect(parsed.totalTokensIn).toBe(500);
+      expect(parsed.totalTokensOut).toBe(200);
+      expect(parsed.recentRoutes).toHaveLength(1);
+      expect(parsed.recentRoutes[0].model_id).toBe('sonnet');
+      expect(parsed.lastRoute).not.toBeNull();
+      expect(parsed.lastRoute.model_id).toBe('sonnet');
+    });
+
+    it('snapshot reflects zero state after resetSession', () => {
+      // Build up some data then reset before capturing.
+      handleResponseEvent({ model_id: 'opus', tokens_in: 100, tokens_out: 50, cost_usd: 0.01 });
+      resetSession();
+
+      const snap = getLedgerSnapshot();
+      expect(snap).not.toBeNull();
+      const parsed = JSON.parse(snap!);
+      expect(parsed.sessionCostUsd).toBe(0);
+      expect(parsed.requestCount).toBe(0);
+      expect(parsed.totalTokensIn).toBe(0);
+      expect(parsed.recentRoutes).toEqual([]);
+      expect(parsed.lastRoute).toBeNull();
+    });
+
+    it('snapshot is a point-in-time copy: mutating state after capture does not change the snapshot', () => {
+      handleResponseEvent({ model_id: 'haiku', tokens_in: 50, tokens_out: 20, cost_usd: 0.002 });
+
+      const snap = getLedgerSnapshot();
+      const before = JSON.parse(snap!);
+
+      // Add more data AFTER the snapshot.
+      handleResponseEvent({ model_id: 'haiku', tokens_in: 300, tokens_out: 100, cost_usd: 0.015 });
+
+      // The snapshot should still hold the pre-mutation values.
+      expect(before.sessionCostUsd).toBeCloseTo(0.002);
+      expect(before.totalTokensIn).toBe(50);
+      // The live store should have the new values.
+      expect(llmRouting.sessionCostUsd).toBeCloseTo(0.017);
+    });
+
+    it('snapshot round-trips: parse snapshot, seed localStorage, initFromStorage restores matching state', () => {
+      handleRouteEvent({ model_id: 'opus', task_type: 'code', profile: 'quality', reason: 'max', was_overridden: true });
+      handleResponseEvent({ model_id: 'opus', tokens_in: 1000, tokens_out: 400, cost_usd: 0.08, escalated: false });
+
+      const snap = getLedgerSnapshot();
+      expect(snap).not.toBeNull();
+
+      // Simulate page reload: reset + seed storage with snapshot.
+      resetSession();
+      localStorage.setItem(STORAGE_KEY, snap!);
+      initFromStorage();
+
+      expect(llmRouting.sessionCostUsd).toBeCloseTo(0.08);
+      expect(llmRouting.requestCount).toBe(1);
+      expect(llmRouting.totalTokensIn).toBe(1000);
+      expect(llmRouting.totalTokensOut).toBe(400);
+      expect(llmRouting.lastRoute?.model_id).toBe('opus');
+      expect(llmRouting.recentRoutes).toHaveLength(1);
     });
   });
 });
