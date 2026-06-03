@@ -8,18 +8,72 @@ import { replaceLeaf, removeLeaf, collectLeafIds } from './splitTypes';
 import type { SplitNode } from './splitTypes';
 import type { SessionTab, ActiveSurface } from './TabBar.svelte';
 import { popouts } from './popouts.svelte';
+import {
+  getRestorePayload,
+  clearSnapshot,
+  gatherPanes,
+  writeSnapshot,
+  type RestorePayload,
+} from './sessionRestore';
+
+// ---------------------------------------------------------------------------
+// Stage 2b restart-safe boot restore
+// ---------------------------------------------------------------------------
+
+/** Highest leaf (pane) id anywhere in a layout tree — used to seed the id
+ *  counter above every restored id so later splits never collide. */
+function maxLeafId(node: SplitNode): number {
+  return node.type === 'terminal'
+    ? node.id
+    : Math.max(maxLeafId(node.children[0]), maxLeafId(node.children[1]));
+}
+
+/** Build the initial session list from a restore payload, reusing the ORIGINAL
+ *  pane ids so each pane re-hydrates its own buffer by id. `null` when there is
+ *  nothing to restore (panes mount fresh as the default single session). */
+function buildRestoredSessions(payload: RestorePayload | null): SessionTab[] | null {
+  if (!payload) return null;
+  const layout: SplitNode | null = payload.layout
+    ? (payload.layout as SplitNode)
+    : payload.panes.length > 0
+      ? { type: 'terminal', id: payload.panes[0].pane_id }
+      : null;
+  if (!layout) return null;
+  const leaves = collectLeafIds(layout);
+  if (leaves.length === 0) return null;
+  const proj = payload.panes[0]?.project_root ?? null;
+  // Tab id == its first (original) leaf id, matching how a fresh tab's id and
+  // its single pane id coincide (one monotonic namespace).
+  return [{ id: leaves[0], title: 'rift', projectPath: proj, layout }];
+}
+
+// Top-level await: a single fast file read so panes mount already in the
+// restored layout (no throwaway default shell to spawn-then-kill). Falls back
+// to the default single session when restore is disabled or nothing qualifies.
+const bootPayload = await getRestorePayload();
+const restoredSessions = buildRestoredSessions(bootPayload);
+if (restoredSessions && bootPayload) {
+  // The in-memory payload stays cached for per-pane hydration; clearing only
+  // deletes the on-disk file so it does not replay on the next boot.
+  clearSnapshot(bootPayload.session_id);
+}
+
+const DEFAULT_SESSIONS: SessionTab[] = [
+  { id: 0, title: 'rift', projectPath: null, layout: { type: 'terminal', id: 0 } },
+];
 
 // ---------------------------------------------------------------------------
 // State
 // ---------------------------------------------------------------------------
 
-let nextSessionId = 1;
+let nextSessionId = restoredSessions
+  ? maxLeafId(restoredSessions[0].layout) + 1
+  : 1;
 let initialProjectRoot = $state<string | null>(null);
-let sessions = $state<SessionTab[]>([
-  { id: 0, title: 'rift', projectPath: null, layout: { type: 'terminal', id: 0 } },
-]);
-let focusedSessionId = $state(0);
-let active = $state<ActiveSurface>({ kind: 'session', id: 0 });
+let sessions = $state<SessionTab[]>(restoredSessions ?? DEFAULT_SESSIONS);
+const firstLeaf = collectLeafIds((restoredSessions ?? DEFAULT_SESSIONS)[0].layout)[0] ?? 0;
+let focusedSessionId = $state(firstLeaf);
+let active = $state<ActiveSurface>({ kind: 'session', id: sessions[0].id });
 
 const paneSessionPaths = new Map<number, string | null>();
 
@@ -197,6 +251,22 @@ function markPaneExited(paneId: number) {
   exitedPaneIds.add(paneId);
 }
 
+/** Stage 2b: snapshot the entire active session — every leaf pane's buffer/cwd
+ *  plus the tiling layout tree — in one write. Driven by the focused pane's
+ *  timer + onDestroy (see Terminal.svelte). Skips a *partial* capture (a pane
+ *  provider mid-teardown) so a complete snapshot is never clobbered by a
+ *  half-gone one during app close. */
+function captureActiveSession() {
+  if (active.kind !== 'session') return;
+  const activeId = active.id;
+  const s = sessions.find((x) => x.id === activeId);
+  if (!s) return;
+  const leafIds = collectLeafIds(s.layout);
+  const panes = gatherPanes(leafIds);
+  if (panes.length === 0 || panes.length !== leafIds.length) return;
+  writeSnapshot(panes, s.layout);
+}
+
 function cleanupSessionResources(id: number) {
   const session = sessions.find((s) => s.id === id);
   if (session) {
@@ -301,6 +371,7 @@ export const sessionManager = {
   reorderSession,
   renameSession,
   markPaneExited,
+  captureActiveSession,
   closeSession,
   confirmClose,
   cancelClose,

@@ -9,6 +9,9 @@
 #   PROMPT_END   — prompt done, awaiting user input
 #   CMD_START    — user pressed Enter, command executing
 #   CMD_END;exit=N — command finished, exit code N
+#   CWD;<path>   — current working directory at prompt time (Stage 2b: live
+#                  cwd for restart-safe restore; raw path remainder so paths
+#                  with embedded chars survive)
 #
 # Design: wraps $Function:prompt so user customizations (posh-git, Starship,
 # oh-my-posh) continue to work. The sentinels bracket their output.
@@ -29,6 +32,10 @@ function prompt {
 
     # PROMPT_START — shell is rendering the prompt
     [Console]::Write("$($global:_rift_osc)PROMPT_START$($global:_rift_bel)")
+
+    # CWD — current directory at prompt time (fires after every command, so it
+    # reflects any `cd`). Native Windows path canonicalizes cleanly on restore.
+    [Console]::Write("$($global:_rift_osc)CWD;$((Get-Location).Path)$($global:_rift_bel)")
 
     # Run the original prompt function (user customizations preserved)
     $result = if ($global:_rift_original_prompt) { & $global:_rift_original_prompt } else { "PS> " }

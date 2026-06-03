@@ -312,6 +312,17 @@ pub struct SessionConfig {
     /// Number of most-recent envelopes kept verbatim (NOT summarized) when
     /// compaction fires. Only the older prefix beyond this suffix is digested.
     pub keep_suffix_events: usize,
+    /// Restart-safe sessions (Stage 2): when `true`, on startup the frontend
+    /// re-hydrates the terminal from the most recent prior-launch snapshot
+    /// (scrollback + cwd + the compaction digest) before spawning a fresh
+    /// shell. `false` (default) = no restore — opt-in, mirroring this struct's
+    /// conservative defaults. See `snapshot.rs`.
+    pub restore_on_startup: bool,
+    /// How often (seconds) the frontend serializes the active terminal buffer
+    /// to its snapshot sidecar. A best-effort capture also fires on window
+    /// close. `0` disables periodic capture (close-only). Ignored unless
+    /// `restore_on_startup` will consume it on the next launch.
+    pub snapshot_interval_seconds: u32,
 }
 
 impl Default for SessionConfig {
@@ -322,6 +333,8 @@ impl Default for SessionConfig {
             max_file_size_mb: 100,
             idle_compact_after_minutes: 0,
             keep_suffix_events: 100,
+            restore_on_startup: false,
+            snapshot_interval_seconds: 30,
         }
     }
 }

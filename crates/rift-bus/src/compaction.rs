@@ -73,7 +73,12 @@ fn sidecar_path(dir: &Path, session_id: &str) -> PathBuf {
 
 /// Find the newest `.jsonl` session file (the active session). Returns its
 /// stem (session id) and path. `None` if the dir is empty or unreadable.
-fn newest_session(dir: &Path) -> Option<(String, PathBuf)> {
+///
+/// Shared definition of "the active session" — Stage 2's snapshot layer
+/// (`snapshot.rs`) resolves the current session id the same way, so the
+/// `.jsonl`, `.summary.json`, and `.snapshot.json` for one launch all key off
+/// the same id.
+pub(crate) fn newest_session(dir: &Path) -> Option<(String, PathBuf)> {
     let mut newest: Option<(SystemTime, String, PathBuf)> = None;
     for entry in std::fs::read_dir(dir).ok()?.flatten() {
         let path = entry.path();

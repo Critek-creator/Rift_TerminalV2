@@ -629,14 +629,23 @@ async fn pty_start(
         let _ =
             std::fs::remove_file(std::env::temp_dir().join(format!("rift-cc-status-{sid}.json")));
     }
-    let effective_cwd = match cwd {
-        Some(ref p) => dunce::canonicalize(p).map_err(|e| format!("invalid cwd: {e}"))?,
-        None => app
-            .try_state::<ProjectRoot>()
+    let project_or_cwd = || {
+        app.try_state::<ProjectRoot>()
             .map(|r| r.inner().get())
             .unwrap_or_else(|| {
                 std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."))
-            }),
+            })
+    };
+    let effective_cwd = match cwd {
+        // A restored/explicit cwd that no longer canonicalizes — a deleted dir,
+        // or a unix-style $PWD from a non-pwsh shell on Windows (Stage 2b live
+        // cwd) — must NOT break the shell. Fall back to the project root with a
+        // warning instead of erroring out of pty_start.
+        Some(ref p) => dunce::canonicalize(p).unwrap_or_else(|e| {
+            tracing::warn!("pty_start: cwd {p:?} did not resolve ({e}) — using project root");
+            project_or_cwd()
+        }),
+        None => project_or_cwd(),
     };
     opts = opts.with_cwd(effective_cwd);
     let (mut output, control) = PtySession::spawn_with_options(opts).map_err(|e| {
@@ -755,6 +764,19 @@ async fn pty_start(
                                         "duration_ms": duration_ms,
                                     });
                                     bus.publish(cenv);
+                                }
+                            }
+                            // On a CWD sentinel, publish cwd.changed so the
+                            // frontend tracks the live working directory for
+                            // restart-safe snapshot restore (Stage 2b).
+                            if let Some(cwd) = cls.take_cwd_change() {
+                                if let Some(ref bus) = lane_bus {
+                                    let mut wenv = Envelope::new(Category::Pty, "cwd.changed");
+                                    wenv.payload = json!({
+                                        "session_id": id,
+                                        "cwd": cwd,
+                                    });
+                                    bus.publish(wenv);
                                 }
                             }
                             // Publish lane.changed on transitions so the
@@ -1057,25 +1079,30 @@ fn log_window_state(app: &AppHandle, phase: &str) {
         "window.reveal.state[{phase}] minimized={minimized} visible={visible} pos=({px},{py}) size={w}x{h}"
     );
     if let Some(bus) = app.try_state::<RiftBus>() {
-        if let Ok(env) =
-            Envelope::new(Category::System, "window.reveal.state").with_payload(&json!({
-                "phase": phase,
-                "minimized": minimized,
-                "visible": visible,
-                "pos": { "x": px, "y": py },
-                "size": { "w": w, "h": h },
-            }))
-        {
-            bus.inner().publish(env);
-        }
+        let mut env = Envelope::new(Category::System, "window.reveal.state");
+        env.payload = json!({
+            "phase": phase,
+            "minimized": minimized,
+            "visible": visible,
+            "pos": { "x": px, "y": py },
+            "size": { "w": w, "h": h },
+        });
+        bus.inner().publish(env);
     }
 }
 
 /// Known-good reveal sequence. Order matters on Windows: `show()` FIRST so the
 /// subsequent `unminimize()` (SW_RESTORE) reliably operates on a visible window
-/// rather than a still-hidden one, then repair a degenerate size (WebView2 can
-/// restore a 0/tiny inner size that `center()` alone won't fix), then center +
-/// focus.
+/// rather than a still-hidden one — the bare `unminimize()`-then-`show()` order
+/// is what let the minimized launch recur. Then repair a degenerate inner size
+/// (WebView2 can restore a 0/tiny size that the frontend geometry-restore won't
+/// catch).
+///
+/// Deliberately does NOT `center()`: the frontend fast path restores the saved
+/// window position+size while the window is still hidden and only then invokes
+/// this, so re-centering here would yank the window back to center and produce a
+/// visible center→saved-position jump on launch. The fallback timer centers
+/// explicitly before revealing, since no saved-position restore runs in that case.
 fn apply_reveal(win: &tauri::WebviewWindow) {
     let _ = win.show();
     let _ = win.unminimize();
@@ -1084,17 +1111,21 @@ fn apply_reveal(win: &tauri::WebviewWindow) {
             let _ = win.set_size(tauri::LogicalSize::new(1100.0, 700.0));
         }
     }
-    let _ = win.center();
     let _ = win.set_focus();
 }
 
 /// Reveal the main window in a known-good state, overriding any stale
-/// WebView2/EBWebView-restored minimized or off-screen geometry. Logs the
-/// before/after window state for diagnosis, then schedules a deferred
-/// corrective pass (+250ms) that re-shows/unminimizes IF a late EBWebView/OS
-/// placement re-asserts a minimized/hidden state just after the initial reveal
-/// — but deliberately does NOT re-center or steal focus in that pass, so a
-/// window the user has already touched is never yanked.
+/// WebView2/EBWebView-restored minimized geometry. Logs before/after window
+/// state to the bus for diagnosis, then schedules a deferred corrective pass
+/// (+250ms) that re-shows/unminimizes IF a late EBWebView/OS placement
+/// re-asserts a minimized/hidden state just after the initial reveal — the
+/// actual intermittent failure mode — but deliberately does NOT re-center or
+/// steal focus in that pass, so a window the user has already touched is never
+/// yanked.
+///
+/// Idempotent — `show()`/`unminimize()` on an already-visible window are no-ops,
+/// so it is safe to call from BOTH the frontend-ready command and the fallback
+/// timer (whichever fires first wins; the other is harmless).
 fn reveal_main_window(app: &AppHandle) {
     if let Some(win) = app.get_webview_window("main") {
         log_window_state(app, "before");
@@ -1569,6 +1600,42 @@ async fn compare_sessions(
     })
     .await
     .map_err(|e| format!("compare_sessions: task join error: {e}"))?
+}
+
+/// Persist a terminal snapshot for the current launch (Stage 2 restart-safe
+/// sessions). The frontend serializes each pane's xterm buffer via
+/// `@xterm/addon-serialize` and hands the panes here; we write them next to the
+/// launch's `.jsonl` audit log (keyed off the same session id). Returns the id.
+#[tauri::command]
+async fn session_snapshot_write(
+    panes: Vec<rift_bus::PaneSnapshot>,
+    layout: Option<serde_json::Value>,
+) -> Result<String, String> {
+    tokio::task::spawn_blocking(move || rift_bus::write_snapshot(panes, layout))
+        .await
+        .map_err(|e| format!("session_snapshot_write: task join error: {e}"))?
+}
+
+/// The most recent restorable snapshot from a *prior* launch, gated on
+/// `session.restore_on_startup`. `Ok(None)` when restore is off or nothing
+/// qualifies. Called once on boot to re-hydrate the terminal (scrollback + cwd
+/// + the compaction digest) before a fresh shell spawns.
+#[tauri::command]
+async fn session_snapshot_latest(
+    cached_config: State<'_, CachedConfig>,
+) -> Result<Option<rift_bus::RestorePayload>, String> {
+    let session_cfg = cached_config.get().session;
+    tokio::task::spawn_blocking(move || rift_bus::latest_snapshot(&session_cfg))
+        .await
+        .map_err(|e| format!("session_snapshot_latest: task join error: {e}"))?
+}
+
+/// Delete a consumed snapshot so it does not restore again on the next boot.
+#[tauri::command]
+async fn session_snapshot_clear(session_id: String) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || rift_bus::clear_snapshot(&session_id))
+        .await
+        .map_err(|e| format!("session_snapshot_clear: task join error: {e}"))?
 }
 
 /// Shared helper: resolve `~/<rel_path>` and open it in the OS default editor.
@@ -2620,25 +2687,28 @@ pub fn run() {
             // state while WebView2 is still initializing — the root cause of the
             // recurring "launches minimized / blank webview" bug. It is normally
             // revealed by the `main_window_ready` command the frontend invokes
-            // once rendered (App.svelte onMount) — the fast, known-good path that
-            // also unminimizes + re-centers, overriding any EBWebView-persisted
-            // bad geometry.
+            // (App.svelte onMount) AFTER it has restored the saved window
+            // position+size while still hidden — so the window appears exactly
+            // once at its final geometry (no center→saved-position jump).
             //
             // FALLBACK: if the frontend never signals ready (failed JS load,
             // broken webview), reveal the window anyway after a short delay so it
-            // can never get stuck permanently hidden. Guarded on `!is_visible` so
-            // that when the fast `main_window_ready` path already revealed it, we
-            // do NOT re-center/re-focus a window the user may already be using.
+            // can never get stuck permanently hidden. This MUST be a true no-op on
+            // a normal launch: the frontend already positioned + showed the window
+            // by now, so we only act if it is STILL HIDDEN. Centering/revealing an
+            // already-visible window here would yank a correctly-placed window back
+            // to center (~3s in) and redraw its border — the exact re-center +
+            // border flicker this guard prevents. Center first only in the genuine
+            // fallback, since no frontend position-restore will have run in that case.
             {
                 let reveal_app = app.handle().clone();
                 tauri::async_runtime::spawn(async move {
                     tokio::time::sleep(std::time::Duration::from_millis(3000)).await;
-                    let already_shown = reveal_app
-                        .get_webview_window("main")
-                        .and_then(|w| w.is_visible().ok())
-                        .unwrap_or(false);
-                    if !already_shown {
-                        reveal_main_window(&reveal_app);
+                    if let Some(win) = reveal_app.get_webview_window("main") {
+                        if !win.is_visible().unwrap_or(false) {
+                            let _ = win.center();
+                            reveal_main_window(&reveal_app);
+                        }
                     }
                 });
             }
@@ -2690,6 +2760,9 @@ pub fn run() {
             load_session,
             search_sessions,
             compare_sessions,
+            session_snapshot_write,
+            session_snapshot_latest,
+            session_snapshot_clear,
             index_bridge::index_list_nodes,
             index_bridge::index_search_nodes,
             index_bridge::index_get_node,
@@ -2787,6 +2860,63 @@ mod tests {
     use super::*;
     use std::sync::atomic::AtomicBool;
     use tokio::time::Duration;
+
+    // --- Regression guards for the "Rift launches minimized on Windows" bug ---
+    //
+    // The fix (739c247) was once accidentally reverted by an unrelated refactor
+    // (8778820) that rewrote `reveal_main_window` for the start-hidden design and
+    // silently dropped the Windows-correct reveal order AND the
+    // `window.reveal.state` instrumentation — the bug returned with zero diff
+    // noise and no evidence trail. These source-level tripwires fail loudly if
+    // either invariant is stripped again. Scoped to the real function bodies (not
+    // the test's own string literals) so they can't satisfy themselves.
+    // See memory reference_rift_webview_launch_minimized.
+
+    /// Return the substring of `lib.rs` for the top-level fn beginning with `sig`,
+    /// up to the next top-level `fn`. Panics if the signature is absent (i.e. the
+    /// function was renamed or removed).
+    fn fn_body(sig: &str) -> &'static str {
+        let src = include_str!("lib.rs");
+        let start = src
+            .find(sig)
+            .unwrap_or_else(|| panic!("`{sig}` not found in lib.rs — renamed or removed?"));
+        let after = start + sig.len();
+        let end = src[after..]
+            .find("\nfn ")
+            .map(|i| after + i)
+            .unwrap_or(src.len());
+        &src[start..end]
+    }
+
+    #[test]
+    fn reveal_keeps_window_state_instrumentation() {
+        assert!(
+            fn_body("fn log_window_state").contains("window.reveal.state"),
+            "log_window_state must publish the `window.reveal.state` bus event so an \
+             intermittent minimized launch stays diagnosable — instrumentation was stripped"
+        );
+        assert!(
+            fn_body("fn reveal_main_window").contains("log_window_state"),
+            "reveal_main_window must call log_window_state — instrumentation wiring was stripped"
+        );
+    }
+
+    #[test]
+    fn apply_reveal_shows_before_unminimizes() {
+        let body = fn_body("fn apply_reveal");
+        let show = body
+            .find(".show()")
+            .expect("apply_reveal must call .show()");
+        let unmin = body
+            .find(".unminimize()")
+            .expect("apply_reveal must call .unminimize()");
+        assert!(
+            show < unmin,
+            "apply_reveal must call show() BEFORE unminimize(): on Windows SW_RESTORE only \
+             reliably clears a minimized show-state on an already-visible window. Reverting to \
+             unminimize()-then-show() is what let the minimized launch recur (739c247 → 8778820)."
+        );
+    }
 
     /// Verify that `BusSubscriptionRegistry::remove` aborts the stored drain task.
     ///

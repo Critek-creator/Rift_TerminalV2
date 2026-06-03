@@ -16,6 +16,7 @@ pub mod keyring;
 pub mod session_compare;
 pub mod session_logger;
 pub mod session_reader;
+pub mod snapshot;
 pub mod translators;
 
 pub use bus::{BusError, RiftBus, SubscribeFilter, Subscription};
@@ -237,3 +238,15 @@ pub use config::SessionConfig;
 
 /// Resolve the platform sessions directory path.
 pub use config::sessions_dir;
+
+// ---------------------------------------------------------------------------
+// Restart-safe session snapshots (Stage 2)
+// ---------------------------------------------------------------------------
+
+/// Persist / load / clear the terminal VT snapshot a re-opened Rift uses to
+/// re-hydrate the terminal after a restart. The frontend serializes the xterm
+/// buffer (`@xterm/addon-serialize`); these helpers persist it next to the
+/// launch's `.jsonl` audit log + `.summary.json` digest. See [`snapshot`].
+pub use snapshot::{
+    clear_snapshot, latest_snapshot, write_snapshot, PaneSnapshot, RestorePayload, SessionSnapshot,
+};
