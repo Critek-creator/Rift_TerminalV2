@@ -39,7 +39,13 @@
   import PathTooltip from './PathTooltip.svelte';
   import { popouts } from './popouts.svelte';
   import { formatDuration } from './formatDuration';
-  import { subscribe as busSubscribe, type Envelope } from './bus';
+  import { subscribe as busSubscribe, publish as busPublish, type Envelope } from './bus';
+  import {
+    assembleFailureContext,
+    summarizeFailureContext,
+    type BufferLike,
+    type CommandCapture,
+  } from './errorHandoff';
   import { getTerminalSettings, invalidateTerminalSettingsCache } from './terminalConfigCache';
   import { resolveTheme } from './terminalPalettes';
   import { LaneTintManager } from './laneTint';
@@ -122,6 +128,19 @@
    *  the user's Settings change applies on next session (no cross-tab
    *  reactivity in v1 — matches existing project-swap precedent). */
   let lanesEnabled = true;
+
+  // Phase 5 / R0 — error→agent handoff capture cache. On `command.submitted`
+  // we stash the command text + cwd + the prompt's buffer row; on a non-zero
+  // `command.completed` we pair them with the exit code and read the output
+  // region out of the xterm buffer to build a FailureContext. Plain (non-
+  // reactive) transient state — it only lives between submit and completion.
+  let pendingCapture: CommandCapture | null = null;
+
+  /** Current absolute buffer row of the cursor (scrollback baseY + cursorY). */
+  function currentBufferRow(): number {
+    const buf = term?.buffer.active;
+    return buf ? buf.baseY + buf.cursorY : 0;
+  }
 
   // ---------------------------------------------------------------------------
   // §10.1 lane gutter — left-edge color strip indicating the active lane.
@@ -224,6 +243,33 @@
         el.appendChild(badge);
       }
     });
+  }
+
+  /**
+   * Phase 5 / R0 — pair the just-completed command with its cached submit-time
+   * context and, on a non-zero exit, assemble + publish a `command.failed`
+   * event carrying the FailureContext. No agent call and no UI here — this is
+   * the isolation-verifiable capture foundation (inspect via bus_history). R1
+   * wires the interactive affordance + the explain provider onto this event.
+   */
+  function captureFailureContext(exitCode: number, durationMs: number | null): void {
+    const capture = pendingCapture;
+    pendingCapture = null; // consume the pairing regardless of outcome
+    if (exitCode === 0 || !capture || !term) return;
+    const buffer: BufferLike = term.buffer.active;
+    const ctx = assembleFailureContext(capture, {
+      exitCode,
+      durationMs,
+      endRow: currentBufferRow(),
+      buffer,
+    });
+    if (import.meta.env.DEV) {
+      console.debug('[Terminal] FailureContext', summarizeFailureContext(ctx));
+    }
+    void busPublish('pty', 'command.failed', {
+      session_id: sessionId,
+      ...ctx,
+    }).catch((err) => console.warn('[Terminal] command.failed publish failed', err));
   }
 
   function onTermDragOver(e: DragEvent): void {
@@ -972,11 +1018,27 @@
         );
       }),
       busSubscribe({ category: 'pty' }, (env: Envelope) => {
+        if (env.kind === 'command.submitted') {
+          // Phase 5 / R0 — capture the command text (only present on this
+          // event) + cwd + the prompt's buffer row, to pair with the exit code
+          // when the command completes.
+          const s = env.payload as { session_id?: number; command?: string } | null;
+          if (!s || typeof s.command !== 'string') return;
+          if (s.session_id !== undefined && s.session_id !== sessionId) return;
+          pendingCapture = {
+            command: s.command,
+            cwd: effectiveCwd,
+            startRow: currentBufferRow(),
+            ts: Date.now(),
+          };
+          return;
+        }
         if (env.kind === 'command.completed') {
           const c = env.payload as { session_id?: number; exit_code?: number; duration_ms?: number | null } | null;
           if (!c || typeof c.exit_code !== 'number') return;
           if (c.session_id !== undefined && c.session_id !== sessionId) return;
           addCommandBadge(c.exit_code, c.duration_ms ?? null);
+          captureFailureContext(c.exit_code, c.duration_ms ?? null);
           return;
         }
         if (env.kind === 'cwd.changed') {
