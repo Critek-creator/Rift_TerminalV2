@@ -1764,6 +1764,144 @@ fn config_get(cached_config: State<'_, CachedConfig>) -> Result<RiftConfig, Stri
     Ok(cached_config.get())
 }
 
+/// A discoverable slash-command sourced from the user's `~/.claude/` install.
+/// Surfaced by the terminal slash-launcher; selecting one types `/<name>` into
+/// the active terminal so the foreground agent (e.g. Claude Code) receives it.
+#[derive(serde::Serialize)]
+struct SlashCommand {
+    /// Command name WITHOUT the leading slash (e.g. `aegis`).
+    name: String,
+    /// Where it was discovered: `command` | `skill` | `plugin`.
+    source: &'static str,
+    /// Best-effort one-line description parsed from frontmatter, if present.
+    description: Option<String>,
+}
+
+/// Scan `~/.claude/` for invokable slash-commands so the terminal slash-launcher
+/// can offer them. This reads only filenames + best-effort frontmatter; it does
+/// NOT execute anything — selecting a result types `/<name>` into the active
+/// terminal where the foreground agent receives it. Feature-detected: a missing
+/// `~/.claude` simply yields an empty list, and individual unreadable entries
+/// are skipped rather than failing the whole scan.
+#[tauri::command]
+fn list_slash_commands() -> Vec<SlashCommand> {
+    let Some(base) = directories::BaseDirs::new() else {
+        return Vec::new();
+    };
+    let root = base.home_dir().join(".claude");
+    let mut out: Vec<SlashCommand> = Vec::new();
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+    // 1. ~/.claude/commands/*.md — custom slash-commands.
+    collect_md_commands(&root.join("commands"), "command", &mut out, &mut seen);
+
+    // 2. ~/.claude/skills/*/ — each directory is a user-invocable skill; its
+    //    description (when present) lives in the SKILL.md frontmatter.
+    if let Ok(entries) = std::fs::read_dir(root.join("skills")) {
+        for e in entries.flatten() {
+            if !e.path().is_dir() {
+                continue;
+            }
+            let Some(name) = e.file_name().to_str().map(|s| s.to_string()) else {
+                continue;
+            };
+            if name.starts_with('.') || !seen.insert(name.clone()) {
+                continue;
+            }
+            let desc = read_frontmatter_description(&e.path().join("SKILL.md"));
+            out.push(SlashCommand {
+                name,
+                source: "skill",
+                description: desc,
+            });
+        }
+    }
+
+    // 3. ~/.claude/plugins/*/commands/*.md — plugin-provided slash-commands.
+    if let Ok(plugins) = std::fs::read_dir(root.join("plugins")) {
+        for p in plugins.flatten() {
+            if p.path().is_dir() {
+                collect_md_commands(&p.path().join("commands"), "plugin", &mut out, &mut seen);
+            }
+        }
+    }
+
+    out.sort_by(|a, b| a.name.cmp(&b.name));
+    out
+}
+
+/// Push every `*.md` in `dir` as a [`SlashCommand`] (filename stem = name),
+/// skipping names already in `seen`. No-op if `dir` is unreadable.
+fn collect_md_commands(
+    dir: &std::path::Path,
+    source: &'static str,
+    out: &mut Vec<SlashCommand>,
+    seen: &mut std::collections::HashSet<String>,
+) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for e in entries.flatten() {
+        let path = e.path();
+        if path.extension().and_then(|x| x.to_str()) != Some("md") {
+            continue;
+        }
+        let Some(stem) = path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .map(|s| s.to_string())
+        else {
+            continue;
+        };
+        if stem.starts_with('.') || !seen.insert(stem.clone()) {
+            continue;
+        }
+        let desc = read_frontmatter_description(&path);
+        out.push(SlashCommand {
+            name: stem,
+            source,
+            description: desc,
+        });
+    }
+}
+
+/// Best-effort: scan the first lines of a markdown file for a `description:`
+/// key (YAML frontmatter or skill header) and return its value, truncated.
+/// Handles YAML folded/literal block scalars (`description: >` / `|`) by taking
+/// the first indented continuation line. Returns `None` if the file is
+/// unreadable or has no usable description.
+fn read_frontmatter_description(path: &std::path::Path) -> Option<String> {
+    let text = std::fs::read_to_string(path).ok()?;
+    let lines: Vec<&str> = text.lines().take(60).collect();
+    for (i, line) in lines.iter().enumerate() {
+        let Some(rest) = line.trim_start().strip_prefix("description:") else {
+            continue;
+        };
+        let val = rest.trim();
+        // Block scalar (`>`/`|`, with optional chomp indicators) or empty: the
+        // real text is on the following indented lines — take the first one.
+        if val.is_empty() || val.starts_with('>') || val.starts_with('|') {
+            for cont in &lines[i + 1..] {
+                if cont.trim().is_empty() {
+                    continue;
+                }
+                if !cont.starts_with(char::is_whitespace) {
+                    break; // dedent → next key / end of frontmatter
+                }
+                return Some(cont.trim().chars().take(140).collect());
+            }
+            return None;
+        }
+        // Inline value.
+        let cleaned = val.trim_matches(['"', '\'']).trim();
+        if cleaned.is_empty() {
+            return None;
+        }
+        return Some(cleaned.chars().take(140).collect());
+    }
+    None
+}
+
 /// Persist `cfg` to the platform config directory (atomic write).
 #[tauri::command]
 async fn config_save(
@@ -2596,6 +2734,7 @@ pub fn run() {
             fs_write_text,
             config_get,
             config_save,
+            list_slash_commands,
             project_root_get,
             project_swap,
             sample_pane_resources,

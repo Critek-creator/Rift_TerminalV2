@@ -513,9 +513,15 @@ pub fn save_mcp_socket(socket_name: &str) -> Result<(), ConfigError> {
 /// Uses `tasklist` on Windows, `kill -0` via libc on Unix.
 #[cfg(windows)]
 fn is_process_alive(pid: u32) -> bool {
-    std::process::Command::new("tasklist")
-        .args(["/FI", &format!("PID eq {pid}"), "/NH", "/FO", "CSV"])
-        .output()
+    use std::os::windows::process::CommandExt;
+    // CREATE_NO_WINDOW — suppress the console-window flash. This PID liveness
+    // check runs periodically during MCP socket discovery/reconnect, so an
+    // unguarded `tasklist` pops a console window "occasionally in the background".
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    let mut cmd = std::process::Command::new("tasklist");
+    cmd.args(["/FI", &format!("PID eq {pid}"), "/NH", "/FO", "CSV"]);
+    cmd.creation_flags(CREATE_NO_WINDOW);
+    cmd.output()
         .map(|o| String::from_utf8_lossy(&o.stdout).contains(&pid.to_string()))
         .unwrap_or(true) // assume alive on error — let the connect timeout decide
 }

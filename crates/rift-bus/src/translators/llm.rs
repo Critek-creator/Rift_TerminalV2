@@ -43,6 +43,9 @@ pub enum StopReason {
     MaxTokens,
     /// Hit one of the configured stop sequences.
     StopSequence,
+    /// Model emitted one or more tool calls and is awaiting their results.
+    /// Local llama-server (`--jinja`) sets `finish_reason = "tool_calls"`.
+    ToolUse,
     /// Provider returned an error mid-stream.
     Error,
 }
@@ -53,6 +56,51 @@ pub enum StopReason {
 /// into this common stream shape. Consumers drive it with
 /// `StreamExt::next()` from `futures-util` or `tokio-stream`.
 pub type CompletionStream = Pin<Box<dyn Stream<Item = Result<StreamChunk, LlmError>> + Send>>;
+
+// ---------------------------------------------------------------------------
+// Tool calling (local-provider capability; spike scope — see plan Path C)
+// ---------------------------------------------------------------------------
+
+/// A tool the model may call. Mirrors the OpenAI `tools[].function` shape.
+///
+/// For the single-forced-tool-call spike, tool definitions are passed to the
+/// llama-server translator via [`CompletionRequest::provider_options`] (the
+/// sanctioned provider-extension bag) rather than a first-class request field,
+/// because tool calling is currently a single-provider capability. This type
+/// is the shared shape the executor builds and the translator consumes.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ToolDefinition {
+    /// Tool name — the identifier the model emits to call it.
+    pub name: String,
+    /// Description shown to the model of what the tool does.
+    pub description: String,
+    /// JSON Schema for the tool's arguments object.
+    pub parameters: serde_json::Value,
+}
+
+/// A tool call the model emitted. Mirrors one OpenAI `tool_calls[]` entry.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ToolCall {
+    /// Provider-assigned id, echoed back when the result is returned.
+    pub id: String,
+    /// Name of the tool to invoke.
+    pub name: String,
+    /// Parsed arguments object. llama-server's lazy GBNF grammar guarantees
+    /// this is syntactically valid JSON matching the tool's schema.
+    pub arguments: serde_json::Value,
+}
+
+/// How the model should choose among offered tools (OpenAI `tool_choice`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ToolChoice {
+    /// Model decides whether to call a tool.
+    Auto,
+    /// Model must call a tool this turn.
+    Required,
+    /// Model must not call a tool.
+    None,
+}
 
 // ---------------------------------------------------------------------------
 // Request / Response
@@ -112,6 +160,11 @@ pub struct CompletionResponse {
     /// Wall-clock latency in milliseconds (first token for streaming,
     /// full response for non-streaming).
     pub latency_ms: u64,
+    /// Tool calls the model requested this turn. `Some` only when the
+    /// provider supports tool calling and the model emitted calls
+    /// (`stop_reason == ToolUse`); `None` for plain completions.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_calls: Option<Vec<ToolCall>>,
 }
 
 // ---------------------------------------------------------------------------
@@ -274,6 +327,7 @@ mod tests {
             StopReason::EndTurn,
             StopReason::MaxTokens,
             StopReason::StopSequence,
+            StopReason::ToolUse,
             StopReason::Error,
         ] {
             let json = serde_json::to_string(&variant).expect("serialize");
@@ -320,6 +374,7 @@ mod tests {
             model_used: "gemma-4-27b".to_string(),
             stop_reason: StopReason::EndTurn,
             latency_ms: 42,
+            tool_calls: None,
         };
         let json = serde_json::to_string(&resp).expect("serialize");
         let back: CompletionResponse = serde_json::from_str(&json).expect("deserialize");
@@ -397,5 +452,54 @@ mod tests {
         assert_eq!(back.text, "Hello");
         assert!(!back.is_final);
         assert_eq!(back.token_count, Some(1));
+    }
+
+    #[test]
+    fn tool_call_round_trips_json() {
+        let call = ToolCall {
+            id: "call_1".to_string(),
+            name: "fs_read".to_string(),
+            arguments: serde_json::json!({ "path": "src/lib.rs" }),
+        };
+        let json = serde_json::to_string(&call).expect("serialize");
+        let back: ToolCall = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(back, call);
+        assert_eq!(back.name, "fs_read");
+    }
+
+    #[test]
+    fn tool_choice_serializes_lowercase() {
+        assert_eq!(
+            serde_json::to_string(&ToolChoice::Auto).unwrap(),
+            "\"auto\""
+        );
+        assert_eq!(
+            serde_json::to_string(&ToolChoice::Required).unwrap(),
+            "\"required\""
+        );
+        assert_eq!(
+            serde_json::to_string(&ToolChoice::None).unwrap(),
+            "\"none\""
+        );
+    }
+
+    #[test]
+    fn tool_calls_absent_when_none() {
+        // skip_serializing_if = "Option::is_none" keeps existing wire output
+        // byte-identical when no tool calls are present.
+        let resp = CompletionResponse {
+            content: "hi".to_string(),
+            tokens_in: 1,
+            tokens_out: 1,
+            model_used: "local".to_string(),
+            stop_reason: StopReason::EndTurn,
+            latency_ms: 1,
+            tool_calls: None,
+        };
+        let json = serde_json::to_string(&resp).expect("serialize");
+        assert!(
+            !json.contains("tool_calls"),
+            "tool_calls must be omitted when None: {json}"
+        );
     }
 }
