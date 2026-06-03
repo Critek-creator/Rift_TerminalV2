@@ -93,6 +93,10 @@
                 duration_ms: null,
                 exit_code: null,
                 lane: null,
+                // Correlation key (Phase 4) — already on the command.submitted
+                // payload; thread it into the record so history joins to a
+                // session/pane instead of being an orphaned flat log.
+                session_id: p.session_id ?? null,
               },
             }).catch((err) => console.error('[CmdIntel] record failed:', err));
           }

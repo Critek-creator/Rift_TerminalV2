@@ -2776,6 +2776,7 @@ pub fn run() {
             command_history::command_history_record,
             command_history::command_stats,
             command_history::command_suggestions,
+            command_history::command_history_by_session,
             integrations::integration_detect,
             llm_commands::llm_complete,
             llm_commands::llm_stream,

@@ -6,6 +6,9 @@ use std::sync::Arc;
 
 const MAX_ENTRIES: usize = 10_000;
 const SUGGESTIONS_LIMIT: usize = 5;
+/// Cap on records returned by `command_history_by_session` — bounds the payload
+/// for the correlation query (a session rarely needs more than its recent tail).
+const SESSION_QUERY_LIMIT: usize = 200;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CommandRecord {
@@ -20,6 +23,11 @@ pub struct CommandRecord {
     pub exit_code: Option<i32>,
     #[serde(default)]
     pub lane: Option<String>,
+    /// Correlation key — the PTY session/pane this command ran in. Lets command
+    /// history join to a session log / pane (Phase 4 data-layer correlation key).
+    /// Optional + `serde(default)` so pre-correlation history lines still parse.
+    #[serde(default)]
+    pub session_id: Option<i64>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -247,6 +255,32 @@ pub async fn command_suggestions(
     .map_err(|e| format!("command_suggestions: join error: {e}"))?
 }
 
+/// All recorded commands for a given PTY session, most-recent first (capped).
+/// The correlation-key query the data-layer audit flagged as missing — lets a
+/// consumer (e.g. the error→agent handoff) fetch "the command that just ran in
+/// session X" without scanning or guessing across the whole history.
+#[tauri::command]
+pub async fn command_history_by_session(
+    session_id: i64,
+    store: tauri::State<'_, CommandHistoryStore>,
+) -> Result<Vec<CommandRecord>, String> {
+    let store = store.inner().clone();
+    tokio::task::spawn_blocking(move || {
+        store.ensure_loaded()?;
+        let records = store.records.lock();
+        let matched: Vec<CommandRecord> = records
+            .iter()
+            .rev()
+            .filter(|r| r.session_id == Some(session_id))
+            .take(SESSION_QUERY_LIMIT)
+            .cloned()
+            .collect();
+        Ok(matched)
+    })
+    .await
+    .map_err(|e| format!("command_history_by_session: join error: {e}"))?
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -261,6 +295,7 @@ mod tests {
                 duration_ms: Some(5000),
                 exit_code: Some(0),
                 lane: Some("user".to_string()),
+                session_id: Some(7),
             },
             CommandRecord {
                 command: "cargo test".to_string(),
@@ -270,6 +305,7 @@ mod tests {
                 duration_ms: Some(8000),
                 exit_code: Some(1),
                 lane: Some("user".to_string()),
+                session_id: Some(7),
             },
             CommandRecord {
                 command: "cargo build".to_string(),
@@ -279,6 +315,7 @@ mod tests {
                 duration_ms: Some(4000),
                 exit_code: Some(0),
                 lane: Some("user".to_string()),
+                session_id: Some(9),
             },
         ]
     }
@@ -314,5 +351,28 @@ mod tests {
             .collect();
         assert!(matches.contains(&"cargo build"));
         assert!(!matches.contains(&"cargo test"));
+    }
+
+    #[test]
+    fn by_session_filters_and_orders_recent_first() {
+        let store = CommandHistoryStore::default();
+        *store.loaded.lock() = true;
+        *store.records.lock() = sample_records();
+
+        // Mirrors command_history_by_session's core logic (the Tauri command
+        // needs State, so the test exercises the same iter/rev/filter directly).
+        let records = store.records.lock();
+        let s7: Vec<&CommandRecord> = records
+            .iter()
+            .rev()
+            .filter(|r| r.session_id == Some(7))
+            .collect();
+        assert_eq!(s7.len(), 2);
+        // rev() surfaces the most-recent command for that session first.
+        assert_eq!(s7[0].command, "cargo test");
+
+        let s9: Vec<&CommandRecord> = records.iter().filter(|r| r.session_id == Some(9)).collect();
+        assert_eq!(s9.len(), 1);
+        assert_eq!(s9[0].command, "cargo build");
     }
 }
