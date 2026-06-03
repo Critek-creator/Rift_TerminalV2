@@ -40,7 +40,6 @@
   import { evaluateRule, triggerAction } from './lib/alertRules';
   import { CorrelationIndex } from './lib/correlationIndex';
   import CommandPalette from './lib/CommandPalette.svelte';
-  import SlashLauncher from './lib/SlashLauncher.svelte';
   import ShortcutOverlay from './lib/ShortcutOverlay.svelte';
   import WelcomeOverlay from './lib/WelcomeOverlay.svelte';
   import CommandIntelligencePanel from './lib/CommandIntelligencePanel.svelte';
@@ -108,7 +107,6 @@
   // ----- command palette -----
   let paletteOpen = $state(false);
   let paletteInitialQuery = $state('');
-  let slashOpen = $state(false);
 
   // ----- shortcut overlay -----
   let shortcutsOpen = $state(false);
@@ -902,11 +900,13 @@
         paletteOpen = true;
         return;
       }
-      // Ctrl+Shift+P — slash-launcher (Rift actions / Claude commands / run in
-      // terminal). Distinct from Ctrl+K (the fuzzy command palette).
+      // Ctrl+Shift+P — open the unified command palette in Claude-command mode
+      // (the leading "/" filters to /commands). The palette absorbed the old
+      // slash launcher, so Ctrl+K and Ctrl+Shift+P open one surface.
       if (e.ctrlKey && e.shiftKey && (e.key === 'P' || e.key === 'p')) {
         e.preventDefault();
-        slashOpen = !slashOpen;
+        paletteInitialQuery = '/';
+        paletteOpen = true;
         return;
       }
       // Ctrl+Shift+K — drop a session marker (candidate 49d). Ctrl+M is
@@ -960,9 +960,11 @@
     // Visible TitleBar affordances (⌘K / ?) dispatch these so the chrome can
     // open the palette + shortcuts overlay without prop-threading through it.
     const onOpenPalette = () => { paletteInitialQuery = ''; paletteOpen = true; };
+    const onOpenCommands = () => { paletteInitialQuery = '/'; paletteOpen = true; };
     const onOpenShortcuts = () => { shortcutsOpen = true; };
     window.addEventListener('keydown', onKeyDown);
     window.addEventListener('rift:open-palette', onOpenPalette);
+    window.addEventListener('rift:open-commands', onOpenCommands);
     window.addEventListener('rift:open-shortcuts', onOpenShortcuts);
 
     return () => {
@@ -973,6 +975,7 @@
       window.removeEventListener('rift:config-changed', onConfigChanged);
       window.removeEventListener('rift:show-welcome', showWelcomeGuide);
       window.removeEventListener('rift:open-palette', onOpenPalette);
+      window.removeEventListener('rift:open-commands', onOpenCommands);
       window.removeEventListener('rift:open-shortcuts', onOpenShortcuts);
       window.removeEventListener('keydown', onKeyDown);
     };
@@ -1249,15 +1252,9 @@
     <CommandPalette
       onclose={() => { paletteOpen = false; paletteInitialQuery = ''; }}
       onActivateNotif={nm.activateNotif}
-      initialQuery={paletteInitialQuery}
-    />
-  {/if}
-
-  {#if slashOpen}
-    <SlashLauncher
-      onclose={() => { slashOpen = false; }}
       onNewTab={sm.addSession}
       onToggleCockpit={toggleCockpit}
+      initialQuery={paletteInitialQuery}
     />
   {/if}
 

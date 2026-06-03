@@ -1,26 +1,64 @@
 <script lang="ts">
   import { fade } from 'svelte/transition';
+  import { invoke } from '@tauri-apps/api/core';
   import { sectionCatalog } from './sectionCatalog.svelte';
   import { popouts } from './popouts.svelte';
   import { llmModels } from './llmModels.svelte';
   import { notifManager } from './notifState.svelte';
   import { keybindings } from './keybindings';
+  import { injectIntoActiveTerminal } from './terminalInject';
 
   interface PaletteEntry {
     id: string;
     label: string;
     icon: string;
-    category: 'tab' | 'action' | 'shortcut' | 'model';
+    category: 'tab' | 'action' | 'shortcut' | 'model' | 'command' | 'run';
     action?: () => void;
+  }
+
+  /** A Claude slash-command discovered on disk under ~/.claude. */
+  interface DiscoveredCommand {
+    name: string;
+    source: 'command' | 'skill' | 'plugin' | string;
+    description: string | null;
   }
 
   interface Props {
     onclose: () => void;
     onActivateNotif: (id: string) => void;
+    /** Open a new session tab (App owns the session manager). */
+    onNewTab: () => void;
+    /** Detach / dock the GUI cockpit (App owns window state). */
+    onToggleCockpit: () => void;
     initialQuery?: string;
   }
 
-  let { onclose, onActivateNotif, initialQuery = '' }: Props = $props();
+  let { onclose, onActivateNotif, onNewTab, onToggleCockpit, initialQuery = '' }: Props = $props();
+
+  // Claude slash-commands discovered under ~/.claude (disk scan). Selecting one
+  // types it into the active terminal where the foreground agent receives it.
+  let claudeCommands = $state<DiscoveredCommand[]>([]);
+  $effect(() => {
+    void (async () => {
+      try {
+        claudeCommands = await invoke<DiscoveredCommand[]>('list_slash_commands');
+      } catch {
+        claudeCommands = [];
+      }
+    })();
+  });
+
+  // Type text into the active terminal (bracketed paste — never executes; the
+  // user reviews + presses Enter). Surfaces a notice if no terminal is focused.
+  function typeIntoTerminal(text: string): void {
+    const ok = injectIntoActiveTerminal(text);
+    if (!ok) {
+      popouts.summon({
+        content: { kind: 'text', title: 'No active terminal', body: `Couldn't send "${text}" — no terminal is focused in this window.` },
+      });
+    }
+    onclose();
+  }
 
   // svelte-ignore state_referenced_locally
   let query = $state(initialQuery);
@@ -50,6 +88,12 @@
         action: () => { popouts.summon({ content: { kind: 'llm-chat' }, width: 'min(720px, 85vw)' }); onclose(); } },
       { id: 'act:llm-ensemble', label: 'Ensemble Compare', icon: '⊞', category: 'action',
         action: () => { popouts.summon({ content: { kind: 'llm-ensemble' }, width: 'min(1100px, 95vw)' }); onclose(); } },
+      { id: 'act:new-tab', label: 'New tab', icon: '⊕', category: 'action',
+        action: () => { onNewTab(); onclose(); } },
+      { id: 'act:project', label: 'Switch project', icon: '▦', category: 'action',
+        action: () => { popouts.summon({ content: { kind: 'project-picker' } }); onclose(); } },
+      { id: 'act:cockpit', label: 'Toggle cockpit (detach / dock)', icon: '⊞', category: 'action',
+        action: () => { onToggleCockpit(); onclose(); } },
     );
 
     if (llmModels.enabled) {
@@ -88,6 +132,17 @@
       }
     }
 
+    // Claude slash-commands (typed into the terminal, not executed in-app).
+    for (const c of claudeCommands) {
+      items.push({
+        id: `cmd:${c.source}:${c.name}`,
+        label: `/${c.name}`,
+        icon: c.source === 'skill' ? '✦' : c.source === 'plugin' ? '⧉' : '»',
+        category: 'command',
+        action: () => typeIntoTerminal(`/${c.name}`),
+      });
+    }
+
     // Shortcuts derive from the single `keybindings` source so the palette can
     // never drift from the ShortcutOverlay. (They used to be hand-listed here —
     // and had drifted, e.g. a phantom "Ctrl+Shift+T — New session".)
@@ -104,12 +159,25 @@
   });
 
   const filtered = $derived.by(() => {
-    if (!query.trim()) return entries;
-    const q = query.toLowerCase();
-    return entries.filter((e) =>
-      e.label.toLowerCase().includes(q) ||
-      e.category.includes(q)
-    );
+    const raw = query.trim();
+    if (!raw) return entries;
+    const slash = raw.startsWith('/');
+    const q = (slash ? raw.slice(1) : raw).toLowerCase();
+    // Leading "/" = Claude-command mode (mirrors the old slash launcher): show
+    // only discovered /commands. Otherwise fuzzy-match across everything.
+    const matched = slash
+      ? entries.filter((e) => e.category === 'command' && e.label.toLowerCase().includes(q))
+      : entries.filter((e) => e.label.toLowerCase().includes(q) || e.category.includes(q));
+    // Always offer to run the typed text verbatim in the active terminal — incl.
+    // a leading slash, which is how you hand a slash command to the agent.
+    matched.push({
+      id: 'run:shell',
+      label: `Run in terminal: ${raw}`,
+      icon: '▶',
+      category: 'run',
+      action: () => typeIntoTerminal(raw),
+    });
+    return matched;
   });
 
   $effect(() => {
@@ -167,6 +235,8 @@
     if (cat === 'tab') return 'TABS';
     if (cat === 'action') return 'ACTIONS';
     if (cat === 'model') return 'MODELS';
+    if (cat === 'command') return 'CLAUDE COMMANDS';
+    if (cat === 'run') return 'TERMINAL';
     if (cat === 'shortcut') return 'SHORTCUTS';
     return cat.toUpperCase();
   }
@@ -179,7 +249,7 @@
       bind:this={inputEl}
       bind:value={query}
       onkeydown={onKeydown}
-      placeholder="Search tabs, actions, shortcuts…"
+      placeholder="Search commands, tabs, actions…   ( / for Claude commands )"
       role="combobox"
       aria-label="Search commands and shortcuts"
       aria-expanded={filtered.length > 0}
