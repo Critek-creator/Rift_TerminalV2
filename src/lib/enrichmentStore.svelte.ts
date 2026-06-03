@@ -14,7 +14,20 @@
  *
  * Shape is snake_case — bus.ts performs no key transformation; payloads pass
  * through as the raw JSON the Rust side built.
+ *
+ * Resilience: entries are snapshotted to localStorage after every mutation so
+ * that entries attached early in a vault-walk (whose bus envelopes may scroll
+ * out of the bounded replay buffer before this store subscribes) survive a
+ * reload. On init, the store rehydrates from the snapshot and then reconciles
+ * with live bus events — live events always win (last-write-wins unchanged).
+ *
+ * Audit debt #3 fix: localStorage snapshot / rehydrate path. A fuller fix
+ * (bus-level persistent replay or server-side snapshot endpoint) would require
+ * backend changes; that design is deferred — see followups.
  */
+
+/** localStorage key for the enrichment snapshot. */
+export const ENRICHMENT_STORAGE_KEY = 'rift.enrichment.snapshot.v1';
 
 export interface EnrichmentEntry {
   /** Integration namespace, e.g. "index", "git". */
@@ -32,15 +45,85 @@ export interface EnrichmentEntry {
   vault_kind?: string;
 }
 
+/** Serialized shape written to localStorage. */
+interface EnrichmentSnapshot {
+  /** Incremented if the schema ever needs a breaking migration. */
+  version: 1;
+  /** Entries from the in-memory map, flattened with fs_path inline. */
+  entries: Array<EnrichmentEntry & { fs_path: string }>;
+}
+
+/**
+ * Deserialize a localStorage snapshot. Returns an empty Map on any parse or
+ * schema error so the store degrades gracefully rather than throwing on init.
+ */
+function loadSnapshot(storage: Storage = localStorage): Map<string, EnrichmentEntry[]> {
+  try {
+    const raw = storage.getItem(ENRICHMENT_STORAGE_KEY);
+    if (!raw) return new Map();
+    const parsed: EnrichmentSnapshot = JSON.parse(raw);
+    // Version guard — discard snapshots from unknown future versions.
+    if (parsed.version !== 1 || !Array.isArray(parsed.entries)) return new Map();
+    const map = new Map<string, EnrichmentEntry[]>();
+    for (const { fs_path, ...entry } of parsed.entries) {
+      if (typeof fs_path !== 'string' || typeof entry.provider_id !== 'string') continue;
+      const bucket = map.get(fs_path) ?? [];
+      bucket.push(entry);
+      map.set(fs_path, bucket);
+    }
+    return map;
+  } catch {
+    // Corrupt JSON or SecurityError (private browsing with storage disabled) —
+    // degrade to empty rather than crashing.
+    return new Map();
+  }
+}
+
+/**
+ * Serialize the current map to localStorage. Silently swallows errors
+ * (QuotaExceededError, SecurityError) so a full storage quota never crashes
+ * the app — enrichment dots just won't persist until space is freed.
+ */
+function saveSnapshot(map: Map<string, EnrichmentEntry[]>, storage: Storage = localStorage): void {
+  try {
+    const entries: Array<EnrichmentEntry & { fs_path: string }> = [];
+    for (const [fs_path, bucket] of map) {
+      for (const entry of bucket) {
+        entries.push({ fs_path, ...entry });
+      }
+    }
+    const snapshot: EnrichmentSnapshot = { version: 1, entries };
+    storage.setItem(ENRICHMENT_STORAGE_KEY, JSON.stringify(snapshot));
+  } catch {
+    // Quota exceeded or security error — best-effort, do not throw.
+  }
+}
+
 export class EnrichmentStore {
   /**
    * key = fs_path (canonical absolute path, forward-slash-normalized).
    * Assign-replace on every mutation so Svelte 5 $derived consumers re-run.
+   *
+   * Initialized from the localStorage snapshot so entries survive a reload
+   * even when vault-walk envelopes have scrolled out of the bus replay buffer.
+   * Live bus events reconcile on top via ingest() — last-write-wins unchanged.
+   *
+   * An injectable `_storage` parameter is accepted so tests can pass a
+   * controlled Storage instance instead of the real localStorage.
    */
   map = $state(new Map<string, EnrichmentEntry[]>());
 
   /** Flips true on walk.complete envelope; consumers can show "loading" UX. */
   loaded = $state(false);
+
+  /** Storage backend — real localStorage in production, injected in tests. */
+  private _storage: Storage;
+
+  constructor(storage: Storage = localStorage) {
+    this._storage = storage;
+    // Rehydrate from snapshot; live events overlay on top.
+    this.map = loadSnapshot(storage);
+  }
 
   /**
    * Add or replace an enrichment entry. An existing entry with the same
@@ -61,6 +144,7 @@ export class EnrichmentStore {
     const next = new Map(this.map);
     next.set(fs_path, [...filtered, e]);
     this.map = next;
+    saveSnapshot(this.map, this._storage);
   }
 
   /**
@@ -81,6 +165,7 @@ export class EnrichmentStore {
       if (kept.length > 0) next.set(fs_path, kept);
     }
     this.map = next;
+    saveSnapshot(this.map, this._storage);
   }
 
   /**
@@ -95,6 +180,7 @@ export class EnrichmentStore {
     if (kept.length > 0) next.set(fs_path, kept);
     else next.delete(fs_path);
     this.map = next;
+    saveSnapshot(this.map, this._storage);
   }
 
   /**

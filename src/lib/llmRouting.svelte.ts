@@ -2,6 +2,11 @@
 //
 // Tracks routing decisions, accumulated session cost, and last routing
 // metadata. Subscribes to Category::Llm bus events.
+//
+// Persistence: ledger is written to localStorage (debounced) on every mutation
+// and loaded on module init so cost/routing data survives page reload / app
+// restart. resetSession() clears both memory and storage. Absent/corrupt
+// storage degrades to empty ledger — no throw.
 
 import type { RoutingProfile } from './riftConfig';
 import { llmModels } from './llmModels.svelte';
@@ -55,6 +60,119 @@ let savingsUsd = $state(0);
 let savingsRefModelId = $state<string | null>(null);
 
 const MAX_RECENT = 50;
+
+// ---------------------------------------------------------------------------
+// localStorage persistence
+// ---------------------------------------------------------------------------
+
+export const STORAGE_KEY = 'rift:llmRouting:ledger';
+
+/** Shape of the serialised ledger written to localStorage. */
+interface PersistedLedger {
+  sessionCostUsd: number;
+  requestCount: number;
+  totalTokensIn: number;
+  totalTokensOut: number;
+  lastRoute: RoutingEvent | null;
+  recentRoutes: RoutingEvent[];
+  costByModel: Record<string, number>;
+  escalationCount: number;
+  localRequests: number;
+  cloudRequests: number;
+  localTokensIn: number;
+  localTokensOut: number;
+  cloudTokensIn: number;
+  cloudTokensOut: number;
+  cloudSpendUsd: number;
+  savingsUsd: number;
+  savingsRefModelId: string | null;
+}
+
+/** Read ledger from localStorage. Returns null on missing or corrupt data. */
+function loadFromStorage(): PersistedLedger | null {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (typeof parsed !== 'object' || parsed === null) return null;
+    return parsed as PersistedLedger;
+  } catch {
+    return null;
+  }
+}
+
+/** Write the current ledger state to localStorage (called debounced). */
+function writeToStorage() {
+  try {
+    const payload: PersistedLedger = {
+      sessionCostUsd,
+      requestCount,
+      totalTokensIn,
+      totalTokensOut,
+      lastRoute,
+      recentRoutes,
+      costByModel,
+      escalationCount,
+      localRequests,
+      cloudRequests,
+      localTokensIn,
+      localTokensOut,
+      cloudTokensIn,
+      cloudTokensOut,
+      cloudSpendUsd,
+      savingsUsd,
+      savingsRefModelId,
+    };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+  } catch {
+    // Storage quota exceeded or unavailable — silently ignore.
+  }
+}
+
+let _persistTimer: ReturnType<typeof setTimeout> | null = null;
+
+/** Schedule a debounced write to localStorage (500 ms). */
+function schedulePersist() {
+  if (_persistTimer !== null) clearTimeout(_persistTimer);
+  _persistTimer = setTimeout(writeToStorage, 500);
+}
+
+/** Hydrate in-memory state from localStorage on module init. */
+function initFromStorage() {
+  const saved = loadFromStorage();
+  if (!saved) return;
+  sessionCostUsd = typeof saved.sessionCostUsd === 'number' ? saved.sessionCostUsd : 0;
+  requestCount = typeof saved.requestCount === 'number' ? saved.requestCount : 0;
+  totalTokensIn = typeof saved.totalTokensIn === 'number' ? saved.totalTokensIn : 0;
+  totalTokensOut = typeof saved.totalTokensOut === 'number' ? saved.totalTokensOut : 0;
+  lastRoute = saved.lastRoute ?? null;
+  recentRoutes = Array.isArray(saved.recentRoutes) ? saved.recentRoutes : [];
+  costByModel = typeof saved.costByModel === 'object' && saved.costByModel !== null ? saved.costByModel : {};
+  escalationCount = typeof saved.escalationCount === 'number' ? saved.escalationCount : 0;
+  localRequests = typeof saved.localRequests === 'number' ? saved.localRequests : 0;
+  cloudRequests = typeof saved.cloudRequests === 'number' ? saved.cloudRequests : 0;
+  localTokensIn = typeof saved.localTokensIn === 'number' ? saved.localTokensIn : 0;
+  localTokensOut = typeof saved.localTokensOut === 'number' ? saved.localTokensOut : 0;
+  cloudTokensIn = typeof saved.cloudTokensIn === 'number' ? saved.cloudTokensIn : 0;
+  cloudTokensOut = typeof saved.cloudTokensOut === 'number' ? saved.cloudTokensOut : 0;
+  cloudSpendUsd = typeof saved.cloudSpendUsd === 'number' ? saved.cloudSpendUsd : 0;
+  savingsUsd = typeof saved.savingsUsd === 'number' ? saved.savingsUsd : 0;
+  savingsRefModelId = typeof saved.savingsRefModelId === 'string' ? saved.savingsRefModelId : null;
+}
+
+/** Force an immediate (non-debounced) write to localStorage. Exported for
+ *  testing round-trips without waiting for the debounce interval. */
+export function flushPersist() {
+  if (_persistTimer !== null) {
+    clearTimeout(_persistTimer);
+    _persistTimer = null;
+  }
+  writeToStorage();
+}
+
+/** Re-hydrate in-memory state from localStorage. Exported so tests can
+ *  simulate a page reload by calling this after seeding localStorage. */
+export { initFromStorage };
 
 // ---------------------------------------------------------------------------
 // Hosting classification + counterfactual reference rate
@@ -120,6 +238,7 @@ export function handleRouteEvent(payload: Record<string, unknown>) {
   lastRoute = event;
   recentRoutes = [event, ...recentRoutes].slice(0, MAX_RECENT);
   requestCount++;
+  schedulePersist();
 }
 
 export function handleResponseEvent(payload: Record<string, unknown>) {
@@ -160,6 +279,7 @@ export function handleResponseEvent(payload: Record<string, unknown>) {
   if (wasEscalated) {
     escalationCount++;
   }
+  schedulePersist();
 }
 
 export function resetSession() {
@@ -180,7 +300,23 @@ export function resetSession() {
   cloudSpendUsd = 0;
   savingsUsd = 0;
   savingsRefModelId = null;
+  // Cancel any pending debounced write and remove the persisted ledger.
+  if (_persistTimer !== null) {
+    clearTimeout(_persistTimer);
+    _persistTimer = null;
+  }
+  try {
+    localStorage.removeItem(STORAGE_KEY);
+  } catch {
+    // Storage unavailable — silently ignore.
+  }
 }
+
+// ---------------------------------------------------------------------------
+// Module init — hydrate from storage once on load
+// ---------------------------------------------------------------------------
+
+initFromStorage();
 
 // ---------------------------------------------------------------------------
 // Public API

@@ -16,8 +16,9 @@ use std::time::{Duration, SystemTime};
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
 
+use parking_lot::Mutex;
 use rift_bus::{Category, Envelope, RiftBus};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tokio::sync::Notify;
 
 /// Collection interval — one snapshot every 60 seconds.
@@ -34,35 +35,69 @@ const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 // Data types
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Serialize)]
-struct ProjectHealth {
-    name: String,
-    code: String,
-    vault_path: String,
-    vault_staleness_days: f64,
-    sentinel_violations: ViolationCounts,
-    git: Option<GitStatus>,
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProjectHealth {
+    pub name: String,
+    pub code: String,
+    pub vault_path: String,
+    pub vault_staleness_days: f64,
+    pub sentinel_violations: ViolationCounts,
+    pub git: Option<GitStatus>,
 }
 
-#[derive(Debug, Clone, Serialize)]
-struct ViolationCounts {
-    critical: u32,
-    warning: u32,
-    info: u32,
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ViolationCounts {
+    pub critical: u32,
+    pub warning: u32,
+    pub info: u32,
 }
 
-#[derive(Debug, Clone, Serialize)]
-struct GitStatus {
-    branch: String,
-    ahead: u32,
-    behind: u32,
-    uncommitted: u32,
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GitStatus {
+    pub branch: String,
+    pub ahead: u32,
+    pub behind: u32,
+    pub uncommitted: u32,
 }
 
-#[derive(Debug, Clone, Serialize)]
-struct HealthPayload {
-    projects: Vec<ProjectHealth>,
-    collected_at: String,
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HealthPayload {
+    pub projects: Vec<ProjectHealth>,
+    pub collected_at: String,
+}
+
+// ---------------------------------------------------------------------------
+// Shared latest-snapshot state
+// ---------------------------------------------------------------------------
+
+/// Tauri-managed state that retains the most recently collected
+/// [`HealthPayload`].  The collector writes to it after every successful
+/// collection; `health_latest` reads from it so the frontend can fetch the
+/// current snapshot immediately on mount without waiting for the next 60-second
+/// pulse.
+///
+/// `parking_lot::Mutex` is used (same as the rest of the crate) — the lock is
+/// held only for a clone, never across any await point.
+#[derive(Default)]
+pub struct LatestHealth {
+    inner: Mutex<Option<HealthPayload>>,
+}
+
+impl LatestHealth {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Store (or replace) the latest snapshot.
+    pub fn store(&self, payload: HealthPayload) {
+        *self.inner.lock() = Some(payload);
+    }
+
+    /// Return a clone of the latest snapshot, or `None` if the first
+    /// collection has not finished yet.
+    pub fn load(&self) -> Option<HealthPayload> {
+        self.inner.lock().clone()
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -151,13 +186,19 @@ fn sentinel_flags_path() -> Option<PathBuf> {
 ///
 /// Runs every [`COLLECT_INTERVAL`] seconds. Publishes a
 /// `Category::System / kind="health.portfolio"` envelope with the
-/// aggregated [`HealthPayload`]. Respects the `shutdown` notify so it
-/// exits promptly on app teardown (same pattern as
-/// `spawn_status_translator` and `spawn_sentinel_translator`).
+/// aggregated [`HealthPayload`]. Also stores the latest payload in
+/// `latest` so [`health_latest`] can return it immediately on demand.
+/// Respects the `shutdown` notify so it exits promptly on app teardown
+/// (same pattern as `spawn_status_translator` and
+/// `spawn_sentinel_translator`).
 ///
 /// All I/O errors are logged to `tracing::warn` and swallowed — this is
 /// a background enhancer, never critical path.
-pub async fn spawn_health_collector(bus: RiftBus, shutdown: Arc<Notify>) {
+pub async fn spawn_health_collector(
+    bus: RiftBus,
+    shutdown: Arc<Notify>,
+    latest: Arc<LatestHealth>,
+) {
     // Initial delay — let the app finish booting before the first
     // collection pass. Matches the pattern used by the status and
     // sentinel translators (500ms–1s boot delay).
@@ -175,6 +216,10 @@ pub async fn spawn_health_collector(bus: RiftBus, shutdown: Arc<Notify>) {
             }
         };
 
+        // Retain the latest snapshot before publishing so health_latest
+        // always has a fresh value after the first collection.
+        latest.store(payload.clone());
+
         match Envelope::new(Category::System, "health.portfolio").with_payload(&payload) {
             Ok(env) => bus.publish(env),
             Err(e) => tracing::warn!("health_collector: envelope build failed: {e}"),
@@ -189,6 +234,23 @@ pub async fn spawn_health_collector(bus: RiftBus, shutdown: Arc<Notify>) {
             },
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Tauri command — query current snapshot
+// ---------------------------------------------------------------------------
+
+/// Return the most recently collected [`HealthPayload`], or `None` if the
+/// first 60-second collection pass has not finished yet (e.g., the frontend
+/// mounts within the 2-second boot delay).
+///
+/// This command exists specifically to fix audit debt #7: `HealthTab` was
+/// forced to wait for the next timer pulse rather than being able to fetch
+/// the current snapshot immediately. The frontend should call this once on
+/// mount and then subscribe to `health.portfolio` bus events for live updates.
+#[tauri::command]
+pub fn health_latest(latest: tauri::State<'_, Arc<LatestHealth>>) -> Option<HealthPayload> {
+    latest.load()
 }
 
 // ---------------------------------------------------------------------------
@@ -491,5 +553,60 @@ mod tests {
             assert!(!p.name.is_empty());
             assert!(!p.code.is_empty());
         }
+    }
+
+    /// Verify that `LatestHealth` starts empty and retains successive payloads,
+    /// always returning the most recently stored one.
+    #[test]
+    fn latest_health_retain_latest() {
+        let latest = LatestHealth::new();
+
+        // Before any collection: should be None.
+        assert!(
+            latest.load().is_none(),
+            "LatestHealth should be empty before first store"
+        );
+
+        // Store a first payload and verify it is returned.
+        let payload1 = HealthPayload {
+            projects: vec![],
+            collected_at: "2026-06-03T00:00:00Z".to_string(),
+        };
+        latest.store(payload1.clone());
+        let loaded = latest
+            .load()
+            .expect("should have a value after first store");
+        assert_eq!(loaded.collected_at, "2026-06-03T00:00:00Z");
+
+        // Store a second (newer) payload; the first should be replaced.
+        let payload2 = HealthPayload {
+            projects: vec![ProjectHealth {
+                name: "Test".to_string(),
+                code: "TST".to_string(),
+                vault_path: "/fake/vault.md".to_string(),
+                vault_staleness_days: 1.5,
+                sentinel_violations: ViolationCounts {
+                    critical: 0,
+                    warning: 1,
+                    info: 0,
+                },
+                git: None,
+            }],
+            collected_at: "2026-06-03T01:00:00Z".to_string(),
+        };
+        latest.store(payload2);
+        let loaded2 = latest
+            .load()
+            .expect("should have a value after second store");
+        assert_eq!(
+            loaded2.collected_at, "2026-06-03T01:00:00Z",
+            "load() should return the most recently stored payload"
+        );
+        assert_eq!(loaded2.projects.len(), 1);
+        assert_eq!(loaded2.projects[0].code, "TST");
+
+        // Repeated loads are non-destructive (value is cloned, not taken).
+        let loaded3 = latest.load();
+        assert!(loaded3.is_some(), "load() is non-destructive");
     }
 }

@@ -2319,6 +2319,11 @@ pub fn run() {
             // Register the canonical project root.
             app.manage(ProjectRoot::new(fs_root.clone()));
 
+            // Register LatestHealth so health_latest() can return the most
+            // recently collected snapshot without waiting for the next pulse
+            // (audit debt #7 fix).
+            app.manage(std::sync::Arc::new(health_collector::LatestHealth::new()));
+
             // Register the WatcherRegistry; spawn the initial watcher.
             let watcher_reg = WatcherRegistry::default();
             match spawn_fs_watcher(bus.clone(), fs_root, fs_ignore_globs) {
@@ -2524,11 +2529,23 @@ pub fn run() {
             // for every Abyssal Arts project and publishes it as a
             // `health.portfolio` envelope on Category::System.
             // §9 compliant: uses std::fs + std::process::Command only.
+            //
+            // LatestHealth is managed state so health_latest() can return
+            // the current snapshot immediately on demand (audit debt #7).
             {
                 let health_bus = app.state::<RiftBus>().inner().clone();
                 let health_shutdown = app.state::<ShutdownNotify>().handle();
+                let health_latest = app
+                    .state::<std::sync::Arc<health_collector::LatestHealth>>()
+                    .inner()
+                    .clone();
                 tauri::async_runtime::spawn(async move {
-                    health_collector::spawn_health_collector(health_bus, health_shutdown).await;
+                    health_collector::spawn_health_collector(
+                        health_bus,
+                        health_shutdown,
+                        health_latest,
+                    )
+                    .await;
                 });
             }
 
@@ -2794,6 +2811,7 @@ pub fn run() {
             llm_commands::gemini_auth_status,
             llm_commands::gemini_enable_headless,
             feature_pipeline::feature_pipeline_scan,
+            health_collector::health_latest,
         ]))
         .build(tauri::generate_context!())
         .expect("rift: tauri runtime failed to start")
