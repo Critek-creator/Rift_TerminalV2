@@ -33,6 +33,7 @@
   import { actionRegistry } from './lib/actionRegistry.svelte';
   import { enrichmentRegistry } from './lib/enrichmentRegistry.svelte';
   import { actionProviders } from './lib/actionProviders.svelte';
+  import { errorHandoffProvider } from './lib/errorHandoffProvider.svelte';
   import { popouts } from './lib/popouts.svelte';
   import { enrichmentStore } from './lib/enrichmentStore.svelte';
   import type { RiftConfig as RiftConfigType, StatusLineConfig, AlertRule } from './lib/riftConfig';
@@ -725,6 +726,10 @@
       // the primary path). Sequenced so ordering never depends on IPC latency.
       await actionRegistry.start();
       await actionProviders.start();
+      // Phase 5 / R1 — local-only error→agent explain provider. Started after
+      // the registry so its action.result publishes are delivered live, and it
+      // is listening before any failure can declare/invoke an explain action.
+      await errorHandoffProvider.start();
       // §9 data-enrichment registry (class 3) — generic enrichment.attach
       // channel the vault-walker now dogfoods. Started before the walker can
       // emit so attaches are delivered live (replay buffer as backstop).

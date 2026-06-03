@@ -3,8 +3,14 @@ import {
   readScrollbackTail,
   assembleFailureContext,
   summarizeFailureContext,
+  errorActionId,
+  isErrorExplainAction,
+  failureClusterKey,
+  buildExplainPrompt,
+  ERROR_EXPLAIN_ACTION,
   type BufferLike,
   type CommandCapture,
+  type FailureContext,
 } from '../errorHandoff';
 
 /** Build a fake xterm buffer from an array of lines. */
@@ -101,6 +107,55 @@ describe('assembleFailureContext', () => {
     );
     expect(ctx.cwd).toBeNull();
     expect(ctx.durationMs).toBeNull();
+  });
+});
+
+describe('action-id helpers (B1 collision fix)', () => {
+  it('builds per-failure unique ids namespaced by pane + seq', () => {
+    expect(errorActionId(ERROR_EXPLAIN_ACTION, 3, 7)).toBe('rift.error.explain::3::7');
+    // different pane or seq → different id (no registry-state collision)
+    expect(errorActionId(ERROR_EXPLAIN_ACTION, 3, 7)).not.toBe(
+      errorActionId(ERROR_EXPLAIN_ACTION, 3, 8),
+    );
+  });
+
+  it('recognizes explain action ids and rejects others', () => {
+    expect(isErrorExplainAction('rift.error.explain::1::0')).toBe(true);
+    expect(isErrorExplainAction('rift.error.fix::1::0')).toBe(false);
+    expect(isErrorExplainAction('rift.llm.reset-ledger')).toBe(false);
+    expect(isErrorExplainAction('rift.error.explain')).toBe(false); // bare base, no ::
+  });
+
+  it('clusters identical consecutive failures by command + exit', () => {
+    expect(failureClusterKey('npm test', 1)).toBe(failureClusterKey('  npm test ', 1));
+    expect(failureClusterKey('npm test', 1)).not.toBe(failureClusterKey('npm test', 2));
+    expect(failureClusterKey('npm test', 1)).not.toBe(failureClusterKey('npm run', 1));
+  });
+});
+
+describe('buildExplainPrompt', () => {
+  const base: FailureContext = {
+    command: 'cargo build',
+    cwd: '/w/proj',
+    exitCode: 101,
+    durationMs: 1200,
+    startRow: 0,
+    endRow: 3,
+    scrollbackTail: ['error[E0382]: borrow of moved value', '  --> src/main.rs:4:5'],
+  };
+
+  it('includes command, exit code, cwd, and the output tail', () => {
+    const prompt = buildExplainPrompt(base);
+    expect(prompt).toContain('cargo build');
+    expect(prompt).toContain('101');
+    expect(prompt).toContain('/w/proj');
+    expect(prompt).toContain('E0382');
+  });
+
+  it('omits the cwd line when cwd is null and notes missing output', () => {
+    const prompt = buildExplainPrompt({ ...base, cwd: null, scrollbackTail: [] });
+    expect(prompt).not.toContain('Working dir:');
+    expect(prompt).toContain('(no captured output)');
   });
 });
 
