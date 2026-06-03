@@ -4,6 +4,7 @@
   import { NOTIF_TAB_MIME } from './dragMime';
   import SessionCompare from './SessionCompare.svelte';
   import MarkerTimeline from './MarkerTimeline.svelte';
+  import SessionTimeline from './SessionTimeline.svelte';
 
   interface SessionMeta {
     id: string;
@@ -24,7 +25,7 @@
     payload: unknown;
   }
 
-  type ViewMode = 'list' | 'replay' | 'select-baseline' | 'select-compare' | 'compare';
+  type ViewMode = 'list' | 'replay' | 'timeline' | 'select-baseline' | 'select-compare' | 'compare';
 
   interface Props {
     onDragBack?: () => void;
@@ -80,6 +81,14 @@
       const row = replayLogBody?.querySelector<HTMLElement>(`[data-event-idx="${idx}"]`);
       row?.scrollIntoView({ behavior: 'smooth', block: 'center' });
     });
+  }
+
+  // Timeline → replay deep-link: switch to the replay view, wait for it to
+  // render, then seek to the chosen event (seekToEvent queries the replay DOM).
+  async function seekFromTimeline(idx: number): Promise<void> {
+    viewMode = 'replay';
+    await tick();
+    seekToEvent(idx);
   }
 
   // -- Global session search (candidate a1f) ---------------------------------
@@ -492,6 +501,7 @@
         {#if selectedSession}· {formatSize(selectedSession.size_bytes)}{/if}
       </span>
       <span class="spacer"></span>
+      <button type="button" class="ctl-btn" onclick={() => { viewMode = 'timeline'; }}>timeline &#x25B8;</button>
     </header>
 
     {#if markers.length > 0}
@@ -551,6 +561,16 @@
         {/if}
       </div>
     </div>
+  {:else if viewMode === 'timeline'}
+    <header class="status">
+      <button type="button" class="ctl-btn" onclick={goBack}>&#x25C0; back</button>
+      <span class="title"><span class="icon">&#x23F1;</span>{selectedSession?.date ?? selectedId}</span>
+      <span class="spacer"></span>
+      <button type="button" class="ctl-btn" onclick={() => { viewMode = 'replay'; }}>&#x25C2; replay</button>
+    </header>
+    {#if selectedId}
+      <SessionTimeline sessionId={selectedId} onSeek={seekFromTimeline} />
+    {/if}
   {/if}
 </section>
 
