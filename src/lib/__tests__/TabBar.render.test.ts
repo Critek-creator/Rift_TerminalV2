@@ -130,7 +130,7 @@ describe('TabBar', () => {
     render(TabBar, {
       props: { ...defaultProps, onCloseSession, groupedNotifs: defaultProps.groupedNotifs },
     });
-    const closeBtn = screen.getByLabelText('close tab');
+    const closeBtn = screen.getByLabelText('Close Session 1');
     closeBtn.click();
     expect(onCloseSession).toHaveBeenCalledWith(1);
   });
