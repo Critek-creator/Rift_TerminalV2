@@ -97,6 +97,7 @@ export const SURFACES: SurfaceDescriptor[] = [
   // terminal
   { id: 'terminal-grid', title: 'Terminal grid', zone: 'terminal', component: 'TerminalGrid.svelte' },
   { id: 'empty-state', title: 'Empty state', zone: 'terminal', component: 'App.svelte (inline)' },
+  { id: 'sticky-cmd-header', title: 'Sticky command header', zone: 'terminal', component: 'StickyCommandHeader.svelte' },
 
   // cockpit
   { id: 'cockpit-graph', title: 'Index graph', zone: 'cockpit', component: 'IndexGraph.svelte' },

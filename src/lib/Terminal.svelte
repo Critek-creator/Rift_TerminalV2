@@ -2,7 +2,7 @@
   import { onMount, onDestroy, tick } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
   import { listen, type UnlistenFn } from '@tauri-apps/api/event';
-  import { Terminal as XTerm } from '@xterm/xterm';
+  import { Terminal as XTerm, type IMarker } from '@xterm/xterm';
   import { FitAddon } from '@xterm/addon-fit';
   import { SearchAddon } from '@xterm/addon-search';
   import { SerializeAddon } from '@xterm/addon-serialize';
@@ -52,7 +52,9 @@
     type FailureContext,
   } from './errorHandoff';
   import { actionRegistry, type DeclaredAction } from './actionRegistry.svelte';
+  import { commandBlockStore, type CommandBlock } from './commandBlockStore.svelte';
   import ErrorResultPopout from './ErrorResultPopout.svelte';
+  import StickyCommandHeader from './StickyCommandHeader.svelte';
   import { getTerminalSettings, invalidateTerminalSettingsCache } from './terminalConfigCache';
   import { resolveTheme } from './terminalPalettes';
   import { LaneTintManager } from './laneTint';
@@ -142,6 +144,49 @@
   // region out of the xterm buffer to build a FailureContext. Plain (non-
   // reactive) transient state — it only lives between submit and completion.
   let pendingCapture: CommandCapture | null = null;
+
+  // N3.2 — sticky command header. On command.submitted we drop an xterm marker
+  // at the prompt row; the marker's `.line` auto-tracks reflow + scrollback
+  // eviction (a raw row integer would drift), so it's the authoritative live
+  // anchor for a block's TOP edge. `paneBlocks` maps each recorded block id to
+  // its live start marker; `stickyBlock` is the block whose output region spans
+  // the current viewport top (null at the live prompt / above the first block).
+  let pendingStartMarker: IMarker | null = null;
+  const paneBlocks = new Map<string, { startMarker: IMarker; block: CommandBlock }>();
+  let stickyBlock = $state<CommandBlock | null>(null);
+
+  /** Recompute which block's output spans the viewport top. Shown only when
+   *  scrolled UP (viewportY < baseY) — at the bottom the live prompt is visible
+   *  and a sticky reminder is just noise. Picks the block with the greatest
+   *  live start row that is still at or above the viewport top. Prunes markers
+   *  that xterm disposed when their line aged out of scrollback. */
+  function recomputeSticky(): void {
+    const buf = term?.buffer.active;
+    if (!buf) {
+      stickyBlock = null;
+      return;
+    }
+    const viewportY = buf.viewportY;
+    // At (or below) the bottom page → no header.
+    if (viewportY >= buf.baseY) {
+      stickyBlock = null;
+      return;
+    }
+    let best: CommandBlock | null = null;
+    let bestLine = -1;
+    for (const [id, entry] of paneBlocks) {
+      const line = entry.startMarker.line; // -1 once disposed
+      if (line < 0) {
+        paneBlocks.delete(id);
+        continue;
+      }
+      if (line <= viewportY && line > bestLine) {
+        bestLine = line;
+        best = entry.block;
+      }
+    }
+    stickyBlock = best;
+  }
 
   // Phase 5 / R2 — error-handoff mode (off | detect | assist), read live from
   // config. `off` suppresses all surfacing (passive badge only, no issues-list
@@ -603,6 +648,10 @@
     if (lanesEnabled) {
       tintManager = new LaneTintManager(term);
     }
+
+    // N3.2 — keep the sticky command header in sync with scroll position.
+    // xterm owns this listener's lifetime (disposed on term.dispose()).
+    term.onScroll(() => recomputeSticky());
 
     // Exposed for MCP pty_read tool — do not remove without updating mcp_host.rs tool_pty_read
     window.__RIFT_TERM__ = term;
@@ -1139,12 +1188,21 @@
             startRow: currentBufferRow(),
             ts: Date.now(),
           };
+          // N3.2 — drop a live marker at the prompt row to anchor this block's
+          // top edge. Dispose any orphan from a submit that never completed.
+          pendingStartMarker?.dispose();
+          pendingStartMarker = term?.registerMarker(0) ?? null;
           return;
         }
         if (env.kind === 'command.completed') {
           const c = env.payload as { session_id?: number; exit_code?: number; duration_ms?: number | null } | null;
           if (!c || typeof c.exit_code !== 'number') return;
           if (c.session_id !== undefined && c.session_id !== sessionId) return;
+          // Snapshot the submit-time capture BEFORE captureFailureContext
+          // consumes (nulls) it, so N3.1 can record the command block below
+          // regardless of exit code.
+          const cap = pendingCapture;
+          const endRow = currentBufferRow();
           // Assemble the FailureContext first so a non-zero exit's badge can
           // carry it and become an interactive "explain" affordance. `off`
           // keeps the badge passive; `assist` auto-invokes explain.
@@ -1152,6 +1210,32 @@
           const surfaced = failure && errorHandoffMode !== 'off';
           addCommandBadge(c.exit_code, c.duration_ms ?? null, surfaced ? failure : null);
           if (surfaced && errorHandoffMode === 'assist') startExplain(failure);
+          // N3.1 — record an addressable command block (the sticky-header /
+          // copy / bookmark / jump spine). EVERY command (success + failure)
+          // with a captured submit becomes a block; an anonymous CMD_END with
+          // no matching submit (no command text) isn't an addressable unit, so
+          // it's skipped.
+          if (cap) {
+            const block = commandBlockStore.record({
+              sessionId,
+              command: cap.command,
+              cwd: cap.cwd,
+              exitCode: c.exit_code,
+              durationMs: c.duration_ms ?? null,
+              startRow: cap.startRow,
+              endRow,
+              ts: Date.now(),
+            });
+            // N3.2 — anchor the block's live top edge for the sticky header,
+            // then refresh in case the user is scrolled up while it completes.
+            if (pendingStartMarker && pendingStartMarker.line >= 0) {
+              paneBlocks.set(block.id, { startMarker: pendingStartMarker, block });
+            } else {
+              pendingStartMarker?.dispose();
+            }
+            pendingStartMarker = null;
+            recomputeSticky();
+          }
           return;
         }
         if (env.kind === 'cwd.changed') {
@@ -1229,6 +1313,7 @@
   ondrop={onTermDrop}
 >
   <LaneGutter terminal={term} hostElement={host} currentLane={currentLane} />
+  <StickyCommandHeader block={stickyBlock} />
   {#if searchOpen && search}
     <TerminalSearch searchAddon={search} onclose={() => { searchOpen = false; term?.focus(); }} />
   {/if}
