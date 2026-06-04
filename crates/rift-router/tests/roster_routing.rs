@@ -123,3 +123,20 @@ fn oversized_prompt_routes_to_gemma_12b_via_context_fit() {
     assert_eq!(d.task_type, TaskType::LargeContextAnalysis);
     assert_eq!(d.model_id, "gemma-12b");
 }
+
+#[test]
+fn short_prompt_prefers_running_local_over_zero_cost_cloud() {
+    // Reproduces the live one-resident scenario: the usual local resident
+    // (granite) and gpt-oss are down, leaving an available pool that LEADS with
+    // a zero-cost cloud model (gemini, earlier in config order) followed by the
+    // running local gemma-12b.
+    let mut svc = RouterService::new(roster());
+    svc.mark_unavailable("granite");
+    svc.mark_unavailable("gpt-oss");
+
+    // A short prompt must stay on the running LOCAL model, not fall to the
+    // zero-cost-but-slow cloud CLI just because it sorts first.
+    let d = svc.route("hi there", None).unwrap();
+    assert_eq!(d.task_type, TaskType::QuickQuery);
+    assert_eq!(d.model_id, "gemma-12b");
+}

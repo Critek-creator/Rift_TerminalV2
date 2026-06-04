@@ -3,7 +3,7 @@
 //! Phase 1: Manual (user picks) + Balanced/CostOptimized/QualityFirst
 //! as basic heuristics. Phase 2: configurable rule chains.
 
-use rift_bus::config::{ModelConfig, RoutingProfile};
+use rift_bus::config::{HostingMode, ModelConfig, RoutingProfile};
 use serde::{Deserialize, Serialize};
 
 use crate::classifier::TaskType;
@@ -130,9 +130,18 @@ fn select_balanced(
 ) -> Option<String> {
     let fit = context_fit(models, estimate_context_tokens(prompt_len));
 
-    // Small prompt → cheapest local model that still fits the context window.
+    // Small prompt → a Rift-managed local model that fits. Prefer LOCAL
+    // specifically (not merely any zero-cost model): a cloud model can also be
+    // zero-cost (e.g. a free CLI provider), but routing a quick query to it
+    // pays cold-start / network latency for no benefit. When the usual local
+    // resident is down, the available pool can lead with such a cloud model —
+    // this keeps short prompts on a running local and only falls through to the
+    // tag/cloud path when no local fits.
     if prompt_len < 500 {
-        if let Some(local) = fit.iter().find(|m| m.capabilities.cost_per_1m_input == 0.0) {
+        if let Some(local) = fit
+            .iter()
+            .find(|m| matches!(m.hosting, HostingMode::Local { .. }))
+        {
             return Some(local.id.clone());
         }
     }
