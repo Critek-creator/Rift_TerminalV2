@@ -4,6 +4,7 @@
   import { listen } from '@tauri-apps/api/event';
   import { onMount } from 'svelte';
   import { popouts } from './popouts.svelte';
+  import ModelIndicator from './ModelIndicator.svelte';
 
   const appWindow = getCurrentWindow();
 
@@ -97,6 +98,11 @@
             stroke-linejoin="round" />
     </svg>
     <span class="wordmark">RIFT</span>
+  </span>
+  <!-- Local-model status chip — green/amber/red load light + VRAM, click to
+       swap. Sits up top, separate from the StatusLine's core Claude info. -->
+  <span class="model-slot">
+    <ModelIndicator />
   </span>
   <span class="spacer" data-tauri-drag-region></span>
   <div class="controls">
@@ -199,6 +205,12 @@
   }
   .wordmark {
     line-height: 1;
+  }
+
+  .model-slot {
+    display: inline-flex;
+    align-items: center;
+    margin-left: var(--space-md);
   }
 
   .spacer { flex: 1; height: 100%; }
