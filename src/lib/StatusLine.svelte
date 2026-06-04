@@ -25,6 +25,7 @@
   import ProfilePicker from './ProfilePicker.svelte';
   import ModelIndicator from './ModelIndicator.svelte';
   import { llmRouting } from './llmRouting.svelte';
+  import { commandFailureStore } from './commandFailureStore.svelte';
 
   interface Props {
     dir?: string;
@@ -94,6 +95,15 @@
   function openCommands(): void {
     window.dispatchEvent(new CustomEvent('rift:open-commands'));
   }
+
+  // Phase 5 / R1.5 — open the persistent command-failures issues list. The
+  // chip lights when there are unacknowledged shell failures; the list survives
+  // scroll-out (unlike the per-line badge) and explains each via a local model.
+  const failureCount = $derived(commandFailureStore.count);
+  const unackFailures = $derived(commandFailureStore.unacknowledgedCount);
+  function openFailures(): void {
+    window.dispatchEvent(new CustomEvent('rift:open-failures'));
+  }
 </script>
 
 <footer class="statusline" role="status" aria-live="polite" aria-label="Terminal status">
@@ -139,6 +149,18 @@
       </div>
     {/if}
     <div class="seg spacer"></div>
+    <button
+      type="button"
+      class="issues-btn"
+      class:lit={unackFailures > 0}
+      onclick={openFailures}
+      title="Command failures — click to list and explain (local model)"
+      aria-label={`Open command failures list${failureCount > 0 ? ` (${failureCount})` : ''}`}
+    >
+      <span class="issues-mark" aria-hidden="true">✗</span>
+      <span class="issues-label">issues</span>
+      {#if failureCount > 0}<span class="issues-count">{failureCount > 99 ? '99+' : failureCount}</span>{/if}
+    </button>
     <button
       type="button"
       class="cmd-btn"
@@ -303,6 +325,50 @@
     outline: 1px solid var(--amber-warm);
     outline-offset: 1px;
   }
+
+  /* Issues chip — persistent shell-failure list trigger, sits left of
+     /commands. Faint by default; lights red when there are unacknowledged
+     failures, mirroring the ambient ERR indicator. */
+  .issues-btn {
+    align-self: center;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    margin-right: var(--space-sm);
+    padding: 1px 8px;
+    font-family: var(--font-family);
+    font-size: var(--text-2xs);
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    color: var(--amber-faint);
+    background: transparent;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    white-space: nowrap;
+    transition: color var(--duration-fast) var(--ease-out), background var(--duration-fast) var(--ease-out), border-color var(--duration-fast) var(--ease-out);
+  }
+  .issues-btn:hover {
+    color: var(--amber-warm);
+    background: rgba(255, 200, 64, 0.06);
+    border-color: var(--amber-dim);
+  }
+  .issues-btn:focus-visible {
+    outline: 1px solid var(--amber-warm);
+    outline-offset: 1px;
+  }
+  .issues-mark { color: var(--amber-faint); transition: color var(--duration-fast) var(--ease-out); }
+  .issues-count {
+    font-variant-numeric: tabular-nums;
+    color: var(--amber-warm);
+    background: rgba(255, 200, 64, 0.10);
+    border-radius: var(--radius-sm);
+    padding: 0 4px;
+  }
+  /* Lit — unacknowledged failures present. */
+  .issues-btn.lit { color: var(--term-white, #e8e4d8); border-color: rgba(255, 72, 72, 0.5); }
+  .issues-btn.lit .issues-mark { color: var(--term-red); }
+  .issues-btn.lit .issues-count { color: #ff8a8a; background: rgba(255, 72, 72, 0.14); }
   .thinking { background: var(--status-cyan-dim); }
 
   /* BLUE family — usage metrics */
