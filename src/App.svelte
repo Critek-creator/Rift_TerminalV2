@@ -38,6 +38,7 @@
   import { commandFailureStore } from './lib/commandFailureStore.svelte';
   import { popouts } from './lib/popouts.svelte';
   import { enrichmentStore } from './lib/enrichmentStore.svelte';
+  import { configStore } from './lib/configStore.svelte';
   import type { RiftConfig as RiftConfigType, StatusLineConfig, AlertRule } from './lib/riftConfig';
   import { SparklineBuffer } from './lib/SparklineBuffer';
   import { invalidateTerminalSettingsCache } from './lib/terminalConfigCache';
@@ -58,7 +59,7 @@
 
   async function loadAppearanceConfig() {
     try {
-      const cfg = await invoke<RiftConfigType>('config_get');
+      const cfg = await configStore.load();
       statuslineConfig = cfg?.statusline;
       const family = cfg?.terminal?.font_family;
       if (family) {
@@ -88,7 +89,7 @@
 
   async function loadAlertRules() {
     try {
-      const cfg = await invoke<RiftConfigType>('config_get');
+      const cfg = await configStore.load();
       alertRules = cfg?.alerts?.rules ?? [];
     } catch (err) {
       console.warn('Failed to load alert rules:', err);
@@ -101,7 +102,7 @@
   // models and auto-started local servers appear unconfigured.
   async function loadLlmConfig() {
     try {
-      const cfg = await invoke<RiftConfigType>('config_get');
+      const cfg = await configStore.load();
       loadLlmFromConfig(cfg?.ensemble);
     } catch (err) {
       console.warn('Failed to load LLM ensemble config:', err);
@@ -777,7 +778,7 @@
     // First-run welcome check — show overlay if config.first_run_completed is false.
     void (async () => {
       try {
-        const cfg = await invoke<RiftConfigType>('config_get');
+        const cfg = await configStore.load();
         if (!cfg?.first_run_completed) welcomeOpen = true;
       } catch { /* non-fatal — skip welcome on config read failure */ }
     })();
@@ -794,11 +795,17 @@
     // Re-read filters + appearance + alerts + LLM models when Settings saves
     // (rift:config-changed broadcast).
     const onConfigChanged = () => {
-      void nm.loadNotifFilters();
-      void loadAppearanceConfig();
-      void loadAlertRules();
-      void loadLlmConfig();
-      invalidateTerminalSettingsCache();
+      void (async () => {
+        // Refresh the shared snapshot once, then re-derive everything from it.
+        // The appearance/alerts/llm loaders read configStore.load()'s cache, so
+        // the whole fan-out costs a single config_get per change.
+        await configStore.reload();
+        void nm.loadNotifFilters();
+        void loadAppearanceConfig();
+        void loadAlertRules();
+        void loadLlmConfig();
+        invalidateTerminalSettingsCache();
+      })();
     };
     window.addEventListener('rift:config-changed', onConfigChanged);
 
