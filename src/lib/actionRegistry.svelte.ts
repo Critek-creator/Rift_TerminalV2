@@ -34,6 +34,8 @@ export interface DeclaredAction {
 export interface ActionResultState {
   status: 'ok' | 'error';
   message?: string;
+  /** R3 — a propose-then-confirm fix command (additive, opt-in per result). */
+  proposedCommand?: string;
   ts: number;
 }
 
@@ -95,6 +97,8 @@ function handle(env: Envelope): void {
         [actionId]: {
           status: p.status === 'error' ? 'error' : 'ok',
           message: typeof p.message === 'string' ? p.message : undefined,
+          proposedCommand:
+            typeof p.proposed_command === 'string' ? p.proposed_command : undefined,
           ts: Date.now(),
         },
       };
