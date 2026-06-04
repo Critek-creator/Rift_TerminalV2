@@ -1,3 +1,10 @@
+<script module lang="ts">
+  // Drag position persists for the session (module scope outlives the panel's
+  // open/close mount cycle), so reopening the issues list keeps where you left
+  // it. null = the default docked position (bottom-left).
+  let savedPos: { x: number; y: number } | null = null;
+</script>
+
 <script lang="ts">
   // FailuresPanel.svelte — Phase 5 / R1.5: the persistent issues list.
   //
@@ -19,6 +26,44 @@
 
   // Mark everything acknowledged the moment the panel opens (clears the chip).
   commandFailureStore.acknowledgeAll();
+
+  // ── Drag-to-reposition (grab the header) ──────────────────────────────────
+  // The panel docks bottom-left by default; dragging the header switches it to
+  // an absolute left/top, clamped to the viewport, persisted via savedPos.
+  let panelEl = $state<HTMLDivElement>();
+  let pos = $state<{ x: number; y: number } | null>(savedPos);
+  let dragging = $state(false);
+  let grabDX = 0;
+  let grabDY = 0;
+
+  function clamp(v: number, lo: number, hi: number): number {
+    return Math.max(lo, Math.min(v, hi));
+  }
+
+  function onHeadPointerDown(e: PointerEvent): void {
+    // Let the header's buttons (clear all / close) work normally.
+    if (e.button !== 0 || (e.target as HTMLElement).closest('button')) return;
+    if (!panelEl) return;
+    const rect = panelEl.getBoundingClientRect();
+    grabDX = e.clientX - rect.left;
+    grabDY = e.clientY - rect.top;
+    pos = { x: rect.left, y: rect.top }; // pin current spot before the first move
+    dragging = true;
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    e.preventDefault();
+  }
+  function onHeadPointerMove(e: PointerEvent): void {
+    if (!dragging || !panelEl) return;
+    const x = clamp(e.clientX - grabDX, 4, window.innerWidth - panelEl.offsetWidth - 4);
+    const y = clamp(e.clientY - grabDY, 4, window.innerHeight - panelEl.offsetHeight - 4);
+    pos = { x, y };
+  }
+  function onHeadPointerUp(e: PointerEvent): void {
+    if (!dragging) return;
+    dragging = false;
+    savedPos = pos; // remember for the next open
+    (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId);
+  }
 
   let expandedId = $state<string | null>(null);
   // rowId → the per-failure unique action id used for its explain invocation.
@@ -91,9 +136,23 @@
   }
 </script>
 
-<div class="failures-panel" role="dialog" aria-label="Command failures">
-  <header class="fp-head">
+<div
+  class="failures-panel"
+  class:dragging
+  role="dialog"
+  aria-label="Command failures"
+  bind:this={panelEl}
+  style={pos ? `left:${pos.x}px; top:${pos.y}px; bottom:auto;` : ''}
+>
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <header
+    class="fp-head"
+    onpointerdown={onHeadPointerDown}
+    onpointermove={onHeadPointerMove}
+    onpointerup={onHeadPointerUp}
+  >
     <span class="fp-title">Command failures</span>
+    <span class="fp-grip" aria-hidden="true" title="Drag to move">⠿</span>
     <span class="fp-count">{commandFailureStore.count}</span>
     <span class="fp-spacer"></span>
     {#if commandFailureStore.count > 0}
@@ -201,12 +260,24 @@
     background: linear-gradient(180deg, rgba(255, 72, 72, 0.10), rgba(255, 72, 72, 0.015));
     border-bottom: 1px solid var(--border-subtle);
     flex-shrink: 0;
+    cursor: grab;
+    user-select: none;
+    touch-action: none; /* pointer drag owns the gesture, not the scroller */
+  }
+  .failures-panel.dragging .fp-head {
+    cursor: grabbing;
   }
   .fp-title {
     color: var(--amber-bright);
     font-weight: 700;
     font-size: var(--text-sm);
     letter-spacing: 0.06em;
+  }
+  .fp-grip {
+    color: var(--amber-faint);
+    font-size: var(--text-xs);
+    line-height: 1;
+    letter-spacing: -1px;
   }
   .fp-count {
     color: var(--term-red);
