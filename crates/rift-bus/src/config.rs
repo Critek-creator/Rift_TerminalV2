@@ -996,8 +996,17 @@ impl Default for EnsembleConfig {
 }
 
 /// Routing profile — how the router decides which model handles a prompt.
+///
+/// `#[non_exhaustive]` + `#[serde(other)] Unknown` mirrors [`SyncMode`]: a
+/// newer-version config naming a profile this build doesn't recognize degrades
+/// to `Unknown` (routed as `Balanced` at dispatch time) instead of failing to
+/// parse — which would otherwise abort the whole config load and trip the
+/// default-then-overwrite path. `Unknown` is deserialize-only; never construct
+/// it directly, and note that re-saving a config holding it rewrites the value
+/// as `"unknown"` (the unrecognized original profile name is not preserved).
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum RoutingProfile {
     /// No auto-routing. User selects model via quick switcher.
     #[default]
@@ -1008,6 +1017,11 @@ pub enum RoutingProfile {
     QualityFirst,
     /// Heuristic blend of cost and capability.
     Balanced,
+    /// Forward-compat catch-all for a profile name this Rift build does not
+    /// recognize. Treated as `Balanced` at dispatch time so routing stays
+    /// functional rather than erroring.
+    #[serde(other)]
+    Unknown,
 }
 
 /// A configured LLM model available in Rift.
@@ -1087,8 +1101,18 @@ impl ModelConfig {
 }
 
 /// Provider type — determines which LLM translator handles requests.
+///
+/// `#[non_exhaustive]` + `#[serde(other)] Unknown` mirrors [`SyncMode`]: a
+/// newer-version config naming a provider this build doesn't recognize degrades
+/// to `Unknown` instead of failing to parse the whole config (which would trip
+/// the default-then-overwrite path). A model with `Unknown` provider can't be
+/// instantiated — `create_provider` returns a recoverable error — but every
+/// other model in the roster still loads. `Unknown` is deserialize-only; never
+/// construct it directly, and re-saving a config holding it rewrites the value
+/// as `"unknown"` (the unrecognized original provider name is not preserved).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum ProviderType {
     Anthropic,
     Google,
@@ -1098,12 +1122,26 @@ pub enum ProviderType {
     /// the tool's own session — no API key. The model's `endpoint` field holds
     /// the command template; see `translators::llm_cli`.
     Cli,
+    /// Forward-compat catch-all for a provider this Rift build does not
+    /// recognize. The model is skipped by provider instantiation.
+    #[serde(other)]
+    Unknown,
 }
 
 /// How a model is hosted — determines process management and health-check
 /// behavior.
+///
+/// `#[non_exhaustive]` + `#[serde(other)] Unknown` mirrors [`SyncMode`]: a
+/// newer-version config naming a `mode` this build doesn't recognize degrades
+/// to `Unknown` instead of failing to parse the whole config (which would trip
+/// the default-then-overwrite path). A model with `Unknown` hosting can't be
+/// started or instantiated, but every other model in the roster still loads.
+/// `Unknown` is deserialize-only; never construct it directly, and re-saving a
+/// config holding it rewrites the `mode` as `"unknown"` (the unrecognized
+/// original mode and any extra fields are not preserved).
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "mode", rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum HostingMode {
     /// Cloud API (Anthropic, Google, etc.) — Rift sends HTTP requests.
     Cloud,
@@ -1114,6 +1152,11 @@ pub enum HostingMode {
     },
     /// Remote llama-server — Rift connects but does not manage the process.
     Remote { health_check_interval_secs: u64 },
+    /// Forward-compat catch-all for a `mode` string this Rift build does not
+    /// recognize. The model is skipped by process management and provider
+    /// instantiation.
+    #[serde(other)]
+    Unknown,
 }
 
 /// Configuration for a Rift-managed local llama-server instance.
@@ -1196,9 +1239,18 @@ impl Default for LlamaServerConfig {
 }
 
 /// KV cache quantization type for llama-server.
+///
+/// `#[non_exhaustive]` + `#[serde(other)] Unknown` mirrors [`SyncMode`]: a
+/// newer-version config (or a future llama.cpp quant type) naming a cache type
+/// this build doesn't recognize degrades to `Unknown` instead of failing to
+/// parse the whole config. `as_flag` maps `Unknown` to `q8_0` — the same value
+/// the [`LlamaServerConfig`] default uses — so the server still launches with a
+/// safe cache type. `Unknown` is deserialize-only; never construct it directly,
+/// and re-saving rewrites the value as `"unknown"`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 #[allow(non_camel_case_types)]
+#[non_exhaustive]
 pub enum KvCacheType {
     F32,
     F16,
@@ -1216,6 +1268,10 @@ pub enum KvCacheType {
     Q5_0,
     #[serde(rename = "q5_1")]
     Q5_1,
+    /// Forward-compat catch-all for a cache type this Rift build does not
+    /// recognize. Mapped to `q8_0` by [`KvCacheType::as_flag`].
+    #[serde(other)]
+    Unknown,
 }
 
 impl KvCacheType {
@@ -1231,6 +1287,9 @@ impl KvCacheType {
             Self::IQ4_NL => "iq4_nl",
             Self::Q5_0 => "q5_0",
             Self::Q5_1 => "q5_1",
+            // Forward-compat: an unrecognized quant degrades to the safe q8_0
+            // default rather than emitting an invalid llama-server flag.
+            Self::Unknown => "q8_0",
         }
     }
 }
@@ -1877,6 +1936,73 @@ default_threshold = "future_level_xyz"
         let cfg: RiftConfig =
             toml::from_str(toml_str).expect("parse must not error on unknown variant");
         assert_eq!(cfg.notif_filters.default_threshold, SeverityLevel::Unknown);
+    }
+
+    // T29b — ensemble_enums_unknown_variant_forward_compat
+    //
+    // The schema-compat invariant that prevents the config-wipe incident: a
+    // config written by a NEWER Rift naming a routing profile / provider /
+    // hosting mode / KV-cache type this (older) build doesn't recognize must
+    // still PARSE — degrading the unknown values to their `Unknown` catch-alls
+    // — instead of erroring. A parse error aborts the whole config load and
+    // trips the default-then-overwrite path (`load_config_or_backup` now backs
+    // the file up rather than silently wiping it, but the goal here is that an
+    // older binary reads the newer roster cleanly in the first place).
+    #[test]
+    fn ensemble_enums_unknown_variant_forward_compat() {
+        // Base roster from a real, fully-formed local model — guarantees every
+        // required field is present; we then inject "future" enum strings.
+        let model = ModelConfig::llama_classifier(PathBuf::from("C:/Models/x.gguf"), 8090);
+        let ensemble = EnsembleConfig {
+            enabled: true,
+            active_profile: RoutingProfile::Balanced,
+            default_model: model.id.clone(),
+            models: vec![model],
+            ..EnsembleConfig::default()
+        };
+        let toml_str = toml::to_string_pretty(&ensemble).expect("serialize ensemble");
+
+        // Profile + provider + cache type a newer Rift might have written.
+        let future = toml_str
+            .replace(
+                "active_profile = \"balanced\"",
+                "active_profile = \"hyper_future\"",
+            )
+            .replace(
+                "provider = \"llama_server\"",
+                "provider = \"quantum_provider\"",
+            )
+            .replace("cache_type_k = \"q8_0\"", "cache_type_k = \"warp9_cache\"");
+        let back: EnsembleConfig =
+            toml::from_str(&future).expect("unknown enum values must not abort the parse");
+        assert_eq!(
+            back.active_profile,
+            RoutingProfile::Unknown,
+            "unrecognized profile must map to RoutingProfile::Unknown"
+        );
+        assert_eq!(
+            back.models[0].provider,
+            ProviderType::Unknown,
+            "unrecognized provider must map to ProviderType::Unknown"
+        );
+        match &back.models[0].hosting {
+            HostingMode::Local { process_config } => assert_eq!(
+                process_config.cache_type_k,
+                KvCacheType::Unknown,
+                "unrecognized cache type must map to KvCacheType::Unknown"
+            ),
+            other => panic!("expected Local hosting to survive, got {other:?}"),
+        }
+
+        // An unrecognized hosting `mode` tag itself degrades to HostingMode::Unknown
+        // (the rest of the roster — not just this model — still loads).
+        let future_mode = toml_str.replace("mode = \"local\"", "mode = \"teleport\"");
+        let back2: EnsembleConfig =
+            toml::from_str(&future_mode).expect("unknown hosting mode must not abort the parse");
+        assert!(
+            matches!(back2.models[0].hosting, HostingMode::Unknown),
+            "unrecognized hosting mode must map to HostingMode::Unknown"
+        );
     }
 
     // T30 — parse_config_without_tree_section_uses_defaults

@@ -1703,6 +1703,13 @@ fn tool_llm_process_start(app_handle: &AppHandle, payload: &Value) -> Result<Val
                 "llm_process_start: model '{model_id}' is a remote model — only local models can be started"
             ))
         }
+        // Forward-compat: a hosting mode written by a newer Rift build that this
+        // build deserialized to `HostingMode::Unknown` — can't be started.
+        _ => {
+            return Err(format!(
+                "llm_process_start: model '{model_id}' has an unrecognized hosting mode — only local models can be started"
+            ))
+        }
     };
     // Explicit start ⟹ keep it alive. A manually-started server should self-heal
     // on crash rather than stay dead until the next manual start (the failure mode
@@ -1887,6 +1894,8 @@ fn tool_llm_models() -> Result<Value, String> {
                     rift_bus::config::HostingMode::Cloud => "cloud",
                     rift_bus::config::HostingMode::Local { .. } => "local",
                     rift_bus::config::HostingMode::Remote { .. } => "remote",
+                    // Forward-compat: a mode this build doesn't recognize.
+                    _ => "unknown",
                 },
                 "endpoint": m.endpoint,
                 "short_id": m.short_id,
@@ -1971,6 +1980,16 @@ async fn tool_llm_health(payload: &Value) -> Result<Value, String> {
                     "model_id": m.id,
                     "status": "skipped",
                     "reason": "cloud health check not implemented — use API dashboard",
+                }));
+                continue;
+            }
+            // Forward-compat: a hosting mode this build doesn't recognize
+            // (deserialized to `HostingMode::Unknown`) — nothing to health-check.
+            _ => {
+                results.push(json!({
+                    "model_id": m.id,
+                    "status": "skipped",
+                    "reason": "unrecognized hosting mode — written by a newer Rift build",
                 }));
                 continue;
             }

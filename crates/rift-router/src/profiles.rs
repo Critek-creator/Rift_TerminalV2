@@ -45,6 +45,11 @@ pub fn select_model(
         RoutingProfile::CostOptimized => select_cheapest(models, prompt_len),
         RoutingProfile::QualityFirst => select_highest_quality(models, task_type, prompt_len),
         RoutingProfile::Balanced => select_balanced(models, task_type, prompt_len),
+        // Forward-compat: a profile written by a newer Rift build (deserialized
+        // to `RoutingProfile::Unknown`) degrades to Balanced routing so model
+        // selection stays functional. Also satisfies the `#[non_exhaustive]`
+        // wildcard requirement for any future profile variant.
+        _ => select_balanced(models, task_type, prompt_len),
     }
 }
 

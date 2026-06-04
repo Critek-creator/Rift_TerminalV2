@@ -74,6 +74,15 @@ pub fn create_provider(
             &model.endpoint,
             &model.model_identifier,
         ))),
+        // Forward-compat: a model written by a newer Rift build whose hosting
+        // mode or provider this build doesn't recognize (deserialized to the
+        // `Unknown` catch-all) can't be instantiated, but must not crash —
+        // surfaces as a recoverable error so the rest of the roster still loads.
+        // Also satisfies the `#[non_exhaustive]` wildcard requirement.
+        _ => Err(format!(
+            "unsupported hosting/provider combination: {:?} / {:?}",
+            model.hosting, model.provider
+        )),
     }
 }
 
