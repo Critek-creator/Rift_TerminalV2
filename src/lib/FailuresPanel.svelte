@@ -9,7 +9,8 @@
 
   import { commandFailureStore } from './commandFailureStore.svelte';
   import { actionRegistry } from './actionRegistry.svelte';
-  import { errorActionId, ERROR_EXPLAIN_ACTION } from './errorHandoff';
+  import { errorActionId, ERROR_EXPLAIN_ACTION, ERROR_FIX_ACTION } from './errorHandoff';
+  import { injectIntoActiveTerminal } from './terminalInject';
 
   interface Props {
     onclose: () => void;
@@ -45,6 +46,42 @@
     ensureExplain(rowId);
   }
 
+  // Deferred thread — per-row propose-then-confirm fix. A reactive record (not a
+  // plain Map) so setting a row's fix id re-renders it: the explain Map relies
+  // on expandedId changing, but "Propose a fix" has no such trigger.
+  let fixIds = $state<Record<string, string>>({});
+  let fixSeq = 0;
+  let insertNote = $state<string | null>(null);
+
+  function ensureFix(rowId: string): void {
+    insertNote = null;
+    if (fixIds[rowId]) return;
+    const ctx = commandFailureStore.contextFor(rowId);
+    if (!ctx) return;
+    const fixId = errorActionId(ERROR_FIX_ACTION, -2, ++fixSeq);
+    fixIds = { ...fixIds, [rowId]: fixId };
+    void actionRegistry
+      .invoke({ id: fixId, target: 'failures', label: 'fix error' }, ctx)
+      .catch((err) => console.warn('[FailuresPanel] fix invoke failed', err));
+  }
+
+  function cancelFix(rowId: string): void {
+    insertNote = null;
+    const { [rowId]: _drop, ...rest } = fixIds;
+    fixIds = rest;
+  }
+
+  // The list isn't bound to the originating pane, so insert into the ACTIVE
+  // terminal. Newline-free paste (never auto-runs); closes the panel on success
+  // so the terminal — now holding the pasted command — is visible.
+  function insertFix(cmd: string): void {
+    if (injectIntoActiveTerminal(cmd)) {
+      onclose();
+    } else {
+      insertNote = 'No active terminal to insert into — open or focus a terminal first.';
+    }
+  }
+
   function clockTime(ts: number): string {
     return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
   }
@@ -76,6 +113,10 @@
         {@const actionId = actionIds.get(e.id)}
         {@const result = actionId ? actionRegistry.resultFor(actionId) : undefined}
         {@const pending = actionId ? actionRegistry.isPending(actionId) : false}
+        {@const fixId = fixIds[e.id]}
+        {@const fixResult = fixId ? actionRegistry.resultFor(fixId) : undefined}
+        {@const fixPending = fixId ? actionRegistry.isPending(fixId) : false}
+        {@const proposed = fixResult?.proposedCommand ?? null}
         <li class="fp-row" class:expanded={expandedId === e.id}>
           <div class="fp-row-head">
             <button type="button" class="fp-row-btn" onclick={() => toggle(e.id)} aria-expanded={expandedId === e.id}>
@@ -97,6 +138,29 @@
               {:else if result}
                 <p class="fp-explanation" class:degrade={result.status === 'error'}>{result.message}</p>
               {/if}
+
+              {#if result && result.status === 'ok'}
+                <!-- Deferred thread — propose-then-confirm fix, inserts into the active terminal -->
+                {#if !fixId}
+                  <button type="button" class="fp-fix-propose" onclick={() => ensureFix(e.id)}>⚒ Propose a fix</button>
+                {:else if fixPending && !fixResult}
+                  <div class="fp-pending"><span class="fp-spinner" aria-hidden="true"></span> Proposing a fix…</div>
+                {:else if proposed}
+                  <div class="fp-fix-preview">
+                    <span class="fp-fix-label">Suggested command — inserts into the active terminal, never runs on its own:</span>
+                    <code class="fp-fix-cmd">{proposed}</code>
+                    <div class="fp-fix-actions">
+                      <button type="button" class="fp-fix-insert" onclick={() => insertFix(proposed)}>Insert into active terminal</button>
+                      <button type="button" class="fp-fix-cancel" onclick={() => cancelFix(e.id)}>Cancel</button>
+                    </div>
+                    {#if insertNote}<span class="fp-fix-note">{insertNote}</span>{/if}
+                  </div>
+                {:else if fixResult}
+                  <p class="fp-explanation degrade">{fixResult.message || 'No fix could be proposed.'}</p>
+                  <button type="button" class="fp-fix-cancel" onclick={() => cancelFix(e.id)}>Back</button>
+                {/if}
+              {/if}
+
               <span class="fp-privacy">
                 {#if result?.status === 'error'}offline · nothing was sent
                 {:else}local model · nothing leaves this machine{/if}
@@ -271,6 +335,67 @@
   }
   .fp-explanation.degrade { color: var(--amber-dim); }
   .fp-privacy { color: var(--amber-faint); font-size: var(--text-2xs); letter-spacing: 0.03em; }
+
+  /* Deferred thread — per-row fix flow (mirrors the badge pop-out). */
+  .fp-fix-propose {
+    align-self: flex-start;
+    background: transparent;
+    border: 1px solid var(--border-subtle);
+    color: var(--amber-warm);
+    font-family: inherit;
+    font-size: var(--text-2xs);
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    padding: 3px 10px;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: color var(--duration-fast) var(--ease-out), border-color var(--duration-fast) var(--ease-out), background var(--duration-fast) var(--ease-out);
+  }
+  .fp-fix-propose:hover { color: var(--amber-bright); border-color: var(--amber-dim); background: rgba(255, 200, 64, 0.06); }
+  .fp-fix-preview { display: flex; flex-direction: column; gap: var(--space-xs); }
+  .fp-fix-label { color: var(--amber-faint); font-size: var(--text-2xs); letter-spacing: 0.02em; }
+  .fp-fix-cmd {
+    display: block;
+    color: var(--term-green);
+    background: var(--bg-base);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+    padding: var(--space-sm) var(--space-md);
+    font-size: var(--text-sm);
+    white-space: pre-wrap;
+    word-break: break-all;
+  }
+  .fp-fix-actions { display: flex; gap: var(--space-sm); margin-top: 2px; }
+  .fp-fix-insert {
+    background: rgba(79, 232, 85, 0.10);
+    border: 1px solid rgba(79, 232, 85, 0.45);
+    color: var(--term-green);
+    font-family: inherit;
+    font-size: var(--text-2xs);
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    padding: 3px 12px;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: background var(--duration-fast) var(--ease-out);
+  }
+  .fp-fix-insert:hover { background: rgba(79, 232, 85, 0.18); }
+  .fp-fix-cancel {
+    align-self: flex-start;
+    background: transparent;
+    border: 1px solid var(--border-subtle);
+    color: var(--amber-dim);
+    font-family: inherit;
+    font-size: var(--text-2xs);
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    padding: 3px 12px;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: color var(--duration-fast) var(--ease-out), border-color var(--duration-fast) var(--ease-out);
+  }
+  .fp-fix-cancel:hover { color: var(--amber-warm); border-color: var(--amber-dim); }
+  .fp-fix-note { color: #ff8a8a; font-size: var(--text-2xs); }
 
   @media (prefers-reduced-motion: reduce) {
     .fp-spinner { animation-duration: 2s; }
