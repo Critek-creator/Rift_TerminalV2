@@ -13,6 +13,9 @@
   let { popoutId, modelOverride: initialOverride }: Props = $props();
 
   interface ChatMessage {
+    /** Stable identity for keyed {#each} — index-keying reconciles the wrong
+     *  DOM node when content is streamed in-place via messages.map(). */
+    id: string;
     role: 'user' | 'assistant';
     content: string;
     model?: string;
@@ -71,14 +74,14 @@
     }
 
     error = '';
-    messages = [...messages, { role: 'user', content: text }];
+    messages = [...messages, { id: crypto.randomUUID(), role: 'user', content: text }];
     inputText = '';
     sending = true;
     scrollToBottom();
 
     // Add an empty assistant message that grows as chunks arrive.
     const assistantIdx = messages.length;
-    messages = [...messages, { role: 'assistant', content: '' }];
+    messages = [...messages, { id: crypto.randomUUID(), role: 'assistant', content: '' }];
 
     try {
       type StreamChunk = { text: string; is_final: boolean; tokens_so_far: number };
@@ -189,6 +192,9 @@
         class="model-badge"
         style="border-color: {activeModel?.color ? `var(${activeModel.color})` : 'var(--amber-faint)'}; color: {activeModel?.color ? `var(${activeModel.color})` : 'var(--amber-faint)'}"
         onclick={togglePicker}
+        aria-haspopup="listbox"
+        aria-expanded={pickerOpen}
+        aria-label="Select model: {activeModel?.display_name ?? 'none'}"
         title="Switch model for this pane"
       >
         {activeModel?.short_id ?? '---'}
@@ -236,7 +242,7 @@
       </div>
     {/if}
 
-    {#each messages as msg}
+    {#each messages as msg (msg.id)}
       <div class="message" class:user={msg.role === 'user'} class:assistant={msg.role === 'assistant'}>
         <div class="msg-role">{msg.role === 'user' ? 'YOU' : msg.model ?? 'MODEL'}</div>
         <div class="msg-content">{msg.content}</div>

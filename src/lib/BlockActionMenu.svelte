@@ -6,6 +6,7 @@
   //
   // A `position: fixed` floating surface clamped to the viewport, dismissed on
   // item click, Escape, outside click, or another right-click.
+  import { onMount } from 'svelte';
   import type { CommandBlock } from './commandBlockStore.svelte';
 
   interface Props {
@@ -41,6 +42,30 @@
     action();
     onClose();
   }
+
+  // Focus into the menu on open so keyboard users can act without a mouse
+  // (ARIA menu pattern). Focus the first item.
+  let menuEl = $state<HTMLDivElement>();
+  onMount(() => {
+    menuEl?.querySelector<HTMLButtonElement>('.bam-item')?.focus();
+  });
+
+  // Arrow-key navigation between menu items + Escape-to-close. Escape MUST be
+  // handled here: the menu's keydown stops propagation, so once focus is inside
+  // it never reaches the svelte:window Escape handler below.
+  function onMenuKeydown(e: KeyboardEvent): void {
+    if (e.key === 'Escape') { e.stopPropagation(); onClose(); return; }
+    e.stopPropagation();
+    const items = [...(menuEl?.querySelectorAll<HTMLButtonElement>('.bam-item') ?? [])];
+    if (items.length === 0) return;
+    let idx = items.indexOf(document.activeElement as HTMLButtonElement);
+    switch (e.key) {
+      case 'ArrowDown': e.preventDefault(); items[(idx + 1) % items.length].focus(); break;
+      case 'ArrowUp':   e.preventDefault(); items[(idx - 1 + items.length) % items.length].focus(); break;
+      case 'Home':      e.preventDefault(); items[0].focus(); break;
+      case 'End':       e.preventDefault(); items[items.length - 1].focus(); break;
+    }
+  }
 </script>
 
 <svelte:window
@@ -57,8 +82,9 @@
   role="menu"
   tabindex="-1"
   aria-label="Actions for command: {block.command}"
+  bind:this={menuEl}
   onclick={(e) => e.stopPropagation()}
-  onkeydown={(e) => e.stopPropagation()}
+  onkeydown={onMenuKeydown}
   oncontextmenu={(e) => {
     e.preventDefault();
     e.stopPropagation();

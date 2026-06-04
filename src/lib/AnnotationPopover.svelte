@@ -83,11 +83,14 @@
     </div>
 
     <div class="popover-body">
+      <!-- svelte-ignore a11y_autofocus — modal opened by explicit user action,
+           not page-load; focusing the note input is the expected landing point. -->
       <textarea
         class="note-input"
         placeholder="Add a note..."
         bind:value={note}
         rows={3}
+        autofocus
       ></textarea>
 
       <div class="tag-section">
@@ -100,6 +103,7 @@
               type="button"
               class="tag-chip"
               class:active
+              aria-pressed={active}
               style="--chip-color: {meta.cssVar}"
               onclick={() => toggleTag(tag)}
             >

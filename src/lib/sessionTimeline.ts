@@ -39,13 +39,16 @@ export interface SourceMeta {
 /** Per-source visual metadata — mirrors the §10.1 lane palette so the timeline
  *  reads consistently with the terminal lanes. */
 export const SOURCE_META: Record<string, SourceMeta> = {
-  command: { label: 'CMD', color: 'var(--term-white, #d8d4c8)' },
-  error: { label: 'ERR', color: 'var(--term-red, #cc3333)' },
-  agent: { label: 'AGENT', color: 'var(--purple-agent, #b078e8)' },
-  hook: { label: 'HOOK', color: 'var(--cyan-hook, #4ad4d4)' },
-  fs: { label: 'FS', color: 'var(--blue-claude, #4a9eff)' },
-  llm: { label: 'LLM', color: 'var(--amber-warm, #f59e0b)' },
-  mcp: { label: 'MCP', color: 'var(--amber-dim, #5a4410)' },
+  // Canonical lane tokens (§10.1). NB: the prior --purple-agent / --cyan-hook
+  // fallbacks were latent bugs — those token names don't exist, so agent/hook
+  // rows silently rendered the pre-palette-lift colors. Use the real --term-*.
+  command: { label: 'CMD', color: 'var(--term-white)' },
+  error: { label: 'ERR', color: 'var(--term-red)' },
+  agent: { label: 'AGENT', color: 'var(--term-purple)' },
+  hook: { label: 'HOOK', color: 'var(--term-cyan)' },
+  fs: { label: 'FS', color: 'var(--term-blue)' },
+  llm: { label: 'LLM', color: 'var(--amber-warm)' },
+  mcp: { label: 'MCP', color: 'var(--amber-dim)' },
 };
 
 /** Visual metadata for a source, with a safe fallback for unknown sources so a

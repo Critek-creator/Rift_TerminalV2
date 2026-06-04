@@ -190,7 +190,7 @@
     outline-offset: -2px;
   }
   .tl-row.failed {
-    border-left-color: var(--term-red, #cc3333);
+    border-left-color: var(--term-red);
   }
 
   .tl-ts {
@@ -219,11 +219,11 @@
   .tl-exit {
     flex-shrink: 0;
     font-size: var(--text-2xs);
-    color: var(--term-green, #33cc33);
+    color: var(--term-green);
     font-variant-numeric: tabular-nums;
   }
   .tl-exit.bad {
-    color: var(--term-red, #cc3333);
+    color: var(--term-red);
   }
   .tl-dur {
     flex-shrink: 0;

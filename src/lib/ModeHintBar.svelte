@@ -212,9 +212,9 @@
   .indicator.lit { color: var(--text-primary); }
   .indicator.lit .dot { animation: pulse 1.8s var(--ease-out) infinite; }
 
-  .indicator.red.lit  { border-color: rgba(255, 92, 92, 0.5); }
-  .indicator.red.lit .dot   { background: #ff5c5c; box-shadow: 0 0 6px rgba(255, 92, 92, 0.7); }
-  .indicator.red.lit .ind-count { color: #ff8a8a; }
+  .indicator.red.lit  { border-color: rgba(255, 72, 72, 0.5); }
+  .indicator.red.lit .dot   { background: var(--term-red); box-shadow: 0 0 6px rgba(255, 72, 72, 0.7); }
+  .indicator.red.lit .ind-count { color: var(--term-red-soft); }
 
   .indicator.amber.lit { border-color: var(--amber-dim); }
   .indicator.amber.lit .dot { background: var(--amber-bright); box-shadow: 0 0 6px rgba(255, 200, 64, 0.6); }

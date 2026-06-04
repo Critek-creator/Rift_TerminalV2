@@ -185,6 +185,9 @@
     class="profile-trigger"
     bind:this={triggerEl}
     onclick={toggle}
+    aria-haspopup="listbox"
+    aria-expanded={open}
+    aria-label="Workspace profile: {displayName}"
     title="Switch workspace profile"
   >
     <span class="profile-icon">P</span>

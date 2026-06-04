@@ -338,7 +338,10 @@
 
   <div class="log">
     <div class="log-header">RECENT EVENTS</div>
-    <div class="log-body" aria-live="polite">
+    <!-- No aria-live: a high-throughput rolling event log floods screen readers
+         to the point of unusability (WCAG 4.1.3 misapplication). The log is
+         navigable on demand instead. -->
+    <div class="log-body">
       {#if !categoryFilter}
         <div class="empty-state">
           <span class="empty-state-icon">◆</span>

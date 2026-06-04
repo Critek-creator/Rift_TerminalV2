@@ -78,6 +78,8 @@
     class:has-live={hasLive}
     data-accent={group.accent}
     onclick={toggle}
+    aria-haspopup="menu"
+    aria-expanded={open}
     title={promotedTab
       ? `${group.title}: ${promotedTab.title} open · click to browse`
       : `${group.title} · click to browse tabs`}
@@ -93,7 +95,7 @@
   </button>
 
   {#if open}
-    <div class="dropdown" role="menu">
+    <div class="dropdown" role="menu" aria-label="{group.title} tabs">
       {#each group.tabs as tab (tab.id)}
         <button
           type="button"

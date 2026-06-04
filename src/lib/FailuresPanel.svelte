@@ -14,6 +14,7 @@
   // only provider + action registry as the in-line badge, so the privacy
   // guarantee (nothing leaves the machine) and result rendering are identical.
 
+  import { onMount } from 'svelte';
   import { commandFailureStore } from './commandFailureStore.svelte';
   import { actionRegistry } from './actionRegistry.svelte';
   import { errorActionId, ERROR_EXPLAIN_ACTION, ERROR_FIX_ACTION } from './errorHandoff';
@@ -64,6 +65,19 @@
     savedPos = pos; // remember for the next open
     (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId);
   }
+
+  // Dialog a11y: this panel is NOT inside Popout, so it owns its own focus +
+  // Escape handling. Move focus into the panel on open (keyboard + SR users
+  // land inside it) and close on Escape. It is non-modal — the terminal behind
+  // stays interactive — so no aria-modal (that would falsely mark the rest inert).
+  onMount(() => {
+    panelEl?.focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') { e.preventDefault(); onclose(); }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  });
 
   let expandedId = $state<string | null>(null);
   // rowId → the per-failure unique action id used for its explain invocation.
@@ -141,6 +155,7 @@
   class:dragging
   role="dialog"
   aria-label="Command failures"
+  tabindex="-1"
   bind:this={panelEl}
   style={pos ? `left:${pos.x}px; top:${pos.y}px; bottom:auto;` : ''}
 >
@@ -466,7 +481,7 @@
     transition: color var(--duration-fast) var(--ease-out), border-color var(--duration-fast) var(--ease-out);
   }
   .fp-fix-cancel:hover { color: var(--amber-warm); border-color: var(--amber-dim); }
-  .fp-fix-note { color: #ff8a8a; font-size: var(--text-2xs); }
+  .fp-fix-note { color: var(--term-red-soft); font-size: var(--text-2xs); }
 
   @media (prefers-reduced-motion: reduce) {
     .fp-spinner { animation-duration: 2s; }

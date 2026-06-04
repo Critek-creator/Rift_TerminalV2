@@ -106,7 +106,10 @@ const BUILTIN_TABS: TabDescriptor[] = [
   },
   {
     id: 'aegis', title: 'aegis', icon: '◉',
-    category: 'aegis', detectedByDefault: true,
+    // §10.7 capability-gate: integration tab, hidden until its first envelope
+    // self-promotes it (App.svelte master subscription flips detected=true).
+    // A bare install with no Aegis never shows an empty Aegis tab.
+    category: 'aegis', detectedByDefault: false,
     sections: [...STANDARD_SECTIONS],
     source: 'builtin', group: 'intel',
   },
@@ -142,7 +145,8 @@ const BUILTIN_TABS: TabDescriptor[] = [
   },
   {
     id: 'sentinel', title: 'sentinel', icon: '⊘',
-    category: 'sentinel', detectedByDefault: true,
+    // §10.7 capability-gate — hidden until a sentinel.* envelope self-promotes it.
+    category: 'sentinel', detectedByDefault: false,
     sections: [...STANDARD_SECTIONS],
     source: 'builtin', group: 'system',
   },
@@ -154,7 +158,9 @@ const BUILTIN_TABS: TabDescriptor[] = [
   },
   {
     id: 'mcp', title: 'mcp', icon: '⬡',
-    category: 'mcp', detectedByDefault: true,
+    // §10.7 capability-gate — hidden until an mcp.* envelope self-promotes it
+    // (fires as soon as an MCP-aware client connects to this Rift instance).
+    category: 'mcp', detectedByDefault: false,
     sections: [...STANDARD_SECTIONS],
     source: 'builtin', group: 'activity',
   },

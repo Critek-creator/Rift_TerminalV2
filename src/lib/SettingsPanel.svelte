@@ -1,15 +1,22 @@
 <script lang="ts">
   // Phase 8.7l — Settings panel. Lives inside a popout shell.
   //
-  // Sections:
-  //   - About        — version + identifier (from @tauri-apps/api/app)
-  //   - Updates      — status + manual `check()` button (the auto-check on
-  //                    session start is in App.svelte; this lets users
-  //                    poll on-demand without restarting)
-  //   - Project      — current root + Switch button → ProjectPicker popout
-  //   - Filesystem   — ignore-globs editor + max-depth (config_save)
-  //   - Index        — sync mode toggle (config_save)
-  //   - Notifications — link to NotifManager popout
+  // Tabs are grouped by concern (regrouped 2026-06-04) so no tab is a
+  // junk drawer:
+  //   - GENERAL       — About · Updates · Project · Crash Logs (app-level)
+  //   - TERMINAL      — shell · font · palette · cursor · lanes
+  //   - NOTIFICATIONS — notification filters · timeline sources · alert rules
+  //   - FILES         — ignore globs · max walk depth · tree heatmap
+  //   - INTEGRATIONS  — Aegis · Index · Node · error→agent handoff
+  //   - STATUS LINE   — segment visibility
+  //   - MCP           — server · token · permissions
+  //   - MODELS        — ensemble router · task classifier
+  //
+  // Tab visibility is driven by per-section `{#if activeTab === …}` guards.
+  // Sections that share a tab need not be physically adjacent — `{#if}`
+  // false renders no DOM, so same-guarded sections collapse together in
+  // document order (this is how FILES picks up the Tree block and
+  // NOTIFICATIONS picks up the Alerts block from lower in the template).
   //
   // Self-contained: reads config via `config_get`, writes via `config_save`.
   // Save buttons are scoped per-section so users can edit one knob without
@@ -33,18 +40,22 @@
 
   let { popoutId }: Props = $props();
 
-  type SettingsTab = 'general' | 'terminal' | 'integrations' | 'tree' | 'mcp' | 'statusline' | 'alerts' | 'models';
+  type SettingsTab = 'general' | 'terminal' | 'notifications' | 'files' | 'integrations' | 'statusline' | 'mcp' | 'models';
   let activeTab = $state<SettingsTab>('general');
 
+  // Tabs are grouped by concern so each surface is coherent (no junk-drawer
+  // GENERAL): app-level lives in GENERAL; the three event-stream knobs
+  // (notification filters, timeline sources, alert rules) collect under
+  // NOTIFICATIONS; filesystem + tree heatmap collect under FILES.
   const SETTINGS_TABS: { id: SettingsTab; label: string }[] = [
-    { id: 'general',      label: 'GENERAL' },
-    { id: 'terminal',     label: 'TERMINAL' },
-    { id: 'integrations', label: 'INTEGRATIONS' },
-    { id: 'statusline',   label: 'STATUS LINE' },
-    { id: 'tree',         label: 'TREE' },
-    { id: 'mcp',          label: 'MCP' },
-    { id: 'alerts',       label: 'ALERTS' },
-    { id: 'models',       label: 'MODELS' },
+    { id: 'general',       label: 'GENERAL' },
+    { id: 'terminal',      label: 'TERMINAL' },
+    { id: 'notifications', label: 'NOTIFICATIONS' },
+    { id: 'files',         label: 'FILES' },
+    { id: 'integrations',  label: 'INTEGRATIONS' },
+    { id: 'statusline',    label: 'STATUS LINE' },
+    { id: 'mcp',           label: 'MCP' },
+    { id: 'models',        label: 'MODELS' },
   ];
 
   let tabStripEl = $state<HTMLElement | null>(null);
@@ -79,6 +90,14 @@
 
   // Crash log count — read from localStorage on init.
   let jsCrashCount = $state((() => { try { return (JSON.parse(localStorage.getItem('rift:crash_log') || '[]') as unknown[]).length; } catch { return 0; } })());
+
+  // Two-step confirm for irreversible crash-log clear (explicit cancel, no timer).
+  let confirmClearCrash = $state(false);
+  function clearCrashLog() {
+    localStorage.removeItem('rift:crash_log');
+    jsCrashCount = 0;
+    confirmClearCrash = false;
+  }
 
   // ---------------------------------------------------------------------
   // Updates
@@ -522,7 +541,11 @@
     }
   }
 
+  // Two-step confirm — regenerating disconnects every active MCP client.
+  let confirmRegenToken = $state(false);
+
   async function regenerateMcpToken() {
+    confirmRegenToken = false;
     try {
       mcpToken = await invoke<string>('mcp_token_regenerate');
       mcpTokenVisible = true;
@@ -945,31 +968,6 @@
       </div>
     </section>
 
-    <!-- CRASH LOGS -->
-    <section class="section">
-      <div class="section-label">Crash Logs</div>
-      {#if jsCrashCount === 0}
-        <div class="hint">No JS errors recorded.</div>
-      {:else}
-        <div class="hint">{jsCrashCount} error{jsCrashCount === 1 ? '' : 's'} recorded.</div>
-        <div class="row" style="margin-top: 6px; gap: var(--space-sm);">
-          <button
-            type="button"
-            class="btn"
-            onclick={() => { navigator.clipboard.writeText(localStorage.getItem('rift:crash_log') || '[]'); }}
-          >COPY TO CLIPBOARD</button>
-          <button
-            type="button"
-            class="btn"
-            onclick={() => { localStorage.removeItem('rift:crash_log'); jsCrashCount = 0; }}
-          >CLEAR</button>
-        </div>
-      {/if}
-      <div class="hint" style="margin-top: 6px;">
-        Rust crash dumps are saved to your data directory under crashes/.
-      </div>
-    </section>
-
     <!-- UPDATES -->
     <section class="section">
       <div class="section-label">Updates</div>
@@ -1036,6 +1034,43 @@
       </div>
     </section>
 
+    <!-- CRASH LOGS -->
+    <section class="section">
+      <div class="section-label">Crash Logs</div>
+      {#if jsCrashCount === 0}
+        <div class="hint">No JS errors recorded.</div>
+      {:else}
+        <div class="hint">{jsCrashCount} error{jsCrashCount === 1 ? '' : 's'} recorded.</div>
+        <div class="row" style="margin-top: 6px; gap: var(--space-sm);">
+          <button
+            type="button"
+            class="btn"
+            onclick={() => { navigator.clipboard.writeText(localStorage.getItem('rift:crash_log') || '[]'); }}
+          >COPY TO CLIPBOARD</button>
+          {#if confirmClearCrash}
+            <button type="button" class="btn btn-danger" onclick={clearCrashLog}>
+              confirm clear
+            </button>
+            <button type="button" class="btn" onclick={() => (confirmClearCrash = false)}>
+              cancel
+            </button>
+          {:else}
+            <button
+              type="button"
+              class="btn"
+              title="Permanently delete all recorded JS crash diagnostics"
+              onclick={() => (confirmClearCrash = true)}
+            >CLEAR</button>
+          {/if}
+        </div>
+      {/if}
+      <div class="hint" style="margin-top: 6px;">
+        Rust crash dumps are saved to your data directory under crashes/.
+      </div>
+    </section>
+    {/if}
+
+    {#if activeTab === 'files'}
     <!-- FILESYSTEM -->
     <section class="section">
       <div class="section-label">Filesystem</div>
@@ -1080,8 +1115,10 @@
         </div>
       {/if}
     </section>
+    {/if}
 
-    <!-- NOTIFICATIONS -->
+    {#if activeTab === 'notifications'}
+    <!-- NOTIFICATION FILTERS -->
     <section class="section">
       <div class="section-label">Notification Filters</div>
       <div class="hint">
@@ -1275,6 +1312,53 @@
         <div class="hint">Detection failed — try restarting Rift.</div>
       </section>
     {/await}
+
+    {#if config}
+    <!-- ERROR → AGENT HANDOFF (Phase 5 / R2). Depends on Terminal lane tagging
+         (B2): without it the shell never emits the CMD_END sentinel this feature
+         listens for, so the control gates on the SAVED lanes value. -->
+    <section class="section">
+      <div class="section-label">Error → Agent Handoff</div>
+      <div class="hint">
+        On a failed command, surface a local-model explanation. Fixes are always
+        propose-then-confirm; nothing is ever sent to the cloud.
+      </div>
+      <label class="field">
+        <span class="field-label">handoff mode</span>
+        <select
+          class="select"
+          bind:value={ehMode}
+          disabled={savingErrorHandoff || !lanesOn}
+        >
+          <option value="off">off — no affordance</option>
+          <option value="detect">detect — explain on click (default)</option>
+          <option value="assist">assist — auto-explain on failure</option>
+        </select>
+      </label>
+      {#if !lanesOn}
+        <div class="eh-warn" role="note">
+          ⚠ Requires lane tagging. Enable “tag-prefix Rift-emitted lines (§10.1)”
+          in the Terminal tab and save — without it the terminal never emits the
+          command-end signal this feature needs.
+        </div>
+      {/if}
+      <div class="row">
+        <button
+          type="button"
+          class="btn primary"
+          disabled={!ehDirty || savingErrorHandoff || !lanesOn}
+          onclick={saveErrorHandoffConfig}
+        >
+          {savingErrorHandoff ? 'saving…' : 'save handoff'}
+        </button>
+        {#if saveBanner && saveBanner.section === 'error_handoff'}
+          <span class="banner-inline" class:fail={!saveBanner.ok} role="status">
+            {saveBanner.msg}
+          </span>
+        {/if}
+      </div>
+    </section>
+    {/if}
     {/if}
 
     {#if activeTab === 'terminal'}
@@ -1569,49 +1653,6 @@
             </span>
           {/if}
         </div>
-
-        <!-- Phase 5 / R2 — error→agent handoff mode. Depends on lane tagging
-             (B2): without it the shell never emits the CMD_END sentinel this
-             feature listens for, so the control is gated on saved lanes. -->
-        <div class="eh-divider"></div>
-        <label class="field">
-          <span class="field-label">error → agent handoff</span>
-          <select
-            class="field-input field-narrow"
-            bind:value={ehMode}
-            disabled={savingErrorHandoff || !lanesOn}
-          >
-            <option value="off">off — no affordance</option>
-            <option value="detect">detect — explain on click (default)</option>
-            <option value="assist">assist — auto-explain on failure</option>
-          </select>
-        </label>
-        <p class="eh-desc">
-          On a failed command, surface a local-model explanation. Fixes are always
-          propose-then-confirm; nothing is ever sent to the cloud.
-        </p>
-        {#if !lanesOn}
-          <div class="eh-warn" role="note">
-            ⚠ Requires lane tagging. Enable “tag-prefix Rift-emitted lines (§10.1)”
-            above and save — without it the terminal never emits the command-end
-            signal this feature needs.
-          </div>
-        {/if}
-        <div class="row">
-          <button
-            type="button"
-            class="btn primary"
-            disabled={!ehDirty || savingErrorHandoff || !lanesOn}
-            onclick={saveErrorHandoffConfig}
-          >
-            {savingErrorHandoff ? 'saving…' : 'save handoff'}
-          </button>
-          {#if saveBanner && saveBanner.section === 'error_handoff'}
-            <span class="banner-inline" class:fail={!saveBanner.ok} role="status">
-              {saveBanner.msg}
-            </span>
-          {/if}
-        </div>
       </section>
     {:else}
       <div class="hint">loading config…</div>
@@ -1660,8 +1701,8 @@
     {/if}
     {/if}
 
-    {#if activeTab === 'tree'}
-    <!-- TREE — D-020 heatmap groundwork -->
+    {#if activeTab === 'files'}
+    <!-- TREE — D-020 heatmap groundwork (grouped under FILES) -->
     {#if config}
       <section class="section">
         <div class="section-label">Tree</div>
@@ -1797,10 +1838,31 @@
             <button type="button" class="btn" onclick={copyMcpToken} disabled={!mcpToken}>
               copy
             </button>
-            <button type="button" class="btn" onclick={regenerateMcpToken}>
-              regenerate
-            </button>
+            {#if confirmRegenToken}
+              <button type="button" class="btn btn-danger" onclick={regenerateMcpToken}>
+                confirm — disconnects clients
+              </button>
+              <button type="button" class="btn" onclick={() => (confirmRegenToken = false)}>
+                cancel
+              </button>
+            {:else}
+              <button
+                type="button"
+                class="btn"
+                title="Issues a new token; all currently-connected MCP clients lose access until updated"
+                onclick={() => (confirmRegenToken = true)}
+              >
+                regenerate
+              </button>
+            {/if}
           </div>
+          {#if confirmRegenToken}
+            <div class="eh-warn" role="note">
+              ⚠ Regenerating invalidates the current token. Every connected MCP
+              client (including any active Claude Code session) must be updated
+              with the new token.
+            </div>
+          {/if}
           {#if mcpStatus}
             <div class="kv">
               <div class="k">token path</div>
@@ -1825,8 +1887,8 @@
     {/if}
     {/if}
 
-    {#if activeTab === 'alerts'}
-    <!-- ALERTS — smart tab alerting rules -->
+    {#if activeTab === 'notifications'}
+    <!-- ALERTS — smart tab alerting rules (grouped under NOTIFICATIONS) -->
     {#if config}
       <section class="section">
         <div class="section-label">Alert rules</div>
@@ -2174,17 +2236,6 @@
   }
 
   /* ─── Error-handoff section (Phase 5 / R2) ───────────────────────────── */
-  .eh-divider {
-    height: 1px;
-    background: var(--border-subtle);
-    margin: var(--space-md) 0;
-  }
-  .eh-desc {
-    color: var(--amber-faint);
-    font-size: var(--text-2xs);
-    line-height: 1.5;
-    margin: 0 0 var(--space-sm) 0;
-  }
   .eh-warn {
     color: var(--amber-warm);
     font-size: var(--text-2xs);
@@ -2393,6 +2444,18 @@
   }
   .btn.primary:active:not(:disabled) {
     box-shadow: var(--glow-amber-faint);
+  }
+  /* Danger modifier for two-step destructive confirms (crash-log clear,
+     MCP token regenerate). Reuses the red-tint token family. */
+  .btn-danger {
+    border-color: var(--border-red-tint);
+    color: var(--term-red);
+  }
+  .btn-danger:hover:not(:disabled) {
+    color: var(--term-red);
+    border-color: rgba(255, 72, 72, 0.5);
+    background: var(--bg-red-tint-hover);
+    box-shadow: none;
   }
 
   /* ─── Banners (block — update / error notices) ───────────────────────── */

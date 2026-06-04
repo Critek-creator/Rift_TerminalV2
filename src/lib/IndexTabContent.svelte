@@ -222,6 +222,14 @@
       e.dataTransfer.setData('text/plain', '__promoted_pane__');
     }
   }
+
+  // Keyboard equivalent of the drag-to-dock handle (matches AegisTabContent et al.).
+  function onHandleDragKeydown(e: KeyboardEvent) {
+    if ((e.key === 'Enter' || e.key === ' ') && onDragBack) {
+      e.preventDefault();
+      onDragBack();
+    }
+  }
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -235,7 +243,9 @@
       tabindex="0"
       draggable={true}
       ondragstart={onHandleDragStart}
+      onkeydown={onHandleDragKeydown}
       title="drag back to tab strip to dock"
+      aria-label="Index pane — drag or press Enter to dock"
     >
       <span class="handle-glyph" style="color: var(--amber-warm); font-size: 14px">⬢</span>
       <span class="handle-title">INDEX</span>

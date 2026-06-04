@@ -46,9 +46,15 @@
   --amber-warm:    #F0A030;   /* was #D89020 → #F0A030 — body text */
   --amber-bright:  #FFC840;   /* was #FFB020 → #FFC840 — prompt / cursor */
   --amber-dim:     #D8A028;   /* was #B0851C → #D8A028 — subtitles / borders */
-  --amber-faint:   #A87830;   /* was #806020 → #A87830 — meta / timestamps */
+  --amber-faint:   #B5822F;   /* was #806020 → #A87830 → #B5822F — meta / timestamps.
+                                 Bumped for WCAG AA: #A87830 was 4.41:1 on
+                                 --bg-elevated (raised cards), just under 4.5:1.
+                                 #B5822F clears it (~5:1) while keeping the
+                                 faint < dim < warm < bright hierarchy. */
 
   --term-red:      #FF4848;   /* was #CC3333 — also bumped for legibility */
+  --term-red-soft: #FF8A8A;   /* muted error red — secondary counts/labels.
+                                 Centralizes the scattered raw #ff8a8a literals. */
   --term-green:    #4FE855;   /* was #33CC33 — env locale + status segments */
   --term-blue:     #6CB6FF;   /* was #4a9eff — claude lane + usage segments */
   --term-purple:   #C58FFF;   /* was #b078e8 — agent lane */
