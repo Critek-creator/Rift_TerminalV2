@@ -39,7 +39,19 @@
   import PathTooltip from './PathTooltip.svelte';
   import { popouts } from './popouts.svelte';
   import { formatDuration } from './formatDuration';
-  import { subscribe as busSubscribe, type Envelope } from './bus';
+  import { subscribe as busSubscribe, publish as busPublish, type Envelope } from './bus';
+  import {
+    assembleFailureContext,
+    summarizeFailureContext,
+    errorActionId,
+    failureClusterKey,
+    ERROR_EXPLAIN_ACTION,
+    type BufferLike,
+    type CommandCapture,
+    type FailureContext,
+  } from './errorHandoff';
+  import { actionRegistry, type DeclaredAction } from './actionRegistry.svelte';
+  import ErrorResultPopout from './ErrorResultPopout.svelte';
   import { getTerminalSettings, invalidateTerminalSettingsCache } from './terminalConfigCache';
   import { resolveTheme } from './terminalPalettes';
   import { LaneTintManager } from './laneTint';
@@ -123,6 +135,44 @@
    *  reactivity in v1 — matches existing project-swap precedent). */
   let lanesEnabled = true;
 
+  // Phase 5 / R0 — error→agent handoff capture cache. On `command.submitted`
+  // we stash the command text + cwd + the prompt's buffer row; on a non-zero
+  // `command.completed` we pair them with the exit code and read the output
+  // region out of the xterm buffer to build a FailureContext. Plain (non-
+  // reactive) transient state — it only lives between submit and completion.
+  let pendingCapture: CommandCapture | null = null;
+
+  /** Current absolute buffer row of the cursor (scrollback baseY + cursorY). */
+  function currentBufferRow(): number {
+    const buf = term?.buffer.active;
+    return buf ? buf.baseY + buf.cursorY : 0;
+  }
+
+  // Phase 5 / R1 — the active "explain" handoff for this pane. One at a time: a
+  // per-failure unique action id (fixes B1 registry-key collisions) + the
+  // FailureContext drives the ErrorResultPopout. Clustering: an identical
+  // consecutive failure (same command + exit) reuses the live explain instead
+  // of firing a second invoke, which kills retry-loop affordance spam.
+  let explainSeq = 0;
+  let activeExplain = $state<{ actionId: string; failure: FailureContext; clusterKey: string } | null>(null);
+
+  function startExplain(failure: FailureContext): void {
+    const clusterKey = failureClusterKey(failure.command, failure.exitCode);
+    // Dedup: identical failure already being explained → keep the open one.
+    if (activeExplain && activeExplain.clusterKey === clusterKey) return;
+    const seq = ++explainSeq;
+    const actionId = errorActionId(ERROR_EXPLAIN_ACTION, paneId ?? -1, seq);
+    const action: DeclaredAction = { id: actionId, target: 'terminal', label: 'explain error' };
+    activeExplain = { actionId, failure, clusterKey };
+    void actionRegistry.invoke(action, failure).catch((err) => {
+      console.warn('[Terminal] explain invoke failed', err);
+    });
+  }
+
+  function dismissExplain(): void {
+    activeExplain = null;
+  }
+
   // ---------------------------------------------------------------------------
   // §10.1 lane gutter — left-edge color strip indicating the active lane.
   // Subscribes to `pty` bus events with kind `lane.changed` published by the
@@ -204,7 +254,11 @@
    * width in `onRender` keeps the badge pinned to the right margin even after
    * the terminal is resized narrower than it was at command time.
    */
-  function addCommandBadge(exitCode: number, durationMs: number | null): void {
+  function addCommandBadge(
+    exitCode: number,
+    durationMs: number | null,
+    failure?: FailureContext | null,
+  ): void {
     if (!term) return;
     const marker = term.registerMarker(0);
     if (!marker) return;
@@ -217,13 +271,61 @@
       el.style.width = '100%';
       el.style.left = '0';
       el.classList.add('cmd-badge-row');
-      if (!el.querySelector('.cmd-badge')) {
+      if (el.querySelector('.cmd-badge')) return;
+      // Phase 5 / R1 — a failed command's badge becomes an interactive
+      // affordance: click (or Enter/Space) hands the captured FailureContext to
+      // the local explain provider. The OK badge stays a passive span. The row
+      // is pointer-events:none; the interactive badge re-enables them on itself.
+      if (!ok && failure) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'cmd-badge err interactive';
+        btn.innerHTML = `<span class="cmd-badge-label">${label}</span><span class="cmd-badge-cta">explain</span>`;
+        btn.setAttribute('aria-label', `Command failed with exit ${exitCode}. Explain the error.`);
+        btn.title = 'Explain this error with a local model';
+        btn.addEventListener('click', (ev) => {
+          ev.stopPropagation();
+          startExplain(failure);
+        });
+        el.appendChild(btn);
+      } else {
         const badge = document.createElement('span');
         badge.className = 'cmd-badge' + (ok ? ' ok' : ' err');
         badge.textContent = label;
         el.appendChild(badge);
       }
     });
+  }
+
+  /**
+   * Phase 5 / R0 — pair the just-completed command with its cached submit-time
+   * context and, on a non-zero exit, assemble + publish a `command.failed`
+   * event carrying the FailureContext. No agent call and no UI here — this is
+   * the isolation-verifiable capture foundation (inspect via bus_history). R1
+   * wires the interactive affordance + the explain provider onto this event.
+   */
+  function captureFailureContext(
+    exitCode: number,
+    durationMs: number | null,
+  ): FailureContext | null {
+    const capture = pendingCapture;
+    pendingCapture = null; // consume the pairing regardless of outcome
+    if (exitCode === 0 || !capture || !term) return null;
+    const buffer: BufferLike = term.buffer.active;
+    const ctx = assembleFailureContext(capture, {
+      exitCode,
+      durationMs,
+      endRow: currentBufferRow(),
+      buffer,
+    });
+    if (import.meta.env.DEV) {
+      console.debug('[Terminal] FailureContext', summarizeFailureContext(ctx));
+    }
+    void busPublish('pty', 'command.failed', {
+      session_id: sessionId,
+      ...ctx,
+    }).catch((err) => console.warn('[Terminal] command.failed publish failed', err));
+    return ctx;
   }
 
   function onTermDragOver(e: DragEvent): void {
@@ -972,11 +1074,29 @@
         );
       }),
       busSubscribe({ category: 'pty' }, (env: Envelope) => {
+        if (env.kind === 'command.submitted') {
+          // Phase 5 / R0 — capture the command text (only present on this
+          // event) + cwd + the prompt's buffer row, to pair with the exit code
+          // when the command completes.
+          const s = env.payload as { session_id?: number; command?: string } | null;
+          if (!s || typeof s.command !== 'string') return;
+          if (s.session_id !== undefined && s.session_id !== sessionId) return;
+          pendingCapture = {
+            command: s.command,
+            cwd: effectiveCwd,
+            startRow: currentBufferRow(),
+            ts: Date.now(),
+          };
+          return;
+        }
         if (env.kind === 'command.completed') {
           const c = env.payload as { session_id?: number; exit_code?: number; duration_ms?: number | null } | null;
           if (!c || typeof c.exit_code !== 'number') return;
           if (c.session_id !== undefined && c.session_id !== sessionId) return;
-          addCommandBadge(c.exit_code, c.duration_ms ?? null);
+          // Assemble the FailureContext first so a non-zero exit's badge can
+          // carry it and become an interactive "explain" affordance.
+          const failure = captureFailureContext(c.exit_code, c.duration_ms ?? null);
+          addCommandBadge(c.exit_code, c.duration_ms ?? null, failure);
           return;
         }
         if (env.kind === 'cwd.changed') {
@@ -1057,6 +1177,13 @@
   {#if searchOpen && search}
     <TerminalSearch searchAddon={search} onclose={() => { searchOpen = false; term?.focus(); }} />
   {/if}
+  {#if activeExplain}
+    <ErrorResultPopout
+      actionId={activeExplain.actionId}
+      failure={activeExplain.failure}
+      onDismiss={dismissExplain}
+    />
+  {/if}
 </div>
 
 <PathTooltip
@@ -1111,5 +1238,40 @@
   :global(.cmd-badge.err) {
     color: var(--term-red);
     border-color: rgba(255, 72, 72, 0.50);
+  }
+  /* Phase 5 / R1 — interactive failure badge. A real button: re-enables
+     pointer events on itself (the row stays none), reveals an "explain" call
+     to action on hover/focus, and is keyboard-focusable + screen-reader
+     labelled. font:inherit keeps it visually identical to the passive badge. */
+  :global(button.cmd-badge.interactive) {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    pointer-events: auto;
+    cursor: pointer;
+    font: inherit;
+    font-size: 0.78em;
+    transition: border-color var(--duration-fast) var(--ease-out), background var(--duration-fast) var(--ease-out);
+  }
+  :global(button.cmd-badge.interactive:hover),
+  :global(button.cmd-badge.interactive:focus-visible) {
+    background: rgba(255, 72, 72, 0.14);
+    border-color: var(--term-red);
+    outline: none;
+  }
+  :global(.cmd-badge .cmd-badge-cta) {
+    color: var(--amber-warm);
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: lowercase;
+    opacity: 0;
+    max-width: 0;
+    overflow: hidden;
+    transition: opacity var(--duration-fast) var(--ease-out), max-width var(--duration-fast) var(--ease-out);
+  }
+  :global(button.cmd-badge.interactive:hover .cmd-badge-cta),
+  :global(button.cmd-badge.interactive:focus-visible .cmd-badge-cta) {
+    opacity: 1;
+    max-width: 6em;
   }
 </style>

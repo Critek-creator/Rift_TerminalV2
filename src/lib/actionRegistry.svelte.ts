@@ -138,8 +138,13 @@ export const actionRegistry = {
   },
 
   /** Publish an action.invoke and mark the action pending until its result
-   *  arrives. The invocation_id correlates the eventual action.result. */
-  async invoke(a: DeclaredAction): Promise<void> {
+   *  arrives. The invocation_id correlates the eventual action.result.
+   *
+   *  `params` (additive, optional) carries an opaque payload to the provider —
+   *  e.g. the error→agent FailureContext. The bus payload is untyped end-to-end
+   *  so this needs no envelope-version bump; omitting it preserves the prior
+   *  shape exactly for existing callers. */
+  async invoke(a: DeclaredAction, params?: unknown): Promise<void> {
     const invocation_id = newInvocationId();
     invocations.set(invocation_id, a.id);
     pending = { ...pending, [a.id]: true };
@@ -149,6 +154,7 @@ export const actionRegistry = {
       invocation_id,
       action_id: a.id,
       target: a.target,
+      ...(params !== undefined ? { params } : {}),
     });
   },
 };

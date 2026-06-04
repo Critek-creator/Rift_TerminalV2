@@ -326,6 +326,11 @@ pub async fn llm_complete(
     pm: State<'_, std::sync::Arc<ProcessManager>>,
     model_id: Option<String>,
     prompt: String,
+    // Phase 5 / D2 (privacy-critical, locked): when true the completion must
+    // run on a RESIDENT LOCAL server and never escalate off-machine. Used by
+    // the error→agent explain path, whose prompt carries the user's command +
+    // stderr + cwd. Absent/false preserves the existing routing behavior.
+    local_only: Option<bool>,
 ) -> Result<LlmCompleteResult, String> {
     let config = load_config().map_err(|e| format!("config load error: {e}"))?;
     let mut router = RouterService::new(config.ensemble.clone());
@@ -351,6 +356,22 @@ pub async fn llm_complete(
     let mut current_model_id = decision.model_id.clone();
     let mut fallback_chain = decision.fallback_chain.clone();
     let mut escalated = false;
+
+    // Phase 5 / D2 (privacy-critical, locked): for a local-only completion the
+    // prompt carries the user's command + stderr + cwd and must NEVER leave the
+    // machine. Pin the primary to a RESIDENT local server and strip every
+    // non-resident-local id from the escalation chain, so a mid-request failure
+    // degrades (returns Err) instead of walking the fallback chain out to a
+    // cloud provider.
+    if local_only.unwrap_or(false) {
+        let live: std::collections::HashSet<String> = pm.live_models().into_iter().collect();
+        if !live.contains(&current_model_id) {
+            return Err(format!(
+                "local-only: no resident local model available (router chose '{current_model_id}'); load a local model to explain errors offline"
+            ));
+        }
+        fallback_chain.retain(|id| live.contains(id));
+    }
 
     loop {
         let model = router

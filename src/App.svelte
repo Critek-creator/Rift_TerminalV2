@@ -25,6 +25,7 @@
   import FeaturePipelineTabContent from './lib/FeaturePipelineTabContent.svelte';
   import StatusLine from './lib/StatusLine.svelte';
   import ModeHintBar from './lib/ModeHintBar.svelte';
+  import FailuresPanel from './lib/FailuresPanel.svelte';
   import Popout from './lib/Popout.svelte';
   import Tree from './lib/Tree.svelte';
   import IndexGraph from './lib/IndexGraph.svelte';
@@ -33,6 +34,8 @@
   import { actionRegistry } from './lib/actionRegistry.svelte';
   import { enrichmentRegistry } from './lib/enrichmentRegistry.svelte';
   import { actionProviders } from './lib/actionProviders.svelte';
+  import { errorHandoffProvider } from './lib/errorHandoffProvider.svelte';
+  import { commandFailureStore } from './lib/commandFailureStore.svelte';
   import { popouts } from './lib/popouts.svelte';
   import { enrichmentStore } from './lib/enrichmentStore.svelte';
   import type { RiftConfig as RiftConfigType, StatusLineConfig, AlertRule } from './lib/riftConfig';
@@ -111,6 +114,9 @@
 
   // ----- shortcut overlay -----
   let shortcutsOpen = $state(false);
+
+  // ----- command-failures issues list (Phase 5 / R1.5) -----
+  let failuresOpen = $state(false);
 
   // ----- welcome overlay (first-run experience) -----
   let welcomeOpen = $state(false);
@@ -725,6 +731,13 @@
       // the primary path). Sequenced so ordering never depends on IPC latency.
       await actionRegistry.start();
       await actionProviders.start();
+      // Phase 5 / R1 — local-only error→agent explain provider. Started after
+      // the registry so its action.result publishes are delivered live, and it
+      // is listening before any failure can declare/invoke an explain action.
+      await errorHandoffProvider.start();
+      // Phase 5 / R1.5 — persistent command-failure log feeding the status-line
+      // issues list. Subscribes to the command.failed stream (R0 capture).
+      await commandFailureStore.start();
       // §9 data-enrichment registry (class 3) — generic enrichment.attach
       // channel the vault-walker now dogfoods. Started before the walker can
       // emit so attaches are delivered live (replay buffer as backstop).
@@ -973,10 +986,12 @@
     const onOpenPalette = () => { paletteInitialQuery = ''; paletteOpen = true; };
     const onOpenCommands = () => { paletteInitialQuery = '/'; paletteOpen = true; };
     const onOpenShortcuts = () => { shortcutsOpen = true; };
+    const onOpenFailures = () => { failuresOpen = true; };
     window.addEventListener('keydown', onKeyDown);
     window.addEventListener('rift:open-palette', onOpenPalette);
     window.addEventListener('rift:open-commands', onOpenCommands);
     window.addEventListener('rift:open-shortcuts', onOpenShortcuts);
+    window.addEventListener('rift:open-failures', onOpenFailures);
 
     return () => {
       unlistenDetached?.();
@@ -988,6 +1003,7 @@
       window.removeEventListener('rift:open-palette', onOpenPalette);
       window.removeEventListener('rift:open-commands', onOpenCommands);
       window.removeEventListener('rift:open-shortcuts', onOpenShortcuts);
+      window.removeEventListener('rift:open-failures', onOpenFailures);
       window.removeEventListener('keydown', onKeyDown);
     };
   });
@@ -1283,6 +1299,10 @@
 
   {#if shortcutsOpen}
     <ShortcutOverlay onclose={() => { shortcutsOpen = false; }} />
+  {/if}
+
+  {#if failuresOpen}
+    <FailuresPanel onclose={() => { failuresOpen = false; }} />
   {/if}
 
   {#if welcomeOpen}
