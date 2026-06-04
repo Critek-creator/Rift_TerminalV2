@@ -23,7 +23,6 @@
 
   import type { StatusLineConfig } from './riftConfig';
   import ProfilePicker from './ProfilePicker.svelte';
-  import ModelIndicator from './ModelIndicator.svelte';
   import { llmRouting } from './llmRouting.svelte';
   import { commandFailureStore } from './commandFailureStore.svelte';
 
@@ -44,8 +43,6 @@
     /** Focused pane's foreground-process-tree resident memory, e.g. "184 MB". Blank = unavailable. */
     ram?: string;
     visibility?: StatusLineConfig;
-    /** Open the command palette pre-filtered to model switching (hot-swap). */
-    onmodelswap?: () => void;
   }
 
   let {
@@ -63,7 +60,6 @@
     cpu = '',
     ram = '',
     visibility,
-    onmodelswap,
   }: Props = $props();
 
   const show = $derived({
@@ -116,16 +112,6 @@
     {#if show.model}
       <div class="seg model" style:background={override('model')}>
         <span class="label">MODEL</span><span class="value">{model}</span>
-        <ModelIndicator />
-        {#if onmodelswap}
-          <button
-            type="button"
-            class="swap-btn"
-            onclick={onmodelswap}
-            title="Switch / hot-swap model (Ctrl+Shift+M)"
-            aria-label="Switch model"
-          >⇄ swap</button>
-        {/if}
       </div>
     {/if}
     {#if show.thinking}
@@ -272,31 +258,6 @@
 
   /* CYAN — model identity + thinking */
   .model    { background: var(--status-cyan-bright); }
-
-  /* Hot-swap affordance inside the MODEL segment — dark text on the cyan
-     block, matching the segment's inverted color scheme. */
-  .swap-btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 2px;
-    margin-left: 4px;
-    padding: 1px 5px;
-    font-family: var(--font-family);
-    font-size: var(--text-2xs);
-    font-weight: 700;
-    letter-spacing: 0.05em;
-    color: rgba(0, 0, 0, 0.78);
-    background: rgba(0, 0, 0, 0.12);
-    border: 1px solid rgba(0, 0, 0, 0.28);
-    border-radius: var(--radius-sm);
-    cursor: pointer;
-    transition: background var(--duration-fast) var(--ease-out);
-  }
-  .swap-btn:hover { background: rgba(0, 0, 0, 0.22); }
-  .swap-btn:focus-visible {
-    outline: 2px solid rgba(0, 0, 0, 0.5);
-    outline-offset: 1px;
-  }
 
   /* /commands quick-access — sits on the statusline ground (not inside a tinted
      segment), so it reads as an amber chip rather than dark-on-tint. */
