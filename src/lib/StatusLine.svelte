@@ -329,7 +329,7 @@
   /* Lit — unacknowledged failures present. */
   .issues-btn.lit { color: var(--term-white, #e8e4d8); border-color: rgba(255, 72, 72, 0.5); }
   .issues-btn.lit .issues-mark { color: var(--term-red); }
-  .issues-btn.lit .issues-count { color: #ff8a8a; background: rgba(255, 72, 72, 0.14); }
+  .issues-btn.lit .issues-count { color: var(--term-red-soft); background: rgba(255, 72, 72, 0.14); }
   .thinking { background: var(--status-cyan-dim); }
 
   /* BLUE family — usage metrics */

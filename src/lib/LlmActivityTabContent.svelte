@@ -52,9 +52,17 @@
   let unsubscribeFn: (() => Promise<void>) | undefined;
 
   $effect(() => {
+    // Mount-race guard: the sync cleanup return fires before the async
+    // subscribe resolves on a fast unmount / HMR cycle. Without `cancelled`,
+    // `unsubscribeFn` is still undefined when cleanup runs and the subscription
+    // leaks. Matches the pr003 svelte5-async-cleanup-via-sync-shell-iife pattern
+    // used by App.svelte's subscribe blocks.
+    let cancelled = false;
     (async () => {
       try {
-        unsubscribeFn = await subscribe({ category: 'llm' }, handleEnvelope);
+        const u = await subscribe({ category: 'llm' }, handleEnvelope);
+        if (cancelled) { void u().catch(() => {}); }
+        else { unsubscribeFn = u; }
       } catch (err) {
         console.error('[LlmActivityTab] bus subscribe failed', err);
       }
@@ -63,6 +71,7 @@
     const ticker = setInterval(() => { lastTickTs = Date.now(); }, 1000);
 
     return () => {
+      cancelled = true;
       clearInterval(ticker);
       (async () => { await unsubscribeFn?.(); })();
     };
@@ -134,6 +143,13 @@
   function onDragStart(e: DragEvent) {
     e.dataTransfer?.setData(NOTIF_TAB_MIME, 'llm-activity');
   }
+  // Keyboard equivalent of the drag-to-dock handle (matches AegisTabContent et al.).
+  function onHandleDragKeydown(e: KeyboardEvent) {
+    if ((e.key === 'Enter' || e.key === ' ') && onDragBack) {
+      e.preventDefault();
+      onDragBack();
+    }
+  }
 </script>
 
 <div class="llm-activity" role="region" aria-label="LLM activity">
@@ -141,8 +157,11 @@
   <div
     class="status-header"
     role={onDragBack ? 'button' : undefined}
+    tabindex={onDragBack ? 0 : undefined}
     draggable={!!onDragBack}
     ondragstart={onDragStart}
+    onkeydown={onDragBack ? onHandleDragKeydown : undefined}
+    aria-label={onDragBack ? 'LLM activity pane — drag or press Enter to dock' : undefined}
   >
     <span class="header-title">
       <span class="icon">◆</span> models

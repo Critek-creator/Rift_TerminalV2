@@ -288,7 +288,15 @@
 
   {#if viewMode === 'waterfall'}
     <div class="waterfall-area">
-      <McpWaterfall spans={waterfallSpans} />
+      {#if waterfallSpans.length === 0}
+        <div class="empty-state">
+          <span class="empty-state-icon">⬡</span>
+          <span class="empty-state-text">Waiting for MCP traffic</span>
+          <span class="empty-state-hint">Tool calls render as a waterfall once the rift-mcp translator publishes request/response pairs on the bus.</span>
+        </div>
+      {:else}
+        <McpWaterfall spans={waterfallSpans} />
+      {/if}
     </div>
   {:else}
   <div class="strip">
@@ -310,7 +318,9 @@
 
   <div class="log">
     <div class="log-header">RECENT EVENTS</div>
-    <div class="log-body" aria-live="polite" bind:this={logBodyEl}>
+    <!-- No aria-live: a high-throughput rolling event log floods screen readers
+         (WCAG 4.1.3 misapplication). Navigable on demand instead. -->
+    <div class="log-body" bind:this={logBodyEl}>
       {#if recentEvents.length === 0}
         <div class="empty-state">
           <span class="empty-state-icon">⬡</span>
@@ -412,6 +422,16 @@
     font-style: italic;
     font-size: var(--text-sm);
     letter-spacing: 0.04em;
+    /* Breathing pulse so "connecting" reads as active, not a stale empty state.
+       Animation timing legitimately exceeds the 0.3s token ceiling. */
+    animation: mcp-connecting-pulse 1.4s ease-in-out infinite;
+  }
+  @keyframes mcp-connecting-pulse {
+    0%, 100% { opacity: 0.45; }
+    50% { opacity: 1; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .connecting-state { animation: none; }
   }
   .pane {
     flex: 1;

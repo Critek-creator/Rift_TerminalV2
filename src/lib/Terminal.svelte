@@ -1404,7 +1404,12 @@
         return undefined;
       }),
     ]);
-    unlistenExited = exitUnsub;
+    // Mount-race guard: if onDestroy already ran (fast split-then-close), it
+    // called unlistenExited?.() against undefined — so drop this now-orphaned
+    // listener immediately rather than stashing it in a dead variable. Mirrors
+    // the laneMounted check the lane subscription does at .then() above.
+    if (!laneMounted) { exitUnsub(); }
+    else { unlistenExited = exitUnsub; }
     if (laneResult) unsubscribeLane = laneResult;
   });
 

@@ -762,6 +762,12 @@
     let unlistenReattached: (() => void) | undefined;
     let unlistenMoved: (() => void) | undefined;
     let unlistenResized: (() => void) | undefined;
+    // Mount-race guard: the cockpit + window-position listeners below are set
+    // after several awaits. On HMR teardown the cleanup return fires before the
+    // IIFEs resolve, calling unlisten?.() against undefined and leaking the
+    // real handles. Each await-resolved handle checks this flag and self-drops
+    // if the component already tore down.
+    let onMountCancelled = false;
 
     window.addEventListener('rift:show-welcome', showWelcomeGuide);
 
@@ -806,12 +812,14 @@
       // Recover notification tab detach state on reload.
       await nm.recoverDetachState();
 
-      unlistenDetached = await listen('cockpit_detached', () => {
+      const ud = await listen('cockpit_detached', () => {
         cockpitDetached = true;
       });
-      unlistenReattached = await listen('cockpit_reattached', () => {
+      if (onMountCancelled) { ud(); } else { unlistenDetached = ud; }
+      const ur = await listen('cockpit_reattached', () => {
         cockpitDetached = false;
       });
+      if (onMountCancelled) { ur(); } else { unlistenReattached = ur; }
 
       // D-013 — session-start update check. Silent on failure; only surfaces
       // when an update is genuinely available so users aren't pestered.
@@ -889,16 +897,18 @@
         ]);
         persistRect(pos0.x, pos0.y, size0.width, size0.height);
         // Subscribe to move + resize so subsequent changes persist live.
-        unlistenMoved = await appWindow.onMoved(({ payload: pos }) => {
+        const um = await appWindow.onMoved(({ payload: pos }) => {
           appWindow.outerSize().then((size) => {
             persistRect(pos.x, pos.y, size.width, size.height);
           }).catch(() => { /* ignore */ });
         });
-        unlistenResized = await appWindow.onResized(({ payload: size }) => {
+        if (onMountCancelled) { um(); } else { unlistenMoved = um; }
+        const urz = await appWindow.onResized(({ payload: size }) => {
           appWindow.outerPosition().then((pos) => {
             persistRect(pos.x, pos.y, size.width, size.height);
           }).catch(() => { /* ignore */ });
         });
+        if (onMountCancelled) { urz(); } else { unlistenResized = urz; }
       } catch (err) {
         console.warn('[App] window position persistence failed:', err);
       }
@@ -996,10 +1006,15 @@
     window.addEventListener('rift:open-model-swap', onOpenModelSwap);
 
     return () => {
+      onMountCancelled = true;
       unlistenDetached?.();
       unlistenReattached?.();
       unlistenMoved?.();
       unlistenResized?.();
+      // Release the global crash handlers so an HMR reload doesn't stack a
+      // second closure (each captures the localStorage writer and never GCs).
+      window.onerror = null;
+      window.onunhandledrejection = null;
       window.removeEventListener('rift:config-changed', onConfigChanged);
       window.removeEventListener('rift:show-welcome', showWelcomeGuide);
       window.removeEventListener('rift:open-palette', onOpenPalette);
@@ -1620,7 +1635,7 @@
     justify-content: center;
   }
   .close-confirm-dialog {
-    background: var(--bg-base, #1a1610);
+    background: var(--bg-base);
     border: 1px solid var(--border-subtle, rgba(255, 168, 38, 0.15));
     border-radius: var(--radius-md, 6px);
     padding: var(--space-xl) var(--space-24);

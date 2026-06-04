@@ -112,6 +112,46 @@
   // ----- session tab drag-to-reorder -----
   let sessionDragId = $state<number | null>(null);
   let sessionDropTarget = $state<number | null>(null);
+  let sessionGroupEl = $state<HTMLElement | null>(null);
+
+  function focusSessionTab(index: number): void {
+    sessionGroupEl?.querySelectorAll<HTMLElement>('.tab.session')[index]?.focus();
+  }
+
+  /** WAI-ARIA tabs keyboard model for the session strip + an accessible
+   *  sortable: plain arrows move focus & activate; Shift+Alt+Arrow reorders the
+   *  focused tab with its neighbour (the keyboard equivalent of drag-reorder). */
+  function onSessionTabKeydown(e: KeyboardEvent, tab: SessionTab, index: number): void {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      onActivateSession(tab.id);
+      return;
+    }
+    if (e.key === 'F2') {
+      e.preventDefault();
+      startRename(tab);
+      return;
+    }
+    if (e.shiftKey && e.altKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+      e.preventDefault();
+      const dst = e.key === 'ArrowLeft' ? index - 1 : index + 1;
+      if (dst < 0 || dst >= sessions.length) return;
+      onReorderSession(tab.id, sessions[dst].id);
+      requestAnimationFrame(() => focusSessionTab(dst));
+      return;
+    }
+    let next = index;
+    switch (e.key) {
+      case 'ArrowRight': case 'ArrowDown': next = (index + 1) % sessions.length; break;
+      case 'ArrowLeft':  case 'ArrowUp':   next = (index - 1 + sessions.length) % sessions.length; break;
+      case 'Home': next = 0; break;
+      case 'End':  next = sessions.length - 1; break;
+      default: return;
+    }
+    e.preventDefault();
+    onActivateSession(sessions[next].id);
+    focusSessionTab(next);
+  }
 
   function onSessionDragStart(e: DragEvent, tab: SessionTab) {
     sessionDragId = tab.id;
@@ -203,8 +243,8 @@
   ondragleave={onStripDragLeave}
   ondrop={onStripDrop}
 >
-  <div class="group" role="tablist">
-    {#each sessions as tab (tab.id)}
+  <div class="group" role="tablist" aria-label="Terminal sessions" bind:this={sessionGroupEl}>
+    {#each sessions as tab, i (tab.id)}
       <div
         class="tab session"
         class:active={isActiveSession(tab.id)}
@@ -222,17 +262,8 @@
         ondragleave={() => onSessionDragLeave(tab.id)}
         ondrop={(e) => onSessionDrop(e, tab)}
         ondragend={onSessionDragEnd}
-        onkeydown={(e) => {
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault();
-            onActivateSession(tab.id);
-          }
-          if (e.key === 'F2') {
-            e.preventDefault();
-            startRename(tab);
-          }
-        }}
-        title="double-click to rename · drag to reorder"
+        onkeydown={(e) => onSessionTabKeydown(e, tab, i)}
+        title="double-click to rename · drag or Shift+Alt+←/→ to reorder"
       >
         <span class="icon">{deadSessions.has(tab.id) ? '■' : '▶'}</span>
         {#if editingTabId === tab.id}
@@ -256,7 +287,7 @@
         <button
           type="button"
           class="close"
-          aria-label="close tab"
+          aria-label="Close {tabDisplayTitle(tab)}"
           onclick={(e) => { e.stopPropagation(); onCloseSession(tab.id); }}
         >×</button>
       </div>
