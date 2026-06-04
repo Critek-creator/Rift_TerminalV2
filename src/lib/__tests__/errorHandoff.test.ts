@@ -5,9 +5,13 @@ import {
   summarizeFailureContext,
   errorActionId,
   isErrorExplainAction,
+  isErrorFixAction,
   failureClusterKey,
   buildExplainPrompt,
+  buildFixPrompt,
+  parseProposedCommand,
   ERROR_EXPLAIN_ACTION,
+  ERROR_FIX_ACTION,
   type BufferLike,
   type CommandCapture,
   type FailureContext,
@@ -130,6 +134,59 @@ describe('action-id helpers (B1 collision fix)', () => {
     expect(failureClusterKey('npm test', 1)).toBe(failureClusterKey('  npm test ', 1));
     expect(failureClusterKey('npm test', 1)).not.toBe(failureClusterKey('npm test', 2));
     expect(failureClusterKey('npm test', 1)).not.toBe(failureClusterKey('npm run', 1));
+  });
+});
+
+describe('isErrorFixAction', () => {
+  it('recognizes fix ids and separates them from explain ids', () => {
+    expect(isErrorFixAction(errorActionId(ERROR_FIX_ACTION, 1, 0))).toBe(true);
+    expect(isErrorFixAction('rift.error.explain::1::0')).toBe(false);
+    expect(isErrorFixAction('rift.error.fix')).toBe(false);
+  });
+});
+
+describe('buildFixPrompt', () => {
+  const ctx: FailureContext = {
+    command: 'git pus',
+    cwd: '/w',
+    exitCode: 1,
+    durationMs: 10,
+    startRow: 0,
+    endRow: 1,
+    scrollbackTail: ["git: 'pus' is not a git command"],
+  };
+  it('asks for a single command only and includes the failure', () => {
+    const p = buildFixPrompt(ctx);
+    expect(p).toMatch(/ONLY the corrected command/i);
+    expect(p).toContain('git pus');
+    expect(p).toContain('NONE');
+  });
+});
+
+describe('parseProposedCommand', () => {
+  it('returns a plain single-line command unchanged', () => {
+    expect(parseProposedCommand('git push')).toBe('git push');
+  });
+  it('extracts the command from a fenced code block', () => {
+    expect(parseProposedCommand('```sh\nnpm ci\n```')).toBe('npm ci');
+  });
+  it('strips wrapping backticks', () => {
+    expect(parseProposedCommand('`cargo build`')).toBe('cargo build');
+  });
+  it('drops a leading shell prompt marker', () => {
+    expect(parseProposedCommand('$ ls -la')).toBe('ls -la');
+  });
+  it('takes the first non-empty line when the model rambles', () => {
+    expect(parseProposedCommand('\n\nmkdir build\nthen run it')).toBe('mkdir build');
+  });
+  it('returns null for empty or explicit NONE', () => {
+    expect(parseProposedCommand('')).toBeNull();
+    expect(parseProposedCommand('NONE')).toBeNull();
+    expect(parseProposedCommand('  none  ')).toBeNull();
+  });
+  it('caps pathological length', () => {
+    const long = 'x'.repeat(5000);
+    expect(parseProposedCommand(long)?.length).toBe(2000);
   });
 });
 

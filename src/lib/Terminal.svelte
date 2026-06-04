@@ -46,6 +46,7 @@
     errorActionId,
     failureClusterKey,
     ERROR_EXPLAIN_ACTION,
+    ERROR_FIX_ACTION,
     type BufferLike,
     type CommandCapture,
     type FailureContext,
@@ -169,7 +170,13 @@
   // consecutive failure (same command + exit) reuses the live explain instead
   // of firing a second invoke, which kills retry-loop affordance spam.
   let explainSeq = 0;
-  let activeExplain = $state<{ actionId: string; failure: FailureContext; clusterKey: string } | null>(null);
+  let activeExplain = $state<{
+    actionId: string;
+    failure: FailureContext;
+    clusterKey: string;
+    /** R3 — the fix invocation id, set once "Propose a fix" is clicked. */
+    fixActionId: string | null;
+  } | null>(null);
 
   function startExplain(failure: FailureContext): void {
     const clusterKey = failureClusterKey(failure.command, failure.exitCode);
@@ -178,10 +185,34 @@
     const seq = ++explainSeq;
     const actionId = errorActionId(ERROR_EXPLAIN_ACTION, paneId ?? -1, seq);
     const action: DeclaredAction = { id: actionId, target: 'terminal', label: 'explain error' };
-    activeExplain = { actionId, failure, clusterKey };
+    activeExplain = { actionId, failure, clusterKey, fixActionId: null };
     void actionRegistry.invoke(action, failure).catch((err) => {
       console.warn('[Terminal] explain invoke failed', err);
     });
+  }
+
+  // R3 — invoke the fix action for the currently-open failure. Distinct action
+  // id namespace (rift.error.fix::…) so it never collides with the explain.
+  function startFix(): void {
+    if (!activeExplain || activeExplain.fixActionId) return;
+    const seq = ++explainSeq;
+    const fixId = errorActionId(ERROR_FIX_ACTION, paneId ?? -1, seq);
+    const action: DeclaredAction = { id: fixId, target: 'terminal', label: 'fix error' };
+    activeExplain = { ...activeExplain, fixActionId: fixId };
+    void actionRegistry.invoke(action, activeExplain.failure).catch((err) => {
+      console.warn('[Terminal] fix invoke failed', err);
+    });
+  }
+
+  function cancelFix(): void {
+    if (activeExplain) activeExplain = { ...activeExplain, fixActionId: null };
+  }
+
+  // R3 — insert the proposed command WITHOUT a newline (never auto-runs); the
+  // user reviews it on the prompt and presses Enter themselves.
+  function insertFixCommand(cmd: string): void {
+    pasteTextIntoTerminal(cmd);
+    dismissExplain();
   }
 
   function dismissExplain(): void {
@@ -1205,6 +1236,10 @@
     <ErrorResultPopout
       actionId={activeExplain.actionId}
       failure={activeExplain.failure}
+      fixActionId={activeExplain.fixActionId}
+      onProposeFix={startFix}
+      onCancelFix={cancelFix}
+      onInsertCommand={insertFixCommand}
       onDismiss={dismissExplain}
     />
   {/if}

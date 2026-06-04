@@ -20,7 +20,10 @@ import { subscribe, publish, type Envelope } from './bus';
 import { llmModels } from './llmModels.svelte';
 import {
   isErrorExplainAction,
+  isErrorFixAction,
   buildExplainPrompt,
+  buildFixPrompt,
+  parseProposedCommand,
   type FailureContext,
 } from './errorHandoff';
 
@@ -65,7 +68,9 @@ async function handleInvoke(env: Envelope): Promise<void> {
   if (env.kind !== 'action.invoke') return;
   const p = (env.payload ?? {}) as Record<string, unknown>;
   const actionId = typeof p.action_id === 'string' ? p.action_id : '';
-  if (!isErrorExplainAction(actionId)) return;
+  const isExplain = isErrorExplainAction(actionId);
+  const isFix = isErrorFixAction(actionId);
+  if (!isExplain && !isFix) return;
 
   const invocation_id = typeof p.invocation_id === 'string' ? p.invocation_id : undefined;
   const ctx = p.params as FailureContext | undefined;
@@ -88,7 +93,7 @@ async function handleInvoke(env: Envelope): Promise<void> {
   const modelId = await residentLocalModelId();
   if (!modelId) {
     await fail(
-      'No local model loaded — the raw error is shown above. Load a local model in Settings → Models to get offline explanations (nothing is ever sent to the cloud).',
+      'No local model loaded — the raw error is shown above. Load a local model in Settings → Models to get offline help (nothing is ever sent to the cloud).',
     );
     return;
   }
@@ -96,16 +101,31 @@ async function handleInvoke(env: Envelope): Promise<void> {
   try {
     const res = await invoke<LlmCompleteResult>('llm_complete', {
       modelId,
-      prompt: buildExplainPrompt(ctx),
+      prompt: isFix ? buildFixPrompt(ctx) : buildExplainPrompt(ctx),
       localOnly: true,
     });
     // Belt-and-suspenders: the backend guard already forbids cloud escalation,
     // but if anything unexpected escalated off the pinned local model, refuse
-    // to surface it rather than imply the explanation stayed local.
+    // to surface it rather than imply the result stayed local.
     if (res.escalated) {
       await fail('error-handoff: aborted — completion escalated off the local model.');
       return;
     }
+
+    if (isFix) {
+      // R3 — parse a paste-ready candidate command. No command (or NONE) is a
+      // valid, non-error outcome: we just have nothing safe to propose.
+      const proposed = parseProposedCommand(res.content);
+      await publish('system', 'action.result', {
+        invocation_id,
+        action_id: actionId,
+        status: 'ok',
+        message: proposed ? '' : 'No safe fix could be proposed for this failure.',
+        ...(proposed ? { proposed_command: proposed } : {}),
+      });
+      return;
+    }
+
     await publish('system', 'action.result', {
       invocation_id,
       action_id: actionId,
@@ -113,7 +133,7 @@ async function handleInvoke(env: Envelope): Promise<void> {
       message: res.content.trim() || '(the local model returned an empty explanation)',
     });
   } catch (e) {
-    await fail(`error-handoff: local explain failed — ${String(e)}`);
+    await fail(`error-handoff: local ${isFix ? 'fix' : 'explain'} failed — ${String(e)}`);
   }
 }
 
