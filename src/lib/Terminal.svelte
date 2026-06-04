@@ -53,8 +53,10 @@
   } from './errorHandoff';
   import { actionRegistry, type DeclaredAction } from './actionRegistry.svelte';
   import { commandBlockStore, type CommandBlock } from './commandBlockStore.svelte';
+  import { readBufferRange } from './blockText';
   import ErrorResultPopout from './ErrorResultPopout.svelte';
   import StickyCommandHeader from './StickyCommandHeader.svelte';
+  import BlockActionMenu from './BlockActionMenu.svelte';
   import { getTerminalSettings, invalidateTerminalSettingsCache } from './terminalConfigCache';
   import { resolveTheme } from './terminalPalettes';
   import { LaneTintManager } from './laneTint';
@@ -152,14 +154,27 @@
   // its live start marker; `stickyBlock` is the block whose output region spans
   // the current viewport top (null at the live prompt / above the first block).
   let pendingStartMarker: IMarker | null = null;
-  const paneBlocks = new Map<string, { startMarker: IMarker; block: CommandBlock }>();
+  // Per-pane live anchors for each recorded block: start + end markers (xterm
+  // auto-tracks their `.line` through reflow/eviction) plus the badge element
+  // (so a bookmark toggle can flip its star). The cross-pane metadata lives in
+  // commandBlockStore; this map is the pane-local xterm binding.
+  interface PaneBlock {
+    startMarker: IMarker;
+    endMarker: IMarker;
+    block: CommandBlock;
+    badgeEl?: HTMLElement;
+  }
+  const paneBlocks = new Map<string, PaneBlock>();
   let stickyBlock = $state<CommandBlock | null>(null);
+  // N3.3 — the open block-action menu (copy / bookmark), anchored at the badge.
+  let blockMenu = $state<{ block: CommandBlock; x: number; y: number } | null>(null);
 
   /** Recompute which block's output spans the viewport top. Shown only when
    *  scrolled UP (viewportY < baseY) — at the bottom the live prompt is visible
    *  and a sticky reminder is just noise. Picks the block with the greatest
    *  live start row that is still at or above the viewport top. Prunes markers
-   *  that xterm disposed when their line aged out of scrollback. */
+   *  that xterm disposed when their line aged out of scrollback. Reads the live
+   *  store object so the header reflects the current bookmark state. */
   function recomputeSticky(): void {
     const buf = term?.buffer.active;
     if (!buf) {
@@ -172,7 +187,7 @@
       stickyBlock = null;
       return;
     }
-    let best: CommandBlock | null = null;
+    let bestId: string | null = null;
     let bestLine = -1;
     for (const [id, entry] of paneBlocks) {
       const line = entry.startMarker.line; // -1 once disposed
@@ -182,10 +197,68 @@
       }
       if (line <= viewportY && line > bestLine) {
         bestLine = line;
-        best = entry.block;
+        bestId = id;
       }
     }
-    stickyBlock = best;
+    stickyBlock = bestId ? (commandBlockStore.byId(bestId) ?? null) : null;
+  }
+
+  // ── N3.3 block actions (copy + bookmark) ──────────────────────────────────
+
+  /** Open the block-action menu for a block, anchored at the click position. */
+  function openBlockMenu(blockId: string, ev: MouseEvent): void {
+    const block = commandBlockStore.byId(blockId);
+    if (!block) return;
+    blockMenu = { block, x: ev.clientX, y: ev.clientY };
+  }
+
+  /** Read a block's region out of the live buffer. `includeCommand=false` skips
+   *  the prompt/command line (first row) to copy just the output. Returns null
+   *  when the region has aged out of scrollback (markers disposed). */
+  function blockRegionText(blockId: string, includeCommand: boolean): string | null {
+    const entry = paneBlocks.get(blockId);
+    if (!entry || !term) return null;
+    const a = entry.startMarker.line;
+    const b = entry.endMarker.line;
+    if (a < 0 || b < 0) return null;
+    return readBufferRange(term.buffer.active, includeCommand ? a : a + 1, b);
+  }
+
+  async function copyToClipboard(text: string): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      /* clipboard permission denied — silent no-op */
+    }
+  }
+
+  function copyBlockCommand(blockId: string): void {
+    const b = commandBlockStore.byId(blockId);
+    if (b) void copyToClipboard(b.command);
+  }
+  function copyBlockOutput(blockId: string): void {
+    const t = blockRegionText(blockId, false);
+    if (t != null) void copyToClipboard(t);
+  }
+  function copyBlockBoth(blockId: string): void {
+    const b = commandBlockStore.byId(blockId);
+    const out = blockRegionText(blockId, false);
+    const parts: string[] = [];
+    if (b) parts.push(b.command);
+    if (out) parts.push(out);
+    if (parts.length) void copyToClipboard(parts.join('\n'));
+  }
+  function toggleBlockBookmark(blockId: string): void {
+    const now = commandBlockStore.toggleBookmark(blockId);
+    paneBlocks.get(blockId)?.badgeEl?.classList.toggle('bookmarked', now);
+    if (stickyBlock?.id === blockId) stickyBlock = commandBlockStore.byId(blockId) ?? null;
+  }
+
+  /** Stash the rendered badge element so a later bookmark toggle can flip its
+   *  star without re-rendering the decoration. */
+  function registerBadgeEl(blockId: string, el: HTMLElement): void {
+    const entry = paneBlocks.get(blockId);
+    if (entry) entry.badgeEl = el;
   }
 
   // Phase 5 / R2 — error-handoff mode (off | detect | assist), read live from
@@ -346,13 +419,13 @@
    * the terminal is resized narrower than it was at command time.
    */
   function addCommandBadge(
+    marker: IMarker | null,
     exitCode: number,
     durationMs: number | null,
-    failure?: FailureContext | null,
+    failure: FailureContext | null,
+    blockId: string | null,
   ): void {
-    if (!term) return;
-    const marker = term.registerMarker(0);
-    if (!marker) return;
+    if (!term || !marker) return;
     const decoration = term.registerDecoration({ marker, x: 0, width: term.cols });
     if (!decoration) return;
     const ok = exitCode === 0;
@@ -364,22 +437,51 @@
       el.classList.add('cmd-badge-row');
       if (el.querySelector('.cmd-badge')) return;
       // Phase 5 / R1 — a failed command's badge becomes an interactive
-      // affordance: click (or Enter/Space) hands the captured FailureContext to
-      // the local explain provider. The OK badge stays a passive span. The row
-      // is pointer-events:none; the interactive badge re-enables them on itself.
+      // affordance: left-click hands the captured FailureContext to the local
+      // explain provider (unchanged). N3.3 adds a right-click block menu (copy
+      // / bookmark) on it, and turns the success badge into a clickable block
+      // menu too. The row is pointer-events:none; the buttons re-enable them.
       if (!ok && failure) {
         const btn = document.createElement('button');
         btn.type = 'button';
         btn.className = 'cmd-badge err interactive';
         btn.innerHTML = `<span class="cmd-badge-label">${label}</span><span class="cmd-badge-cta">explain</span>`;
-        btn.setAttribute('aria-label', `Command failed with exit ${exitCode}. Explain the error.`);
+        btn.setAttribute(
+          'aria-label',
+          `Command failed with exit ${exitCode}. Explain the error; right-click for actions.`,
+        );
         btn.title = 'Explain this error with a local model';
         btn.addEventListener('click', (ev) => {
           ev.stopPropagation();
           startExplain(failure);
         });
+        if (blockId) {
+          btn.addEventListener('contextmenu', (ev) => {
+            ev.preventDefault();
+            ev.stopPropagation();
+            openBlockMenu(blockId, ev);
+          });
+          registerBadgeEl(blockId, btn);
+        }
         el.appendChild(btn);
+      } else if (blockId) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'cmd-badge interactive-block ' + (ok ? 'ok' : 'err');
+        btn.textContent = label;
+        btn.setAttribute('aria-label', `Command exited ${exitCode}. Open actions (copy, bookmark).`);
+        btn.title = 'Command actions — copy, bookmark';
+        const open = (ev: MouseEvent) => {
+          ev.preventDefault();
+          ev.stopPropagation();
+          openBlockMenu(blockId, ev);
+        };
+        btn.addEventListener('click', open);
+        btn.addEventListener('contextmenu', open);
+        el.appendChild(btn);
+        registerBadgeEl(blockId, btn);
       } else {
+        // Anonymous CMD_END (no captured command) — passive span, as before.
         const badge = document.createElement('span');
         badge.className = 'cmd-badge' + (ok ? ' ok' : ' err');
         badge.textContent = label;
@@ -1198,23 +1300,26 @@
           const c = env.payload as { session_id?: number; exit_code?: number; duration_ms?: number | null } | null;
           if (!c || typeof c.exit_code !== 'number') return;
           if (c.session_id !== undefined && c.session_id !== sessionId) return;
-          // Snapshot the submit-time capture BEFORE captureFailureContext
-          // consumes (nulls) it, so N3.1 can record the command block below
-          // regardless of exit code.
+          // Snapshot the submit-time capture + start marker BEFORE
+          // captureFailureContext consumes (nulls) pendingCapture.
           const cap = pendingCapture;
+          const startMarker = pendingStartMarker;
+          pendingStartMarker = null;
           const endRow = currentBufferRow();
           // Assemble the FailureContext first so a non-zero exit's badge can
           // carry it and become an interactive "explain" affordance. `off`
           // keeps the badge passive; `assist` auto-invokes explain.
           const failure = captureFailureContext(c.exit_code, c.duration_ms ?? null);
           const surfaced = failure && errorHandoffMode !== 'off';
-          addCommandBadge(c.exit_code, c.duration_ms ?? null, surfaced ? failure : null);
-          if (surfaced && errorHandoffMode === 'assist') startExplain(failure);
-          // N3.1 — record an addressable command block (the sticky-header /
+          // End-edge marker — shared by the badge decoration and the block's
+          // live region (N3.3 copy). xterm disposes it on scrollback eviction.
+          const endMarker = term?.registerMarker(0) ?? null;
+          // N3.1/N3.3 — record an addressable command block (the sticky-header /
           // copy / bookmark / jump spine). EVERY command (success + failure)
           // with a captured submit becomes a block; an anonymous CMD_END with
           // no matching submit (no command text) isn't an addressable unit, so
-          // it's skipped.
+          // it's skipped. Record BEFORE the badge so the badge can carry the id.
+          let blockId: string | null = null;
           if (cap) {
             const block = commandBlockStore.record({
               sessionId,
@@ -1226,16 +1331,20 @@
               endRow,
               ts: Date.now(),
             });
-            // N3.2 — anchor the block's live top edge for the sticky header,
-            // then refresh in case the user is scrolled up while it completes.
-            if (pendingStartMarker && pendingStartMarker.line >= 0) {
-              paneBlocks.set(block.id, { startMarker: pendingStartMarker, block });
+            blockId = block.id;
+            // N3.2/N3.3 — anchor the block's live top + bottom edges. Refresh
+            // the header in case the user is scrolled up while it completes.
+            if (startMarker && startMarker.line >= 0 && endMarker && endMarker.line >= 0) {
+              paneBlocks.set(block.id, { startMarker, endMarker, block });
             } else {
-              pendingStartMarker?.dispose();
+              startMarker?.dispose();
             }
-            pendingStartMarker = null;
             recomputeSticky();
+          } else {
+            startMarker?.dispose();
           }
+          addCommandBadge(endMarker, c.exit_code, c.duration_ms ?? null, surfaced ? failure : null, blockId);
+          if (surfaced && errorHandoffMode === 'assist') startExplain(failure);
           return;
         }
         if (env.kind === 'cwd.changed') {
@@ -1314,6 +1423,18 @@
 >
   <LaneGutter terminal={term} hostElement={host} currentLane={currentLane} />
   <StickyCommandHeader block={stickyBlock} />
+  {#if blockMenu}
+    <BlockActionMenu
+      block={blockMenu.block}
+      x={blockMenu.x}
+      y={blockMenu.y}
+      onCopyCommand={() => copyBlockCommand(blockMenu!.block.id)}
+      onCopyOutput={() => copyBlockOutput(blockMenu!.block.id)}
+      onCopyBoth={() => copyBlockBoth(blockMenu!.block.id)}
+      onToggleBookmark={() => toggleBlockBookmark(blockMenu!.block.id)}
+      onClose={() => (blockMenu = null)}
+    />
+  {/if}
   {#if searchOpen && search}
     <TerminalSearch searchAddon={search} onclose={() => { searchOpen = false; term?.focus(); }} />
   {/if}
@@ -1417,5 +1538,34 @@
   :global(button.cmd-badge.interactive:focus-visible .cmd-badge-cta) {
     opacity: 1;
     max-width: 6em;
+  }
+  /* N3.3 — success / non-surfaced badge as a clickable block-menu trigger.
+     Same pointer-events re-enable + hover treatment as the failure badge,
+     tinted to the badge's own ok/err color. */
+  :global(button.cmd-badge.interactive-block) {
+    pointer-events: auto;
+    cursor: pointer;
+    font: inherit;
+    font-size: 0.78em;
+    transition:
+      border-color var(--duration-fast) var(--ease-out),
+      background var(--duration-fast) var(--ease-out);
+  }
+  :global(button.cmd-badge.interactive-block.ok:hover),
+  :global(button.cmd-badge.interactive-block.ok:focus-visible) {
+    background: rgba(79, 232, 85, 0.14);
+    border-color: var(--term-green);
+    outline: none;
+  }
+  :global(button.cmd-badge.interactive-block.err:hover),
+  :global(button.cmd-badge.interactive-block.err:focus-visible) {
+    background: rgba(255, 72, 72, 0.14);
+    border-color: var(--term-red);
+    outline: none;
+  }
+  /* N3.3 — a bookmarked block's badge is marked with a star. */
+  :global(.cmd-badge.bookmarked::before) {
+    content: '★ ';
+    color: var(--amber-bright);
   }
 </style>
