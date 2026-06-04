@@ -135,6 +135,11 @@ describe('action-id helpers (B1 collision fix)', () => {
     expect(failureClusterKey('npm test', 1)).not.toBe(failureClusterKey('npm test', 2));
     expect(failureClusterKey('npm test', 1)).not.toBe(failureClusterKey('npm run', 1));
   });
+
+  it('keeps a separator so exit code and command never run together', () => {
+    // Without the separator, (11,"test") and (1,"1test") would collide.
+    expect(failureClusterKey('test', 11)).not.toBe(failureClusterKey('1test', 1));
+  });
 });
 
 describe('isErrorFixAction', () => {
