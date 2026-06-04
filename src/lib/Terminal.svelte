@@ -652,15 +652,24 @@
   $effect(() => {
     if (visible && term && fit && opened) {
       tick().then(() => {
-        fit?.fit();
-        if (term) term.refresh(0, term.rows - 1);
-        // N3.4 — flush a jump requested while this pane was hidden, now that
-        // it's visible and refit (so scrollToLine lands on the right row).
-        if (pendingJump) {
-          const id = pendingJump;
-          pendingJump = null;
-          doScrollToBlock(id);
-        }
+        // Re-check liveness after the await: the pane can be disposed between
+        // this effect firing and the microtask resolving (fast tab/pane switch,
+        // HMR, or the launch/resize race). term/fit are .dispose()'d but not
+        // nulled, so liveness is keyed on laneMounted. Calling fit()/refresh()
+        // on a torn-down xterm throws "reading 'dimensions'" from the renderer
+        // and escapes to window.onerror (10 logged crashes). Guard + best-effort.
+        if (!laneMounted || !term || !fit || !opened) return;
+        try {
+          fit.fit();
+          term.refresh(0, term.rows - 1);
+          // N3.4 — flush a jump requested while this pane was hidden, now that
+          // it's visible and refit (so scrollToLine lands on the right row).
+          if (pendingJump) {
+            const id = pendingJump;
+            pendingJump = null;
+            doScrollToBlock(id);
+          }
+        } catch { /* terminal disposed mid-tick — best-effort */ }
       });
     }
   });
