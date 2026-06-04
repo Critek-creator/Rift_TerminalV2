@@ -177,6 +177,10 @@ pub use config::{
 /// Load config from the platform config directory (default on missing file).
 pub use config::load_config;
 
+/// Load config, preserving an existing-but-unreadable file to a backup sidecar
+/// instead of silently overwriting it with defaults.
+pub use config::load_config_or_backup;
+
 /// Save config to the platform config directory (atomic write).
 pub use config::save_config;
 

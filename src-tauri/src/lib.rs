@@ -103,8 +103,8 @@ use rift_aegis::probe as aegis_probe;
 use base64::Engine as _;
 use rift_bus::translators::llm_process::{spawn_health_monitor, ProcessManager};
 use rift_bus::{
-    build_tree, load_config, prepare_lane_prelude, publish_command, publish_error, read_text,
-    save_config, spawn_fs_watcher, spawn_session_logger, spawn_status_translator,
+    build_tree, load_config_or_backup, prepare_lane_prelude, publish_command, publish_error,
+    read_text, save_config, spawn_fs_watcher, spawn_session_logger, spawn_status_translator,
     spawn_vault_walker, write_text, BusError, Category, CommandBuffer, Envelope, FsWatcher,
     IpcServer, Lane, LaneClassifier, RiftBus, RiftConfig, SentinelEvent, ShellPref,
     SubscribeFilter, TreeNode, FS_TREE_DEFAULT_MAX_DEPTH,
@@ -2334,8 +2334,20 @@ pub fn run() {
             let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
             let fs_root = dunce::canonicalize(&cwd).unwrap_or(cwd);
 
-            // Load config for ignore globs. Fall back to defaults on first launch.
-            let cfg = load_config().unwrap_or_default();
+            // Load config. A missing file (first launch) yields defaults; an
+            // existing file that fails to parse is PRESERVED to a
+            // `.corrupt-<ts>.bak` sidecar rather than silently overwritten —
+            // a forward-incompatible binary must never destroy a newer config.
+            let (cfg, recovered_backup) = load_config_or_backup();
+            if let Some(bak) = &recovered_backup {
+                let msg = format!(
+                    "Config could not be read and was preserved at {}. \
+                     Started with default settings — restore that file to recover your configuration.",
+                    bak.display()
+                );
+                tracing::error!("{msg}");
+                publish_error(&bus, "tauri.setup.config_recover", &msg, None);
+            }
             let fs_ignore_globs = cfg.fs.ignore_globs.clone();
 
             // Register cached config (M9: avoids disk re-read per command call).

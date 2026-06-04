@@ -1336,6 +1336,72 @@ pub fn load_config_at(path: &Path) -> Result<RiftConfig, ConfigError> {
     }
 }
 
+/// Load config, but **never silently destroy** an existing-but-unreadable
+/// config file.
+///
+/// [`load_config`] returns `Ok(default)` only for a genuinely missing file
+/// (first launch); a file that exists but fails to parse returns `Err`. The
+/// historic caller did `load_config().unwrap_or_default()`, which collapsed
+/// those two cases — so a forward-incompatible or corrupt config was replaced
+/// with defaults and then persisted, silently destroying the user's settings
+/// (e.g. launching an older binary against a newer config).
+///
+/// This variant preserves the file first: on any load failure where a config
+/// file is present, it copies the file to a timestamped
+/// `<name>.corrupt-<unix_secs>.bak` sidecar BEFORE returning defaults, and
+/// reports the backup path so the caller can surface a loud, user-visible
+/// warning. The app still starts (with defaults), but the original is always
+/// recoverable.
+///
+/// Returns `(config, Some(backup_path))` when a recovery backup was made,
+/// `(config, None)` on success or first launch.
+pub fn load_config_or_backup() -> (RiftConfig, Option<PathBuf>) {
+    match config_file_path() {
+        Ok(path) => load_config_or_backup_at(&path),
+        Err(_) => (RiftConfig::default(), None),
+    }
+}
+
+/// Path-explicit variant of [`load_config_or_backup`] used by unit tests.
+pub fn load_config_or_backup_at(path: &Path) -> (RiftConfig, Option<PathBuf>) {
+    match load_config_at(path) {
+        Ok(cfg) => (cfg, None),
+        Err(e) => {
+            // A missing file is reported as `Ok(default)` by `load_config_at`,
+            // so an `Err` here means an existing file we must not overwrite
+            // blind (invalid TOML, or a transient read error). Preserve it.
+            let backup = back_up_corrupt_config(path);
+            tracing::error!(
+                error = %e,
+                backup = ?backup.as_ref().map(|p| p.display().to_string()),
+                "config at {} could not be loaded; preserved a copy and started with defaults",
+                path.display(),
+            );
+            (RiftConfig::default(), backup)
+        }
+    }
+}
+
+/// Best-effort copy of an unreadable config to a timestamped
+/// `<name>.corrupt-<unix_secs>.bak` sidecar. Returns the backup path on
+/// success; `None` if the source is absent or the copy fails (a failed backup
+/// must not block startup — the caller still proceeds with defaults).
+fn back_up_corrupt_config(path: &Path) -> Option<PathBuf> {
+    if !path.exists() {
+        return None;
+    }
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let name = path
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("config.toml");
+    let backup = path.with_file_name(format!("{name}.corrupt-{secs}.bak"));
+    std::fs::copy(path, &backup).ok().map(|_| backup)
+}
+
 // ---------------------------------------------------------------------------
 // save_config / save_config_at
 // ---------------------------------------------------------------------------
@@ -1469,6 +1535,59 @@ mod tests {
             "ignore_globs should be the defaults"
         );
         assert_eq!(cfg.fs.max_depth, FS_CONFIG_DEFAULT_MAX_DEPTH);
+    }
+
+    // load_config_or_backup: a valid config loads unchanged, no backup made.
+    #[test]
+    fn load_or_backup_returns_config_on_valid_file() {
+        use tempfile::tempdir;
+
+        let dir = tempdir().expect("tempdir");
+        let path = dir.path().join("config.toml");
+        save_config_at(&RiftConfig::default(), &path).expect("write");
+
+        let (cfg, backup) = load_config_or_backup_at(&path);
+        assert!(backup.is_none(), "valid config must not trigger a backup");
+        assert!(cfg.projects.is_empty());
+    }
+
+    // load_config_or_backup: a missing file is first-launch, NOT corruption —
+    // returns defaults with no backup.
+    #[test]
+    fn load_or_backup_no_backup_on_missing_file() {
+        use tempfile::tempdir;
+
+        let dir = tempdir().expect("tempdir");
+        let path = dir.path().join("nonexistent.toml");
+
+        let (_cfg, backup) = load_config_or_backup_at(&path);
+        assert!(backup.is_none(), "missing file is not a corruption");
+    }
+
+    // load_config_or_backup: the regression guard for the silent-wipe bug — an
+    // existing-but-unparseable config must be PRESERVED verbatim to a backup
+    // sidecar before defaults are returned, never silently discarded.
+    #[test]
+    fn load_or_backup_preserves_corrupt_config() {
+        use tempfile::tempdir;
+
+        let dir = tempdir().expect("tempdir");
+        let path = dir.path().join("config.toml");
+        let junk = "this is = = not valid TOML {{{ models = ";
+        std::fs::write(&path, junk).expect("write junk");
+
+        let (cfg, backup) = load_config_or_backup_at(&path);
+
+        // Started with defaults so the app can boot...
+        assert!(cfg.projects.is_empty());
+        // ...but the corrupt original was preserved byte-for-byte.
+        let bak = backup.expect("a corrupt config MUST be backed up");
+        assert!(bak.exists(), "backup file should exist");
+        assert_eq!(
+            std::fs::read_to_string(&bak).expect("read backup"),
+            junk,
+            "backup must preserve the original content verbatim"
+        );
     }
 
     // T18 — save_then_load_round_trip
