@@ -7,12 +7,15 @@
   import { notifManager } from './notifState.svelte';
   import { keybindings } from './keybindings';
   import { injectIntoActiveTerminal } from './terminalInject';
+  import { commandBlockStore } from './commandBlockStore.svelte';
+  import { paneForSession, requestScrollToBlock } from './blockJump';
+  import { sessionManager } from './sessionManager.svelte';
 
   interface PaletteEntry {
     id: string;
     label: string;
     icon: string;
-    category: 'tab' | 'action' | 'shortcut' | 'model' | 'command' | 'run';
+    category: 'tab' | 'action' | 'shortcut' | 'model' | 'command' | 'run' | 'block';
     action?: () => void;
   }
 
@@ -95,6 +98,32 @@
       { id: 'act:cockpit', label: 'Toggle cockpit (detach / dock)', icon: '⊞', category: 'action',
         action: () => { onToggleCockpit(); onclose(); } },
     );
+
+    // N3.4 — bookmarked command blocks (jump-to-block). Selecting one activates
+    // the owning tab, then asks its terminal to scroll to the block; the scroll
+    // is visible-aware, so activate + request in the same turn never races.
+    for (const b of commandBlockStore.bookmarks) {
+      const exit = b.exitCode === 0 ? '✓' : `✗ ${b.exitCode}`;
+      items.push({
+        id: `block:${b.id}`,
+        label: `${b.command}  —  ${exit}`,
+        icon: '★',
+        category: 'block',
+        action: () => {
+          if (b.sessionId != null) {
+            // Bring the owning tab forward (only when the pane is a top-level
+            // session — a split leaf id isn't an activatable tab; the scroll
+            // still lands via the sessionId-keyed scroller either way).
+            const paneId = paneForSession(b.sessionId);
+            if (paneId != null && sessionManager.sessions.some((s) => s.id === paneId)) {
+              sessionManager.activateSession(paneId);
+            }
+            requestScrollToBlock(b.sessionId, b.id);
+          }
+          onclose();
+        },
+      });
+    }
 
     if (llmModels.enabled) {
       const statusIcon = (id: string) => {
@@ -238,6 +267,7 @@
     if (cat === 'command') return 'CLAUDE COMMANDS';
     if (cat === 'run') return 'TERMINAL';
     if (cat === 'shortcut') return 'SHORTCUTS';
+    if (cat === 'block') return 'BOOKMARKED COMMANDS';
     return cat.toUpperCase();
   }
 

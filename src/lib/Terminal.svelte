@@ -54,6 +54,7 @@
   import { actionRegistry, type DeclaredAction } from './actionRegistry.svelte';
   import { commandBlockStore, type CommandBlock } from './commandBlockStore.svelte';
   import { readBufferRange } from './blockText';
+  import { registerScroller, unregisterScroller } from './blockJump';
   import ErrorResultPopout from './ErrorResultPopout.svelte';
   import StickyCommandHeader from './StickyCommandHeader.svelte';
   import BlockActionMenu from './BlockActionMenu.svelte';
@@ -259,6 +260,28 @@
   function registerBadgeEl(blockId: string, el: HTMLElement): void {
     const entry = paneBlocks.get(blockId);
     if (entry) entry.badgeEl = el;
+  }
+
+  // N3.4 — jump-to-block. A pending target is deferred until the pane is visible
+  // (the palette may activate this tab and request the scroll in one turn).
+  let pendingJump: string | null = null;
+
+  /** Scroller registered with blockJump: scroll now if visible, else defer to
+   *  the next visible→refit (flushed in the $effect below). */
+  function scrollToBlockLocal(blockId: string): void {
+    if (!visible) {
+      pendingJump = blockId;
+      return;
+    }
+    doScrollToBlock(blockId);
+  }
+  function doScrollToBlock(blockId: string): void {
+    const entry = paneBlocks.get(blockId);
+    if (!entry || !term) return;
+    const line = entry.startMarker.line;
+    if (line < 0) return; // region aged out of scrollback
+    term.scrollToLine(line);
+    recomputeSticky();
   }
 
   // Phase 5 / R2 — error-handoff mode (off | detect | assist), read live from
@@ -631,6 +654,13 @@
       tick().then(() => {
         fit?.fit();
         if (term) term.refresh(0, term.rows - 1);
+        // N3.4 — flush a jump requested while this pane was hidden, now that
+        // it's visible and refit (so scrollToLine lands on the right row).
+        if (pendingJump) {
+          const id = pendingJump;
+          pendingJump = null;
+          doScrollToBlock(id);
+        }
       });
     }
   });
@@ -1068,6 +1098,9 @@
         // process-tree resources for the StatusLine CPU/RAM segments.
         if (paneId !== undefined && sessionId !== null) {
           registerPtyId(paneId, sessionId);
+          // N3.4 — register this pane's block-scroller, keyed by the PTY
+          // sessionId that commandBlockStore records, so the palette can jump.
+          registerScroller(sessionId, paneId, scrollToBlockLocal);
         }
 
         // Flush buffered chunks that arrived before sessionId was known
@@ -1401,6 +1434,7 @@
     host?.removeEventListener('focusin', onTermFocusIn);
     unregisterInjector(injectRegistryKey());
     unregisterPtyId(injectRegistryKey());
+    if (sessionId !== null) unregisterScroller(sessionId);
     ligatures?.dispose();
     webgl?.dispose();
     search?.dispose();
