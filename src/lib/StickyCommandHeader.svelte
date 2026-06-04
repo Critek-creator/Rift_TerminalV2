@@ -26,6 +26,7 @@
       block.durationMs != null ? ' · ' + formatDuration(block.durationMs) : ''
     }`}
   >
+    {#if block.bookmarked}<span class="sch-star" title="Bookmarked">★</span>{/if}
     <span class="sch-status" class:ok class:err={!ok}>{ok ? '✓' : '✗'} {block.exitCode}</span>
     {#if block.durationMs != null}
       <span class="sch-dur">· {formatDuration(block.durationMs)}</span>
@@ -58,6 +59,10 @@
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
     overflow: hidden;
+  }
+  .sch-star {
+    flex: none;
+    color: var(--amber-bright);
   }
   .sch-status {
     flex: none;
