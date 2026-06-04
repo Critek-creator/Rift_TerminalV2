@@ -142,6 +142,21 @@
   // reactive) transient state — it only lives between submit and completion.
   let pendingCapture: CommandCapture | null = null;
 
+  // Phase 5 / R2 — error-handoff mode (off | detect | assist), read live from
+  // config. `off` suppresses all surfacing (passive badge only, no issues-list
+  // entry); `detect` (default) lights the click-to-explain affordance; `assist`
+  // additionally auto-invokes explain on failure (never auto-runs a fix).
+  let errorHandoffMode: 'off' | 'detect' | 'assist' = 'detect';
+  async function loadErrorHandoffMode(): Promise<void> {
+    try {
+      const cfg = await invoke<{ error_handoff?: { mode?: string } }>('config_get');
+      const m = cfg.error_handoff?.mode;
+      errorHandoffMode = m === 'off' || m === 'assist' ? m : 'detect';
+    } catch {
+      errorHandoffMode = 'detect';
+    }
+  }
+
   /** Current absolute buffer row of the cursor (scrollback baseY + cursorY). */
   function currentBufferRow(): number {
     const buf = term?.buffer.active;
@@ -321,10 +336,14 @@
     if (import.meta.env.DEV) {
       console.debug('[Terminal] FailureContext', summarizeFailureContext(ctx));
     }
-    void busPublish('pty', 'command.failed', {
-      session_id: sessionId,
-      ...ctx,
-    }).catch((err) => console.warn('[Terminal] command.failed publish failed', err));
+    // `off` suppresses surfacing entirely — no command.failed, so the issues
+    // list never collects it either. pendingCapture is still consumed above.
+    if (errorHandoffMode !== 'off') {
+      void busPublish('pty', 'command.failed', {
+        session_id: sessionId,
+        ...ctx,
+      }).catch((err) => console.warn('[Terminal] command.failed publish failed', err));
+    }
     return ctx;
   }
 
@@ -443,6 +462,7 @@
     configFontSize = settings.fontSize;
     runtimeFontSize = settings.fontSize;
     lanesEnabled = settings.lanesEnabled;
+    void loadErrorHandoffMode();
 
     const initTheme = resolveTheme(settings.colorPalette, settings.customPalette);
     // Sync CSS --term-bg to the palette background so the terminal host and any
@@ -1004,6 +1024,7 @@
     // changes and apply them to the running xterm instance immediately.
     const onConfigChanged = async () => {
       invalidateTerminalSettingsCache();
+      void loadErrorHandoffMode();
       const fresh = await getTerminalSettings();
       if (!term) return;
       const theme = resolveTheme(fresh.colorPalette, fresh.customPalette);
@@ -1094,9 +1115,12 @@
           if (!c || typeof c.exit_code !== 'number') return;
           if (c.session_id !== undefined && c.session_id !== sessionId) return;
           // Assemble the FailureContext first so a non-zero exit's badge can
-          // carry it and become an interactive "explain" affordance.
+          // carry it and become an interactive "explain" affordance. `off`
+          // keeps the badge passive; `assist` auto-invokes explain.
           const failure = captureFailureContext(c.exit_code, c.duration_ms ?? null);
-          addCommandBadge(c.exit_code, c.duration_ms ?? null, failure);
+          const surfaced = failure && errorHandoffMode !== 'off';
+          addCommandBadge(c.exit_code, c.duration_ms ?? null, surfaced ? failure : null);
+          if (surfaced && errorHandoffMode === 'assist') startExplain(failure);
           return;
         }
         if (env.kind === 'cwd.changed') {

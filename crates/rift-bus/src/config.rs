@@ -119,6 +119,39 @@ pub struct RiftConfig {
     /// Off by default. When enabled, Rift manages local llama-server
     /// processes and routes prompts to configured models.
     pub ensemble: EnsembleConfig,
+    /// Error→agent handoff (Phase 5). Controls whether a failed command shows
+    /// the interactive "explain" affordance and whether it auto-explains.
+    pub error_handoff: ErrorHandoffConfig,
+}
+
+/// Error→agent handoff configuration (Phase 5).
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(default)]
+pub struct ErrorHandoffConfig {
+    /// off / detect (default) / assist.
+    pub mode: ErrorHandoffMode,
+}
+
+/// How the error→agent handoff behaves on a non-zero command exit.
+///
+/// `#[non_exhaustive]` + `#[serde(other)] Unknown` mirrors [`SyncMode`]: a
+/// newer config value an older Rift doesn't recognize degrades to `Unknown`
+/// (consumers treat it as `Detect`) instead of failing the whole config parse.
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+#[non_exhaustive]
+pub enum ErrorHandoffMode {
+    /// No affordance — a failed command draws the passive badge only.
+    Off,
+    /// Light the interactive "explain" affordance; spend tokens only on a
+    /// user click. (default)
+    #[default]
+    Detect,
+    /// Auto-invoke explain on failure (still never auto-runs a fix).
+    Assist,
+    /// Forward-compat catch-all; consumers treat as `Detect`.
+    #[serde(other)]
+    Unknown,
 }
 
 /// A recently-used project entry stored in the config.

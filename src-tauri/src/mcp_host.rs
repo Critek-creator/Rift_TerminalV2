@@ -20,8 +20,8 @@ use std::time::Duration;
 
 use parking_lot::Mutex as ParkingMutex;
 use rift_bus::{
-    build_tree, publish_error, read_text, save_config, write_text, Category, Envelope, McpConfig,
-    RiftBus, ShellPref, SubscribeFilter,
+    build_tree, publish_error, read_text, save_config, write_text, Category, Envelope,
+    ErrorHandoffMode, McpConfig, RiftBus, ShellPref, SubscribeFilter,
 };
 use serde_json::{json, Value};
 use tauri::{AppHandle, Listener, Manager};
@@ -1233,9 +1233,25 @@ fn tool_rift_config_set(
         changed = true;
     }
 
+    // error_handoff_mode: string → ErrorHandoffMode (Phase 5 / R2)
+    if let Some(v) = payload.get("error_handoff_mode").and_then(|v| v.as_str()) {
+        let mode = match v {
+            "off" => ErrorHandoffMode::Off,
+            "detect" => ErrorHandoffMode::Detect,
+            "assist" => ErrorHandoffMode::Assist,
+            other => {
+                return Err(format!(
+                "rift_config_set: unknown error_handoff_mode '{other}'. Valid: off, detect, assist"
+            ))
+            }
+        };
+        cfg.error_handoff.mode = mode;
+        changed = true;
+    }
+
     if !changed {
         return Err(
-            "rift_config_set: no recognized fields provided. Supply at least one of: font_size, font_family, line_height, scrollback, lanes_enabled, shell".into(),
+            "rift_config_set: no recognized fields provided. Supply at least one of: font_size, font_family, line_height, scrollback, lanes_enabled, shell, error_handoff_mode".into(),
         );
     }
 

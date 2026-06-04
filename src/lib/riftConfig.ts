@@ -232,6 +232,14 @@ export interface EnsembleConfig {
   classifier_model_id?: string | null;
 }
 
+/** Error→agent handoff mode (Phase 5). `unknown` values from a newer config
+ *  are coerced to `detect` by consumers. */
+export type ErrorHandoffMode = 'off' | 'detect' | 'assist';
+
+export interface ErrorHandoffConfig {
+  mode: ErrorHandoffMode;
+}
+
 export interface RiftConfig {
   projects: ProjectEntry[];
   fs: FsConfig;
@@ -248,4 +256,5 @@ export interface RiftConfig {
   first_run_completed: boolean;
   integrations: IntegrationsConfig;
   ensemble: EnsembleConfig;
+  error_handoff?: ErrorHandoffConfig;
 }
