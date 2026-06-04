@@ -375,7 +375,7 @@ pub fn tool_catalog() -> Vec<ToolSpec> {
         },
         ToolSpec {
             name: "rift_config_set",
-            description: "Update Rift terminal configuration at runtime. Changes are persisted to disk. Requires allow_mutations permission. Supports: font_size (8-48), font_family (CSS font stack string), line_height (1.0-2.5), scrollback (100-100000), lanes_enabled (bool), shell (auto/pwsh/cmd/bash/zsh).",
+            description: "Update Rift terminal configuration at runtime. Changes are persisted to disk. Requires allow_mutations permission. Supports: font_size (8-48), font_family (CSS font stack string), line_height (1.0-2.5), scrollback (100-100000), lanes_enabled (bool), shell (auto/pwsh/cmd/bash/zsh), error_handoff_mode (off/detect/assist).",
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -409,6 +409,11 @@ pub fn tool_catalog() -> Vec<ToolSpec> {
                         "type": "string",
                         "enum": ["auto", "pwsh", "powershell", "cmd", "bash", "zsh", "sh"],
                         "description": "Preferred shell for new terminal sessions",
+                    },
+                    "error_handoff_mode": {
+                        "type": "string",
+                        "enum": ["off", "detect", "assist"],
+                        "description": "Error→agent handoff: off (no affordance), detect (explain on click, default), assist (auto-explain on failure)",
                     },
                 },
                 "additionalProperties": false,

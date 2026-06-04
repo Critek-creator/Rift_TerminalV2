@@ -148,10 +148,17 @@
   let savingTerminal = $state(false);
   let savingTree = $state(false);
   let saveBanner = $state<{
-    section: 'fs' | 'index' | 'mcp' | 'terminal' | 'notif' | 'tree' | 'statusline' | 'alerts' | 'models' | 'timeline';
+    section: 'fs' | 'index' | 'mcp' | 'terminal' | 'notif' | 'tree' | 'statusline' | 'alerts' | 'models' | 'timeline' | 'error_handoff';
     ok: boolean;
     msg: string;
   } | null>(null);
+
+  // Phase 5 / R2 — error→agent handoff mode (off | detect | assist).
+  let ehMode = $state<'off' | 'detect' | 'assist'>('detect');
+  let savingErrorHandoff = $state(false);
+  function coerceEhMode(m: string | undefined): 'off' | 'detect' | 'assist' {
+    return m === 'off' || m === 'assist' ? m : 'detect';
+  }
   let classifierBanner = $state<{ ok: boolean; msg: string } | null>(null);
   let registeringClassifier = $state(false);
 
@@ -569,6 +576,14 @@
     )
   );
 
+  // Phase 5 / R2 — error-handoff dirty + the B2 lanes dependency. The feature
+  // is inert without lane tagging (no CMD_END sentinel), so the control gates
+  // on the SAVED lanes value, not the unsaved checkbox.
+  const ehDirty = $derived(
+    config !== null && ehMode !== coerceEhMode(config.error_handoff?.mode),
+  );
+  const lanesOn = $derived(config?.terminal?.lanes_enabled ?? true);
+
   const statuslineDirty = $derived(
     config !== null
     && (
@@ -607,6 +622,8 @@
     if (termColorPalette === 'custom' && Object.keys(customColors).length === 0) {
       customColors = getDefaultCustomColors();
     }
+    // Error-handoff snapshot.
+    ehMode = coerceEhMode(c.error_handoff?.mode);
     // Font preset mode detection
     const matchedPreset = FONT_PRESETS.find(p => p.value === termFontFamily);
     if (matchedPreset) {
@@ -752,6 +769,25 @@
       saveBanner = { section: 'terminal', ok: false, msg: String(err) };
     } finally {
       savingTerminal = false;
+    }
+  }
+
+  async function saveErrorHandoffConfig() {
+    if (!config) return;
+    savingErrorHandoff = true;
+    saveBanner = null;
+    const prev = ehMode;
+    try {
+      const next: RiftConfig = { ...config, error_handoff: { mode: ehMode } };
+      await invoke('config_save', { cfg: next });
+      config = next;
+      broadcastConfigChanged();
+      saveBanner = { section: 'error_handoff', ok: true, msg: 'error-handoff mode saved' };
+    } catch (err) {
+      ehMode = prev;
+      saveBanner = { section: 'error_handoff', ok: false, msg: String(err) };
+    } finally {
+      savingErrorHandoff = false;
     }
   }
 
@@ -1533,6 +1569,49 @@
             </span>
           {/if}
         </div>
+
+        <!-- Phase 5 / R2 — error→agent handoff mode. Depends on lane tagging
+             (B2): without it the shell never emits the CMD_END sentinel this
+             feature listens for, so the control is gated on saved lanes. -->
+        <div class="eh-divider"></div>
+        <label class="field">
+          <span class="field-label">error → agent handoff</span>
+          <select
+            class="field-input field-narrow"
+            bind:value={ehMode}
+            disabled={savingErrorHandoff || !lanesOn}
+          >
+            <option value="off">off — no affordance</option>
+            <option value="detect">detect — explain on click (default)</option>
+            <option value="assist">assist — auto-explain on failure</option>
+          </select>
+        </label>
+        <p class="eh-desc">
+          On a failed command, surface a local-model explanation. Fixes are always
+          propose-then-confirm; nothing is ever sent to the cloud.
+        </p>
+        {#if !lanesOn}
+          <div class="eh-warn" role="note">
+            ⚠ Requires lane tagging. Enable “tag-prefix Rift-emitted lines (§10.1)”
+            above and save — without it the terminal never emits the command-end
+            signal this feature needs.
+          </div>
+        {/if}
+        <div class="row">
+          <button
+            type="button"
+            class="btn primary"
+            disabled={!ehDirty || savingErrorHandoff || !lanesOn}
+            onclick={saveErrorHandoffConfig}
+          >
+            {savingErrorHandoff ? 'saving…' : 'save handoff'}
+          </button>
+          {#if saveBanner && saveBanner.section === 'error_handoff'}
+            <span class="banner-inline" class:fail={!saveBanner.ok} role="status">
+              {saveBanner.msg}
+            </span>
+          {/if}
+        </div>
       </section>
     {:else}
       <div class="hint">loading config…</div>
@@ -2092,6 +2171,29 @@
     text-shadow: var(--glow-amber-faint);
     margin-bottom: var(--space-md);
     padding-bottom: var(--space-sm);
+  }
+
+  /* ─── Error-handoff section (Phase 5 / R2) ───────────────────────────── */
+  .eh-divider {
+    height: 1px;
+    background: var(--border-subtle);
+    margin: var(--space-md) 0;
+  }
+  .eh-desc {
+    color: var(--amber-faint);
+    font-size: var(--text-2xs);
+    line-height: 1.5;
+    margin: 0 0 var(--space-sm) 0;
+  }
+  .eh-warn {
+    color: var(--amber-warm);
+    font-size: var(--text-2xs);
+    line-height: 1.5;
+    background: rgba(255, 200, 64, 0.06);
+    border: 1px solid var(--amber-dim);
+    border-radius: var(--radius-sm);
+    padding: var(--space-sm) var(--space-md);
+    margin-bottom: var(--space-md);
   }
 
   /* ─── Hints / prose ──────────────────────────────────────────────────── */
