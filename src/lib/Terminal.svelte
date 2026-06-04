@@ -52,6 +52,7 @@
     type FailureContext,
   } from './errorHandoff';
   import { actionRegistry, type DeclaredAction } from './actionRegistry.svelte';
+  import { commandBlockStore } from './commandBlockStore.svelte';
   import ErrorResultPopout from './ErrorResultPopout.svelte';
   import { getTerminalSettings, invalidateTerminalSettingsCache } from './terminalConfigCache';
   import { resolveTheme } from './terminalPalettes';
@@ -1145,6 +1146,11 @@
           const c = env.payload as { session_id?: number; exit_code?: number; duration_ms?: number | null } | null;
           if (!c || typeof c.exit_code !== 'number') return;
           if (c.session_id !== undefined && c.session_id !== sessionId) return;
+          // Snapshot the submit-time capture BEFORE captureFailureContext
+          // consumes (nulls) it, so N3.1 can record the command block below
+          // regardless of exit code.
+          const cap = pendingCapture;
+          const endRow = currentBufferRow();
           // Assemble the FailureContext first so a non-zero exit's badge can
           // carry it and become an interactive "explain" affordance. `off`
           // keeps the badge passive; `assist` auto-invokes explain.
@@ -1152,6 +1158,23 @@
           const surfaced = failure && errorHandoffMode !== 'off';
           addCommandBadge(c.exit_code, c.duration_ms ?? null, surfaced ? failure : null);
           if (surfaced && errorHandoffMode === 'assist') startExplain(failure);
+          // N3.1 — record an addressable command block (the sticky-header /
+          // copy / bookmark / jump spine). EVERY command (success + failure)
+          // with a captured submit becomes a block; an anonymous CMD_END with
+          // no matching submit (no command text) isn't an addressable unit, so
+          // it's skipped.
+          if (cap) {
+            commandBlockStore.record({
+              sessionId,
+              command: cap.command,
+              cwd: cap.cwd,
+              exitCode: c.exit_code,
+              durationMs: c.duration_ms ?? null,
+              startRow: cap.startRow,
+              endRow,
+              ts: Date.now(),
+            });
+          }
           return;
         }
         if (env.kind === 'cwd.changed') {
