@@ -338,6 +338,8 @@ impl LlmProvider for AnthropicProvider {
             stop_reason: map_stop_reason(&msg_resp.stop_reason),
             latency_ms,
             tool_calls: None,
+            confidence: None,
+            mean_logprob: None,
         })
     }
 

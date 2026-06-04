@@ -294,6 +294,49 @@ impl RouterService {
         None
     }
 
+    /// Returns `true` when a SUCCESSFUL completion should be re-executed on a
+    /// better model because the local model's confidence was too low.
+    ///
+    /// All of the following must hold:
+    /// 1. `config.confidence_threshold` is `Some(t)` — feature is enabled.
+    /// 2. `confidence` is `Some(c)` and `c < t` — signal is present and low.
+    /// 3. `task_type` is one where token-logprob confidence is a meaningful
+    ///    signal (bounded, checkable work). Explicitly NOT `Architecture`,
+    ///    `Debug`, or `LargeContextAnalysis` where a fluent-but-wrong answer
+    ///    can produce a deceptively high logprob score.
+    ///
+    /// When `confidence_threshold` is `None` (the default), returns `false`
+    /// unconditionally — behavior is identical to before Phase 3.
+    ///
+    /// This method is §9-pure: no external calls, no side effects.
+    pub fn should_escalate_on_confidence(
+        &self,
+        confidence: Option<f32>,
+        task_type: &TaskType,
+    ) -> bool {
+        let Some(threshold) = self.config.confidence_threshold else {
+            return false;
+        };
+        let Some(c) = confidence else {
+            return false;
+        };
+        if c >= threshold {
+            return false;
+        }
+        // Only escalate for task types where logprob confidence is reliable.
+        // Architecture, Debug, and LargeContextAnalysis are explicitly excluded:
+        // a model can confidently produce a wrong architectural decision or a
+        // plausible-sounding but incorrect fix.
+        matches!(
+            task_type,
+            TaskType::QuickQuery
+                | TaskType::LintFormat
+                | TaskType::Documentation
+                | TaskType::CodeGeneration
+                | TaskType::CodeRefactoring
+        )
+    }
+
     pub fn find_model(&self, id: &str) -> Result<&ModelConfig, RoutingError> {
         self.config
             .models
@@ -372,6 +415,7 @@ mod tests {
                 },
             ],
             classifier_model_id: None,
+            confidence_threshold: None,
         }
     }
 
@@ -545,5 +589,77 @@ mod tests {
         svc.sync_local_availability(&["local-test".to_string()]);
         assert!(svc.is_available("local-test"));
         assert!(svc.is_available("cloud-test"));
+    }
+
+    // -----------------------------------------------------------------------
+    // should_escalate_on_confidence truth table (Phase 3)
+    // -----------------------------------------------------------------------
+
+    fn config_with_threshold(threshold: Option<f32>) -> EnsembleConfig {
+        let mut cfg = test_config();
+        cfg.confidence_threshold = threshold;
+        cfg
+    }
+
+    /// None threshold (default) → always false regardless of confidence/type.
+    #[test]
+    fn escalate_confidence_none_threshold_always_false() {
+        let svc = RouterService::new(config_with_threshold(None));
+        // Below threshold, meaningful type — still false because feature is OFF.
+        assert!(!svc.should_escalate_on_confidence(Some(0.3), &TaskType::QuickQuery));
+        assert!(!svc.should_escalate_on_confidence(Some(0.3), &TaskType::CodeGeneration));
+        assert!(!svc.should_escalate_on_confidence(Some(0.3), &TaskType::LintFormat));
+        assert!(!svc.should_escalate_on_confidence(None, &TaskType::QuickQuery));
+    }
+
+    /// None confidence (provider didn't return logprobs) → always false.
+    #[test]
+    fn escalate_confidence_none_confidence_always_false() {
+        let svc = RouterService::new(config_with_threshold(Some(0.7)));
+        assert!(!svc.should_escalate_on_confidence(None, &TaskType::QuickQuery));
+        assert!(!svc.should_escalate_on_confidence(None, &TaskType::CodeGeneration));
+        assert!(!svc.should_escalate_on_confidence(None, &TaskType::Architecture));
+    }
+
+    /// Confidence above (or at) threshold → false even for meaningful types.
+    #[test]
+    fn escalate_confidence_above_threshold_false() {
+        let svc = RouterService::new(config_with_threshold(Some(0.5)));
+        assert!(!svc.should_escalate_on_confidence(Some(0.5), &TaskType::QuickQuery));
+        assert!(!svc.should_escalate_on_confidence(Some(0.8), &TaskType::LintFormat));
+        assert!(!svc.should_escalate_on_confidence(Some(0.99), &TaskType::Documentation));
+    }
+
+    /// Confidence below threshold, meaningful task types → true.
+    #[test]
+    fn escalate_confidence_below_threshold_meaningful_types_true() {
+        let svc = RouterService::new(config_with_threshold(Some(0.6)));
+        assert!(svc.should_escalate_on_confidence(Some(0.3), &TaskType::QuickQuery));
+        assert!(svc.should_escalate_on_confidence(Some(0.3), &TaskType::LintFormat));
+        assert!(svc.should_escalate_on_confidence(Some(0.3), &TaskType::Documentation));
+        assert!(svc.should_escalate_on_confidence(Some(0.3), &TaskType::CodeGeneration));
+        assert!(svc.should_escalate_on_confidence(Some(0.3), &TaskType::CodeRefactoring));
+    }
+
+    /// Confidence below threshold, NON-meaningful task types → false.
+    /// These types produce deceptively high logprob scores for wrong answers.
+    #[test]
+    fn escalate_confidence_below_threshold_non_meaningful_types_false() {
+        let svc = RouterService::new(config_with_threshold(Some(0.6)));
+        assert!(!svc.should_escalate_on_confidence(Some(0.3), &TaskType::Architecture));
+        assert!(!svc.should_escalate_on_confidence(Some(0.3), &TaskType::Debug));
+        assert!(!svc.should_escalate_on_confidence(Some(0.3), &TaskType::LargeContextAnalysis));
+        // Other is also excluded (catch-all bucket with unknown semantics).
+        assert!(!svc.should_escalate_on_confidence(Some(0.3), &TaskType::Other));
+    }
+
+    /// Edge: confidence just barely below threshold → true for meaningful types.
+    #[test]
+    fn escalate_confidence_epsilon_below_threshold() {
+        let svc = RouterService::new(config_with_threshold(Some(0.5)));
+        // 0.4999 < 0.5 → true for a meaningful type.
+        assert!(svc.should_escalate_on_confidence(Some(0.4999), &TaskType::LintFormat));
+        // 0.5 == 0.5 → false (at-threshold is NOT below).
+        assert!(!svc.should_escalate_on_confidence(Some(0.5), &TaskType::LintFormat));
     }
 }

@@ -165,6 +165,16 @@ pub struct CompletionResponse {
     /// (`stop_reason == ToolUse`); `None` for plain completions.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tool_calls: Option<Vec<ToolCall>>,
+    /// Mean per-token probability (0..1), derived from token logprobs.
+    /// `Some` only when the provider returns per-token logprobs (llama-server
+    /// with `logprobs:true`). `None` for providers that do not expose logprobs
+    /// (Anthropic, Gemini, CLI). Used by the confidence-gated escalation path.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub confidence: Option<f32>,
+    /// Raw mean token logprob (≤ 0). Retained alongside `confidence` for
+    /// calibration and debug display. `None` when logprobs are unavailable.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mean_logprob: Option<f32>,
 }
 
 // ---------------------------------------------------------------------------
@@ -375,6 +385,8 @@ mod tests {
             stop_reason: StopReason::EndTurn,
             latency_ms: 42,
             tool_calls: None,
+            confidence: None,
+            mean_logprob: None,
         };
         let json = serde_json::to_string(&resp).expect("serialize");
         let back: CompletionResponse = serde_json::from_str(&json).expect("deserialize");
@@ -495,11 +507,21 @@ mod tests {
             stop_reason: StopReason::EndTurn,
             latency_ms: 1,
             tool_calls: None,
+            confidence: None,
+            mean_logprob: None,
         };
         let json = serde_json::to_string(&resp).expect("serialize");
         assert!(
             !json.contains("tool_calls"),
             "tool_calls must be omitted when None: {json}"
+        );
+        assert!(
+            !json.contains("confidence"),
+            "confidence must be omitted when None: {json}"
+        );
+        assert!(
+            !json.contains("mean_logprob"),
+            "mean_logprob must be omitted when None: {json}"
         );
     }
 }

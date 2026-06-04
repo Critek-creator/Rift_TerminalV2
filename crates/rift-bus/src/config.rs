@@ -972,6 +972,14 @@ pub struct EnsembleConfig {
     /// pure keyword routing (fully backward compatible — zero extra latency).
     #[serde(default)]
     pub classifier_model_id: Option<String>,
+    /// Confidence-gated escalation threshold (Phase 3). When `Some(t)`, a
+    /// successful llama-server completion whose mean per-token probability
+    /// (0..1) falls below `t` triggers a one-shot re-execution on the next
+    /// model in the fallback chain, for eligible task types only. `None`
+    /// (the default) disables the feature entirely — behavior is byte-identical
+    /// to pre-Phase-3. Ship as `None` until empirical calibration is done.
+    #[serde(default)]
+    pub confidence_threshold: Option<f32>,
 }
 
 impl Default for EnsembleConfig {
@@ -982,6 +990,7 @@ impl Default for EnsembleConfig {
             default_model: String::new(),
             models: Vec::new(),
             classifier_model_id: None,
+            confidence_threshold: None,
         }
     }
 }
@@ -2019,6 +2028,7 @@ max_depth = 4
                 },
             }],
             classifier_model_id: None,
+            confidence_threshold: None,
         };
         let toml_str = toml::to_string_pretty(&original).expect("serialize");
         let back: EnsembleConfig = toml::from_str(&toml_str).expect("deserialize");

@@ -71,6 +71,7 @@ fn roster() -> EnsembleConfig {
             local("gemma-12b", 262_144, &["large-context", "tool-calling"]),
         ],
         classifier_model_id: None,
+        confidence_threshold: None,
     }
 }
 

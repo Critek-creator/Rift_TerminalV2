@@ -422,6 +422,8 @@ impl LlmProvider for CliProvider {
             stop_reason: StopReason::EndTurn,
             latency_ms: started.elapsed().as_millis() as u64,
             tool_calls: None,
+            confidence: None,
+            mean_logprob: None,
         })
     }
 

@@ -79,6 +79,14 @@ struct ChatRequest {
     /// Sourced from `provider_options["tool_choice"]`.
     #[serde(skip_serializing_if = "Option::is_none")]
     tool_choice: Option<serde_json::Value>,
+    /// Request token-level log-probabilities from llama-server
+    /// (`/v1/chat/completions` OpenAI extension). Always set to `true` for
+    /// non-streaming completions so the confidence-gated escalation path has
+    /// a signal. Has no effect on providers that ignore unknown fields.
+    logprobs: bool,
+    /// Number of top alternative log-prob candidates per token. Set to 1
+    /// (we only need the chosen-token prob) to minimise response size.
+    top_logprobs: u32,
 }
 
 #[derive(Serialize)]
@@ -98,6 +106,9 @@ struct ChatResponse {
 struct ChatChoice {
     message: Option<ChatChoiceMessage>,
     finish_reason: Option<String>,
+    /// Present when `logprobs:true` was sent in the request.
+    #[serde(default)]
+    logprobs: Option<ChatLogprobs>,
 }
 
 #[derive(Deserialize)]
@@ -146,6 +157,46 @@ impl ChatToolCall {
 struct ChatUsage {
     prompt_tokens: Option<u64>,
     completion_tokens: Option<u64>,
+}
+
+// ---------------------------------------------------------------------------
+// Logprob response types (OpenAI extension, returned by llama-server)
+// ---------------------------------------------------------------------------
+
+/// Top-level logprob container on a `ChatChoice` (present when `logprobs:true`).
+#[derive(Deserialize)]
+struct ChatLogprobs {
+    #[serde(default)]
+    content: Vec<TokenLogprob>,
+}
+
+/// Per-token logprob entry.
+#[derive(Deserialize)]
+struct TokenLogprob {
+    logprob: f32,
+}
+
+// ---------------------------------------------------------------------------
+// Confidence computation
+// ---------------------------------------------------------------------------
+
+/// Reduce a slice of per-token logprobs into:
+/// - `mean_logprob`: arithmetic mean of the raw logprob values (≤ 0)
+/// - `confidence`: mean per-token probability (exp of mean_logprob), in 0..1
+///
+/// Returns `(None, None)` when `logprobs` is empty (e.g. empty completion or
+/// provider did not return logprob data), keeping `None` as the safe sentinel
+/// that disables confidence-gated escalation.
+fn compute_confidence(logprobs: &[TokenLogprob]) -> (Option<f32>, Option<f32>) {
+    if logprobs.is_empty() {
+        return (None, None);
+    }
+    let mean_lp = logprobs.iter().map(|t| t.logprob).sum::<f32>() / logprobs.len() as f32;
+    // exp() of the mean logprob gives the geometric-mean probability — a
+    // human-readable 0..1 scalar that collapses the per-token distribution
+    // into a single confidence signal suitable for threshold comparisons.
+    let confidence = mean_lp.exp().clamp(0.0, 1.0);
+    (Some(confidence), Some(mean_lp))
 }
 
 #[derive(Deserialize)]
@@ -236,6 +287,12 @@ fn build_chat_request(req: &CompletionRequest, model: &str, stream: bool) -> Cha
         .and_then(|opts| opts.get("tool_choice"))
         .cloned();
 
+    // Request token logprobs only for non-streaming completions. Streaming
+    // does not carry per-token logprob data in the chunk wire format and the
+    // confidence signal is unused there (no escalation path on streams).
+    // `top_logprobs: 1` — we only need the chosen-token probability.
+    let (logprobs, top_logprobs) = if stream { (false, 0) } else { (true, 1) };
+
     ChatRequest {
         model: model.to_string(),
         messages,
@@ -247,6 +304,8 @@ fn build_chat_request(req: &CompletionRequest, model: &str, stream: bool) -> Cha
         chat_template_kwargs,
         tools,
         tool_choice,
+        logprobs,
+        top_logprobs,
     }
 }
 
@@ -464,6 +523,15 @@ impl LlmProvider for LlamaServerProvider {
         let tokens_in = usage.and_then(|u| u.prompt_tokens).unwrap_or(0);
         let tokens_out = usage.and_then(|u| u.completion_tokens).unwrap_or(0);
 
+        // Extract per-token logprobs from the first choice (present only when
+        // `logprobs:true` was honoured by the server). Collapse to confidence
+        // scalars; missing/empty → None (feature disabled at default).
+        let (confidence, mean_logprob) = choice
+            .logprobs
+            .as_ref()
+            .map(|lp| compute_confidence(&lp.content))
+            .unwrap_or((None, None));
+
         Ok(CompletionResponse {
             content,
             tokens_in,
@@ -474,6 +542,8 @@ impl LlmProvider for LlamaServerProvider {
             stop_reason,
             latency_ms,
             tool_calls,
+            confidence,
+            mean_logprob,
         })
     }
 
@@ -797,5 +867,114 @@ mod tests {
         let json = r#"{"status": "ok"}"#;
         let h: HealthResponse = serde_json::from_str(json).unwrap();
         assert_eq!(h.status.as_deref(), Some("ok"));
+    }
+
+    /// Canned llama-server response with known logprobs: verify computed confidence.
+    ///
+    /// Logprobs: [-0.5, -1.0, -0.5]
+    /// mean_logprob = (-0.5 + -1.0 + -0.5) / 3 = -0.6667
+    /// confidence = exp(-0.6667) ≈ 0.5134
+    #[test]
+    fn logprob_confidence_computed_from_canned_response() {
+        let json = r#"{
+            "choices": [{
+                "message": {"role": "assistant", "content": "ok"},
+                "finish_reason": "stop",
+                "logprobs": {
+                    "content": [
+                        {"token": "ok", "logprob": -0.5, "bytes": null, "top_logprobs": []},
+                        {"token": " is", "logprob": -1.0, "bytes": null, "top_logprobs": []},
+                        {"token": " fine", "logprob": -0.5, "bytes": null, "top_logprobs": []}
+                    ]
+                }
+            }],
+            "model": "granite-4.1-8b",
+            "usage": {"prompt_tokens": 10, "completion_tokens": 3}
+        }"#;
+        let resp: ChatResponse = serde_json::from_str(json).expect("parse");
+        let choice = resp.choices.first().expect("choice");
+        let lp = choice.logprobs.as_ref().expect("logprobs");
+        let (confidence, mean_logprob) = compute_confidence(&lp.content);
+        let conf = confidence.expect("confidence Some");
+        let mlp = mean_logprob.expect("mean_logprob Some");
+        // mean logprob ≈ -0.6667
+        assert!((mlp - (-2.0 / 3.0)).abs() < 0.001, "mean_logprob={mlp}");
+        // confidence = exp(mean_logprob) ≈ 0.5134
+        assert!((conf - 0.5134_f32).abs() < 0.001, "confidence={conf}");
+    }
+
+    #[test]
+    fn logprob_confidence_empty_returns_none() {
+        let (confidence, mean_logprob) = compute_confidence(&[]);
+        assert!(confidence.is_none());
+        assert!(mean_logprob.is_none());
+    }
+
+    #[test]
+    fn chat_request_non_streaming_sets_logprobs_true() {
+        let req = CompletionRequest {
+            messages: vec![Message {
+                role: Role::User,
+                content: "hello".to_string(),
+            }],
+            max_tokens: None,
+            temperature: None,
+            stop_sequences: vec![],
+            system_prompt: None,
+            provider_options: None,
+        };
+        let chat = build_chat_request(&req, "m", false);
+        assert!(
+            chat.logprobs,
+            "non-streaming request must set logprobs=true"
+        );
+        assert_eq!(chat.top_logprobs, 1);
+        // Verify it actually serializes into the wire body.
+        let body = serde_json::to_value(&chat).unwrap();
+        assert_eq!(body["logprobs"], true);
+        assert_eq!(body["top_logprobs"], 1);
+    }
+
+    #[test]
+    fn chat_request_streaming_does_not_set_logprobs() {
+        let req = CompletionRequest {
+            messages: vec![Message {
+                role: Role::User,
+                content: "hello".to_string(),
+            }],
+            max_tokens: None,
+            temperature: None,
+            stop_sequences: vec![],
+            system_prompt: None,
+            provider_options: None,
+        };
+        let chat = build_chat_request(&req, "m", true);
+        assert!(
+            !chat.logprobs,
+            "streaming request must not set logprobs=true"
+        );
+        assert_eq!(chat.top_logprobs, 0);
+    }
+
+    #[test]
+    fn chat_response_without_logprobs_gives_none_confidence() {
+        // A response from a server that does not return logprobs must not
+        // cause a panic or error — confidence fields remain None.
+        let json = r#"{
+            "choices": [{
+                "message": {"role": "assistant", "content": "Hello!"},
+                "finish_reason": "stop"
+            }],
+            "usage": {"prompt_tokens": 5, "completion_tokens": 2}
+        }"#;
+        let resp: ChatResponse = serde_json::from_str(json).expect("parse");
+        let choice = resp.choices.first().expect("choice");
+        let (confidence, mean_logprob) = choice
+            .logprobs
+            .as_ref()
+            .map(|lp| compute_confidence(&lp.content))
+            .unwrap_or((None, None));
+        assert!(confidence.is_none());
+        assert!(mean_logprob.is_none());
     }
 }

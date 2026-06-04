@@ -395,6 +395,157 @@ pub async fn llm_complete(
 
         match provider.complete(request).await {
             Ok(resp) => {
+                // Phase 3 — confidence-gated escalation.
+                //
+                // When `confidence_threshold` is Some and the response confidence
+                // is below the threshold for an eligible task type, re-execute on
+                // the next fallback model and keep whichever answer has higher
+                // confidence. This branch always returns (both arms of the re-exec
+                // match below), so a confidence-escalation happens at most ONCE per
+                // call — a low-confidence answer must not thrash VRAM / spend cloud
+                // tokens in a loop.
+                //
+                // When `confidence_threshold` is None (the default), the
+                // `should_escalate_on_confidence` call returns false immediately and
+                // the entire block is a no-op — behavior is byte-identical to pre-Phase-3.
+                if router.should_escalate_on_confidence(resp.confidence, &decision.task_type)
+                    && !fallback_chain.is_empty()
+                {
+                    if let Some(next) =
+                        router.escalate(&current_model_id, &fallback_chain, &clean_prompt)
+                    {
+                        tracing::info!(
+                            "llm_complete: confidence-escalating from {} (conf={:?}) to {}",
+                            current_model_id,
+                            resp.confidence,
+                            next.model_id,
+                        );
+                        // Publish both the first response event (for observability)
+                        // and the new route event before re-executing.
+                        let cost_first = compute_cost(&model, resp.tokens_in, resp.tokens_out);
+                        publish_response_event(
+                            &bus,
+                            &model.id,
+                            resp.tokens_in,
+                            resp.tokens_out,
+                            resp.latency_ms,
+                            cost_first,
+                            escalated,
+                        );
+                        publish_route_event(&bus, &next);
+
+                        // Retain the primary response so we can compare later.
+                        let primary_resp = resp;
+                        let primary_model_id = current_model_id.clone();
+
+                        // Re-execute on the escalation target.
+                        let next_model = router
+                            .find_model(&next.model_id)
+                            .map_err(|e| format!("{e}"))?
+                            .clone();
+                        let next_provider = create_provider(&next_model)?;
+                        let next_request = CompletionRequest {
+                            messages: vec![Message {
+                                role: Role::User,
+                                content: clean_prompt.clone(),
+                            }],
+                            max_tokens: None,
+                            temperature: None,
+                            stop_sequences: vec![],
+                            system_prompt: None,
+                            provider_options: None,
+                        };
+
+                        match next_provider.complete(next_request).await {
+                            Ok(next_resp) => {
+                                // Keep the higher-confidence answer. When the
+                                // escalation target does not return logprobs (None),
+                                // treat it as more confident than a low-confidence
+                                // local answer — it is a cloud/partner model selected
+                                // specifically because the local model was uncertain.
+                                let use_next = match (primary_resp.confidence, next_resp.confidence)
+                                {
+                                    (Some(pc), Some(nc)) => nc >= pc,
+                                    _ => true, // escalation target preferred by default
+                                };
+
+                                let chosen = if use_next { &next_resp } else { &primary_resp };
+                                let chosen_model = if use_next {
+                                    &next_model
+                                } else {
+                                    router
+                                        .find_model(&primary_model_id)
+                                        .map_err(|e| format!("{e}"))?
+                                };
+                                let cost =
+                                    compute_cost(chosen_model, chosen.tokens_in, chosen.tokens_out);
+
+                                publish_response_event(
+                                    &bus,
+                                    &chosen_model.id,
+                                    chosen.tokens_in,
+                                    chosen.tokens_out,
+                                    chosen.latency_ms,
+                                    cost,
+                                    true,
+                                );
+
+                                return Ok(LlmCompleteResult {
+                                    content: chosen.content.clone(),
+                                    tokens_in: chosen.tokens_in,
+                                    tokens_out: chosen.tokens_out,
+                                    model_used: chosen.model_used.clone(),
+                                    latency_ms: chosen.latency_ms,
+                                    task_type: format!("{:?}", decision.task_type),
+                                    routing_reason: decision.reason.clone(),
+                                    was_overridden: decision.was_overridden,
+                                    cost_usd: cost,
+                                    escalated: true,
+                                });
+                            }
+                            Err(next_err) => {
+                                // Escalation target failed — fall back to the
+                                // primary (low-confidence) response rather than
+                                // returning an error. The caller already got a
+                                // complete response; the escalation was best-effort.
+                                tracing::warn!(
+                                    "llm_complete: confidence-escalation to {} failed ({}), keeping primary response",
+                                    current_model_id,
+                                    next_err,
+                                );
+                                let cost = compute_cost(
+                                    &model,
+                                    primary_resp.tokens_in,
+                                    primary_resp.tokens_out,
+                                );
+                                publish_response_event(
+                                    &bus,
+                                    &model.id,
+                                    primary_resp.tokens_in,
+                                    primary_resp.tokens_out,
+                                    primary_resp.latency_ms,
+                                    cost,
+                                    false,
+                                );
+                                return Ok(LlmCompleteResult {
+                                    content: primary_resp.content,
+                                    tokens_in: primary_resp.tokens_in,
+                                    tokens_out: primary_resp.tokens_out,
+                                    model_used: primary_resp.model_used,
+                                    latency_ms: primary_resp.latency_ms,
+                                    task_type: format!("{:?}", decision.task_type),
+                                    routing_reason: decision.reason.clone(),
+                                    was_overridden: decision.was_overridden,
+                                    cost_usd: cost,
+                                    escalated: false,
+                                });
+                            }
+                        }
+                    }
+                }
+
+                // No confidence-escalation triggered (or threshold is None) —
+                // return the response from the current model as-is.
                 let cost = compute_cost(&model, resp.tokens_in, resp.tokens_out);
 
                 publish_response_event(

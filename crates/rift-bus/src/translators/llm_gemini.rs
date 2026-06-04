@@ -342,6 +342,8 @@ impl LlmProvider for GeminiProvider {
             stop_reason: map_finish_reason(&finish),
             latency_ms,
             tool_calls: None,
+            confidence: None,
+            mean_logprob: None,
         })
     }
 
