@@ -1,8 +1,21 @@
 # Phase 3 — Confidence-Gated Escalation in rift-router
 
-> Status: **SPEC / not implemented** · Created 2026-06-04 · Scope: `rift-router`, `rift-bus` translators, `src-tauri/src/llm_commands.rs`
+> Status: **IMPLEMENTED — shipped OFF (`confidence_threshold: None`); calibration says KEEP it off for grunt work** · Created 2026-06-04 · Scope: `rift-router`, `rift-bus` translators, `src-tauri/src/llm_commands.rs`
 >
 > Origin: surfaced during the 2026-06-04 local-LLM offload audit (`~/.claude` grunt stack). After fixing the dead-Ollama grunt path and mapping rift-router, this is the **one genuine "routing intelligence" gap** that remains — confirmed by both external research (RouteLLM/C3PO/cascade literature) and a direct code-read of this crate.
+
+## Calibration result (2026-06-04) — empirical decision: do NOT enable for grunt work
+
+Built across 9 files (commit `ef0dd22`) behind `confidence_threshold: None`, then calibrated empirically per the Test Plan before considering enabling it. Harness: `docs/phase3-calibration.py` — hits the resident granite-4.1-8b exactly as the grunt path does (`/v1/chat/completions`, `logprobs:true`, `top_logprobs:1`, temperature omitted), reduces logprobs with the same mean→`exp` formula as `compute_confidence`, over a 26-item labeled grunt set (classify / extract / arithmetic / factual / code) mixed with hard traps.
+
+**Finding (`--runs 3`):**
+- granite is **96% accurate (25/26)** on bounded grunt work.
+- The persistent error — "how many r's in strawberry" → "1" — scored **mean 0.9905 / min-token 0.9892**. The model is *confidently wrong*.
+- **Threshold sweep precision = 0.00 at every threshold, on both mean AND min per-token probability** (spec open-decision #1 tested). No cut catches the error before escalating only-correct answers; to reach the error's 0.99 confidence you escalate 4–5 correct grunt answers first.
+
+**Decision: keep `confidence_threshold: None`.** The dangerous grunt errors are confidently-wrong (high logprob), so a logprob gate cannot catch them, while any threshold high enough to try taxes correct grunt work with paid cloud escalations — net cost, no accuracy gain. This is the spec's load-bearing miscalibration caveat, now empirical.
+
+**What stays / what's deferred:** the machinery ships off-by-default (current behavior byte-identical) and the `confidence`/`mean_logprob` fields are now surfaced on the `llm.response` bus envelope and the `rift llm --json` output (`tool_llm_prompt`, takes effect on next app rebuild+restart) for observability and future recalibration. Re-evaluate only if (a) a *different* resident model is used, (b) the goal shifts to catching catastrophic low-confidence failures (truncation/garbage) rather than subtle wrong answers — though those are already covered by the failure-gated path — or (c) a calibrated, label-free method (C3PO conformal) replaces raw logprobs. Re-run `phase3-calibration.py` with a larger error sample before revisiting.
 
 ## Problem
 
@@ -92,9 +105,9 @@ if router.should_escalate_on_confidence(resp.confidence, &decision.task_type)
 
 ## Open Decisions
 
-1. **Metric:** mean-token-probability (recommended, simple) · min-token-probability (stricter — one shaky token trips it) · C3PO conformal (label-free, calibrated, more work).
-2. **Escalation target policy:** local partner (cold-load/evict the grunt resident) vs. straight to **cloud Gemini** (no VRAM, costs latency). Lean **cloud** — confidence-escalation is rare; it shouldn't evict the grunt resident mid-session.
-3. **Rollout:** ship behind `confidence_threshold: None` + the cockpit display first → calibrate → enable. Or build+enable in one pass.
+1. **Metric:** ~~mean-token-probability (recommended, simple) · min-token-probability (stricter)~~ — **RESOLVED (calibration): neither separates correct from wrong on granite grunt work** (both gave precision 0.00; see Calibration result). C3PO conformal (label-free, calibrated) remains the only metric with a theoretical shot, but is more work and unbuilt.
+2. **Escalation target policy:** local partner (cold-load/evict the grunt resident) vs. straight to **cloud Gemini** (no VRAM, costs latency). Lean **cloud** — confidence-escalation is rare; it shouldn't evict the grunt resident mid-session. (Moot while the feature stays off.)
+3. **Rollout:** ~~ship behind `None` → calibrate → enable~~ — **RESOLVED: shipped behind `None`, calibrated, decision is to STAY off for grunt work** (see Calibration result). Not enabling.
 
 ## Why this is the last research item
 

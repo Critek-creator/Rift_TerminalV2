@@ -2430,6 +2430,12 @@ async fn tool_llm_prompt(
                     "latency_ms": resp.latency_ms,
                     "cost_usd": cost_usd,
                     "escalated": escalated,
+                    // Confidence (mean per-token probability) + raw mean logprob —
+                    // present only for local llama-server completions (logprobs:true);
+                    // null for cloud/CLI providers. Lets the cockpit LLM-activity tab
+                    // display it and supports offline threshold calibration.
+                    "confidence": resp.confidence,
+                    "mean_logprob": resp.mean_logprob,
                     "source": "mcp",
                     "tier": tier,
                 });
@@ -2446,6 +2452,10 @@ async fn tool_llm_prompt(
                     "routing_reason": decision.reason,
                     "cost_usd": cost_usd,
                     "escalated": escalated,
+                    // Surfaced for confidence-gated escalation calibration + cockpit
+                    // display. `null` when the provider returns no logprobs.
+                    "confidence": resp.confidence,
+                    "mean_logprob": resp.mean_logprob,
                 }));
             }
             Err(err) => {
