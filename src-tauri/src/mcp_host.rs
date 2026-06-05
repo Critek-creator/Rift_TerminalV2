@@ -2397,6 +2397,15 @@ async fn tool_llm_prompt(
         if let Some(g) = payload.get("grammar").and_then(|v| v.as_str()) {
             opts.insert("grammar".into(), json!(g));
         }
+        // JSON Schema passthrough — the robust structured-output path (server
+        // compiles it to a constraint that handles strings, unlike raw GBNF
+        // negated classes). Accepts an object; the translator forwards it as the
+        // llama-server `json_schema` field.
+        if let Some(js) = payload.get("json_schema") {
+            if js.is_object() {
+                opts.insert("json_schema".into(), js.clone());
+            }
+        }
         if opts.is_empty() {
             None
         } else {

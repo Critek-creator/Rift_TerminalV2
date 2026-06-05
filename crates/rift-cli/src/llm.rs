@@ -173,6 +173,15 @@ pub enum LlmCmd {
         /// or multi-line grammars). Ignored if --grammar is also given.
         #[arg(long)]
         grammar_file: Option<String>,
+        /// JSON Schema (as a JSON string) constraining output to schema-valid
+        /// JSON — the robust structured-output path (handles strings, where raw
+        /// GBNF negated classes are dropped). Sent as the llama-server
+        /// `json_schema` field.
+        #[arg(long)]
+        json_schema: Option<String>,
+        /// Read the JSON Schema from a file (alternative to --json-schema).
+        #[arg(long)]
+        json_schema_file: Option<String>,
         /// Print the full JSON result instead of just the content.
         #[arg(long)]
         json: bool,
@@ -225,6 +234,8 @@ async fn dispatch(socket_arg: Option<&str>, cmd: LlmCmd) -> Result<()> {
             max_tokens,
             grammar,
             grammar_file,
+            json_schema,
+            json_schema_file,
             json,
         } => {
             let prompt = match text {
@@ -237,6 +248,15 @@ async fn dispatch(socket_arg: Option<&str>, cmd: LlmCmd) -> Result<()> {
                 (None, Some(path)) => Some(
                     std::fs::read_to_string(&path)
                         .map_err(|e| anyhow!("read grammar file {path}: {e}"))?,
+                ),
+                (None, None) => None,
+            };
+            // Inline --json-schema wins; otherwise read --json-schema-file.
+            let schema_str = match (json_schema, json_schema_file) {
+                (Some(s), _) => Some(s),
+                (None, Some(path)) => Some(
+                    std::fs::read_to_string(&path)
+                        .map_err(|e| anyhow!("read json-schema file {path}: {e}"))?,
                 ),
                 (None, None) => None,
             };
@@ -256,6 +276,11 @@ async fn dispatch(socket_arg: Option<&str>, cmd: LlmCmd) -> Result<()> {
             }
             if let Some(g) = grammar_str {
                 map.insert("grammar".into(), json!(g));
+            }
+            if let Some(s) = schema_str {
+                let val: serde_json::Value = serde_json::from_str(&s)
+                    .map_err(|e| anyhow!("invalid --json-schema (must be JSON): {e}"))?;
+                map.insert("json_schema".into(), val);
             }
             let result = host_call(socket_arg, "llm_prompt", args).await?;
             if json {

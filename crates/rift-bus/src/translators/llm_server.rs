@@ -64,6 +64,13 @@ struct ChatRequest {
     /// providers / unconstrained requests.
     #[serde(skip_serializing_if = "Option::is_none")]
     grammar: Option<String>,
+    /// JSON Schema (llama.cpp top-level `json_schema` extension) constraining
+    /// generation to a schema-valid JSON value. The server compiles it to an
+    /// internal constraint that — unlike a hand-written GBNF with negated char
+    /// classes (`[^...]`, which this build silently drops) — reliably constrains
+    /// strings. Sourced from `CompletionRequest.provider_options["json_schema"]`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    json_schema: Option<serde_json::Value>,
     /// llama.cpp chat-template kwargs (e.g. `{"enable_thinking": false}` to
     /// disable the reasoning channel on thinking models like gemma/gpt-oss).
     /// Sourced from `CompletionRequest.provider_options["chat_template_kwargs"]`.
@@ -267,6 +274,15 @@ fn build_chat_request(req: &CompletionRequest, model: &str, stream: bool) -> Cha
         .and_then(|g| g.as_str())
         .map(str::to_string);
 
+    // Pass through a JSON Schema if supplied — the robust path for structured
+    // output (the server's schema→constraint handles strings, where raw GBNF
+    // negated classes are dropped on this build).
+    let json_schema = req
+        .provider_options
+        .as_ref()
+        .and_then(|opts| opts.get("json_schema"))
+        .cloned();
+
     let chat_template_kwargs = req
         .provider_options
         .as_ref()
@@ -301,6 +317,7 @@ fn build_chat_request(req: &CompletionRequest, model: &str, stream: bool) -> Cha
         stop: req.stop_sequences.clone(),
         stream,
         grammar,
+        json_schema,
         chat_template_kwargs,
         tools,
         tool_choice,
@@ -693,6 +710,46 @@ mod tests {
         // And it must actually serialize into the wire body.
         let body = serde_json::to_value(&chat).unwrap();
         assert_eq!(body["grammar"], "root ::= \"other\"");
+    }
+
+    #[test]
+    fn build_chat_request_forwards_json_schema() {
+        let schema = serde_json::json!({
+            "type": "object",
+            "properties": { "name": { "type": "string" } },
+            "required": ["name"]
+        });
+        let req = CompletionRequest {
+            messages: vec![Message {
+                role: Role::User,
+                content: "x".to_string(),
+            }],
+            max_tokens: Some(8),
+            temperature: Some(0.0),
+            stop_sequences: vec![],
+            system_prompt: None,
+            provider_options: Some(serde_json::json!({ "json_schema": schema })),
+        };
+        let chat = build_chat_request(&req, "m", false);
+        assert!(chat.json_schema.is_some());
+        // Must serialize into the wire body as the llama-server `json_schema` field.
+        let body = serde_json::to_value(&chat).unwrap();
+        assert_eq!(body["json_schema"]["type"], "object");
+        assert_eq!(body["json_schema"]["required"][0], "name");
+        // Absent when not supplied (skip_serializing_if).
+        let req2 = CompletionRequest {
+            messages: vec![Message {
+                role: Role::User,
+                content: "x".to_string(),
+            }],
+            max_tokens: None,
+            temperature: None,
+            stop_sequences: vec![],
+            system_prompt: None,
+            provider_options: None,
+        };
+        let body2 = serde_json::to_value(build_chat_request(&req2, "m", false)).unwrap();
+        assert!(body2.get("json_schema").is_none());
     }
 
     #[test]
