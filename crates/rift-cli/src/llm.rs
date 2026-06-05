@@ -164,6 +164,15 @@ pub enum LlmCmd {
         /// Max tokens to generate.
         #[arg(long)]
         max_tokens: Option<u32>,
+        /// GBNF grammar constraining generation (llama.cpp extension). Guarantees
+        /// the output conforms — e.g. a one-of-N enum or valid JSON — instead of
+        /// relying on the prompt. Passed verbatim to the llama-server `grammar`.
+        #[arg(long)]
+        grammar: Option<String>,
+        /// Read the GBNF grammar from a file (alternative to --grammar for large
+        /// or multi-line grammars). Ignored if --grammar is also given.
+        #[arg(long)]
+        grammar_file: Option<String>,
         /// Print the full JSON result instead of just the content.
         #[arg(long)]
         json: bool,
@@ -214,11 +223,22 @@ async fn dispatch(socket_arg: Option<&str>, cmd: LlmCmd) -> Result<()> {
             system,
             tier,
             max_tokens,
+            grammar,
+            grammar_file,
             json,
         } => {
             let prompt = match text {
                 Some(t) => t,
                 None => read_stdin_prompt()?,
+            };
+            // Inline --grammar wins; otherwise read --grammar-file if given.
+            let grammar_str = match (grammar, grammar_file) {
+                (Some(g), _) => Some(g),
+                (None, Some(path)) => Some(
+                    std::fs::read_to_string(&path)
+                        .map_err(|e| anyhow!("read grammar file {path}: {e}"))?,
+                ),
+                (None, None) => None,
             };
             let mut args = json!({ "prompt": prompt });
             let map = args.as_object_mut().unwrap();
@@ -233,6 +253,9 @@ async fn dispatch(socket_arg: Option<&str>, cmd: LlmCmd) -> Result<()> {
             }
             if let Some(mt) = max_tokens {
                 map.insert("max_tokens".into(), json!(mt));
+            }
+            if let Some(g) = grammar_str {
+                map.insert("grammar".into(), json!(g));
             }
             let result = host_call(socket_arg, "llm_prompt", args).await?;
             if json {

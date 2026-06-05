@@ -2381,13 +2381,27 @@ async fn tool_llm_prompt(
     // ChatRequest.chat_template_kwargs (llama.cpp template extension). A raw
     // `chat_template_kwargs` object, if supplied, takes precedence over the bool.
     let provider_options: Option<Value> = {
+        let mut opts = serde_json::Map::new();
         let kwargs = payload.get("chat_template_kwargs").cloned().or_else(|| {
             payload
                 .get("enable_thinking")
                 .and_then(|v| v.as_bool())
                 .map(|b| json!({ "enable_thinking": b }))
         });
-        kwargs.map(|k| json!({ "chat_template_kwargs": k }))
+        if let Some(k) = kwargs {
+            opts.insert("chat_template_kwargs".into(), k);
+        }
+        // GBNF grammar passthrough — `translators::llm_server` forwards this as the
+        // llama-server `grammar` field, guaranteeing the completion conforms (e.g.
+        // a one-of-N enum or valid JSON). Grunt classify/extract supply this.
+        if let Some(g) = payload.get("grammar").and_then(|v| v.as_str()) {
+            opts.insert("grammar".into(), json!(g));
+        }
+        if opts.is_empty() {
+            None
+        } else {
+            Some(Value::Object(opts))
+        }
     };
 
     let mut current_model_id = decision.model_id.clone();
