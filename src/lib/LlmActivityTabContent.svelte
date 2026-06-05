@@ -123,7 +123,11 @@
         const cost = p?.cost_usd as number | undefined;
         const costStr = cost ? ` — ${llmRouting.formatCost(cost)}` : '';
         const escStr = p?.escalated ? ' [escalated]' : '';
-        return `${p?.tokens_in ?? 0} in / ${p?.tokens_out ?? 0} out — ${p?.latency_ms ?? 0}ms${costStr}${escStr}`;
+        // Confidence (mean per-token probability) — present only for local
+        // llama-server completions; null for cloud/CLI/streaming/ensemble.
+        const conf = p?.confidence as number | null | undefined;
+        const confStr = typeof conf === 'number' ? ` — ${Math.round(conf * 100)}% conf` : '';
+        return `${p?.tokens_in ?? 0} in / ${p?.tokens_out ?? 0} out — ${p?.latency_ms ?? 0}ms${costStr}${confStr}${escStr}`;
       }
       case 'llm.error':
         return `${p?.error ?? 'unknown error'}${p?.retryable ? ' [retryable]' : ''}`;

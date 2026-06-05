@@ -252,6 +252,7 @@ fn publish_route_event(bus: &RiftBus, decision: &RoutingDecision) {
     bus.publish(env);
 }
 
+#[allow(clippy::too_many_arguments)]
 fn publish_response_event(
     bus: &RiftBus,
     model_id: &str,
@@ -260,6 +261,7 @@ fn publish_response_event(
     latency_ms: u64,
     cost_usd: f64,
     escalated: bool,
+    confidence: Option<f32>,
 ) {
     let mut env = Envelope::new(Category::Llm, "llm.response");
     env.payload = json!({
@@ -269,6 +271,9 @@ fn publish_response_event(
         "latency_ms": latency_ms,
         "cost_usd": cost_usd,
         "escalated": escalated,
+        // Mean per-token probability for local llama-server completions; null for
+        // cloud/CLI/streaming/ensemble (no logprobs). Cockpit LLM-activity display.
+        "confidence": confidence,
     });
     bus.publish(env);
 }
@@ -440,6 +445,7 @@ pub async fn llm_complete(
                             resp.latency_ms,
                             cost_first,
                             escalated,
+                            resp.confidence,
                         );
                         publish_route_event(&bus, &next);
 
@@ -497,6 +503,7 @@ pub async fn llm_complete(
                                     chosen.latency_ms,
                                     cost,
                                     true,
+                                    chosen.confidence,
                                 );
 
                                 return Ok(LlmCompleteResult {
@@ -535,6 +542,7 @@ pub async fn llm_complete(
                                     primary_resp.latency_ms,
                                     cost,
                                     false,
+                                    primary_resp.confidence,
                                 );
                                 return Ok(LlmCompleteResult {
                                     content: primary_resp.content,
@@ -565,6 +573,7 @@ pub async fn llm_complete(
                     resp.latency_ms,
                     cost,
                     escalated,
+                    resp.confidence,
                 );
 
                 return Ok(LlmCompleteResult {
@@ -732,6 +741,7 @@ pub async fn llm_stream(
         latency_ms,
         cost,
         false,
+        None, // streaming: no per-token logprobs captured
     );
 
     Ok(LlmCompleteResult {
@@ -847,6 +857,7 @@ pub async fn llm_ensemble(
             res_a.latency_ms,
             res_a.cost_usd,
             false,
+            None, // ensemble: confidence not surfaced per-arm
         );
     }
     if res_b.error.is_none() {
@@ -858,6 +869,7 @@ pub async fn llm_ensemble(
             res_b.latency_ms,
             res_b.cost_usd,
             false,
+            None, // ensemble: confidence not surfaced per-arm
         );
     }
 
