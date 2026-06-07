@@ -234,6 +234,17 @@ async fn handle_envelope(
             return;
         }
 
+        // Streaming chat (Phase 1b): start-ack synchronously, then stream token
+        // deltas as `mcp.notify.llm_chat_stream` envelopes — same pattern as
+        // `bus_tail`. Intercepted here so it bypasses the single-response
+        // `dispatch_tool` path.
+        if tool_name == "llm_chat_stream" {
+            let result =
+                start_llm_chat_stream(bus, app_handle, request_id.clone(), &env.payload).await;
+            publish_response(bus, tool_name, request_id, result);
+            return;
+        }
+
         let result = dispatch_tool(
             bus,
             cfg,
@@ -337,6 +348,8 @@ async fn dispatch_tool(
         "aegis_state" => tool_aegis_state(bus),
         // Phase A.1 — bus_tail is intercepted before dispatch_tool — see handle_envelope.
         "bus_tail" => Err("bus_tail must route through start_bus_tail".into()),
+        // Phase 1b — llm_chat_stream is likewise intercepted in handle_envelope.
+        "llm_chat_stream" => Err("llm_chat_stream must route through start_llm_chat_stream".into()),
         // Phase B — Tier 1 read tools (D-014 §3 Tier 1 catalog)
         "fs_read" => tool_fs_read(project_root, payload),
         "fs_tree" => tool_fs_tree(project_root, app_handle, payload),
@@ -344,6 +357,10 @@ async fn dispatch_tool(
         "pty_list" => tool_pty_list(pty_registry),
         "cockpit_state" => tool_cockpit_state(bus),
         "notif_tabs" => tool_notif_tabs(bus),
+        // Abyssal Index read tools — the Index→LLM grounding pipeline. Degrade
+        // gracefully (clear error) when built without the `index` feature.
+        "index_search" => tool_index_search(payload).await,
+        "index_get" => tool_index_get(payload).await,
         // Phase C — Tier 2 inspection tools (D-014 §3, default-off)
         "dom_snapshot" => {
             if !cfg.allow_inspection {
@@ -437,6 +454,7 @@ async fn dispatch_tool(
         "llm_switch" => tool_llm_switch(bus, payload),
         "llm_health" => tool_llm_health(payload).await,
         "llm_prompt" => tool_llm_prompt(bus, app_handle, payload).await,
+        "llm_chat" => tool_llm_chat(bus, app_handle, payload).await,
         "llm_ensemble" => tool_llm_ensemble(bus, payload).await,
         // Single forced tool call by a local model (Path C spike). Reuses the
         // full dispatch context to run ONE read-only tool through dispatch_tool.
@@ -1877,6 +1895,49 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
 // Ensemble Router LLM tools
 // ---------------------------------------------------------------------------
 
+/// `index_search` — full-text (FTS5) search over the Abyssal Index vault.
+/// Returns ranked node metadata (id, title, domain, tags, summary, …). Read
+/// half of the Index→LLM grounding pipeline that `rift chat --ground` drives.
+/// Only present in `index`-enabled builds; otherwise returns an unavailable
+/// error so callers degrade gracefully.
+#[cfg(feature = "index")]
+async fn tool_index_search(payload: &Value) -> Result<Value, String> {
+    let query = payload
+        .get("query")
+        .and_then(|v| v.as_str())
+        .ok_or("missing required argument: query")?;
+    let limit = payload
+        .get("limit")
+        .and_then(|v| v.as_u64())
+        .map(|v| v as usize);
+    let nodes = crate::index_bridge::index_search_nodes(query.to_string(), limit).await?;
+    serde_json::to_value(nodes).map_err(|e| format!("serialize index search result: {e}"))
+}
+
+/// Stub for builds without the `index` feature — graceful "unavailable".
+#[cfg(not(feature = "index"))]
+async fn tool_index_search(_payload: &Value) -> Result<Value, String> {
+    Err("index integration not available — build Rift with --features index".into())
+}
+
+/// `index_get` — fetch a single Index node by id, including its full markdown
+/// `body` (the text injected as grounding context). Feature-gated as above.
+#[cfg(feature = "index")]
+async fn tool_index_get(payload: &Value) -> Result<Value, String> {
+    let id = payload
+        .get("id")
+        .and_then(|v| v.as_str())
+        .ok_or("missing required argument: id")?;
+    let node = crate::index_bridge::index_get_node(id.to_string()).await?;
+    serde_json::to_value(node).map_err(|e| format!("serialize index node: {e}"))
+}
+
+/// Stub for builds without the `index` feature — graceful "unavailable".
+#[cfg(not(feature = "index"))]
+async fn tool_index_get(_payload: &Value) -> Result<Value, String> {
+    Err("index integration not available — build Rift with --features index".into())
+}
+
 /// `llm_models` — list all configured models with status.
 fn tool_llm_models() -> Result<Value, String> {
     let config = rift_bus::config::load_config().map_err(|e| format!("{e}"))?;
@@ -2293,21 +2354,306 @@ async fn run_local_tool_call(
     }))
 }
 
-/// `llm_prompt` — send a prompt through the router and return the response.
+/// `llm_chat_stream` — streaming multi-turn (D-014 Phase A.1 pattern, like
+/// `bus_tail`). Intercepted in [`handle_envelope`] before `dispatch_tool`:
+/// returns a synchronous start-ack, then streams token deltas as
+/// `mcp.notify.llm_chat_stream` envelopes (`{request_id, delta, done:false}`),
+/// closing with a terminal `{request_id, done:true, tokens_out, model_used,
+/// latency_ms}` (or `{..., done:true, error}` on failure).
 ///
-/// Phase 2: Uses RouterService for model selection. Supports @model tags,
-/// auto-routing profiles, and escalation on retryable failures.
+/// Unlike the non-streaming path there is NO fallback chain: partial content
+/// has already reached the client, so a mid-stream error is surfaced rather
+/// than retried on another model (mirrors `llm_stream`).
+async fn start_llm_chat_stream(
+    bus: &RiftBus,
+    app_handle: &AppHandle,
+    request_id: Value,
+    payload: &Value,
+) -> Result<Value, String> {
+    use rift_bus::translators::llm::{CompletionRequest, Message, Role};
+
+    let arr = payload
+        .get("messages")
+        .and_then(|v| v.as_array())
+        .ok_or("missing required argument: messages (array of {role, content})")?;
+    let mut messages = Vec::with_capacity(arr.len());
+    for m in arr {
+        let role = match m.get("role").and_then(|v| v.as_str()) {
+            Some("system") => Role::System,
+            Some("user") => Role::User,
+            Some("assistant") => Role::Assistant,
+            Some(other) => return Err(format!("invalid message role: {other}")),
+            None => return Err("message missing 'role'".into()),
+        };
+        let content = m
+            .get("content")
+            .and_then(|v| v.as_str())
+            .ok_or("message missing 'content'")?
+            .to_string();
+        messages.push(Message { role, content });
+    }
+    if messages.is_empty() {
+        return Err("messages must not be empty".into());
+    }
+    let route_text = messages
+        .iter()
+        .rev()
+        .find(|m| m.role == Role::User)
+        .map(|m| m.content.clone())
+        .ok_or("messages must contain at least one user message")?;
+
+    let config = rift_bus::config::load_config().map_err(|e| format!("{e}"))?;
+    let mut router = rift_router::RouterService::new(config.ensemble.clone());
+    if let Some(pm) =
+        app_handle.try_state::<Arc<rift_bus::translators::llm_process::ProcessManager>>()
+    {
+        router.sync_local_availability(&pm.live_models());
+    }
+
+    let model_id_override = payload.get("model_id").and_then(|v| v.as_str());
+    let tier = payload
+        .get("tier")
+        .and_then(|v| v.as_str())
+        .unwrap_or("partner")
+        .to_string();
+
+    let decision = router
+        .route(&route_text, model_id_override)
+        .map_err(|e| format!("{e}"))?;
+    let decision = crate::llm_commands::maybe_refine_with_classifier(
+        &router,
+        &config.ensemble,
+        &route_text,
+        decision,
+    )
+    .await;
+
+    let mut route_env = Envelope::new(Category::Llm, "llm.route");
+    route_env.payload = json!({
+        "model_id": decision.model_id,
+        "task_type": decision.task_type,
+        "profile": decision.profile,
+        "reason": decision.reason,
+        "was_overridden": decision.was_overridden,
+        "source": "mcp",
+        "tier": tier,
+    });
+    bus.publish(route_env);
+
+    let parsed = rift_router::parse_model_tag(&route_text);
+    let clean = parsed.clean_prompt.clone();
+    if let Some(last_user) = messages.iter_mut().rev().find(|m| m.role == Role::User) {
+        last_user.content = clean;
+    }
+
+    let system_prompt = payload
+        .get("system_prompt")
+        .and_then(|v| v.as_str())
+        .map(String::from);
+    let max_tokens = payload
+        .get("max_tokens")
+        .and_then(|v| v.as_u64())
+        .map(|v| v as u32);
+    // Thinking control only — grammar / json_schema are not chat concerns.
+    let provider_options: Option<Value> = {
+        let mut opts = serde_json::Map::new();
+        let kwargs = payload.get("chat_template_kwargs").cloned().or_else(|| {
+            payload
+                .get("enable_thinking")
+                .and_then(|v| v.as_bool())
+                .map(|b| json!({ "enable_thinking": b }))
+        });
+        if let Some(k) = kwargs {
+            opts.insert("chat_template_kwargs".into(), k);
+        }
+        if opts.is_empty() {
+            None
+        } else {
+            Some(Value::Object(opts))
+        }
+    };
+
+    let model = router
+        .find_model(&decision.model_id)
+        .map_err(|e| format!("{e}"))?
+        .clone();
+    let provider = crate::llm_commands::create_provider(&model)?;
+
+    let request = CompletionRequest {
+        messages,
+        max_tokens,
+        temperature: None,
+        stop_sequences: vec![],
+        system_prompt,
+        provider_options,
+    };
+
+    // Spawn the streaming task and ack immediately. The client reads
+    // `mcp.notify.llm_chat_stream` deltas until `done:true`.
+    let bus_cl = bus.clone();
+    let rid = request_id;
+    let model_id = model.id.clone();
+    let tier_cl = tier;
+    tauri::async_runtime::spawn(async move {
+        use futures_util::StreamExt;
+        let start = std::time::Instant::now();
+        let mut tokens_out: u64 = 0;
+        match provider.stream(request).await {
+            Ok(mut stream) => {
+                while let Some(item) = stream.next().await {
+                    match item {
+                        Ok(chunk) => {
+                            if let Some(tc) = chunk.token_count {
+                                tokens_out = tc as u64;
+                            }
+                            if !chunk.text.is_empty() {
+                                publish_notify_raw(
+                                    &bus_cl,
+                                    "llm_chat_stream",
+                                    json!({ "request_id": rid, "delta": chunk.text, "done": false }),
+                                );
+                            }
+                            if chunk.is_final {
+                                break;
+                            }
+                        }
+                        Err(e) => {
+                            publish_notify_raw(
+                                &bus_cl,
+                                "llm_chat_stream",
+                                json!({ "request_id": rid, "done": true, "error": e.to_string() }),
+                            );
+                            return;
+                        }
+                    }
+                }
+                let latency_ms = start.elapsed().as_millis() as u64;
+                let mut resp_env = Envelope::new(Category::Llm, "llm.response");
+                resp_env.payload = json!({
+                    "model_id": model_id,
+                    "tokens_in": 0,
+                    "tokens_out": tokens_out,
+                    "latency_ms": latency_ms,
+                    "escalated": false,
+                    "source": "mcp",
+                    "tier": tier_cl,
+                });
+                bus_cl.publish(resp_env);
+                publish_notify_raw(
+                    &bus_cl,
+                    "llm_chat_stream",
+                    json!({
+                        "request_id": rid,
+                        "done": true,
+                        "tokens_out": tokens_out,
+                        "model_used": model_id,
+                        "latency_ms": latency_ms,
+                    }),
+                );
+            }
+            Err(e) => {
+                publish_notify_raw(
+                    &bus_cl,
+                    "llm_chat_stream",
+                    json!({ "request_id": rid, "done": true, "error": e.to_string() }),
+                );
+            }
+        }
+    });
+
+    Ok(json!({ "streaming": true, "model_id": model.id }))
+}
+
+/// `llm_prompt` — single-shot: send one user prompt through the router.
+///
+/// Thin wrapper over [`complete_via_router`] with a one-message conversation.
+/// Uses RouterService for model selection. Supports @model tags, auto-routing
+/// profiles, and escalation on retryable failures.
 async fn tool_llm_prompt(
     bus: &RiftBus,
     app_handle: &AppHandle,
     payload: &Value,
 ) -> Result<Value, String> {
-    use rift_bus::translators::llm::{CompletionRequest, LlmProvider, Message, Role};
+    use rift_bus::translators::llm::{Message, Role};
 
     let prompt = payload
         .get("prompt")
         .and_then(|v| v.as_str())
         .ok_or("missing required argument: prompt")?;
+
+    let messages = vec![Message {
+        role: Role::User,
+        content: prompt.to_string(),
+    }];
+    complete_via_router(bus, app_handle, payload, messages, prompt).await
+}
+
+/// `llm_chat` — multi-turn: send a full conversation through the router.
+///
+/// Accepts `messages: [{role, content}]` (system / user / assistant). Routes
+/// on the latest user message; otherwise identical to [`tool_llm_prompt`]
+/// (same routing, fallback chain, provider_options, and bus events). This is
+/// the multi-turn surface `rift chat` drives.
+async fn tool_llm_chat(
+    bus: &RiftBus,
+    app_handle: &AppHandle,
+    payload: &Value,
+) -> Result<Value, String> {
+    use rift_bus::translators::llm::{Message, Role};
+
+    let arr = payload
+        .get("messages")
+        .and_then(|v| v.as_array())
+        .ok_or("missing required argument: messages (array of {role, content})")?;
+
+    let mut messages = Vec::with_capacity(arr.len());
+    for m in arr {
+        let role = match m.get("role").and_then(|v| v.as_str()) {
+            Some("system") => Role::System,
+            Some("user") => Role::User,
+            Some("assistant") => Role::Assistant,
+            Some(other) => return Err(format!("invalid message role: {other}")),
+            None => return Err("message missing 'role'".into()),
+        };
+        let content = m
+            .get("content")
+            .and_then(|v| v.as_str())
+            .ok_or("message missing 'content'")?
+            .to_string();
+        messages.push(Message { role, content });
+    }
+    if messages.is_empty() {
+        return Err("messages must not be empty".into());
+    }
+
+    // Route + tag-parse on the latest user message — matches single-shot
+    // semantics where the user's text drives model selection.
+    let route_text = messages
+        .iter()
+        .rev()
+        .find(|m| m.role == Role::User)
+        .map(|m| m.content.clone())
+        .ok_or("messages must contain at least one user message")?;
+
+    complete_via_router(bus, app_handle, payload, messages, &route_text).await
+}
+
+/// Shared routing + completion core for [`tool_llm_prompt`] and
+/// [`tool_llm_chat`].
+///
+/// `messages` is the conversation sent to the provider; `route_text` is the
+/// text the router classifies and `@tag`-parses (the latest user message).
+/// Any `@tag` is stripped from the latest user message before the request is
+/// sent. Publishes `llm.route` / `llm.response` / `llm.error` exactly as the
+/// single-shot path always has — existing callers see no behavioral change.
+async fn complete_via_router(
+    bus: &RiftBus,
+    app_handle: &AppHandle,
+    payload: &Value,
+    mut messages: Vec<rift_bus::translators::llm::Message>,
+    route_text: &str,
+) -> Result<Value, String> {
+    use rift_bus::translators::llm::{CompletionRequest, LlmProvider, Role};
 
     let config = rift_bus::config::load_config().map_err(|e| format!("{e}"))?;
     let mut router = rift_router::RouterService::new(config.ensemble.clone());
@@ -2336,7 +2682,7 @@ async fn tool_llm_prompt(
         .to_string();
 
     let decision = router
-        .route(prompt, model_id_override)
+        .route(route_text, model_id_override)
         .map_err(|e| format!("{e}"))?;
 
     // Phase 2: refine the ambiguous `Other` bucket with the tiny classifier
@@ -2344,7 +2690,7 @@ async fn tool_llm_prompt(
     let decision = crate::llm_commands::maybe_refine_with_classifier(
         &router,
         &config.ensemble,
-        prompt,
+        route_text,
         decision,
     )
     .await;
@@ -2362,8 +2708,14 @@ async fn tool_llm_prompt(
     });
     bus.publish(route_env);
 
-    let parsed = rift_router::parse_model_tag(prompt);
-    let clean_prompt = &parsed.clean_prompt;
+    let parsed = rift_router::parse_model_tag(route_text);
+    let clean_prompt = parsed.clean_prompt.clone();
+
+    // Strip any `@tag` from the latest user message before it reaches the
+    // provider — the tag is a routing directive, not part of the prompt.
+    if let Some(last_user) = messages.iter_mut().rev().find(|m| m.role == Role::User) {
+        last_user.content = clean_prompt.clone();
+    }
 
     let system_prompt = payload
         .get("system_prompt")
@@ -2426,10 +2778,7 @@ async fn tool_llm_prompt(
         let provider: Box<dyn LlmProvider> = crate::llm_commands::create_provider(&model)?;
 
         let request = CompletionRequest {
-            messages: vec![Message {
-                role: Role::User,
-                content: clean_prompt.clone(),
-            }],
+            messages: messages.clone(),
             max_tokens,
             temperature: None,
             stop_sequences: vec![],
@@ -2500,7 +2849,7 @@ async fn tool_llm_prompt(
 
                 router.mark_unavailable(&current_model_id);
                 if let Some(next) =
-                    router.escalate(&current_model_id, &fallback_chain, clean_prompt)
+                    router.escalate(&current_model_id, &fallback_chain, &clean_prompt)
                 {
                     current_model_id = next.model_id;
                     fallback_chain = next.fallback_chain;
