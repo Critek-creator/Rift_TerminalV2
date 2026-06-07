@@ -92,8 +92,17 @@ struct ChatRequest {
     /// a signal. Has no effect on providers that ignore unknown fields.
     logprobs: bool,
     /// Number of top alternative log-prob candidates per token. Set to 1
-    /// (we only need the chosen-token prob) to minimise response size.
+    /// (we only need the chosen-token prob) to minimise response size. Omitted
+    /// entirely when 0: llama-server returns HTTP 400 ("top_logprobs requires
+    /// logprobs to be set to true") if this field is present without
+    /// `logprobs:true`, which is exactly the streaming path (sends neither).
+    #[serde(skip_serializing_if = "is_zero")]
     top_logprobs: u32,
+}
+
+/// `serde` skip predicate — omit a numeric field when it is zero.
+fn is_zero(n: &u32) -> bool {
+    *n == 0
 }
 
 #[derive(Serialize)]
@@ -690,6 +699,46 @@ mod tests {
         assert_eq!(chat.messages.len(), 1);
         assert!(chat.stream);
         assert!(chat.grammar.is_none());
+    }
+
+    /// Regression: streaming requests must NOT serialize `top_logprobs`.
+    /// llama-server returns HTTP 400 ("top_logprobs requires logprobs to be set
+    /// to true") if the field is present without `logprobs:true` — which broke
+    /// `rift chat` streaming until `top_logprobs` was made skip-when-zero.
+    #[test]
+    fn streaming_request_omits_top_logprobs() {
+        let req = CompletionRequest {
+            messages: vec![Message {
+                role: Role::User,
+                content: "hi".to_string(),
+            }],
+            max_tokens: None,
+            temperature: None,
+            stop_sequences: vec![],
+            system_prompt: None,
+            provider_options: None,
+        };
+
+        let stream_body = serde_json::to_value(build_chat_request(&req, "m", true)).unwrap();
+        assert!(
+            stream_body.get("top_logprobs").is_none(),
+            "streaming must omit top_logprobs (llama-server 400s otherwise): {stream_body}"
+        );
+        assert_eq!(
+            stream_body.get("logprobs").and_then(|v| v.as_bool()),
+            Some(false)
+        );
+
+        // Non-streaming still requests logprobs for the confidence signal.
+        let complete_body = serde_json::to_value(build_chat_request(&req, "m", false)).unwrap();
+        assert_eq!(
+            complete_body.get("top_logprobs").and_then(|v| v.as_u64()),
+            Some(1)
+        );
+        assert_eq!(
+            complete_body.get("logprobs").and_then(|v| v.as_bool()),
+            Some(true)
+        );
     }
 
     #[test]
