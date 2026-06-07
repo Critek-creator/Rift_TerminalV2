@@ -59,6 +59,14 @@ struct ChatRequest {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     stop: Vec<String>,
     stream: bool,
+    /// Reuse the KV cache for the longest matching prompt prefix (llama.cpp
+    /// extension). Always `true`: with one resident model and a stable system
+    /// prefix (rules / index grounding / conversation history), the prefix is
+    /// prefilled once then served from cache on every subsequent turn — measured
+    /// on granite as a 17K-token prefix dropping from ~2927ms cold to ~24ms warm.
+    /// Default-on in recent llama-server builds; set explicitly so the win does
+    /// not silently depend on the server default.
+    cache_prompt: bool,
     /// GBNF grammar (llama.cpp extension) constraining generation. Sourced from
     /// `CompletionRequest.provider_options["grammar"]`. Omitted for other
     /// providers / unconstrained requests.
@@ -325,6 +333,7 @@ fn build_chat_request(req: &CompletionRequest, model: &str, stream: bool) -> Cha
         temperature: req.temperature,
         stop: req.stop_sequences.clone(),
         stream,
+        cache_prompt: true,
         grammar,
         json_schema,
         chat_template_kwargs,
@@ -739,6 +748,31 @@ mod tests {
             complete_body.get("logprobs").and_then(|v| v.as_bool()),
             Some(true)
         );
+    }
+
+    /// Both streaming and non-streaming requests must set `cache_prompt:true`
+    /// so prefix reuse doesn't depend on the llama-server default.
+    #[test]
+    fn request_sets_cache_prompt() {
+        let req = CompletionRequest {
+            messages: vec![Message {
+                role: Role::User,
+                content: "hi".to_string(),
+            }],
+            max_tokens: None,
+            temperature: None,
+            stop_sequences: vec![],
+            system_prompt: None,
+            provider_options: None,
+        };
+        for stream in [true, false] {
+            let body = serde_json::to_value(build_chat_request(&req, "m", stream)).unwrap();
+            assert_eq!(
+                body.get("cache_prompt").and_then(|v| v.as_bool()),
+                Some(true),
+                "cache_prompt must be true (stream={stream})"
+            );
+        }
     }
 
     #[test]
