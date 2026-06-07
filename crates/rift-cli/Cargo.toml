@@ -18,6 +18,8 @@ clap = { workspace = true }
 tokio = { workspace = true }
 serde_json = { workspace = true }
 anyhow = { workspace = true }
+# Interactive line editor for `rift chat` (history, multi-line, validator).
+reedline = "0.48"
 
 [dev-dependencies]
 tokio = { workspace = true }

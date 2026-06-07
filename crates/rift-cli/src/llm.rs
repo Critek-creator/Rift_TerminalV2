@@ -51,9 +51,10 @@ fn resolve_socket_quiet(arg: Option<&str>) -> Option<String> {
     rift_bus::load_mcp_socket().ok().flatten()
 }
 
-/// One-shot host call: connect → handshake → `mcp.request.{tool}` → await the
-/// matching `mcp.response.{tool}`. Returns the host's `result` value.
-pub(crate) async fn host_call(socket_arg: Option<&str>, tool: &str, args: Value) -> Result<Value> {
+/// Connect to the running host and complete the token handshake. Returns the
+/// authenticated [`IpcClient`] ready for `mcp.request.*` frames. Shared by the
+/// one-shot [`host_call`] and the streaming [`host_call_streaming`].
+async fn connect_and_handshake(socket_arg: Option<&str>) -> Result<IpcClient> {
     let socket = resolve_socket_quiet(socket_arg)
         .ok_or_else(|| anyhow!("Rift host not running (no socket)"))?;
     let token = rift_bus::load_mcp_token()
@@ -94,8 +95,13 @@ pub(crate) async fn host_call(socket_arg: Option<&str>, tool: &str, args: Value)
             _ => continue,
         }
     }
+    Ok(client)
+}
 
-    // --- Request (payload = { request_id, ...args }) ---
+/// Send an `mcp.request.{tool}` frame with a fresh correlation id (payload =
+/// `{ request_id, ...args }`). Returns the request id so the caller can match
+/// the response / notify envelopes.
+async fn send_tool_request(client: &mut IpcClient, tool: &str, args: &Value) -> Result<String> {
     let rid = request_id("rq");
     let mut payload = json!({ "request_id": rid });
     if let Some(obj) = args.as_object() {
@@ -111,6 +117,14 @@ pub(crate) async fn host_call(socket_arg: Option<&str>, tool: &str, args: Value)
         .with_payload(&payload)
         .map_err(|e| anyhow!("request build: {e}"))?;
     client.send(&req).await.context("send request")?;
+    Ok(rid)
+}
+
+/// One-shot host call: connect → handshake → `mcp.request.{tool}` → await the
+/// matching `mcp.response.{tool}`. Returns the host's `result` value.
+pub(crate) async fn host_call(socket_arg: Option<&str>, tool: &str, args: Value) -> Result<Value> {
+    let mut client = connect_and_handshake(socket_arg).await?;
+    let rid = send_tool_request(&mut client, tool, &args).await?;
 
     let resp_kind = format!("mcp.response.{tool}");
     loop {
@@ -141,6 +155,77 @@ pub(crate) async fn host_call(socket_arg: Option<&str>, tool: &str, args: Value)
             .and_then(|v| v.as_str())
             .unwrap_or("unknown host error");
         return Err(anyhow!("tool '{tool}' failed: {msg}"));
+    }
+}
+
+/// Streaming host call: connect → handshake → `mcp.request.{tool}` → consume
+/// `mcp.notify.{tool}` deltas (each `{request_id, delta, done}`) until a
+/// terminal `done:true`, invoking `on_delta` for each text delta. The host's
+/// synchronous start-ack (`mcp.response.{tool}`) is validated first; a non-ok
+/// ack — or a `{done:true, error}` notify — returns `Err`. On success returns
+/// the terminal notify payload (final metadata: tokens_out, model_used, …).
+///
+/// Note the recv loop tolerates the full bus stream (the host socket forwards
+/// every envelope): non-matching kinds / request_ids are skipped. The
+/// per-recv [`CALL_TIMEOUT`] resets each delta, so only an inter-token stall
+/// longer than the ceiling trips it.
+pub(crate) async fn host_call_streaming<F>(
+    socket_arg: Option<&str>,
+    tool: &str,
+    args: Value,
+    mut on_delta: F,
+) -> Result<Value>
+where
+    F: FnMut(&str),
+{
+    let mut client = connect_and_handshake(socket_arg).await?;
+    let rid = send_tool_request(&mut client, tool, &args).await?;
+
+    let resp_kind = format!("mcp.response.{tool}");
+    let notify_kind = format!("mcp.notify.{tool}");
+    loop {
+        let env = timeout(CALL_TIMEOUT, client.recv())
+            .await
+            .map_err(|_| anyhow!("timed out waiting for {notify_kind}"))??;
+        if env.category != Category::Mcp {
+            continue;
+        }
+        if env.payload.get("request_id").and_then(|v| v.as_str()) != Some(rid.as_str()) {
+            continue;
+        }
+        if env.kind == resp_kind {
+            // Start-ack, or a setup error before any stream began.
+            let ok = env
+                .payload
+                .get("ok")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            if !ok {
+                let msg = env
+                    .payload
+                    .get("error")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("stream setup failed");
+                return Err(anyhow!("tool '{tool}' failed: {msg}"));
+            }
+            continue; // ack ok — keep reading deltas
+        }
+        if env.kind == notify_kind {
+            if let Some(err) = env.payload.get("error").and_then(|v| v.as_str()) {
+                return Err(anyhow!("stream error: {err}"));
+            }
+            if let Some(delta) = env.payload.get("delta").and_then(|v| v.as_str()) {
+                on_delta(delta);
+            }
+            if env
+                .payload
+                .get("done")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false)
+            {
+                return Ok(env.payload.clone());
+            }
+        }
     }
 }
 

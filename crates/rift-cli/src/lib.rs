@@ -10,6 +10,7 @@ use anyhow::{anyhow, Context, Result};
 use clap::{Parser, Subcommand};
 use rift_bus::{Category, Envelope, IpcClient};
 
+mod chat;
 mod llm;
 mod session;
 
@@ -73,6 +74,32 @@ pub enum Cmd {
     Session {
         #[command(subcommand)]
         sub: session::SessionCmd,
+    },
+
+    /// Interactive multi-turn chat with a local model, routed through Rift.
+    ///
+    /// A local lifeline: when the cloud assistant is rate-limited or offline,
+    /// `rift chat` still answers (degraded but functional). Exits cleanly if
+    /// Rift isn't running. See the `chat` module.
+    Chat {
+        /// Force a specific model id (else the router/profile chooses).
+        #[arg(long)]
+        model: Option<String>,
+        /// System prompt / behavioral rules for the whole session (inline).
+        #[arg(long)]
+        system: Option<String>,
+        /// Read the session rules from a file. Overrides the auto-discovered
+        /// `.rift/rules.md` (project) and `~/.config/rift/rules.md` (global).
+        #[arg(long)]
+        system_file: Option<std::path::PathBuf>,
+        /// Ground the session in the Abyssal Index: FTS5-select entries
+        /// matching this topic and inject them as context at startup. Needs an
+        /// `index`-enabled Rift build; degrades to no grounding otherwise.
+        #[arg(long)]
+        ground: Option<String>,
+        /// Max tokens to generate per turn.
+        #[arg(long)]
+        max_tokens: Option<u32>,
     },
 }
 
@@ -165,6 +192,25 @@ pub async fn execute(cli: Cli) -> Result<()> {
         }
         Cmd::Llm { sub } => llm::run(cli.socket.as_deref(), sub).await,
         Cmd::Session { sub } => session::run(cli.socket.as_deref(), sub).await,
+        Cmd::Chat {
+            model,
+            system,
+            system_file,
+            ground,
+            max_tokens,
+        } => {
+            chat::run_chat(
+                cli.socket.as_deref(),
+                chat::ChatOptions {
+                    model,
+                    system,
+                    system_file,
+                    ground,
+                    max_tokens,
+                },
+            )
+            .await
+        }
     }
 }
 
