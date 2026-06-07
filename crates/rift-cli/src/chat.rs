@@ -52,12 +52,16 @@ const SUMMARIZE_AT_PCT: u64 = 70;
 const KEEP_RECENT: usize = 8;
 
 /// Index entries selected for grounding (`--ground` / `/ground`).
-const GROUND_TOP_K: usize = 5;
+const GROUND_TOP_K: usize = 8;
 
-/// Char budget for the injected grounding block — bounded so the system prefix
-/// stays cache-friendly regardless of whether prefix caching holds on the
-/// model (the Mamba/SWA risk flagged in the Phase 2 research).
-const GROUND_CHAR_BUDGET: usize = 24_000;
+/// Char budget for the injected grounding block (~15K tokens). The Phase 2
+/// cache gate confirmed prefix caching holds on the default model (granite: a
+/// 17K-token prefix is served from cache after the first turn, ~2927ms → ~24ms),
+/// so a generous static grounding prefix is near-free per turn there. Still
+/// bounded: on models where prefix caching does NOT hold (SWA, e.g. gemma) this
+/// is re-prefilled each turn, and it must leave room for rules + conversation
+/// within the context window.
+const GROUND_CHAR_BUDGET: usize = 60_000;
 
 /// Prefix marking an injected grounding block, so `/ground` can replace a
 /// prior one without disturbing the rules / other system messages.
