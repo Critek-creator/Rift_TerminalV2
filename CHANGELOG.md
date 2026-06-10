@@ -6,6 +6,34 @@ loosely [Keep a Changelog](https://keepachangelog.com/), the project follows
 
 ---
 
+## [1.4.0] — 2026-06-10
+
+### Added
+
+- **`rift chat`** — a multi-turn local-model REPL in the CLI: live token streaming (with a non-streaming fallback), slash commands (`/clear /model /tokens /ground /save /help /exit`), automatic conversation summarization at ~70% context fill, rules files (`--system` > `--system-file` > project `.rift/rules.md` > global `~/.config/rift/rules.md`), and `--ground <topic>` / `/ground` Abyssal Index grounding via FTS5 selection into a cache-safe system prefix. Backed by new `llm_chat` / `llm_chat_stream` / `index_search` / `index_get` host tools.
+- **Command blocks (N3)** — every typed command becomes an addressable block: a sticky header pins the running command while its output spans the viewport top, block actions copy the command/output/both or bookmark it (★), and bookmarked blocks get a palette section that jumps back to them. An overlay on xterm scrollback, not a renderer replacement.
+- **Error → agent handoff** — failures captured into a FailureContext, explained by a local model (badge + result pop-out), collected in a persistent, drag-repositionable issues list with a propose-then-confirm fix flow; configurable modes (off / detect / assist).
+- **IA reset (Phases 0–4)** — command palette and slash launcher merged into one surface (Ctrl+Shift+P, frequently-used + LLM-ops sections), declared fixed-zone layout model with orphan resolution, ambient status chrome (mode hint + agent/error indicators), the Index cockpit force-graph restored (stable drag, decluttered labels), and a cross-store session timeline view with command-history ↔ session correlation and persistent data layer.
+- **Restart-safe sessions** — sessions survive an app restart: multi-pane layout restore with live working directories.
+- **Session-log compaction** — idle session logs compact into summary sidecars automatically; `rift session compact` / MCP trigger on demand.
+- **Terminal renderer** — GPU WebGL renderer plus programming-font ligatures; cursor style + blink are configurable; inline SVG Rift logo in the titlebar; local-model chip + VRAM moved to the titlebar with a status light.
+- **Router / local LLM** — context-fit model selection (prompts are filtered to models whose context window can actually hold them before ranking — a 256K local model is now reachable exactly when needed); confidence surfaced on responses and in the LLM activity tab with optional confidence-gated escalation (off by default); GBNF grammar and JSON-schema structured-output passthrough; single read-only tool call for local models; `cache_prompt` requested on every completion for KV prefix reuse; a hard-eval coding benchmark harness.
+
+### Fixed
+
+- **CLI-provider prompts that argv can't carry** — Windows `.cmd` shims (how npm installs `gemini`) reject newline arguments outright and cap command-line length, so any prompt with a system prompt — or a large one — failed to spawn. Such prompts are now piped on stdin.
+- **Big prompts routed past a running local model** — the balanced profile's fallback was raw config order, sending large prompts to a cloud CLI model while a fitting local server sat resident; it now prefers a running local and uses config order only when no local fits. The short-prompt path got the same preference earlier in the cycle.
+- **Streaming requests against stock llama-server** — `top_logprobs: 0` was serialized on the streaming path, drawing an HTTP 400; it is omitted when unset.
+- **Config resilience** — unknown LLM enum values from a newer build now deserialize to forward-compatible catch-alls instead of failing the whole config, and an unreadable config is preserved rather than silently overwritten with defaults.
+- **Window launch state** — minimized/blank-launch hardening reinstated and instrumented (`window.reveal.state` bus events), saved geometry floor-guarded against the "tiny window" launch, and console-window flashes from background process spawns suppressed (`CREATE_NO_WINDOW`).
+- **Settings** — reorganized into eight concern-scoped tabs; destructive actions (MCP token regenerate, crash-log clear) require an inline confirm; integration toggles use the safe save path.
+- **Frontend review sweep (P0–P2)** — mount-race subscription leaks guarded, `LlmChat` messages keyed by stable id (index keying tore the DOM mid-stream), dialog focus/Escape handling, session-strip keyboard navigation and reorder, WCAG contrast bump for faint amber, capability-gated aegis/sentinel/mcp notification tabs (§10.7).
+- **xterm refit crash** — the refit microtask is guarded against running after dispose.
+
+### Changed
+
+- **Reactive config store** — a load-once, dedupe-concurrent `configStore` singleton replaces scattered `config_get` reads and reloads on `rift:config-changed`.
+
 ## [1.3.0] — 2026-06-01
 
 ### Added
