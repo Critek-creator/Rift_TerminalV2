@@ -159,7 +159,15 @@ fn select_balanced(
         return Some(matched.id.clone());
     }
 
-    fit.first().map(|m| m.id.clone())
+    // No fit model advertises a matching strength tag. Prefer a LOCAL fit over
+    // raw config order: `fit` holds only available models, so a Local here is a
+    // live llama-server — free and on-box — while an equally zero-cost cloud
+    // entry still pays spawn/network latency (and a CLI-backed one may reject a
+    // large prompt outright). Config order decides only when no local fits.
+    fit.iter()
+        .find(|m| matches!(m.hosting, HostingMode::Local { .. }))
+        .or_else(|| fit.first())
+        .map(|m| m.id.clone())
 }
 
 pub fn task_type_tag(task_type: &TaskType) -> &'static str {
@@ -353,6 +361,45 @@ mod tests {
         // ~2M chars ≈ 500K tokens → exceeds every window → largest-context model.
         let r = select_model(&m, &RoutingProfile::Balanced, &TaskType::Other, 2_000_000);
         assert_eq!(r, Some("big".to_string()));
+    }
+
+    #[test]
+    fn untagged_big_prompt_prefers_local_over_earlier_cloud() {
+        // Live repro (2026-06-10): a 1M-ctx zero-cost cloud model sits EARLIER
+        // in config order than a running 256K local; a big prompt whose task
+        // tag matches neither must pick the LOCAL, not config order.
+        let mut cloud = ctx_models().remove(2); // 262K — roomy enough
+        cloud.id = "cloud-first".to_string();
+        cloud.hosting = HostingMode::Cloud;
+        cloud.capabilities.strength_tags = vec![]; // tag-less, like a CLI model
+        cloud.capabilities.max_context_tokens = 1_000_000;
+
+        let mut local = ctx_models().remove(2);
+        local.id = "local-big".to_string();
+        local.capabilities.strength_tags = vec![]; // Other→"code" matches neither
+
+        let m = vec![cloud, local];
+        // ~300K chars ≈ 77K tokens → fits both; tag match fails → local wins.
+        let r = select_model(&m, &RoutingProfile::Balanced, &TaskType::Other, 300_000);
+        assert_eq!(r, Some("local-big".to_string()));
+    }
+
+    #[test]
+    fn untagged_big_prompt_falls_to_cloud_when_no_local_fits() {
+        // When the only fitting model is cloud, the local-preference fallback
+        // must still route there (config order resumes control).
+        let mut cloud = ctx_models().remove(2);
+        cloud.id = "cloud-only-fit".to_string();
+        cloud.hosting = HostingMode::Cloud;
+        cloud.capabilities.strength_tags = vec![];
+        cloud.capabilities.max_context_tokens = 1_000_000;
+
+        let mut local = ctx_models().remove(0); // 64K — too small
+        local.capabilities.strength_tags = vec![];
+
+        let m = vec![cloud, local];
+        let r = select_model(&m, &RoutingProfile::Balanced, &TaskType::Other, 300_000);
+        assert_eq!(r, Some("cloud-only-fit".to_string()));
     }
 
     #[test]
