@@ -146,7 +146,12 @@ describe('ErrorClusterStore buffer cap (MAX_EVENTS = 2000)', () => {
     expect(store.totalCount).toBe(50);
   });
 
-  it('trims to at most MAX_EVENTS/2 entries when the cap is exceeded', () => {
+  // 2001 single pushes through the reactive assign-replace buffer take ~2s
+  // locally and ~10s on CI Windows runners — past vitest's 5s default. The
+  // synchronous 2001-push burst is a test-only worst case (real traffic is
+  // event-rate; replay bursts go through pushAll), so widen the timeout
+  // rather than weaken the cap coverage.
+  it('trims to at most MAX_EVENTS/2 entries when the cap is exceeded', { timeout: 30_000 }, () => {
     // Push 2001 events — should trigger a trim leaving ≤ 1000.
     for (let i = 0; i < 2001; i++) {
       store.push(makeEnv({ ts: i, payload: `event ${i}` }));
@@ -155,7 +160,7 @@ describe('ErrorClusterStore buffer cap (MAX_EVENTS = 2000)', () => {
     expect(store.totalCount).toBeGreaterThan(0);
   });
 
-  it('retains the newest events after a trim', () => {
+  it('retains the newest events after a trim', { timeout: 30_000 }, () => {
     for (let i = 0; i < 2001; i++) {
       store.push(makeEnv({ ts: i, payload: `event ${i}` }));
     }
