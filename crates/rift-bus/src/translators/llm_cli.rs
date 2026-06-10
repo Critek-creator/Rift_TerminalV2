@@ -16,6 +16,19 @@
 //! flags or be re-parsed by a shell. If the template contains no `{prompt}`
 //! token, the prompt is piped on the child's stdin instead.
 //!
+//! ## Stdin reroute for prompts argv can't carry
+//!
+//! Two hard constraints make an argv prompt impossible even when the template
+//! asks for one ([`must_pipe_prompt`]): command-line length caps (cmd.exe's
+//! 8191 chars — every npm-installed `.cmd` shim runs through it), and Rust's
+//! CVE-2024-24576 hardening, which refuses to spawn `.bat`/`.cmd` files with
+//! newline/CR arguments at all ("batch file arguments are invalid") — and a
+//! composed prompt with a system prompt always contains newlines. In those
+//! cases the prompt is rerouted to stdin: the `{prompt}` token is dropped from
+//! argv (together with a preceding `-p`/`--prompt` flag whose only job was to
+//! carry it), and the prompt is piped instead. Tools that can't read stdin
+//! lose nothing — the spawn was guaranteed to fail anyway.
+//!
 //! ## §9 boundary
 //!
 //! All process spawning lives here, inside the `translators/` boundary. Output
@@ -67,19 +80,51 @@ impl CliProvider {
 }
 
 /// A parsed invocation: program + args, plus the prompt to feed on stdin when
-/// the template has no `{prompt}` placeholder.
+/// the template has no `{prompt}` placeholder (or argv can't carry it — see
+/// [`must_pipe_prompt`]).
 struct Invocation {
     program: String,
     args: Vec<String>,
     stdin_prompt: Option<String>,
 }
 
+/// Max bytes of prompt allowed on the command line before rerouting to stdin.
+/// cmd.exe — which executes the `.bat`/`.cmd` shims npm installs — caps a
+/// command line at 8191 chars; CreateProcess itself at 32767. 6 KiB leaves
+/// headroom for the program path and the template's other args under the
+/// tighter cmd.exe limit.
+const ARG_PROMPT_MAX_BYTES: usize = 6 * 1024;
+
+/// Flags whose only job is to introduce the prompt value; dropped together
+/// with a standalone `{prompt}` token when the prompt is rerouted to stdin.
+const PROMPT_FLAGS: [&str; 2] = ["-p", "--prompt"];
+
+/// `true` when the program resolves to a `.bat`/`.cmd` script (cmd.exe shim).
+fn is_bat_like(program: &str) -> bool {
+    std::path::Path::new(&resolve_program(program))
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.eq_ignore_ascii_case("bat") || e.eq_ignore_ascii_case("cmd"))
+        .unwrap_or(false)
+}
+
+/// Whether the prompt must be piped on stdin instead of riding argv. Fires on
+/// the two constraints argv can't satisfy: prompts past the command-line size
+/// cap, and newline/CR content headed for a `.bat`/`.cmd` shim (Rust's
+/// CVE-2024-24576 hardening rejects the spawn outright).
+fn must_pipe_prompt(program: &str, prompt: &str) -> bool {
+    prompt.len() > ARG_PROMPT_MAX_BYTES
+        || (is_bat_like(program) && (prompt.contains('\n') || prompt.contains('\r')))
+}
+
 /// Parse the command template and substitute the prompt.
 ///
 /// No shell is involved: tokens are split on whitespace and `{prompt}` is
 /// replaced inside whichever token references it, so the prompt is always a
-/// single argv element. If no token references `{prompt}`, the prompt is routed
-/// to stdin instead.
+/// single argv element. The prompt is routed to stdin instead when no token
+/// references `{prompt}` — or when argv can't carry it ([`must_pipe_prompt`]),
+/// in which case the prompt-carrying token (and a preceding `-p`/`--prompt`
+/// flag) is dropped from argv.
 fn build_invocation(template: &str, prompt: &str) -> Result<Invocation, LlmError> {
     let mut tokens = template.split_whitespace();
     let program = tokens
@@ -89,17 +134,31 @@ fn build_invocation(template: &str, prompt: &str) -> Result<Invocation, LlmError
         })?
         .to_string();
 
+    let pipe = must_pipe_prompt(&program, prompt);
     let mut saw_placeholder = false;
-    let mut args: Vec<String> = tokens
-        .map(|t| {
-            if t.contains("{prompt}") {
-                saw_placeholder = true;
-                t.replace("{prompt}", prompt)
+    let mut args: Vec<String> = Vec::new();
+    for t in tokens {
+        if t.contains("{prompt}") {
+            saw_placeholder = true;
+            if pipe {
+                // Reroute to stdin: drop the prompt-carrying token. For the
+                // standalone `-p {prompt}` form, also drop the flag that
+                // existed only to introduce it (a dangling `-p` would swallow
+                // the next argument).
+                if t == "{prompt}" {
+                    if let Some(last) = args.last() {
+                        if PROMPT_FLAGS.contains(&last.as_str()) {
+                            args.pop();
+                        }
+                    }
+                }
             } else {
-                t.to_string()
+                args.push(t.replace("{prompt}", prompt));
             }
-        })
-        .collect();
+        } else {
+            args.push(t.to_string());
+        }
+    }
 
     // The `gemini` CLI refuses to run headless in an untrusted directory
     // (exit 55) without `--skip-trust`. The generic provider is already
@@ -118,7 +177,7 @@ fn build_invocation(template: &str, prompt: &str) -> Result<Invocation, LlmError
     Ok(Invocation {
         program,
         args,
-        stdin_prompt: if saw_placeholder {
+        stdin_prompt: if saw_placeholder && !pipe {
             None
         } else {
             Some(prompt.to_string())
@@ -554,6 +613,61 @@ mod tests {
     #[test]
     fn empty_template_errors() {
         assert!(build_invocation("   ", "x").is_err());
+    }
+
+    #[test]
+    fn oversized_prompt_reroutes_to_stdin_dropping_prompt_flag() {
+        // Past the argv budget, `-p {prompt}` must vanish from argv and the
+        // prompt must ride stdin — the live 2026-06-10 failure was a 288KB
+        // prompt spawned through gemini.cmd ("batch file arguments are invalid").
+        let big = "y".repeat(ARG_PROMPT_MAX_BYTES + 1);
+        let inv = build_invocation("gemini -p {prompt} --model gemini-2.5-pro", &big)
+            .expect("invocation");
+        assert_eq!(inv.args, vec!["--model", "gemini-2.5-pro", "--skip-trust"]);
+        assert_eq!(inv.stdin_prompt.as_deref(), Some(big.as_str()));
+    }
+
+    #[test]
+    fn oversized_prompt_reroutes_embedded_placeholder() {
+        // Embedded form: the whole `--input={prompt}` token is dropped — argv
+        // cannot carry the value in any shape.
+        let big = "y".repeat(ARG_PROMPT_MAX_BYTES + 1);
+        let inv = build_invocation("tool --input={prompt} --json", &big).expect("invocation");
+        assert_eq!(inv.args, vec!["--json"]);
+        assert_eq!(inv.stdin_prompt.as_deref(), Some(big.as_str()));
+    }
+
+    #[test]
+    fn oversized_reroute_keeps_unrelated_flags() {
+        // A preceding flag that is NOT a prompt introducer must survive the
+        // reroute (only `-p`/`--prompt` are dropped with the token).
+        let big = "y".repeat(ARG_PROMPT_MAX_BYTES + 1);
+        let inv = build_invocation("tool --verbose {prompt}", &big).expect("invocation");
+        assert_eq!(inv.args, vec!["--verbose"]);
+        assert_eq!(inv.stdin_prompt.as_deref(), Some(big.as_str()));
+    }
+
+    #[test]
+    fn small_multiline_prompt_stays_on_argv_for_plain_programs() {
+        // Newlines only force stdin for .bat/.cmd shims; a plain program keeps
+        // the documented argv contract.
+        let inv = build_invocation("tool -p {prompt}", "line one\nline two").expect("invocation");
+        assert_eq!(inv.args, vec!["-p", "line one\nline two"]);
+        assert!(inv.stdin_prompt.is_none());
+    }
+
+    #[test]
+    fn bat_shim_with_newline_prompt_must_pipe() {
+        // Explicit .cmd path: extension check needs no PATH lookup, so this is
+        // deterministic on every platform. Rust refuses newline args to
+        // .bat/.cmd outright (CVE-2024-24576 hardening) — stdin is the only way.
+        assert!(must_pipe_prompt(r"C:\tools\gemini.cmd", "a\nb"));
+        assert!(!must_pipe_prompt(r"C:\tools\gemini.cmd", "single line"));
+        assert!(!must_pipe_prompt("tool", "a\nb"));
+        assert!(must_pipe_prompt(
+            "tool",
+            &"y".repeat(ARG_PROMPT_MAX_BYTES + 1)
+        ));
     }
 
     #[test]
