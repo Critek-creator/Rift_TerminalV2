@@ -51,6 +51,8 @@
   }
 
   const ARCHIVE_LIMIT = 50;
+  const LIVE_AGENT_CAP = 200;
+  const LIVE_AGENT_TTL_MS = 10 * 60_000; // 10 minutes
   const RUNNING_INACTIVITY_HINT_MS = 30_000; // > 30s with no activity = "stuck?" hint
 
   // Live registry — keyed by agent id. Reactive map via reassignment.
@@ -235,6 +237,32 @@
         heatstrip.tick();
       }
       heatstripData = heatstrip.snapshot();
+
+      // TTL eviction: remove live agents whose lastActivityTs is older than
+      // LIVE_AGENT_TTL_MS (10 min). Covers the backend-crash case where
+      // agent.end is never published and entries accumulate forever.
+      const now = Date.now();
+      const staleIds = Object.keys(agents).filter(
+        (id) => now - agents[id].lastActivityTs > LIVE_AGENT_TTL_MS,
+      );
+      if (staleIds.length > 0) {
+        const next = { ...agents };
+        for (const id of staleIds) delete next[id];
+        agents = next;
+      }
+
+      // Hard cap: if live registry exceeds LIVE_AGENT_CAP, evict the oldest
+      // by lastActivityTs (most stale first) down to the cap.
+      const liveKeys = Object.keys(agents);
+      if (liveKeys.length > LIVE_AGENT_CAP) {
+        const sorted = liveKeys.sort(
+          (a, b) => agents[a].lastActivityTs - agents[b].lastActivityTs,
+        );
+        const toEvict = sorted.slice(0, liveKeys.length - LIVE_AGENT_CAP);
+        const next = { ...agents };
+        for (const id of toEvict) delete next[id];
+        agents = next;
+      }
     }, 1000);
   });
 

@@ -96,11 +96,16 @@
   const LOG_LIMIT = 200;
   const LIVE_WINDOW_MS = 4000;
 
+  // Monotonic sequence for stable {#each} keys (prevents full DOM teardown
+  // on buffer trims when array positions shift).
+  let _nextSeq = 0;
+  type EnvelopeWithSeq = Envelope & { _seq: number };
+
   let connected = $state(false);
   let error = $state('');
   let projects = $state<ProjectHealth[]>([]);
   let collectedAt = $state<string | null>(null);
-  let events = $state<Envelope[]>([]);
+  let events = $state<EnvelopeWithSeq[]>([]);
   let lastTickTs = $state<number>(Date.now());
   let paused = $state(false);
   let unsubscribe: (() => Promise<void>) | undefined;
@@ -173,7 +178,7 @@
     if (paused) return;
     if (!env.kind.startsWith('health.')) return;
     if (!shouldShow(env.kind, severityThreshold)) return;
-    events = [...events, env];
+    events = [...events, { ...env, _seq: _nextSeq++ }];
     if (events.length > LOG_LIMIT * 2) events = events.slice(-LOG_LIMIT);
 
     if (env.kind === 'health.portfolio') {
@@ -300,7 +305,7 @@
       <span class="strip-empty">◇ no recent health events</span>
     {:else}
       <div class="strip-events">
-        {#each liveEvents.slice(0, 10) as e, i (e.ts + ':' + e.kind + ':' + i)}
+        {#each liveEvents.slice(0, 10) as e (e._seq)}
           <span class="strip-event">
             ⊕ {e.kind.split('.').pop()}
           </span>

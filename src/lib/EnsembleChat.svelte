@@ -111,7 +111,8 @@
     if (timerB) { clearInterval(timerB); timerB = null; }
   }
 
-  onDestroy(() => { clearTimers(); });
+  let mounted = true;
+  onDestroy(() => { mounted = false; clearTimers(); });
 
   // ---------------------------------------------------------------------------
   // Send
@@ -171,6 +172,7 @@
       const onChunkB: Channel<StreamChunk> = new Channel();
 
       onChunkA.onmessage = (chunk: StreamChunk) => {
+        if (!mounted) return; // pane closed mid-stream — don't write dead state
         streamA += chunk.text;
         streamTokensA = chunk.tokens_so_far;
         if (chunk.is_final) {
@@ -182,6 +184,7 @@
       };
 
       onChunkB.onmessage = (chunk: StreamChunk) => {
+        if (!mounted) return; // pane closed mid-stream — don't write dead state
         streamB += chunk.text;
         streamTokensB = chunk.tokens_so_far;
         if (chunk.is_final) {
@@ -205,6 +208,7 @@
         onChunkB,
       });
 
+      if (!mounted) return;
       // Populate final results
       if (result.results.length >= 1) {
         resultA = result.results[0];
@@ -218,14 +222,16 @@
       totalCost = result.total_cost_usd;
 
     } catch (err) {
-      error = String(err);
+      if (mounted) error = String(err);
     } finally {
       sending = false;
       doneA = true;
       doneB = true;
       clearTimers();
-      scrollPaneA();
-      scrollPaneB();
+      if (mounted) {
+        scrollPaneA();
+        scrollPaneB();
+      }
     }
   }
 

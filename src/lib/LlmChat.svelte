@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onDestroy } from 'svelte';
   import { invoke, Channel } from '@tauri-apps/api/core';
   import { llmModels } from './llmModels.svelte';
   import { popouts } from './popouts.svelte';
@@ -27,6 +28,11 @@
     cost_usd?: number;
     escalated?: boolean;
   }
+
+  let mounted = true;
+  let generationToken = 0;
+
+  onDestroy(() => { mounted = false; });
 
   let messages = $state<ChatMessage[]>([]);
   let inputText = $state('');
@@ -83,11 +89,18 @@
     const assistantIdx = messages.length;
     messages = [...messages, { id: crypto.randomUUID(), role: 'assistant', content: '' }];
 
+    // Generation token: lets the onmessage callback discard chunks from a
+    // superseded or out-of-order stream (e.g. user sends again before stream
+    // finishes, or component unmounts mid-stream).
+    generationToken += 1;
+    const myToken = generationToken;
+
     try {
       type StreamChunk = { text: string; is_final: boolean; tokens_so_far: number };
       const onChunk: Channel<StreamChunk> = new Channel();
 
       onChunk.onmessage = (chunk: StreamChunk) => {
+        if (!mounted || generationToken !== myToken) return;
         // Append each token to the live assistant message.
         messages = messages.map((m, i) =>
           i === assistantIdx
@@ -114,6 +127,7 @@
         onChunk,
       });
 
+      if (!mounted || generationToken !== myToken) return;
       // Replace the streamed message with the authoritative final version (includes metadata).
       messages = messages.map((m, i) =>
         i === assistantIdx
@@ -132,6 +146,7 @@
           : m,
       );
     } catch (err) {
+      if (!mounted || generationToken !== myToken) return;
       error = String(err);
       // Append error to whatever partial content was already streamed.
       messages = messages.map((m, i) =>
@@ -145,8 +160,10 @@
           : m,
       );
     } finally {
-      sending = false;
-      scrollToBottom();
+      if (mounted && generationToken === myToken) {
+        sending = false;
+        scrollToBottom();
+      }
     }
   }
 

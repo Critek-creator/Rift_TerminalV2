@@ -33,7 +33,12 @@
   // State
   // ---------------------------------------------------------------------------
 
-  let entries = $state<Envelope[]>([]);
+  // Monotonic sequence for stable {#each} keys (index-keying causes full
+  // DOM teardown on buffer trims — seq is immune to array position shifts).
+  let _nextSeq = 0;
+  type EnvelopeWithSeq = Envelope & { _seq: number };
+
+  let entries = $state<EnvelopeWithSeq[]>([]);
   let lastTickTs = $state<number>(Date.now());
 
   // Latest aegis.context payload — drives the status header.
@@ -91,7 +96,7 @@
     if (env.kind === 'aegis.context') {
       contextPayload = env.payload as typeof contextPayload;
     }
-    entries = [...entries, env];
+    entries = [...entries, { ...env, _seq: _nextSeq++ }];
     if (entries.length > RECENT_LOG_LIMIT * 2) {
       entries = entries.slice(-RECENT_LOG_LIMIT);
     }
@@ -250,7 +255,7 @@
       <span class="strip-empty">(no in-flight events)</span>
     {:else}
       <div class="strip-events">
-        {#each liveEntries as e, i (e.ts + ':' + e.kind + ':' + i)}
+        {#each liveEntries as e (e._seq)}
           <span class="strip-event">{e.kind}</span>
         {/each}
       </div>
@@ -268,7 +273,7 @@
           <span class="empty-state-hint">session intelligence events will surface here</span>
         </div>
       {:else}
-        {#each recentEntries as e, i (e.ts + ':' + e.kind + ':' + i)}
+        {#each recentEntries as e (e._seq)}
           <AegisTabRenderer
             entry={{
               ts: e.ts,

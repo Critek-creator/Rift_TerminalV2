@@ -60,9 +60,15 @@
     llm:      'var(--amber-primary)',
   };
 
+  // Local sequence number — monotonically incremented when each envelope is
+  // admitted into the events array. Used as the stable {#each} key instead
+  // of the array index, so buffer trims don't cause full DOM teardown.
+  let _nextSeq = 0;
+  type EnvelopeWithSeq = Envelope & { _seq: number };
+
   let connected = $state(false);
   let error = $state('');
-  let events = $state<Envelope[]>([]);
+  let events = $state<EnvelopeWithSeq[]>([]);
   let paused = $state(false);
   let mutedCats = $state<Set<Category>>(new Set());
   let lastTickTs = $state<number>(Date.now());
@@ -101,15 +107,24 @@
     return h;
   });
 
-  let pendingBatch: Envelope[] = [];
+  let pendingBatch: Envelope[] = []; // raw, seq stamped in flushBatch
   let flushTimer: ReturnType<typeof setTimeout> | undefined;
   const FLUSH_INTERVAL_MS = 80;
+  const PENDING_BATCH_CAP = 200;
 
   function flushBatch(): void {
     flushTimer = undefined;
     if (pendingBatch.length === 0) return;
-    const batch = pendingBatch;
+    // Cap the pending batch under PTY-burst: keep the newest PENDING_BATCH_CAP
+    // events and discard older overflow accumulated between frames.
+    const raw = pendingBatch.length > PENDING_BATCH_CAP
+      ? pendingBatch.slice(-PENDING_BATCH_CAP)
+      : pendingBatch;
     pendingBatch = [];
+    // Stamp each incoming envelope with a monotonic sequence number so the
+    // {#each} key is stable even when the buffer is trimmed (index-keying
+    // causes full DOM teardown on every trim).
+    const batch: EnvelopeWithSeq[] = raw.map((e) => ({ ...e, _seq: _nextSeq++ }));
     let next = [...events, ...batch];
     if (next.length > RECENT_LOG_LIMIT * 2) {
       next = next.slice(-RECENT_LOG_LIMIT);
@@ -368,7 +383,7 @@
       <span class="strip-empty">(no in-flight events)</span>
     {:else}
       <div class="strip-events">
-        {#each liveEvents as e, i (e.ts + ':' + e.category + ':' + e.kind + ':' + i)}
+        {#each liveEvents as e (e._seq)}
           <span class="strip-event" style="--cat-color: {CAT_COLOR[e.category]};">
             <span class="strip-cat">{e.category}</span>
             <span class="strip-kind">{e.kind}</span>
@@ -394,8 +409,8 @@
           {/if}
         </div>
       {:else}
-        {#each queryFilteredEvents as e, i (e.ts + ':' + e.category + ':' + e.kind + ':' + i)}
-          {@const rowKey = e.ts + ':' + e.category + ':' + e.kind + ':' + i}
+        {#each queryFilteredEvents as e (e._seq)}
+          {@const rowKey = String(e._seq)}
           {@const isExpanded = expandedRows.has(rowKey)}
           {@const starred = isBookmarked(e)}
           {@const annotated = hasAnnotation(e)}

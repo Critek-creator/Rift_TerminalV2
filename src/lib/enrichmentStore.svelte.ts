@@ -29,6 +29,18 @@
 /** localStorage key for the enrichment snapshot. */
 export const ENRICHMENT_STORAGE_KEY = 'rift.enrichment.snapshot.v1';
 
+/**
+ * Hard cap on the number of unique fs_paths kept in the live map.
+ * When exceeded, the least-recently-touched paths are evicted first.
+ */
+const MAX_PATHS = 2000;
+
+/**
+ * Maximum number of paths persisted to localStorage (most-recently-touched
+ * first). Keeps the serialized snapshot well inside the 5 MB quota.
+ */
+const MAX_PERSIST_PATHS = 500;
+
 export interface EnrichmentEntry {
   /** Integration namespace, e.g. "index", "git". */
   provider_id: string;
@@ -119,10 +131,69 @@ export class EnrichmentStore {
   /** Storage backend — real localStorage in production, injected in tests. */
   private _storage: Storage;
 
+  /**
+   * Touch-order tracker for LRU eviction.
+   * A path is deleted and re-inserted at the end on every touch so the Map
+   * iteration order (insertion order) reflects recency: oldest first.
+   */
+  private _touchOrder = new Map<string, true>();
+
   constructor(storage: Storage = localStorage) {
     this._storage = storage;
     // Rehydrate from snapshot; live events overlay on top.
     this.map = loadSnapshot(storage);
+    // Seed touch-order from snapshot paths (order is arbitrary on init, but
+    // all paths need to be tracked so eviction works immediately).
+    for (const path of this.map.keys()) {
+      this._touchOrder.set(path, true);
+    }
+  }
+
+  /** Mark a path as most-recently used. */
+  private _touch(path: string): void {
+    this._touchOrder.delete(path);
+    this._touchOrder.set(path, true);
+  }
+
+  /**
+   * Evict the least-recently-touched paths until the live map is within
+   * MAX_PATHS. Creates a new Map identity so Svelte 5 $derived consumers
+   * re-run (in-place Map.delete() is not tracked).
+   */
+  private _evictIfNeeded(): void {
+    if (this._touchOrder.size <= MAX_PATHS) return;
+    const toRemove = this._touchOrder.size - MAX_PATHS;
+    const evicted: string[] = [];
+    let removed = 0;
+    for (const path of this._touchOrder.keys()) {
+      if (removed >= toRemove) break;
+      evicted.push(path);
+      removed++;
+    }
+    for (const path of evicted) {
+      this._touchOrder.delete(path);
+    }
+    const next = new Map(this.map);
+    for (const path of evicted) {
+      next.delete(path);
+    }
+    this.map = next;
+  }
+
+  /**
+   * Serialize to localStorage, capping to MAX_PERSIST_PATHS most-recently-
+   * touched paths so the snapshot never exhausts the 5 MB quota.
+   */
+  private _saveSnapshot(): void {
+    // Collect all paths in recency order (newest last in _touchOrder).
+    const allPaths = Array.from(this._touchOrder.keys());
+    // Persist newest MAX_PERSIST_PATHS paths.
+    const persistPaths = new Set(allPaths.slice(-MAX_PERSIST_PATHS));
+    const limited = new Map<string, EnrichmentEntry[]>();
+    for (const [path, entries] of this.map) {
+      if (persistPaths.has(path)) limited.set(path, entries);
+    }
+    saveSnapshot(limited, this._storage);
   }
 
   /**
@@ -143,8 +214,12 @@ export class EnrichmentStore {
     );
     const next = new Map(this.map);
     next.set(fs_path, [...filtered, e]);
+    this._touch(fs_path);
+    // Assign first so _evictIfNeeded operates on the current map; it will
+    // reassign this.map again if paths need to be evicted.
     this.map = next;
-    saveSnapshot(this.map, this._storage);
+    this._evictIfNeeded();
+    this._saveSnapshot();
   }
 
   /**
@@ -163,9 +238,10 @@ export class EnrichmentStore {
         return !isTarget;
       });
       if (kept.length > 0) next.set(fs_path, kept);
+      else this._touchOrder.delete(fs_path);
     }
     this.map = next;
-    saveSnapshot(this.map, this._storage);
+    this._saveSnapshot();
   }
 
   /**
@@ -177,10 +253,14 @@ export class EnrichmentStore {
     if (!entries) return;
     const kept = entries.filter((e) => e.provider_id !== provider_id);
     const next = new Map(this.map);
-    if (kept.length > 0) next.set(fs_path, kept);
-    else next.delete(fs_path);
+    if (kept.length > 0) {
+      next.set(fs_path, kept);
+    } else {
+      next.delete(fs_path);
+      this._touchOrder.delete(fs_path);
+    }
     this.map = next;
-    saveSnapshot(this.map, this._storage);
+    this._saveSnapshot();
   }
 
   /**
