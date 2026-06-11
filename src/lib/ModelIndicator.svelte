@@ -9,6 +9,7 @@
 
   import { invoke } from '@tauri-apps/api/core';
   import { llmModels } from './llmModels.svelte';
+  import { popouts } from './popouts.svelte';
 
   let model = $derived(
     llmModels.activeModelId
@@ -93,20 +94,39 @@
   function openModelSwap(): void {
     window.dispatchEvent(new CustomEvent('rift:open-model-swap'));
   }
+
+  function openChat(): void {
+    popouts.summon({ content: { kind: 'llm-chat' }, width: 'min(720px, 85vw)' });
+  }
 </script>
 
 {#if llmModels.enabled}
-  <button type="button" class="model-chip" {title} onclick={openModelSwap} aria-label={title}>
-    <span class="light {lightClass}" aria-hidden="true"></span>
-    <span class="sid">{label}</span>
-    {#if vramLabel}
-      <span class="vram" title="GPU VRAM in use — whole GPU, not just this model">{vramLabel}</span>
-    {/if}
-    <span class="swap" aria-hidden="true">⇄</span>
-  </button>
+  <span class="model-indicator-group">
+    <button type="button" class="model-chip" {title} onclick={openModelSwap} aria-label={title}>
+      <span class="light {lightClass}" aria-hidden="true"></span>
+      <span class="sid">{label}</span>
+      {#if vramLabel}
+        <span class="vram" title="GPU VRAM in use — whole GPU, not just this model">{vramLabel}</span>
+      {/if}
+      <span class="swap" aria-hidden="true">⇄</span>
+    </button>
+    <button
+      type="button"
+      class="chat-btn"
+      onclick={openChat}
+      title="Open local LLM chat"
+      aria-label="Open local LLM chat"
+    >💬</button>
+  </span>
 {/if}
 
 <style>
+  .model-indicator-group {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-xs);
+  }
+
   .model-chip {
     display: inline-flex;
     align-items: center;
@@ -179,6 +199,31 @@
     padding-left: 2px;
   }
   .model-chip:hover .swap { color: var(--amber-warm); }
+
+  .chat-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    height: var(--space-24);
+    width: var(--space-24);
+    font-size: var(--text-2xs);
+    color: var(--amber-warm);
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md, 4px);
+    cursor: pointer;
+    user-select: none;
+    transition: background var(--duration-med) var(--ease-out), border-color var(--duration-med) var(--ease-out), color var(--duration-med) var(--ease-out);
+  }
+  .chat-btn:hover {
+    color: var(--amber-bright);
+    background: rgba(255, 200, 64, 0.08);
+    border-color: var(--amber-dim);
+  }
+  .chat-btn:focus-visible {
+    outline: 1px solid var(--amber-warm);
+    outline-offset: -2px;
+  }
 
   @media (prefers-reduced-motion: reduce) {
     .light.starting { animation: none; }
