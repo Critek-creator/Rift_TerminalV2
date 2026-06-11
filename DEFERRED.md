@@ -28,6 +28,12 @@
 - `MODEL` → emitted by Claude Code as part of session-init hook; same upstream-blocked path as CTX% / SESSION%.
 - **Unblocking event:** Claude Code usage hook lands with token-count payload; then wire a cc-translator or extend `status.rs` to subscribe + republish as additional `Category::Status` fields. Update `StatusLine.svelte` subscription handler to read `ctx`, `sessionUse`, `week`, `model` from the envelope payload.
 
+### D-022 — IPC replay access control is Windows-only (opened 2026-06-11)
+
+- The named-pipe DACL added 2026-06-11 (owner + SYSTEM via SDDL in `ipc.rs`) closes the "any local user can connect and receive the replay snapshot" gap **on Windows only**. On Linux/macOS the listener uses the `GenericNamespaced` local-socket namespace (Linux: abstract namespace), which carries no filesystem permissions — any local process can still connect and drain the replay before sending a byte.
+- **Why deferred**: Rift is Windows-primary; the bus carries terminal-observability data, not the MCP token. Cross-platform auth is a design decision, not an inline fix: (a) path-based UDS in a `0700` runtime dir on unix, or (b) a token handshake gating the replay drain (also defense-in-depth on Windows).
+- **Unblocking event**: post-v1 design pass on cross-platform IPC auth. Raised by `/aegis --audit rift --deep` 2026-06-11.
+
 <!-- D-013 fully closed 2026-04-29 — see C-018 below. -->
 
 <!-- D-017 closed 2026-04-29 — see C-019 below. -->
@@ -37,41 +43,11 @@
 
 <!-- D-018 fully closed 2026-05-05 — see C-023 below. -->
 
-### D-017 — Viewer edit-mode syntax highlighting (post-v1 ask, opened 2026-04-29) — CLOSED 2026-04-29
-
-- Read mode uses Shiki for full syntax highlighting (`Viewer.svelte:330`). Edit mode is a plain `<textarea>` (`Viewer.svelte:313-319`) — no highlighting while typing.
-- Plain `<textarea>` cannot have inline syntax highlighting; it requires a real code editor (CodeMirror 6, Monaco, or a Shiki-overlay-on-contenteditable hack).
-- **Cost**: medium-large.
-  - **CodeMirror 6** (~150 KB gzipped): import `@codemirror/view`, `@codemirror/state`, `@codemirror/language`, `@codemirror/legacy-modes`. Wire the CM6 EditorView into the viewer body when `mode === 'edit'`. Map fs_read_text/write_text to the editor doc. ~1-2 hr including theme integration with the amber palette.
-  - **Monaco**: heavier (~3 MB), gives full IDE feel (Intellisense, multi-cursor) but overkill for the §11 "friction-reduction-only" editor scope.
-  - **DIY contenteditable + Shiki re-render on input**: lightest dep but laggy on large files.
-- **Why deferred**: §11 explicitly bounds the in-cockpit editor to "spot something in the graph, fix it, return to flow" — multi-file refactoring + IDE features are out of scope. Plain textarea is consistent with that scope but loses the syntax cue. Worth scoping a v1.x decision: do users want syntax-highlighted editing badly enough to take a 150KB dep + a code-editor abstraction surface? If yes, CodeMirror 6 is the right size. Currently undecided.
-- **Unblocking event**: user signals "I want syntax in edit mode badly enough to take CodeMirror 6 as a dep" → wire CM6 + theme.
-
 <!-- D-016 closed 2026-04-29 — see C-022 below. -->
 
-### D-015 — IndexGraph sub-door rendering (post-v1 ask, opened 2026-04-29) — CLOSED 2026-04-29
+<!-- D-014 promoted into v1 2026-04-29 — see C-021 below. Phases B–F continue per decisions/D-014_rift_mcp_v1_plan.md. -->
 
-- User-requested: render nested sub-doors (e.g., `pr003/agentic-workflow.md`, `pr003/agentic-workflow/base.md`) as nodes linked to their parent vault. Currently the IndexGraph only renders top-level vaults; sub-doors exist on disk and are visible to `integrity-check.ps1` (SUB-OK / SUB-SUB-OK lines) but are invisible to both the vault-walker translator and the frontend.
-- **Cost**: BOTH translator-change AND frontend-change. Surfaced 2026-04-29 by a dedicated scout pass.
-  - **Translator** — `crates/rift-bus/src/translators/vault_walker.rs:684-735` boot walk uses `std::fs::read_dir(&vaults_dir)` non-recursively. Sub-directories are not traversed. Either (a) switch to the `walkdir` crate for cross-platform recursive traversal or (b) implement manual recursion with explicit depth limit. Either way: emit one `Category::Index / kind="vault.update"` envelope per `.md` file at every depth.
-  - **Schema** — `index.rs:83-94` `VaultUpdatePayload` has `vault_id`, `path`, `change_kind` (and rich variant adds `name`, `cross_refs`). No parent linkage. Add `parent_vault_id: Option<String>` (None for top-level) so the frontend can wire edges without parsing slashes.
-  - **Frontend** — `src/lib/IndexGraph.svelte` subscription block (lines ~239) currently treats `vault_id` as a flat identifier. Generalize to: every distinct `vault_id` becomes a node; if `parent_vault_id` is present, add an edge from child → parent. Hierarchical IDs (e.g., `pr003.agentic-workflow.base`) need to be syntactically valid `vault_id` strings — coordinate with how integrity-check + manifest builder already produce them.
-- **Why deferred**: spec change (add a new field to a load-bearing payload) + crate dep change (potentially adding `walkdir`) + visual-density implications (the radial layout will need re-tuning when node count multiplies). Wants its own decision pass + plan, not an inline fix during BV-regression cleanup.
-- **Unblocking event**: post-v1 plan beat that decides:
-  1. Recursion strategy (walkdir vs hand-rolled) + max-depth policy
-  2. Whether sub-doors are first-class nodes (full visual treatment) or rendered differently (smaller, dimmer, or expand-on-click)
-  3. Layout strategy (still radial-by-kind, or local-cluster around parent)
-  4. Whether to ship behind a `rift.ui.show_sub_doors` config flag (preserves the simpler default for users with ~40 vaults; opt-in for power users with deep nesting)
-
-### ~~D-014 — Rift MCP server~~ (promoted into v1 2026-04-29, see C-021)
-
-Originally opened 2026-04-29 as a post-v1 ask. User signed off on the
-locked plan (see `decisions/D-014_rift_mcp_v1_plan.md` v1.1) the same day,
-promoting it into v1.x active build. Phase A scaffold has landed — see
-C-021 in the closed-deferrals section. Phases B–F (Tier 1 completion,
-DOM/screenshot/`js_eval`, mutating tools, audit-log notif tab,
-WebSocket transport) remain in the locked plan as ongoing v1.x work.
+<!-- Stale duplicate bodies of D-017 / D-015 removed 2026-06-11 (/rift-upgrade) — both were already closed and re-documented as C-019 / C-020 below. -->
 
 <!-- D-010 closed 2026-05-19 — see C-027 below. -->
 

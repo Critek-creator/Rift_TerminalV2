@@ -31,5 +31,10 @@ keyring = { workspace = true }
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 
+[target.'cfg(windows)'.dependencies]
+# Already in the graph via `interprocess` — direct dep only for the u16cstr!
+# SDDL literal handed to SecurityDescriptor::deserialize in ipc.rs.
+widestring = "1"
+
 [dev-dependencies]
 tempfile = "3"

@@ -2020,7 +2020,7 @@ fn tool_llm_switch(bus: &RiftBus, payload: &Value) -> Result<Value, String> {
 
 /// `llm_health` — run health check on one or all models.
 async fn tool_llm_health(payload: &Value) -> Result<Value, String> {
-    use rift_bus::translators::llm::LlmProvider;
+    use rift_bus::translators::llm::{LlmProvider, ProviderStatus};
     use rift_bus::translators::llm_server::LlamaServerProvider;
 
     let config = rift_bus::config::load_config().map_err(|e| format!("{e}"))?;
@@ -2033,8 +2033,11 @@ async fn tool_llm_health(payload: &Value) -> Result<Value, String> {
         .filter(|m| target_id.is_none() || target_id == Some(m.id.as_str()))
         .collect();
 
-    let mut results = Vec::new();
-    for m in &models {
+    // Checks run concurrently with a per-model timeout — sequential awaits
+    // made the all-models call stall for the sum of every unreachable
+    // endpoint's connect time, timing out the whole MCP request.
+    const HEALTH_TIMEOUT: Duration = Duration::from_secs(3);
+    let checks = models.iter().map(|m| async move {
         let provider: Box<dyn LlmProvider> = match &m.hosting {
             rift_bus::config::HostingMode::Local { process_config } => {
                 let ep = format!("http://127.0.0.1:{}", process_config.port);
@@ -2044,32 +2047,37 @@ async fn tool_llm_health(payload: &Value) -> Result<Value, String> {
                 Box::new(LlamaServerProvider::new(&m.endpoint, &m.model_identifier))
             }
             rift_bus::config::HostingMode::Cloud => {
-                results.push(json!({
+                return json!({
                     "model_id": m.id,
                     "status": "skipped",
                     "reason": "cloud health check not implemented — use API dashboard",
-                }));
-                continue;
+                });
             }
             // Forward-compat: a hosting mode this build doesn't recognize
             // (deserialized to `HostingMode::Unknown`) — nothing to health-check.
             _ => {
-                results.push(json!({
+                return json!({
                     "model_id": m.id,
                     "status": "skipped",
                     "reason": "unrecognized hosting mode — written by a newer Rift build",
-                }));
-                continue;
+                });
             }
         };
 
-        let status = provider.health_check().await;
-        results.push(json!({
+        let status = match tokio::time::timeout(HEALTH_TIMEOUT, provider.health_check()).await {
+            Ok(status) => status,
+            Err(_) => ProviderStatus::Error {
+                message: format!("health check timed out after {}s", HEALTH_TIMEOUT.as_secs()),
+                retryable: true,
+            },
+        };
+        json!({
             "model_id": m.id,
             "display_name": m.display_name,
             "status": serde_json::to_value(&status).unwrap_or(json!("unknown")),
-        }));
-    }
+        })
+    });
+    let results: Vec<Value> = futures_util::future::join_all(checks).await;
 
     Ok(json!({ "results": results }))
 }

@@ -450,8 +450,34 @@ pub fn load_mcp_token() -> Result<Option<String>, ConfigError> {
     }
 }
 
+/// Windows analogue of the `chmod 600` applied on Unix: replace the file's
+/// DACL with owner + LocalSystem only. SID-based grants (`*S-1-3-4` =
+/// OWNER RIGHTS, `*S-1-5-18` = LocalSystem) avoid username quoting/locale
+/// issues; `/inheritance:r` strips inherited ACEs so the grant list is the
+/// whole DACL. CREATE_NO_WINDOW suppresses the console flash (same rule as
+/// the PID-liveness probe below).
+#[cfg(windows)]
+fn restrict_file_to_owner(path: &Path) -> std::io::Result<()> {
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    let output = std::process::Command::new("icacls")
+        .arg(path)
+        .args(["/inheritance:r", "/grant:r", "*S-1-3-4:F", "*S-1-5-18:F"])
+        .creation_flags(CREATE_NO_WINDOW)
+        .output()?;
+    if !output.status.success() {
+        return Err(std::io::Error::other(format!(
+            "icacls failed with {}: {}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr).trim()
+        )));
+    }
+    Ok(())
+}
+
 /// Atomically write `token` to the MCP token path. Creates parent dir.
-/// On Unix, applies `chmod 600` after rename so the token is owner-only.
+/// On Unix, applies `chmod 600` after rename so the token is owner-only;
+/// on Windows, the DACL equivalent via [`restrict_file_to_owner`].
 pub fn save_mcp_token(token: &str) -> Result<(), ConfigError> {
     let path = mcp_token_path()?;
     if let Some(parent) = path.parent() {
@@ -467,6 +493,8 @@ pub fn save_mcp_token(token: &str) -> Result<(), ConfigError> {
         let perms = std::fs::Permissions::from_mode(0o600);
         std::fs::set_permissions(&path, perms)?;
     }
+    #[cfg(windows)]
+    restrict_file_to_owner(&path)?;
     Ok(())
 }
 
@@ -1503,15 +1531,17 @@ pub fn save_config_at(cfg: &RiftConfig, path: &Path) -> Result<(), ConfigError> 
     std::fs::write(&tmp_path, &toml_str)?;
     std::fs::rename(&tmp_path, path)?;
 
-    // Restrict config.toml to owner-only on Unix (mirrors save_mcp_token).
+    // Restrict config.toml to owner-only (mirrors save_mcp_token).
     // config.toml may contain the cleartext api_key_ref fallback and other
-    // sensitive settings — 0o600 prevents other users from reading it.
+    // sensitive settings — keep other local users out of it.
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
         let perms = std::fs::Permissions::from_mode(0o600);
         std::fs::set_permissions(path, perms)?;
     }
+    #[cfg(windows)]
+    restrict_file_to_owner(path)?;
 
     Ok(())
 }

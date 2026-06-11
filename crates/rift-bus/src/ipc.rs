@@ -81,7 +81,23 @@ impl IpcServer {
             .as_str()
             .to_ns_name::<GenericNamespaced>()
             .map_err(|e| IpcError::InvalidName(e.to_string()))?;
-        let listener: Listener = ListenerOptions::new().name(printable).create_tokio()?;
+        let opts = ListenerOptions::new().name(printable);
+
+        // Windows: restrict the pipe to its owner + LocalSystem. The default
+        // pipe DACL lets any local user connect, and a connection immediately
+        // receives the replay snapshot (full bus history) before sending a
+        // single byte — so access control must live on the pipe itself.
+        #[cfg(windows)]
+        let opts = {
+            use interprocess::os::windows::local_socket::ListenerOptionsExt;
+            use interprocess::os::windows::security_descriptor::SecurityDescriptor;
+            let sd = SecurityDescriptor::deserialize(widestring::u16cstr!(
+                "D:P(A;;GA;;;SY)(A;;GA;;;OW)"
+            ))?;
+            opts.security_descriptor(sd)
+        };
+
+        let listener: Listener = opts.create_tokio()?;
 
         let shutdown = Arc::new(Notify::new());
         let shutdown_acceptor = shutdown.clone();
