@@ -451,7 +451,12 @@ async fn dispatch_tool(
         }
         // Ensemble Router — LLM tools
         "llm_models" => tool_llm_models(),
-        "llm_switch" => tool_llm_switch(bus, payload),
+        "llm_switch" => {
+            if !cfg.allow_mutations {
+                return Err("llm_switch requires mcp.allow_mutations = true".into());
+            }
+            tool_llm_switch(bus, payload)
+        }
         "llm_health" => tool_llm_health(payload).await,
         "llm_prompt" => tool_llm_prompt(bus, app_handle, payload).await,
         "llm_chat" => tool_llm_chat(bus, app_handle, payload).await,
@@ -846,7 +851,8 @@ async fn tool_dom_snapshot(app_handle: &AppHandle, payload: &Value) -> Result<Va
     if html_str.len() <= INLINE_MAX {
         Ok(json!({ "window": window, "inline": true, "html": html_str }))
     } else {
-        let path = std::env::temp_dir().join(format!("rift-dom-{window}.html"));
+        let id = uuid::Uuid::new_v4();
+        let path = std::env::temp_dir().join(format!("rift-dom-{window}-{id}.html"));
         std::fs::write(&path, html_str)
             .map_err(|e| format!("failed to write DOM snapshot to {}: {e}", path.display()))?;
         Ok(json!({
@@ -879,13 +885,14 @@ async fn tool_screenshot(app_handle: &AppHandle, payload: &Value) -> Result<Valu
             .map_err(|e| format!("capture task panicked: {e}"))?
             .map_err(|e| format!("capture failed: {e}"))?;
 
-    // Write the PNG to a stable temp path (one file per window) and return the
-    // path rather than a multi-megabyte base64 blob — a 1.4 MB base64 string
-    // overflowed the MCP result token budget, forcing callers to decode-to-file
-    // by hand. INSPECTION_LOCK serializes inspection tools, so the fixed
-    // per-window filename has no write race. Callers Read the path to view it.
+    // Write the PNG to a unique temp path and return the path rather than a
+    // multi-megabyte base64 blob — a 1.4 MB base64 string overflowed the MCP
+    // result token budget, forcing callers to decode-to-file by hand. A uuid
+    // suffix prevents symlink-planting (TOCTOU) on the predictable per-window
+    // filename. Callers Read the returned path to view the image.
     let (width, height) = png_dimensions(&png_bytes).unwrap_or((0, 0));
-    let path = std::env::temp_dir().join(format!("rift-screenshot-{window_label}.png"));
+    let id = uuid::Uuid::new_v4();
+    let path = std::env::temp_dir().join(format!("rift-screenshot-{window_label}-{id}.png"));
     std::fs::write(&path, &png_bytes)
         .map_err(|e| format!("failed to write screenshot to {}: {e}", path.display()))?;
 

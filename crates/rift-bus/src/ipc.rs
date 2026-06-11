@@ -25,11 +25,11 @@ use std::time::Duration;
 
 use interprocess::local_socket::tokio::{prelude::*, Listener, RecvHalf, SendHalf, Stream};
 use interprocess::local_socket::{GenericNamespaced, ListenerOptions, ToNsName};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::{AsyncReadExt, AsyncWriteExt, BufWriter};
 use tokio::sync::{Mutex, Notify};
 use tokio::task::JoinSet;
 
-use crate::bus::{BusError, RiftBus, SubscribeFilter};
+use crate::bus::{BusError, RiftBus, SubscribeFilter, TryRecv};
 use crate::envelope::Envelope;
 
 /// Hard cap on a single inbound frame. Defends against malformed or
@@ -177,16 +177,47 @@ async fn handle_connection(stream: Stream, bus: RiftBus) {
     }
 }
 
-async fn run_writer(mut send: SendHalf, bus: RiftBus) -> Result<(), IpcError> {
-    // 1. Drain the replay snapshot first.
+async fn run_writer(send: SendHalf, bus: RiftBus) -> Result<(), IpcError> {
+    // Buffer writes so a connect-storm replay drain (up to the full replay
+    // ring) and live-event bursts collapse into one `flush()` syscall each
+    // instead of three per envelope. The named pipe / UDS is otherwise
+    // flushed per frame, which is costly under PTY-burst event volume.
+    let mut send = BufWriter::new(send);
+
+    // 1. Drain the replay snapshot first — buffered, single flush.
     let (snapshot, mut sub) = bus.subscribe(SubscribeFilter::All);
-    for env in snapshot {
-        write_frame(&mut send, &env).await?;
+    for env in &snapshot {
+        write_frame_buffered(&mut send, env).await?;
     }
-    // 2. Fan out live events.
+    send.flush().await?;
+
+    // 2. Fan out live events. Block for one, then drain any already-ready
+    // envelopes without awaiting so a burst flushes once.
     loop {
         match sub.recv().await {
-            Ok(env) => write_frame(&mut send, &env).await?,
+            Ok(env) => {
+                write_frame_buffered(&mut send, &env).await?;
+                loop {
+                    match sub.try_recv() {
+                        TryRecv::Ready(env) => write_frame_buffered(&mut send, &env).await?,
+                        TryRecv::Empty => break,
+                        // Lagged/Closed mid-drain: flush what we have, then
+                        // close so the client reconnects for a fresh snapshot.
+                        TryRecv::Lagged(n) => {
+                            tracing::warn!(
+                                "rift-bus ipc: writer lagged by {n} events; closing connection"
+                            );
+                            let _ = send.flush().await;
+                            return Ok(());
+                        }
+                        TryRecv::Closed => {
+                            let _ = send.flush().await;
+                            return Ok(());
+                        }
+                    }
+                }
+                send.flush().await?;
+            }
             // Lagged: client missed events. Close so they reconnect and
             // re-drain a fresh snapshot.
             Err(BusError::Lagged(n)) => {
@@ -209,7 +240,21 @@ async fn run_reader(mut recv: RecvHalf, bus: RiftBus) -> Result<(), IpcError> {
 // Framing — 4-byte LE length prefix + JSON body
 // ---------------------------------------------------------------------------
 
+/// Write one length-prefixed frame and flush immediately. Used by the
+/// request/response client paths where a frame must hit the wire at once.
 async fn write_frame<W>(writer: &mut W, env: &Envelope) -> Result<(), IpcError>
+where
+    W: AsyncWriteExt + Unpin,
+{
+    write_frame_buffered(writer, env).await?;
+    writer.flush().await?;
+    Ok(())
+}
+
+/// Write one length-prefixed frame into the writer without flushing. The
+/// caller controls flush cadence (see [`run_writer`], which batches a burst
+/// into a single flush).
+async fn write_frame_buffered<W>(writer: &mut W, env: &Envelope) -> Result<(), IpcError>
 where
     W: AsyncWriteExt + Unpin,
 {
@@ -220,7 +265,6 @@ where
     let len = body.len() as u32;
     writer.write_all(&len.to_le_bytes()).await?;
     writer.write_all(&body).await?;
-    writer.flush().await?;
     Ok(())
 }
 

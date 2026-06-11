@@ -1503,6 +1503,16 @@ pub fn save_config_at(cfg: &RiftConfig, path: &Path) -> Result<(), ConfigError> 
     std::fs::write(&tmp_path, &toml_str)?;
     std::fs::rename(&tmp_path, path)?;
 
+    // Restrict config.toml to owner-only on Unix (mirrors save_mcp_token).
+    // config.toml may contain the cleartext api_key_ref fallback and other
+    // sensitive settings — 0o600 prevents other users from reading it.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let perms = std::fs::Permissions::from_mode(0o600);
+        std::fs::set_permissions(path, perms)?;
+    }
+
     Ok(())
 }
 

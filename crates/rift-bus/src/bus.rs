@@ -198,6 +198,34 @@ impl Subscription {
             }
         }
     }
+
+    /// Non-blocking poll for the next matching envelope. Skips filtered-out
+    /// envelopes. Returns [`TryRecv::Empty`] when nothing matching is
+    /// immediately buffered — lets a writer drain a burst and flush once
+    /// instead of flushing per envelope.
+    pub fn try_recv(&mut self) -> TryRecv {
+        loop {
+            match self.rx.try_recv() {
+                Ok(env) if filter_matches(&self.filter, &env) => return TryRecv::Ready(env),
+                Ok(_) => continue, // filtered out; keep draining
+                Err(broadcast::error::TryRecvError::Empty) => return TryRecv::Empty,
+                Err(broadcast::error::TryRecvError::Lagged(n)) => return TryRecv::Lagged(n),
+                Err(broadcast::error::TryRecvError::Closed) => return TryRecv::Closed,
+            }
+        }
+    }
+}
+
+/// Outcome of a non-blocking [`Subscription::try_recv`].
+pub enum TryRecv {
+    /// A matching envelope was immediately ready.
+    Ready(Envelope),
+    /// Nothing matching is currently buffered.
+    Empty,
+    /// The subscriber fell behind by `n` events; caller should reconnect.
+    Lagged(u64),
+    /// The bus has closed.
+    Closed,
 }
 
 fn filter_matches(filter: &SubscribeFilter, env: &Envelope) -> bool {

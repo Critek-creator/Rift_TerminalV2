@@ -319,9 +319,30 @@ pub struct EnsembleResult {
 }
 
 /// Store an API key securely in the OS keyring.
+///
+/// After the key is stored, clears `api_key_ref` on the matching model config
+/// so the raw secret is not left in config.toml (backwards-compat fallback path
+/// becomes dead for this model). Both cache and disk are updated per the
+/// CachedConfig rule.
 #[tauri::command]
-pub async fn llm_key_store(model_id: String, key: String) -> Result<(), String> {
-    rift_bus::keyring::store_api_key(&model_id, &key)
+pub async fn llm_key_store(
+    cached: tauri::State<'_, crate::CachedConfig>,
+    model_id: String,
+    key: String,
+) -> Result<(), String> {
+    // Store the key in the OS keyring first — only proceed if that succeeds.
+    rift_bus::keyring::store_api_key(&model_id, &key)?;
+
+    // Clear the cleartext fallback field on the matching model, if present.
+    let mut cfg = cached.get();
+    if let Some(model) = cfg.ensemble.models.iter_mut().find(|m| m.id == model_id) {
+        if model.api_key_ref.is_some() {
+            model.api_key_ref = None;
+            save_config(&cfg).map_err(|e| format!("config save error: {e}"))?;
+            cached.set(cfg);
+        }
+    }
+    Ok(())
 }
 
 /// Delete an API key from the OS keyring.

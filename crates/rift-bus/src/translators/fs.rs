@@ -412,6 +412,20 @@ pub fn validate_project_path(root: &Path, rel_path: &str) -> Result<PathBuf, FsW
         });
     }
 
+    // Reject Windows Alternate Data Stream references (e.g. "file.txt:hidden").
+    // A `:` in any path component — other than a single-letter Windows drive
+    // prefix on an absolute path (already rejected above) — is an ADS separator
+    // that can reference a hidden stream and is not a valid project-relative
+    // path component on any supported platform.
+    for component in Path::new(rel_path).components() {
+        let s = component.as_os_str().to_string_lossy();
+        if s.contains(':') {
+            return Err(FsWatcherError::PathOutsideRoot {
+                path: PathBuf::from(rel_path),
+            });
+        }
+    }
+
     let joined = canon_root.join(rel_path);
     let canon_joined =
         dunce::canonicalize(&joined).map_err(|source| FsWatcherError::CanonicalizeFailed {
@@ -1140,5 +1154,32 @@ mod tests {
             }
             other => panic!("expected FileTooLarge, got: {other:?}"),
         }
+    }
+
+    // T16 — validate_project_path_rejects_ads: a path component containing `:`
+    // is an Alternate Data Stream reference and must be rejected before
+    // canonicalization so the stream name can never escape the project root.
+    #[test]
+    fn validate_project_path_rejects_ads() {
+        use tempfile::tempdir;
+
+        let dir = tempdir().expect("tempdir");
+        let root = dunce::canonicalize(dir.path()).expect("canon root");
+
+        // "file.txt:hidden" — ADS syntax on Windows; unconditionally rejected.
+        let result = validate_project_path(&root, "file.txt:hidden");
+        assert!(
+            result.is_err(),
+            "ADS path 'file.txt:hidden' should be rejected; got Ok({:?})",
+            result.ok()
+        );
+
+        // "sub/data.bin:Zone.Identifier" — nested ADS reference.
+        let result2 = validate_project_path(&root, "sub/data.bin:Zone.Identifier");
+        assert!(
+            result2.is_err(),
+            "ADS path 'sub/data.bin:Zone.Identifier' should be rejected; got Ok({:?})",
+            result2.ok()
+        );
     }
 }
