@@ -16,9 +16,14 @@
   const LOG_LIMIT = 200;
   const LIVE_WINDOW_MS = 4000;
 
+  // Monotonic admit-sequence — stable {#each} key so buffer trims don't tear
+  // down the whole list DOM (same pattern as BusTail/Aegis/Health, c0ad8a8).
+  let _nextSeq = 0;
+  type EnvelopeWithSeq = Envelope & { _seq: number };
+
   let connected = $state(false);
   let error = $state('');
-  let events = $state<Envelope[]>([]);
+  let events = $state<EnvelopeWithSeq[]>([]);
   let opHistogram = $state<Record<string, number>>({});
   let dirHistogram = $state<Record<string, number>>({});
   let lastTickTs = $state<number>(Date.now());
@@ -88,7 +93,7 @@
     if (paused) return;
     if (!shouldShow(env.kind, severityThreshold)) return;
     heatstrip.push(kindToSeverity(env.kind));
-    events = [...events, env];
+    events = [...events, { ...env, _seq: _nextSeq++ }];
     if (events.length > LOG_LIMIT * 2) events = events.slice(-LOG_LIMIT);
 
     const op = extractOp(env.kind);
@@ -227,7 +232,7 @@
       <span class="strip-empty">(no in-flight events)</span>
     {:else}
       <div class="strip-events">
-        {#each liveEvents.slice(0, 12) as e, i (e.ts + ':' + e.kind + ':' + i)}
+        {#each liveEvents.slice(0, 12) as e (e._seq)}
           {@const op = extractOp(e.kind)}
           <span class="strip-event" style="color: {opColor(op)}; border-color: {opColor(op)}">
             {op} {basename(extractPath(e.payload))}
@@ -246,7 +251,7 @@
           <div class="empty-desc">Activity appears when files are read, written, created, or deleted in the project directory.</div>
         </div>
       {:else}
-        {#each recentEvents as e, i (e.ts + ':' + e.kind + ':' + i)}
+        {#each recentEvents as e (e._seq)}
           {@const op = extractOp(e.kind)}
           {@const fp = extractPath(e.payload)}
           <div class="row" data-ts={e.ts}>

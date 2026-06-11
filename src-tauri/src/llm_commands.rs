@@ -351,6 +351,52 @@ pub async fn llm_key_delete(model_id: String) -> Result<(), String> {
     rift_bus::keyring::delete_api_key(&model_id)
 }
 
+/// Startup migration for pre-keyring configs: move any cleartext key left in
+/// `api_key_ref` into the OS keyring and clear the field. `llm_key_store`
+/// only clears the field for keys stored after that fix shipped — this sweep
+/// covers configs that predate it.
+///
+/// Resolution semantics are preserved exactly: `resolve_api_key` already
+/// prefers the keyring, so when an entry exists the stale fallback is simply
+/// dropped; when none exists the fallback value becomes the keyring entry.
+/// If the keyring is unavailable the fallback is kept — never destroy the
+/// only copy of a key.
+///
+/// Returns true when `cfg` was modified (caller persists + re-caches).
+pub fn migrate_cleartext_keys(cfg: &mut rift_bus::config::RiftConfig) -> bool {
+    let mut changed = false;
+    for model in cfg.ensemble.models.iter_mut() {
+        let Some(raw) = model.api_key_ref.clone() else {
+            continue;
+        };
+        if raw.is_empty() {
+            model.api_key_ref = None;
+            changed = true;
+            continue;
+        }
+        match rift_bus::keyring::get_api_key(&model.id) {
+            // Keyring already authoritative — drop the stale fallback.
+            Ok(Some(_)) => {
+                model.api_key_ref = None;
+                changed = true;
+            }
+            Ok(None) => match rift_bus::keyring::store_api_key(&model.id, &raw) {
+                Ok(()) => {
+                    model.api_key_ref = None;
+                    changed = true;
+                }
+                Err(e) => {
+                    tracing::warn!("api_key_ref migration skipped for {}: {e}", model.id);
+                }
+            },
+            Err(e) => {
+                tracing::warn!("api_key_ref migration skipped for {}: {e}", model.id);
+            }
+        }
+    }
+    changed
+}
+
 /// Phase 2 prompt command: router-driven model selection with escalation.
 ///
 /// - `model_id`: Optional explicit override. If absent, the router decides.

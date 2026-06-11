@@ -16,7 +16,12 @@
   const RECENT_LOG_LIMIT = 200;
   const LIVE_ACTIVITY_WINDOW_MS = 4000;
 
-  let entries = $state<Envelope[]>([]);
+  // Monotonic admit-sequence — stable {#each} key so buffer trims don't tear
+  // down the whole list DOM (same pattern as BusTail/Aegis/Health, c0ad8a8).
+  let _nextSeq = 0;
+  type EnvelopeWithSeq = Envelope & { _seq: number };
+
+  let entries = $state<EnvelopeWithSeq[]>([]);
   let lastTickTs = $state<number>(Date.now());
 
   const liveEntries = $derived.by(() => {
@@ -39,7 +44,7 @@
 
   function handleEnvelope(env: Envelope) {
     if (!shouldShow(env.kind, severityThreshold)) return;
-    entries = [...entries, env];
+    entries = [...entries, { ...env, _seq: _nextSeq++ }];
     if (entries.length > RECENT_LOG_LIMIT * 2) {
       entries = entries.slice(-RECENT_LOG_LIMIT);
     }
@@ -184,7 +189,7 @@
   <!-- §10.8 Section 2 — Live activity strip -->
   {#if liveEntries.length > 0}
   <div class="live-strip">
-    {#each liveEntries as env, i (env.ts + ':' + env.kind + ':' + i)}
+    {#each liveEntries as env (env._seq)}
       <span class="live-dot" style="background: {kindColor(env.kind)}" title={env.kind}></span>
     {/each}
   </div>
@@ -195,7 +200,7 @@
     {#if recentEntries.length === 0}
       <div class="empty">No LLM events yet. Configure a model in Settings → Models.</div>
     {/if}
-    {#each recentEntries as env, i (env.ts + ':' + env.kind + ':' + i)}
+    {#each recentEntries as env (env._seq)}
       <div class="log-entry">
         <span class="ts">{formatTs(env.ts)}</span>
         <span class="kind-badge" style="border-color: {kindColor(env.kind)}; color: {kindColor(env.kind)}">{kindLabel(env.kind)}</span>

@@ -1787,7 +1787,15 @@ fn open_in_os_editor(rel_to_home: &str) -> Result<(), String> {
 /// first launch or missing file).
 #[tauri::command]
 fn config_get(cached_config: State<'_, CachedConfig>) -> Result<RiftConfig, String> {
-    Ok(cached_config.get())
+    let mut cfg = cached_config.get();
+    // Redact the cleartext key fallback — the renderer never needs it (key
+    // entry flows through llm_key_store; resolution is backend-only).
+    // config_save re-grafts the cached value, so the redacted round-trip
+    // cannot wipe a retained fallback.
+    for m in cfg.ensemble.models.iter_mut() {
+        m.api_key_ref = None;
+    }
+    Ok(cfg)
 }
 
 /// A discoverable slash-command sourced from the user's `~/.claude/` install.
@@ -1934,8 +1942,23 @@ async fn config_save(
     bus: State<'_, RiftBus>,
     cached: State<'_, CachedConfig>,
     tree_cache: State<'_, ProjectTreeCache>,
-    cfg: RiftConfig,
+    mut cfg: RiftConfig,
 ) -> Result<(), String> {
+    // config_get redacts api_key_ref before the config reaches the renderer,
+    // so a Settings round-trip arrives with the field empty. Re-graft any
+    // retained fallback from the cache (only present when keyring migration
+    // was skipped) so a save can't destroy the sole copy of a key. The field
+    // is cleared only via llm_key_store / the startup migration.
+    {
+        let cached_cfg = cached.get();
+        for m in cfg.ensemble.models.iter_mut() {
+            if m.api_key_ref.is_none() {
+                if let Some(prev) = cached_cfg.ensemble.models.iter().find(|p| p.id == m.id) {
+                    m.api_key_ref = prev.api_key_ref.clone();
+                }
+            }
+        }
+    }
     let bus_clone = bus.inner().clone();
     let cfg_for_disk = cfg.clone();
     tokio::task::spawn_blocking(move || {
@@ -2338,7 +2361,7 @@ pub fn run() {
             // existing file that fails to parse is PRESERVED to a
             // `.corrupt-<ts>.bak` sidecar rather than silently overwritten —
             // a forward-incompatible binary must never destroy a newer config.
-            let (cfg, recovered_backup) = load_config_or_backup();
+            let (mut cfg, recovered_backup) = load_config_or_backup();
             if let Some(bak) = &recovered_backup {
                 let msg = format!(
                     "Config could not be read and was preserved at {}. \
@@ -2347,6 +2370,17 @@ pub fn run() {
                 );
                 tracing::error!("{msg}");
                 publish_error(&bus, "tauri.setup.config_recover", &msg, None);
+            }
+
+            // Migrate any pre-keyring cleartext api_key_ref values into the
+            // OS keyring before the config is cached or served to the
+            // frontend (config_get redacts the field, but the disk copy must
+            // stop holding raw keys too). Save failure is non-fatal: the
+            // keyring already holds the key and resolution prefers it.
+            if llm_commands::migrate_cleartext_keys(&mut cfg) {
+                if let Err(e) = save_config(&cfg) {
+                    tracing::warn!("api_key_ref migration: config save failed: {e}");
+                }
             }
             let fs_ignore_globs = cfg.fs.ignore_globs.clone();
 

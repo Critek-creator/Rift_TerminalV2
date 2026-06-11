@@ -33,7 +33,12 @@
   // State
   // ---------------------------------------------------------------------------
 
-  let entries = $state<Envelope[]>([]);
+  // Monotonic admit-sequence — stable {#each} key so buffer trims don't tear
+  // down the whole list DOM (same pattern as BusTail/Aegis/Health, c0ad8a8).
+  let _nextSeq = 0;
+  type EnvelopeWithSeq = Envelope & { _seq: number };
+
+  let entries = $state<EnvelopeWithSeq[]>([]);
   let lastTickTs = $state<number>(Date.now());
 
   // §10.14: search/filter bar — filters recent events by kind or payload text.
@@ -114,7 +119,7 @@
   // ---------------------------------------------------------------------------
 
   function handleEnvelope(env: Envelope) {
-    entries = [...entries, env];
+    entries = [...entries, { ...env, _seq: _nextSeq++ }];
     if (entries.length > RECENT_LOG_LIMIT * 2) {
       entries = entries.slice(-RECENT_LOG_LIMIT);
     }
@@ -320,7 +325,7 @@
         <span class="strip-empty">(no in-flight events)</span>
       {:else}
         <div class="strip-events">
-          {#each liveEntries as e, i (e.ts + ':' + e.kind + ':' + i)}
+          {#each liveEntries as e (e._seq)}
             <span class="strip-event">{e.kind}</span>
           {/each}
         </div>
@@ -344,7 +349,7 @@
             <span class="empty-state-hint">try a broader search or check spelling</span>
           </div>
         {:else}
-          {#each filteredRecentEntries as e, i (e.ts + ':' + e.kind + ':' + i)}
+          {#each filteredRecentEntries as e (e._seq)}
             <IndexTabRenderer
               entry={{
                 ts: e.ts,

@@ -43,7 +43,14 @@
   const RECENT_LOG_LIMIT = 100;
   const LIVE_ACTIVITY_WINDOW_MS = 4000;
 
-  let events = $state<Envelope[]>([]);
+  // Monotonic admit-sequence — stable {#each} key so buffer trims don't tear
+  // down the whole list DOM (same pattern as BusTail/Aegis/Health, c0ad8a8).
+  // Also keys expandedRows, so row expansion sticks to the event itself
+  // instead of drifting when the trimmed array re-indexes.
+  let _nextSeq = 0;
+  type EnvelopeWithSeq = Envelope & { _seq: number };
+
+  let events = $state<EnvelopeWithSeq[]>([]);
   let kindHistogram = $state<Record<string, number>>({});
   let lastTickTs = $state<number>(Date.now());
   let paused = $state(false);
@@ -84,7 +91,7 @@
   function handleEnvelope(env: Envelope) {
     if (paused) return;
     if (!shouldShow(env.kind, severityThreshold)) return;
-    events = [...events, env];
+    events = [...events, { ...env, _seq: _nextSeq++ }];
     if (events.length > RECENT_LOG_LIMIT + 20) {
       events = events.slice(-RECENT_LOG_LIMIT);
     }
@@ -329,7 +336,7 @@
       <span class="strip-empty">(no in-flight events)</span>
     {:else}
       <div class="strip-events">
-        {#each liveEvents as e, i (e.ts + ':' + e.kind + ':' + i)}
+        {#each liveEvents as e (e._seq)}
           <span class="strip-event" style="color: {kindColor(e.kind)}; border-color: {kindColor(e.kind)}">{e.kind}</span>
         {/each}
       </div>
@@ -412,8 +419,8 @@
           </div>
         {/each}
       {:else}
-        {#each recentEvents as e, i (e.ts + ':' + e.kind + ':' + i)}
-          {@const rowKey = e.ts + ':' + e.kind + ':' + i}
+        {#each recentEvents as e (e._seq)}
+          {@const rowKey = String(e._seq)}
           {@const isExpanded = expandedRows.has(rowKey)}
           <div
             class="row"
