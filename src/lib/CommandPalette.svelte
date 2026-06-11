@@ -87,7 +87,7 @@
         action: () => { popouts.summon({ content: { kind: 'settings' } }); onclose(); } },
       { id: 'act:notif-manager', label: 'Notification Manager', icon: '◫', category: 'action',
         action: () => { notifManager.openNotifManager(); onclose(); } },
-      { id: 'act:llm-chat', label: 'Router Prompt', icon: '◆', category: 'action',
+      { id: 'act:llm-chat', label: 'LLM Chat', icon: '◆', category: 'action',
         action: () => { popouts.summon({ content: { kind: 'llm-chat' }, width: 'min(720px, 85vw)' }); onclose(); } },
       { id: 'act:llm-ensemble', label: 'Ensemble Compare', icon: '⊞', category: 'action',
         action: () => { popouts.summon({ content: { kind: 'llm-ensemble' }, width: 'min(1100px, 95vw)' }); onclose(); } },
@@ -271,9 +271,16 @@
     return cat.toUpperCase();
   }
 
+  // Reduced-motion: honour prefers-reduced-motion at the JS level so Svelte
+  // transitions (which bypass the CSS @media guard) respect the user's OS
+  // preference. `matchMedia` is synchronous and stable — no reactivity needed.
+  const fadeDuration = (typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches)
+    ? 0
+    : 150;
+
 </script>
 
-<div class="palette-backdrop" role="presentation" onclick={onclose} onkeydown={onKeydown} transition:fade={{ duration: 150 }}>
+<div class="palette-backdrop" role="presentation" onclick={onclose} onkeydown={onKeydown} transition:fade={{ duration: fadeDuration }}>
   <div class="palette-panel" role="dialog" aria-label="Command palette" aria-modal="true" tabindex="-1" onclick={(e) => e.stopPropagation()} onkeydown={onKeydown} bind:this={panelEl}>
     <input
       bind:this={inputEl}
@@ -394,6 +401,10 @@
   }
   .entry:hover {
     background: var(--bg-amber-hover);
+  }
+  .entry.actionable:active {
+    background: var(--bg-amber-selected);
+    color: var(--amber-bright);
   }
 
   .entry-icon {

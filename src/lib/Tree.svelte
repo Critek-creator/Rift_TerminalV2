@@ -1129,6 +1129,17 @@
   :global(.tree-node:hover .row-band) {
     fill: rgba(255, 168, 38, 0.07);
   }
+  /* Press state — subtle scale-down + brighter tint on mousedown, matching
+     .rift-btn:active feel. pointer-events:none on .row-band means the
+     :active selector here targets the <g> itself. */
+  :global(.tree-node:active .row-band) {
+    fill: rgba(255, 168, 38, 0.13);
+  }
+  :global(.tree-node:active) {
+    transform: scale(0.98);
+    transform-box: fill-box;
+    transform-origin: center;
+  }
   /* Keyboard-active row (aria-activedescendant) — stronger than hover + an
      amber edge so the focused row reads clearly when navigating by arrows. */
   :global(.tree-node.kbd-active .row-band) {
@@ -1284,7 +1295,7 @@
     font-style: italic;
   }
   .unavail-glyph {
-    font-size: 22px;
+    font-size: var(--text-2xl);
     opacity: 0.5;
   }
   .unavail-text {

@@ -12,6 +12,7 @@ export const keybindings: Keybinding[] = [
   { key: 'Ctrl+?', description: 'Keyboard shortcuts', category: 'navigation' },
   { key: 'Ctrl+Shift+M', description: 'Switch model', category: 'navigation' },
   { key: 'Ctrl+Shift+L', description: 'Ensemble compare', category: 'navigation' },
+  { key: 'Ctrl+Shift+A', description: 'Open LLM chat', category: 'navigation' },
 
   // Terminal
   { key: 'Ctrl+T', description: 'New session', category: 'terminal' },
@@ -25,6 +26,8 @@ export const keybindings: Keybinding[] = [
   { key: 'Ctrl+Shift+E', description: 'Split pane down', category: 'terminal' },
   { key: 'Ctrl+Shift+D', description: 'Split pane right', category: 'terminal' },
   { key: 'Ctrl+Shift+W', description: 'Close pane', category: 'terminal' },
+  { key: 'F2', description: 'Rename focused tab', category: 'terminal' },
+  { key: 'Shift+Alt+←/→', description: 'Reorder tab', category: 'terminal' },
 
   // Editor (Viewer)
   { key: 'Ctrl+E', description: 'Toggle edit mode', category: 'editor' },

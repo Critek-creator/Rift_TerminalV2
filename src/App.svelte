@@ -979,6 +979,12 @@
         e.preventDefault();
         popouts.summon({ content: { kind: 'llm-ensemble' }, width: 'min(1100px, 95vw)' });
       }
+      // Ctrl+Shift+A — open the local-LLM chat popout (mirrors the TitleBar 💬
+      // button and the WelcomeOverlay tip; registered in keybindings.ts).
+      if (e.ctrlKey && e.shiftKey && (e.key === 'A' || e.key === 'a')) {
+        e.preventDefault();
+        popouts.summon({ content: { kind: 'llm-chat' }, width: 'min(720px, 85vw)' });
+      }
       // Split-pane shortcuts — only when a session tab is active.
       if (sm.active.kind === 'session') {
         // Ctrl+Shift+E — split focused pane horizontally (top / bottom)
@@ -1098,6 +1104,7 @@
     onDemote={nm.demoteTab}
     onManageNotifs={nm.openNotifManager}
     onDetach={nm.detachNotif}
+    onPromote={(id) => { nm.promoted = id; }}
     detachedIds={nm.detachedIds}
     multiProject={sm.multiProject}
     {cockpitCollapsed}
@@ -1651,7 +1658,7 @@
   }
   .close-confirm-dialog p {
     color: var(--term-white, #e8e4d8);
-    font-size: 14px;
+    font-size: var(--text-lg);
     margin: 0 0 var(--space-lg) 0;
   }
   .close-confirm-actions {

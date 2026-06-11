@@ -15,6 +15,9 @@
   // Whether the cockpit window is currently detached.
   // Polled once on mount (design E: reload recovery), then kept current via events.
   let detached = $state(false);
+  // Busy flag — true while a detach/reattach invoke is in-flight.
+  // Disables the button to prevent double-firing and shows a pending indicator.
+  let cockpitBusy = $state(false);
 
   onMount(() => {
     // Svelte 5's onMount expects a sync callback whose optional return is the
@@ -46,18 +49,26 @@
   });
 
   async function detachGui(): Promise<void> {
+    if (cockpitBusy) return;
+    cockpitBusy = true;
     try {
       await invoke('cockpit_detach');
     } catch (err) {
       console.error('[TitleBar] cockpit_detach failed:', err);
+    } finally {
+      cockpitBusy = false;
     }
   }
 
   async function reattachGui(): Promise<void> {
+    if (cockpitBusy) return;
+    cockpitBusy = true;
     try {
       await invoke('cockpit_reattach');
     } catch (err) {
       console.error('[TitleBar] cockpit_reattach failed:', err);
+    } finally {
+      cockpitBusy = false;
     }
   }
 
@@ -152,12 +163,28 @@
          path back is this button. Swap label + handler instead of locking
          the user out. -->
     {#if !detached}
-      <button type="button" class="btn detach" aria-label="detach cockpit to second window" onclick={detachGui}>
-        ↗ DETACH GUI
+      <button
+        type="button"
+        class="btn detach"
+        class:busy={cockpitBusy}
+        aria-label="detach cockpit to second window"
+        disabled={cockpitBusy}
+        onclick={detachGui}
+        title={cockpitBusy ? 'detaching…' : 'Detach cockpit to second window'}
+      >
+        {cockpitBusy ? '…' : '↗ DETACH GUI'}
       </button>
     {:else}
-      <button type="button" class="btn detach detach--active" aria-label="dock cockpit back to main window" onclick={reattachGui}>
-        ↙ DOCK GUI
+      <button
+        type="button"
+        class="btn detach detach--active"
+        class:busy={cockpitBusy}
+        aria-label="dock cockpit back to main window"
+        disabled={cockpitBusy}
+        onclick={reattachGui}
+        title={cockpitBusy ? 'docking…' : 'Dock cockpit back to main window'}
+      >
+        {cockpitBusy ? '…' : '↙ DOCK GUI'}
       </button>
     {/if}
     <button type="button" class="btn winctrl winctrl-first" aria-label="minimize" onclick={minimize}>−</button>
@@ -240,6 +267,14 @@
     outline: 1px solid var(--amber-warm);
     outline-offset: -2px;
   }
+  .btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+  .btn.busy {
+    opacity: 0.55;
+    cursor: wait;
+  }
 
   /* ── Action buttons: PROJECT, SETTINGS, DETACH ──────────────────────────── */
   /* Visual separator before the first action button cluster */
@@ -265,7 +300,7 @@
     padding: 0 var(--space-md);
     font-size: var(--text-2xs);
     font-weight: 600;
-    letter-spacing: 0.08em;
+    letter-spacing: var(--type-section-spacing);
     border-radius: var(--radius-md, 4px);
     border: 1px solid var(--border-subtle);
     background: var(--bg-elevated);

@@ -212,7 +212,7 @@
           : entry.content.kind === 'settings'
             ? 'Settings'
             : entry.content.kind === 'llm-chat'
-              ? 'Router Prompt'
+              ? 'LLM Chat'
               : entry.content.kind === 'llm-ensemble'
                 ? 'Ensemble Compare'
             : entry.content.title,
@@ -489,6 +489,11 @@
     border-color: var(--amber-faint);
     color: var(--amber-warm);
   }
+  .btn-cancel:active {
+    background: var(--bg-hover);
+    border-color: var(--amber-dim);
+    color: var(--amber-warm);
+  }
   .btn-confirm {
     background: var(--amber-bright);
     border: 1px solid var(--amber-bright);
@@ -496,6 +501,11 @@
   }
   .btn-confirm:hover {
     box-shadow: var(--glow-amber-strong);
+  }
+  .btn-confirm:active {
+    background: var(--amber-warm);
+    border-color: var(--amber-warm);
+    box-shadow: none;
   }
 
   @keyframes popout-fade-in {

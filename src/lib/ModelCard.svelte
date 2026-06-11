@@ -1200,6 +1200,10 @@
     outline: 1px solid var(--amber-warm);
     outline-offset: 1px;
   }
+  .card-action-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
 
   /* ─── Body ────────────────────────────────── */
   .card-body {

@@ -156,6 +156,8 @@
 
   let quickActionError = $state<string | null>(null);
   let quickActionTimer: ReturnType<typeof setTimeout> | undefined;
+  let busyLessons = $state(false);
+  let busySettings = $state(false);
 
   function clearErrorAfterDelay() {
     if (quickActionTimer) clearTimeout(quickActionTimer);
@@ -166,23 +168,33 @@
   }
 
   function openLessons() {
+    if (busyLessons) return;
     void (async () => {
+      busyLessons = true;
+      quickActionError = null;
       try {
         await invoke('aegis_open_lessons');
       } catch (err) {
         quickActionError = err instanceof Error ? err.message : String(err);
         clearErrorAfterDelay();
+      } finally {
+        busyLessons = false;
       }
     })();
   }
 
   function openSettings() {
+    if (busySettings) return;
     void (async () => {
+      busySettings = true;
+      quickActionError = null;
       try {
         await invoke('aegis_open_settings');
       } catch (err) {
         quickActionError = err instanceof Error ? err.message : String(err);
         clearErrorAfterDelay();
+      } finally {
+        busySettings = false;
       }
     })();
   }
@@ -348,8 +360,20 @@
 
       <!-- Phase 7.3: quick-action buttons -->
       <div class="quick-actions">
-        <button type="button" class="rift-btn rift-btn--sm" onclick={openLessons}>Open Lessons</button>
-        <button type="button" class="rift-btn rift-btn--sm" onclick={openSettings}>Open Settings</button>
+        <button
+          type="button"
+          class="rift-btn rift-btn--sm qa-btn"
+          disabled={busyLessons}
+          aria-busy={busyLessons}
+          onclick={openLessons}
+        >{busyLessons ? 'Opening…' : 'Open Lessons'}</button>
+        <button
+          type="button"
+          class="rift-btn rift-btn--sm qa-btn"
+          disabled={busySettings}
+          aria-busy={busySettings}
+          onclick={openSettings}
+        >{busySettings ? 'Opening…' : 'Open Settings'}</button>
       </div>
       {#if quickActionError}
         <div class="qa-error">{quickActionError}</div>
@@ -603,6 +627,19 @@
     gap: var(--space-sm);
     margin-top: var(--space-md);
     padding-top: var(--space-8);
+  }
+  /* Scoped focus ring for quick-action buttons — amber outline matching
+     global .rift-btn:focus-visible treatment, declared here so it takes
+     precedence over the global catch-all without specificity hacks. */
+  .qa-btn:focus-visible {
+    outline: 1px solid var(--amber-bright);
+    outline-offset: 2px;
+  }
+  /* Busy/disabled state — reduced opacity + cursor change; .rift-btn already
+     suppresses pointer-events on :disabled, this layer adds the visual signal. */
+  .qa-btn:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
   }
   /* Error text — §10.1 terminal red lane */
   .qa-error {

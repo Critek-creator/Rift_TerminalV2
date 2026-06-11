@@ -181,6 +181,13 @@
   let classifierBanner = $state<{ ok: boolean; msg: string } | null>(null);
   let registeringClassifier = $state(false);
 
+  // Integrations — retry support for {#await} detect block.
+  type IntegrationDetectResult = { claude_dir_exists: boolean; node_available: boolean; node_version: string | null; aegis: { installed: boolean; enabled: boolean; path: string }; index: { installed: boolean; enabled: boolean; path: string } };
+  let integrationDetectPromise = $state<Promise<IntegrationDetectResult>>(invoke<IntegrationDetectResult>('integration_detect'));
+  function retryIntegrationDetect() {
+    integrationDetectPromise = invoke<IntegrationDetectResult>('integration_detect');
+  }
+
   // Terminal — D-018 groundwork (audit close 2026-04-29).
   let termShellKind = $state<ShellKind>('auto');
   let termCustomPath = $state('');
@@ -1231,7 +1238,7 @@
 
     {#if activeTab === 'integrations'}
     <!-- INTEGRATIONS -->
-    {#await invoke<{claude_dir_exists: boolean, node_available: boolean, node_version: string | null, aegis: {installed: boolean, enabled: boolean, path: string}, index: {installed: boolean, enabled: boolean, path: string}}>('integration_detect')}
+    {#await integrationDetectPromise}
       <section class="section">
         <div class="section-label">Integrations</div>
         <div class="hint">Detecting integrations…</div>
@@ -1310,6 +1317,9 @@
       <section class="section">
         <div class="section-label">Integrations</div>
         <div class="hint">Detection failed — try restarting Rift.</div>
+        <div class="row">
+          <button type="button" class="btn" onclick={retryIntegrationDetect}>Retry</button>
+        </div>
       </section>
     {/await}
 
@@ -1409,7 +1419,9 @@
           {#each PALETTES as palette (palette.id)}
             <label class="radio palette-radio"
               onmouseenter={() => previewPalette(palette.id)}
+              onfocus={() => previewPalette(palette.id)}
               onmouseleave={() => previewPalette(null)}
+              onblur={() => previewPalette(null)}
             >
               <input type="radio" name="color-palette" value={palette.id}
                 checked={termColorPalette === palette.id}
@@ -1433,7 +1445,9 @@
           {/each}
           <label class="radio palette-radio"
             onmouseenter={() => previewPalette('custom')}
+            onfocus={() => previewPalette('custom')}
             onmouseleave={() => previewPalette(null)}
+            onblur={() => previewPalette(null)}
           >
             <input type="radio" name="color-palette" value="custom"
               checked={termColorPalette === 'custom'}
@@ -2163,6 +2177,7 @@
     min-height: 0;
     font-family: var(--font-family);
     color: var(--amber-warm);
+    background-image: var(--grain);
   }
 
   /* ─── Tab strip ──────────────────────────────────────────────────────── */
@@ -2299,7 +2314,7 @@
     border-radius: var(--radius-sm);
     font-size: var(--text-2xs);
     font-weight: 700;
-    letter-spacing: 0.1em;
+    letter-spacing: var(--type-label-spacing);
     color: var(--amber-primary);
     vertical-align: middle;
   }
@@ -2531,7 +2546,7 @@
   .field-label {
     color: var(--amber-dim);
     font-size: var(--text-2xs);
-    letter-spacing: 0.10em;
+    letter-spacing: var(--type-label-spacing);
     text-transform: uppercase;
     font-weight: 700;
   }
@@ -2596,7 +2611,8 @@
   .select:hover {
     border-color: var(--amber-dim);
   }
-  .select:focus {
+  .select:focus,
+  .select:focus-visible {
     outline: 2px solid transparent;
     border-color: var(--amber-primary);
     box-shadow: 0 0 0 1px var(--amber-dim), var(--glow-amber);
@@ -2881,7 +2897,7 @@
     color: var(--amber-dim);
     font-size: var(--text-2xs);
     font-weight: 700;
-    letter-spacing: 0.08em;
+    letter-spacing: var(--type-section-spacing);
     text-transform: uppercase;
   }
   .custom-color-input-row {
@@ -2906,7 +2922,7 @@
   }
   .custom-color-picker::-webkit-color-swatch {
     border: none;
-    border-radius: 2px;
+    border-radius: var(--radius-sm);
   }
   .custom-color-hex {
     background: var(--bg-elevated);

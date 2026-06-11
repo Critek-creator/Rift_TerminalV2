@@ -221,8 +221,8 @@
   .indicator.amber.lit .ind-count { color: var(--amber-warm); }
 
   .indicator.cyan.lit  { border-color: rgba(111, 224, 224, 0.5); }
-  .indicator.cyan.lit .dot  { background: #6fe0e0; box-shadow: 0 0 6px rgba(111, 224, 224, 0.6); }
-  .indicator.cyan.lit .ind-count { color: #6fe0e0; }
+  .indicator.cyan.lit .dot  { background: var(--term-cyan); box-shadow: 0 0 6px rgba(111, 224, 224, 0.6); }
+  .indicator.cyan.lit .ind-count { color: var(--term-cyan); }
 
   @keyframes pulse {
     0%, 100% { opacity: 1; }

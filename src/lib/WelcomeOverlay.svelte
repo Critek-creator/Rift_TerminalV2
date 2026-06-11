@@ -177,12 +177,13 @@
       {:else if step === 4}
         <div class="step">
           <h2 class="step-title">Get Started</h2>
-          <p>You're ready. A few tips:</p>
+          <p>You're ready. A few Rift-specific things worth knowing:</p>
           <div class="tip-list">
-            <div class="tip"><kbd>Ctrl+?</kbd> Keyboard shortcuts</div>
-            <div class="tip"><kbd>Ctrl+K</kbd> Command palette</div>
-            <div class="tip"><kbd>Ctrl+B</kbd> Toggle cockpit panel</div>
-            <div class="tip">Right-click a notification tab to show/hide it</div>
+            <div class="tip"><kbd>Ctrl+Shift+A</kbd> Open the LLM chat pop-out — or click the <strong>💬</strong> button in the title bar. The model chip next to it opens model swap.</div>
+            <div class="tip"><kbd>Ctrl+K</kbd> Command palette — run any Rift action without leaving the keyboard.</div>
+            <div class="tip"><kbd>Ctrl+B</kbd> Toggle the cockpit panel (filesystem tree + notification tabs).</div>
+            <div class="tip">Drag a notification tab <strong>off the strip</strong> to promote it to a persistent side pane alongside the terminal.</div>
+            <div class="tip">Open <strong>⚙ Settings → Integrations</strong> to connect Claude Code, Aegis, or the Abyssal Index.</div>
           </div>
           <p>You can reopen this guide anytime from <strong>Settings</strong>.</p>
           <div class="hint">This is a beta — report issues on GitHub. Support development on Patreon.</div>
@@ -230,6 +231,7 @@
     width: min(560px, 90vw);
     max-height: 80vh;
     background: var(--bg-surface);
+    background-image: var(--grain);
     border: 1px solid var(--border-subtle);
     border-radius: var(--radius-md);
     box-shadow: var(--shadow-overlay);

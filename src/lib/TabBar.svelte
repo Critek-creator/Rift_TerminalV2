@@ -57,6 +57,7 @@
     onManageNotifs: () => void;
     /** Detach a notification tab into its own window. */
     onDetach: (id: string) => void;
+    onPromote: (id: string) => void;
     /** Set of currently detached tab IDs — visual state. */
     detachedIds: Set<string>;
     /** When true, multiple projects are open — show project name on tabs. */
@@ -87,6 +88,7 @@
     onDemote,
     onManageNotifs,
     onDetach,
+    onPromote,
     detachedIds,
     multiProject = false,
     cockpitCollapsed = false,
@@ -312,6 +314,7 @@
         {onActivateNotif}
         {onToggleNotif}
         {onDetach}
+        {onPromote}
       />
     {/each}
     <button
@@ -501,7 +504,7 @@
     margin-top: var(--space-xs);
     color: var(--amber-warm);
     cursor: pointer;
-    font-size: 15px;
+    font-size: var(--text-xl);
     font-family: inherit;
     transition: color var(--duration-base), background var(--duration-base), text-shadow var(--duration-base),
                 border-color var(--duration-base);

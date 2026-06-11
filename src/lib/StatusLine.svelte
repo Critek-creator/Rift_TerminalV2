@@ -105,32 +105,32 @@
 <footer class="statusline" role="status" aria-live="polite" aria-label="Terminal status">
   <div class="row">
     {#if show.dir}
-      <div class="seg dir" style:background={override('dir')}>
+      <div class="seg dir" style:background={override('dir')} title="Working directory">
         <span class="label">DIR</span><span class="value">{dir}</span>
       </div>
     {/if}
     {#if show.model}
-      <div class="seg model" style:background={override('model')}>
+      <div class="seg model" style:background={override('model')} title="Active LLM model">
         <span class="label">MODEL</span><span class="value">{model}</span>
       </div>
     {/if}
     {#if show.thinking}
-      <div class="seg thinking" style:background={override('thinking')}>
+      <div class="seg thinking" style:background={override('thinking')} title="Model thinking / reasoning effort level">
         <span class="label">THINKING</span><span class="value">{thinking}</span>
       </div>
     {/if}
     {#if show.ctx}
-      <div class="seg ctx" style:background={override('ctx')}>
+      <div class="seg ctx" style:background={override('ctx')} title="Context window usage (% of model limit)">
         <span class="label">CTX</span><span class="value">{ctx}</span>
       </div>
     {/if}
     {#if show.session}
-      <div class="seg session" style:background={override('session')}>
+      <div class="seg session" style:background={override('session')} title="Elapsed session time">
         <span class="label">SESSION</span><span class="value">{session}</span>
       </div>
     {/if}
     {#if show.skill}
-      <div class="seg skill" style:background={override('skill')}>
+      <div class="seg skill" style:background={override('skill')} title="Active skill loaded in this session">
         <span class="label">SKILL</span><span class="value">{skill}</span>
       </div>
     {/if}
@@ -157,42 +157,42 @@
   </div>
   <div class="row">
     {#if show.git}
-      <div class="seg git" style:background={override('git')}>
+      <div class="seg git" style:background={override('git')} title="Git branch / status">
         <span class="label">GIT</span><span class="value">{git}</span>
       </div>
     {/if}
     {#if show.repo}
-      <div class="seg repo" style:background={override('repo')}>
+      <div class="seg repo" style:background={override('repo')} title="Repository name">
         <span class="label">REPO</span><span class="value">{repo}</span>
       </div>
     {/if}
     {#if show.sessionUse}
-      <div class="seg session-use" style:background={override('session_use')}>
+      <div class="seg session-use" style:background={override('session_use')} title="Session token spend (% of session budget)">
         <span class="label">USE</span><span class="value">{sessionUse}</span>
       </div>
     {/if}
     {#if show.week}
-      <div class="seg week" style:background={override('week')}>
+      <div class="seg week" style:background={override('week')} title="Weekly token budget used">
         <span class="label">WEEK</span><span class="value">{week}</span>
       </div>
     {/if}
     {#if show.effort}
-      <div class="seg effort" style:background={override('effort')}>
+      <div class="seg effort" style:background={override('effort')} title="Current reasoning effort level (low / medium / high)">
         <span class="label">EFFORT</span><span class="value">{effort}</span>
       </div>
     {/if}
     {#if show.cpu && cpu}
-      <div class="seg cpu" style:background={override('cpu')}>
+      <div class="seg cpu" style:background={override('cpu')} title="Foreground process CPU usage">
         <span class="label">CPU</span><span class="value">{cpu}</span>
       </div>
     {/if}
     {#if show.ram && ram}
-      <div class="seg ram" style:background={override('ram')}>
+      <div class="seg ram" style:background={override('ram')} title="Foreground process resident memory">
         <span class="label">RAM</span><span class="value">{ram}</span>
       </div>
     {/if}
     {#if show.cost && llmRouting.sessionCostUsd > 0}
-      <div class="seg cost" style:background={override('cost')}>
+      <div class="seg cost" style:background={override('cost')} title="Estimated LLM API cost this session">
         <span class="label">COST</span><span class="value">{costLabel}</span>
       </div>
     {/if}
@@ -236,7 +236,7 @@
     color: rgba(0, 0, 0, 0.65);
     font-weight: 700;
     font-size: var(--text-2xs);
-    letter-spacing: 0.1em;
+    letter-spacing: var(--type-label-spacing);
   }
   .value {
     color: rgba(0, 0, 0, 0.92);

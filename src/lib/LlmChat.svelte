@@ -306,6 +306,7 @@
     height: 100%;
     min-height: 300px;
     font-family: var(--font-family);
+    background-image: var(--grain);
   }
 
   .chat-header {

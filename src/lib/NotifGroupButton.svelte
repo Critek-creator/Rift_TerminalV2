@@ -11,6 +11,7 @@
     onActivateNotif: (id: string) => void;
     onToggleNotif: (id: string) => void;
     onDetach: (id: string) => void;
+    onPromote: (id: string) => void;
   }
 
   let {
@@ -22,6 +23,7 @@
     onActivateNotif,
     onToggleNotif,
     onDetach,
+    onPromote,
   }: Props = $props();
 
   let open = $state(false);
@@ -126,6 +128,17 @@
               {tab.unreadCount > 99 ? '99+' : tab.unreadCount}
             </span>
           {/if}
+          {#if promotedId !== tab.id}
+            <span
+              role="button"
+              tabindex="0"
+              class="popout-btn"
+              onclick={(e) => { e.stopPropagation(); onPromote(tab.id); }}
+              onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); onPromote(tab.id); } }}
+              title="open as side pane"
+              aria-label="open {tab.title} as side pane"
+            >↗</span>
+          {/if}
           {#if !detachedIds.has(tab.id)}
             <span
               role="button"
@@ -218,8 +231,8 @@
   .label { font-size: var(--text-sm); }
 
   .chevron {
-    font-size: 8px;
-    opacity: 0.5;
+    font-size: var(--text-2xs);
+    opacity: 0.6;
     margin-left: 2px;
   }
 
@@ -230,7 +243,7 @@
     margin-left: 2px;
     min-width: var(--space-lg);
     text-align: center;
-    letter-spacing: 0.04em;
+    letter-spacing: var(--type-caption-spacing);
     line-height: var(--space-14);
     border-radius: var(--space-8);
     background: var(--amber-bright);
@@ -338,7 +351,7 @@
     padding: 1px 5px;
     min-width: var(--space-lg);
     text-align: center;
-    letter-spacing: 0.04em;
+    letter-spacing: var(--type-caption-spacing);
     line-height: var(--space-14);
     border-radius: var(--space-8);
     background: var(--amber-bright);

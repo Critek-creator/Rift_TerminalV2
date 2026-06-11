@@ -49,8 +49,8 @@
     /* clear the 3px lane gutter + roughly align with the 8px host padding */
     padding: 0 12px 0 14px;
     font-family: var(--font-family);
-    font-size: 0.78rem;
-    line-height: 22px;
+    font-size: var(--text-base);
+    line-height: 1.83;
     background: linear-gradient(rgba(12, 10, 6, 0.94), rgba(12, 10, 6, 0.88));
     border-bottom: 1px solid var(--border-subtle);
     box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);

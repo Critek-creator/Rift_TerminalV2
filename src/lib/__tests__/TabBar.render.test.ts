@@ -52,6 +52,7 @@ const defaultProps = {
   onDemote: noop,
   onManageNotifs: noop,
   onDetach: noop,
+  onPromote: noop,
   detachedIds: new Set<string>(),
 };
 

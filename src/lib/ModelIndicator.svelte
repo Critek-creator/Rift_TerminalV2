@@ -114,9 +114,19 @@
       type="button"
       class="chat-btn"
       onclick={openChat}
-      title="Open local LLM chat"
-      aria-label="Open local LLM chat"
+      title="LLM Chat"
+      aria-label="LLM Chat"
     >💬</button>
+  </span>
+{:else}
+  <span
+    class="model-chip model-chip--disabled"
+    title="Configure a local model in Settings to enable LLM chat"
+    aria-label="Configure a local model in Settings to enable LLM chat"
+    aria-disabled="true"
+  >
+    <span class="light off" aria-hidden="true"></span>
+    <span class="sid">NO LOCAL MODEL</span>
   </span>
 {/if}
 
@@ -153,6 +163,15 @@
   .model-chip:focus-visible {
     outline: 1px solid var(--amber-warm);
     outline-offset: -2px;
+  }
+  /* Empty-state chip — shown when llmModels.enabled is false.
+     Non-interactive: pointer-events off, muted amber-faint palette,
+     same geometry as the active chip so the TitleBar slot never collapses. */
+  .model-chip--disabled {
+    cursor: default;
+    pointer-events: none;
+    color: var(--amber-faint);
+    opacity: 0.55;
   }
 
   /* Status light — the at-a-glance load indicator. */
